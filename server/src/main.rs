@@ -99,6 +99,37 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// Key rotation, step 1: add a new encryption key to the key file.
+    ///
+    /// New secrets are encrypted with the newest key. Restart every server process so that all of them
+    /// load the new key, then run `reencrypt-secrets`.
+    AddEncryptionKey {
+        #[arg(long)]
+        config: PathBuf,
+    },
+    /// Key rotation, step 2: re-encrypt stored secrets with the newest key.
+    ///
+    /// Safe to run more than once. Prints which key versions are still in use.
+    ReencryptSecrets {
+        #[arg(long)]
+        config: PathBuf,
+        /// Confirm the operation (required).
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Key rotation, step 3: remove an old encryption key from the key file.
+    ///
+    /// Refused while stored secrets still use that version. Restart every server process afterwards.
+    RemoveEncryptionKey {
+        #[arg(long)]
+        config: PathBuf,
+        /// The version to remove (the number after `v` in the key file).
+        #[arg(long)]
+        version: u32,
+        /// Confirm the operation (required).
+        #[arg(long)]
+        yes: bool,
+    },
     /// Create a server administrator account.
     ///
     /// By default a strong password is generated and printed once.
@@ -161,6 +192,13 @@ fn main() -> ExitCode {
             workspace,
             yes,
         } => rotate_api_keys_main(&config, workspace, yes),
+        Command::AddEncryptionKey { config } => add_encryption_key_main(&config),
+        Command::ReencryptSecrets { config, yes } => reencrypt_secrets_main(&config, yes),
+        Command::RemoveEncryptionKey {
+            config,
+            version,
+            yes,
+        } => remove_encryption_key_main(&config, version, yes),
     }
 }
 
@@ -516,6 +554,121 @@ fn rotate_api_keys_main(config_path: &Path, workspace: Option<Uuid>, yes: bool) 
         }
         Ok(())
     })
+}
+
+fn key_file_of(config: &Config) -> Result<PathBuf> {
+    config
+        .encryption_key_file
+        .clone()
+        .context("`encryption_key_file` is not set")
+}
+
+fn describe_versions(in_use: &std::collections::BTreeMap<u32, u64>) -> String {
+    if in_use.is_empty() {
+        return "none".to_owned();
+    }
+    in_use
+        .iter()
+        .map(|(v, n)| format!("v{v}: {n}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn add_encryption_key_main(config_path: &Path) -> ExitCode {
+    with_checked_config(
+        config_path,
+        "cannot add an encryption key",
+        |config| async move {
+            let path = key_file_of(&config)?;
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("cannot read {}", path.display()))?;
+            let (updated, version) = keys::with_new_key(&text)?;
+            keys::replace_key_file(&path, &updated)?;
+            let (pool, migration, _) = prepare_database(&config).await?;
+            migration.close().await;
+            audit::record(&pool, None, None, audit::action::ENCRYPTION_KEY_ADDED, &[]).await?;
+            println!("Added encryption key v{version} to {}.", path.display());
+            println!(
+                "Restart every server process, then run `cms-server reencrypt-secrets --yes`."
+            );
+            Ok(())
+        },
+    )
+}
+
+fn reencrypt_secrets_main(config_path: &Path, yes: bool) -> ExitCode {
+    if !confirmed(
+        yes,
+        "re-encrypt every stored secret with the newest encryption key",
+    ) {
+        return ExitCode::FAILURE;
+    }
+    with_checked_config(
+        config_path,
+        "cannot re-encrypt secrets",
+        |config| async move {
+            let ring = keys::KeyRing::load(&key_file_of(&config)?)?;
+            let (pool, migration, _) = prepare_database(&config).await?;
+            migration.close().await;
+            let outcome = cms_server::rekey::reencrypt_all(&pool, &ring).await?;
+            audit::record(&pool, None, None, audit::action::SECRETS_REENCRYPTED, &[]).await?;
+            let in_use = cms_server::rekey::versions_in_use(&pool).await?;
+            println!(
+                "Re-encrypted {} secrets with key v{}.",
+                outcome.reencrypted,
+                ring.active_version()
+            );
+            println!("Key versions in use: {}.", describe_versions(&in_use));
+            if outcome.failed > 0 {
+                bail!(
+                    "{} secrets could not be decrypted and were left unchanged",
+                    outcome.failed
+                );
+            }
+            Ok(())
+        },
+    )
+}
+
+fn remove_encryption_key_main(config_path: &Path, version: u32, yes: bool) -> ExitCode {
+    if !confirmed(
+        yes,
+        &format!(
+            "remove encryption key v{version}; secrets encrypted with it can no longer be read"
+        ),
+    ) {
+        return ExitCode::FAILURE;
+    }
+    with_checked_config(
+        config_path,
+        "cannot remove the encryption key",
+        |config| async move {
+            let path = key_file_of(&config)?;
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("cannot read {}", path.display()))?;
+            let updated = keys::without_version(&text, version)?;
+            let (pool, migration, _) = prepare_database(&config).await?;
+            migration.close().await;
+            let in_use = cms_server::rekey::versions_in_use(&pool).await?;
+            if let Some(n) = in_use.get(&version) {
+                bail!(
+                    "{n} stored secrets still use key v{version}; run `cms-server reencrypt-secrets --yes` first"
+                );
+            }
+            keys::replace_key_file(&path, &updated)?;
+            audit::record(
+                &pool,
+                None,
+                None,
+                audit::action::ENCRYPTION_KEY_REMOVED,
+                &[],
+            )
+            .await?;
+            println!("Removed encryption key v{version} from {}.", path.display());
+            println!("Restart every server process.");
+            Ok(())
+        },
+    )
 }
 
 /// 共通のスキーマの移行と権限の付与を行い、(普段用のプール, 移行用のプール, 普段用のロール) を返す。

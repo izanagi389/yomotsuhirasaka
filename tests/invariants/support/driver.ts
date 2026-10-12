@@ -14,7 +14,7 @@
 import type { HttpResponse } from "./http.js";
 import type { TiptapDoc, TiptapNode } from "./body.js";
 import type { TemplateSpec } from "./template.js";
-import { SECRET_SETTING_NAMES, runServerCli, startServerProcess, validServerConfigFromEnv } from "./server-process.js";
+import { SECRET_SETTING_NAMES, rotateEncryptionKeyWithCli, runServerCli, startServerProcess, validServerConfigFromEnv } from "./server-process.js";
 import { connectAdmin } from "./admin-client.js";
 
 export class NotImplementedError extends Error {
@@ -556,8 +556,8 @@ export const driver = {
   },
 
   /** 暗号化の鍵を入れ替える（サーバー上のCLIで新しい鍵を加えて再暗号化し、古い鍵を外した設定を返す）。 */
-  rotateEncryptionKey(_config: ServerConfig): Promise<{ config: ServerConfig; result: CliResult }> {
-    return todo("rotateEncryptionKey");
+  rotateEncryptionKey(config: ServerConfig): Promise<{ config: ServerConfig; result: CliResult }> {
+    return rotateEncryptionKeyWithCli(config);
   },
 
   /** Markdownの取り込みCLI（Node.js）を実行する。 */

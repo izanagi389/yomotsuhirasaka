@@ -54,13 +54,12 @@ pub async fn start(config: Config) -> Server {
     migrate::apply_grants(&migration, &app_role).await.unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let state = http::AppState::new(
-        pool.clone(),
-        migration,
-        app_role,
-        config,
-        keys::KeyRing::parse(&keys::generate_key_file()).unwrap(),
-    );
+    // 鍵のファイルを指定していればそれを使う（鍵の入れ替えのテスト）。なければその場で作る
+    let ring = match &config.encryption_key_file {
+        Some(path) => keys::KeyRing::load(path).unwrap(),
+        None => keys::KeyRing::parse(&keys::generate_key_file()).unwrap(),
+    };
+    let state = http::AppState::new(pool.clone(), migration, app_role, config, ring);
     let app = http::router(state.clone());
     tokio::spawn(async move {
         axum::serve(
