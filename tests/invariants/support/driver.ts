@@ -459,6 +459,11 @@ export interface ServerConfig {
   egressProxy?: { url: string };
   /** 漏えいしたパスワードの照会先（Have I Been Pwned の range API と同じ形）。null なら無効。 */
   breachedPasswordApi?: { baseUrl: string } | null;
+  /**
+   * 全員に多要素認証を必須にするか（Q197）。undefined ならサーバーの既定（有効）。
+   * テスト環境の設定（validServerConfig）では、舞台に多要素認証のない所属者を作るため false にする。
+   */
+  mfaRequiredForEveryone?: boolean;
   /** ログインの履歴の保存期間（秒）と、期限切れを消す処理の間隔（秒）。 */
   loginHistoryRetention?: { retentionSeconds: number; sweepIntervalSeconds: number };
   /** ログの詳しさ。 */
@@ -563,11 +568,6 @@ export const driver = {
   /** 取り込みCLIが書き出したリダイレクト設定を読む。 */
   readRedirectFile(_path: string): Promise<{ from: string; to: string }[]> {
     return todo("readRedirectFile");
-  },
-
-  /** 同梱したよく使われるパスワードの一覧から、12文字以上のものを取り出す。 */
-  bundledCommonPasswords(_count: number): Promise<string[]> {
-    return todo("bundledCommonPasswords");
   },
 
   /** 公式のDocker Composeファイルのパス。 */

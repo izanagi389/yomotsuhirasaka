@@ -1,4 +1,4 @@
-// ログインの約束: INV-AUTH-04, 05, 17, 21, 22, 24
+// ログインの約束: INV-AUTH-04, 05, 17, 21, 22, 24, 25
 
 import { expect } from "vitest";
 import { randomBytes } from "node:crypto";
@@ -12,6 +12,7 @@ import { sha1Hex, startMockBreachApi } from "./support/hibp.js";
 import { mailCursor, waitForToken } from "./support/mail.js";
 import { startOidcIdp } from "./support/oidc-idp.js";
 import { disposableTarget, lazyWorld, uniqueEmail, uniqueIp } from "./support/world.js";
+import { REQUIRED_OPERATIONS, operationsOf } from "./support/operations.js";
 
 const world = lazyWorld();
 
@@ -121,33 +122,49 @@ inv(
   180_000,
 );
 
-inv("inv_auth_21", "12文字未満のパスワードと、同梱したよく使われるパスワードの一覧に含まれるパスワードは、登録・変更のときに拒否される", async () => {
-  const w = await world();
-  const { cms } = w;
-  const common = await driver.bundledCommonPasswords(3);
-  expect(common.length, "同梱の一覧から12文字以上のパスワードを取り出せない").toBe(3);
-  for (const p of common) expect(p.length).toBeGreaterThanOrEqual(12);
-  const tooShort = "Abc!23456789"; // 12文字
-  const elevenChars = tooShort.slice(0, 11);
+/** 単純なパターンのパスワード（どれも12文字以上）。`local` はメールアドレスの @ より前。 */
+const simplePatterns = (local: string): string[] => [
+  "aaaaaaaaaaaa", // 同じ文字の繰り返し
+  "123456789012", // 連続した数字
+  "abcdefghijkl", // 連続した文字
+  "qwertyuiop12", // キーボードの並び
+  "1qaz2wsx3edc", // キーボードの並び（縦）
+  `${local}#2026`, // メールアドレスを含む
+];
 
-  // 変更のとき
-  const user = await cms.createMember(w.a.adminSession, w.a.id, "editor");
-  const session = await cms.login(user);
-  await cms.reauthenticate(session, user);
-  expectRefused(await cms.changePasswordRaw(session, user.password, elevenChars), "11文字のパスワードへの変更");
-  for (const p of common) expectRefused(await cms.changePasswordRaw(session, user.password, p), "同梱の一覧にあるパスワードへの変更");
-  // 対照: 強いパスワードには変更できる
-  expectSuccess(await cms.changePasswordRaw(session, user.password, strongPassword()), "強いパスワードへの変更");
+inv(
+  "inv_auth_21",
+  "12文字未満のパスワードと、単純なパターン（同じ文字の繰り返し、連続した文字や数字、キーボードの並び、メールアドレスを含むもの）のパスワードは、登録・変更のときに拒否される",
+  async () => {
+    const w = await world();
+    const { cms } = w;
+    const tooShort = "Abc!23456789"; // 12文字
+    const elevenChars = tooShort.slice(0, 11);
 
-  // 登録のとき（招待の承諾でパスワードを決める）
-  const email = uniqueEmail("auth21");
-  const seen = await mailCursor(email);
-  expectSuccess(await cms.inviteRaw(w.a.adminSession, w.a.id, email, "editor"), "招待");
-  const token = await waitForToken(email, seen, "invite");
-  expectRefused(await cms.acceptInviteRaw(token, { newPassword: elevenChars }), "11文字のパスワードでの登録");
-  for (const p of common) expectRefused(await cms.acceptInviteRaw(token, { newPassword: p }), "同梱の一覧にあるパスワードでの登録");
-  expectSuccess(await cms.acceptInviteRaw(token, { newPassword: strongPassword() }), "強いパスワードでの登録");
-});
+    // 変更のとき
+    const user = await cms.createMember(w.a.adminSession, w.a.id, "editor");
+    const session = await cms.login(user);
+    await cms.reauthenticate(session, user);
+    expectRefused(await cms.changePasswordRaw(session, user.password, elevenChars), "11文字のパスワードへの変更");
+    for (const p of simplePatterns(user.email.split("@")[0]!)) {
+      expect(p.length).toBeGreaterThanOrEqual(12);
+      expectRefused(await cms.changePasswordRaw(session, user.password, p), `単純なパターンのパスワード（${p}）への変更`);
+    }
+    // 対照: 強いパスワードには変更できる
+    expectSuccess(await cms.changePasswordRaw(session, user.password, strongPassword()), "強いパスワードへの変更");
+
+    // 登録のとき（招待の承諾でパスワードを決める）
+    const email = uniqueEmail("auth21");
+    const seen = await mailCursor(email);
+    expectSuccess(await cms.inviteRaw(w.a.adminSession, w.a.id, email, "editor"), "招待");
+    const token = await waitForToken(email, seen, "invite");
+    expectRefused(await cms.acceptInviteRaw(token, { newPassword: elevenChars }), "11文字のパスワードでの登録");
+    for (const p of simplePatterns(email.split("@")[0]!)) {
+      expectRefused(await cms.acceptInviteRaw(token, { newPassword: p }), `単純なパターンのパスワード（${p}）での登録`);
+    }
+    expectSuccess(await cms.acceptInviteRaw(token, { newPassword: strongPassword() }), "強いパスワードでの登録");
+  },
+);
 
 inv(
   "inv_auth_22",
@@ -208,3 +225,41 @@ inv("inv_auth_24", "新しい端末の判定用のCookieを持っていても、
   const full = await w.cms.login(user, { cookies: deviceCookies });
   expectSuccess(await w.cms.meRaw(asSession(full)), "多要素認証まで済ませたログイン");
 });
+
+inv(
+  "inv_auth_25",
+  "全員への多要素認証の必須が有効なとき（既定）、多要素認証を設定していない利用者は、多要素認証の設定に必要な操作（本人の情報の確認、多要素認証の設定、再認証、ログアウト）以外の管理APIを使えない",
+  async () => {
+    const w = await world();
+    const target = await disposableTarget(w, w.a);
+    // 多要素認証のない所属者（テスト環境のCMSは、舞台を作るために全員への必須を無効にしてある）
+    const user = await w.cms.createMember(w.a.adminSession, w.a.id, "editor", { mfa: false });
+
+    // 既定の設定（全員への必須が有効）のサーバー
+    const server = await driver.startServer({ ...(await driver.validServerConfig()), mfaRequiredForEveryone: undefined });
+    try {
+      expect(server.outcome, `既定の設定のサーバーが起動しない:\n${server.output}`).toBe("ready");
+      const cms = server.client!;
+      const session = await cms.login(user);
+
+      // 本人の情報の確認はできる
+      expectSuccess(await cms.meRaw(asSession(session)), "多要素認証のない利用者の本人情報の取得");
+      // それ以外の管理APIは使えない
+      const blocked = Object.keys(REQUIRED_OPERATIONS).filter((n) => n !== "me" && n !== "logout");
+      for (const op of operationsOf(cms).filter((o) => blocked.includes(o.name))) {
+        expectRejected(await op.call(asSession(session), target), `多要素認証のない利用者の ${op.name}`);
+      }
+
+      // 対照: 多要素認証を設定すれば使える（設定そのものは、多要素認証がなくてもできる）
+      const totpSecret = await cms.enrollTotp(session, user);
+      const withMfa = await cms.login({ ...user, totpSecret });
+      for (const name of ["listWorkspaces", "getWorkspace", "listMySessions"]) {
+        const op = operationsOf(cms).find((o) => o.name === name)!;
+        expectSuccess(await op.call(asSession(withMfa), target), `多要素認証を設定した後の ${name}`);
+      }
+    } finally {
+      await server.stop();
+    }
+  },
+  180_000,
+);

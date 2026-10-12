@@ -31,6 +31,8 @@ export function validServerConfigFromEnv(): ServerConfig {
     migrationDatabaseUrl: requiredEnv("CMS_TEST_SERVER_MIGRATION_DB_URL"),
     publicUrl: requiredEnv("CMS_TEST_PUBLIC_URL"),
     internalDestinationExceptions: [],
+    // 舞台に多要素認証のない所属者（編集者など）を作るため、全員への必須を無効にする（Q197）
+    mfaRequiredForEveryone: false,
   };
 }
 
