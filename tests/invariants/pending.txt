@@ -35,7 +35,6 @@ inv_auth_20
 inv_hdr_01
 inv_hdr_02
 
-inv_cfg_01
 inv_cfg_02
 inv_cfg_03
 
