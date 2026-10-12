@@ -233,6 +233,12 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("acceptInvitation", true, "self", (auth, _t, extras) =>
       request("POST", `${ADMIN}/me/invitations/accept`, { auth, extras, body: { token: `wrong-${randomUUID()}` } }),
     ),
+    op("issuePasswordReset", true, "workspace", (auth, t, extras) =>
+      request("POST", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}/password-reset`, { auth, extras }),
+    ),
+    op("issueMfaReset", true, "workspace", (auth, t, extras) =>
+      request("POST", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}/mfa-reset`, { auth, extras }),
+    ),
     op("removeMember", true, "workspace", (auth, t, extras) =>
       request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}`, { auth, extras }),
     ),
@@ -310,6 +316,20 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     inviteRaw,
     acceptInviteRaw,
+    requestPasswordResetRaw(email: string, extras?: RequestExtras): Promise<HttpResponse> {
+      return request("POST", `${ADMIN}/password-resets`, { body: { email }, extras });
+    },
+    completePasswordResetRaw(token: string, newPassword: string): Promise<HttpResponse> {
+      return request("POST", `${ADMIN}/password-resets/complete`, { body: { token, newPassword } });
+    },
+    issuePasswordResetRaw(s: Session, workspaceId: string | null, userId: string): Promise<HttpResponse> {
+      const path = workspaceId === null ? `${ADMIN}/users/${userId}/password-reset` : `${ADMIN}/workspaces/${workspaceId}/members/${userId}/password-reset`;
+      return request("POST", path, { auth: session(s) });
+    },
+    issueMfaResetRaw(s: Session, workspaceId: string | null, userId: string): Promise<HttpResponse> {
+      const path = workspaceId === null ? `${ADMIN}/users/${userId}/mfa-reset` : `${ADMIN}/workspaces/${workspaceId}/members/${userId}/mfa-reset`;
+      return request("POST", path, { auth: session(s) });
+    },
     async createMember(adminSession: Session, workspaceId: string, role: WorkspaceRole, options: { mfa?: boolean; email?: string } = {}): Promise<Member> {
       const email = options.email ?? `member-${randomUUID().slice(0, 12)}@inv.test`;
       const token = await inviteAndGetToken(adminSession, workspaceId, email, role);

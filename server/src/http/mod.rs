@@ -3,6 +3,7 @@
 pub mod admin_auth;
 pub mod admin_invitations;
 pub mod admin_mfa;
+pub mod admin_resets;
 pub mod admin_workspaces;
 pub mod error;
 pub mod extract;
@@ -177,6 +178,34 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/me/invitations/accept",
             post(admin_invitations::accept_as_member),
+        )
+        .route(
+            "/password-resets",
+            post(admin_resets::request_password_reset),
+        )
+        .route(
+            "/password-resets/complete",
+            post(admin_resets::complete_password_reset),
+        )
+        .route(
+            "/mfa-resets/complete",
+            post(admin_resets::complete_mfa_reset),
+        )
+        .route(
+            "/workspaces/{ws}/members/{user}/password-reset",
+            post(admin_resets::issue_password_reset_in_workspace),
+        )
+        .route(
+            "/workspaces/{ws}/members/{user}/mfa-reset",
+            post(admin_resets::issue_mfa_reset_in_workspace),
+        )
+        .route(
+            "/users/{user}/password-reset",
+            post(admin_resets::issue_password_reset),
+        )
+        .route(
+            "/users/{user}/mfa-reset",
+            post(admin_resets::issue_mfa_reset),
         )
         .fallback(not_found);
     Router::new()

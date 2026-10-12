@@ -241,6 +241,52 @@ pub fn invitation(
     }
 }
 
+/// リセットのメール。リンクにはトークンが入るので、ジョブの中身は暗号化して保存される。
+pub fn reset(
+    to: &str,
+    site: &str,
+    kind: crate::resets::Kind,
+    link: &str,
+    expires_at: &str,
+    locale: crate::locale::Locale,
+) -> Mail {
+    use crate::locale::Locale;
+    use crate::resets::Kind;
+    let (subject, what) = match (kind, locale) {
+        (Kind::Password, Locale::En) => (
+            "Reset your password",
+            "A password reset was requested for your account. Open the link below to choose a new password.",
+        ),
+        (Kind::Password, Locale::Ja) => (
+            "パスワードの再設定",
+            "アカウントのパスワードの再設定が求められました。次のリンクを開いて、新しいパスワードを決めてください。",
+        ),
+        (Kind::Mfa, Locale::En) => (
+            "Reset multi-factor authentication",
+            "An administrator issued a reset of multi-factor authentication for your account. Open the link below to remove it, then sign in and set it up again.",
+        ),
+        (Kind::Mfa, Locale::Ja) => (
+            "多要素認証のリセット",
+            "管理者が、アカウントの多要素認証のリセットを発行しました。次のリンクを開いて解除し、ログインしてから設定し直してください。",
+        ),
+    };
+    let rest = match locale {
+        Locale::En => format!(
+            "This link can be used once and expires at {expires_at} (UTC).\n\n\
+             If you did not expect this, you can ignore this email. Your account has not been changed."
+        ),
+        Locale::Ja => format!(
+            "このリンクは一度だけ使え、{expires_at}（UTC）に期限が切れます。\n\n\
+             心当たりがない場合は、このメールを無視してください。アカウントは変わっていません。"
+        ),
+    };
+    Mail {
+        to: to.to_owned(),
+        subject: format!("[{site}] {subject}"),
+        body: format!("{what}\n\n{link}\n\n{rest}\n"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

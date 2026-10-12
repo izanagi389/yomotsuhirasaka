@@ -598,7 +598,13 @@ export const driver = {
   mail: {
     list: (_to: string): Promise<MailMessage[]> => todo("mail.list"),
     /** リセット・招待のメールから、トークンを取り出す。 */
-    tokenFrom: (_message: MailMessage, _kind: "reset" | "invite"): string | null => todo("mail.tokenFrom"),
+    tokenFrom: (message: MailMessage, kind: "reset" | "invite"): string | null => {
+      // リンクの形は server/src/invitations.rs と server/src/resets.rs の link() に合わせる
+      const path = kind === "invite" ? "/admin/invitations/accept" : "/admin/reset-password";
+      const at = message.text.indexOf(`${path}#token=`);
+      if (at < 0) return null;
+      return /^[A-Za-z0-9_-]+/.exec(message.text.slice(at + path.length + "#token=".length))?.[0] ?? null;
+    },
   },
 
   db: {

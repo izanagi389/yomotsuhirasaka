@@ -12,6 +12,7 @@ pub mod keys;
 pub mod locale;
 pub mod mail;
 pub mod migrate;
+pub mod resets;
 pub mod startup;
 pub mod worker;
 pub mod workspace_db;

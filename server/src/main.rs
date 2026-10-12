@@ -3,8 +3,11 @@
 //! - `cms-server init`: 秘密の値と暗号化の鍵を生成し、設定ファイルと鍵のファイルを書き出す（Q172）
 //! - `cms-server serve`: 起動時の検査を行い、通ればHTTPの受け付けを始める
 //! - `cms-server create-server-admin`: サーバー管理者を作る（サーバー上でだけ行える。Q100）
+//! - `cms-server reset-password` / `reset-mfa`: 利用者のパスワードを決め直す・多要素認証を解除する。
+//!   サーバー管理者の回復は、ネットワーク越しではなくこれで行う（INV-AUTH-10）
 
-use cms_server::{auth, config, db, http, keys, migrate, startup, worker};
+use cms_server::{audit, auth, config, db, http, keys, migrate, startup, worker};
+use uuid::Uuid;
 
 use std::io::{BufRead as _, Write as _};
 use std::net::SocketAddr;
@@ -51,6 +54,26 @@ enum Command {
     Serve {
         #[arg(long)]
         config: PathBuf,
+    },
+    /// Set a new password for a user (the way to recover a server administrator).
+    ///
+    /// By default a strong password is generated and printed once.
+    /// With --password-stdin, the password is read from the first line of standard input.
+    /// All sessions of the user are revoked.
+    ResetPassword {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        email: String,
+        #[arg(long)]
+        password_stdin: bool,
+    },
+    /// Remove multi-factor authentication from a user. All sessions of the user are revoked.
+    ResetMfa {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        email: String,
     },
     /// Create a server administrator account.
     ///
@@ -102,6 +125,12 @@ fn main() -> ExitCode {
             email,
             password_stdin,
         } => create_server_admin_main(&config, &email, password_stdin),
+        Command::ResetPassword {
+            config,
+            email,
+            password_stdin,
+        } => reset_password_main(&config, &email, password_stdin),
+        Command::ResetMfa { config, email } => reset_mfa_main(&config, &email),
     }
 }
 
@@ -305,6 +334,99 @@ async fn run_startup_checks(config: &Config) -> bool {
 }
 
 /// 移行と付与は、移行・ロールの作成用の接続で行う（Q173）。
+/// パスワードを標準入力から読むか、生成する。(パスワード, 生成したか)
+fn read_or_generate_password(password_stdin: bool) -> Result<(String, bool)> {
+    if password_stdin {
+        let mut line = String::new();
+        std::io::stdin()
+            .lock()
+            .read_line(&mut line)
+            .context("cannot read password from stdin")?;
+        Ok((line.trim_end_matches(['\r', '\n']).to_owned(), false))
+    } else {
+        Ok((random_secret(), true))
+    }
+}
+
+/// メールアドレスから利用者のIDを引く（CLI用）。
+async fn find_user_for_cli(pool: &sqlx::PgPool, email: &str) -> Result<Uuid> {
+    let email = auth::users::normalize_email(email).context("invalid email address")?;
+    sqlx::query_scalar("SELECT id FROM cms.users WHERE email = $1")
+        .bind(&email)
+        .fetch_optional(pool)
+        .await?
+        .context("no user with this email")
+}
+
+fn reset_password_main(config_path: &Path, email: &str, password_stdin: bool) -> ExitCode {
+    let (password, generated) = match read_or_generate_password(password_stdin) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {e:#}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let email = email.to_owned();
+    with_checked_config(config_path, "cannot reset password", |config| async move {
+        let words = auth::password::personal_words(&email, &config.public_url);
+        let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+        if let Err(weakness) = auth::password::check_policy(&password, &refs) {
+            bail!("{}", weakness.message());
+        }
+        let (pool, migration, _) = prepare_database(&config).await?;
+        migration.close().await;
+        let user_id = find_user_for_cli(&pool, &email).await?;
+        let hash = auth::password::hash(password.clone()).await?;
+        let mut tx = pool.begin().await?;
+        auth::users::set_password(&mut *tx, user_id, &hash).await?;
+        auth::session::revoke_all(&mut *tx, user_id).await?;
+        audit::record(
+            &mut *tx,
+            None,
+            None,
+            audit::action::PASSWORD_RESET_COMPLETED,
+            &[user_id],
+        )
+        .await?;
+        tx.commit().await?;
+        println!("Password reset for {email}. All sessions were revoked.");
+        if generated {
+            println!("New password (shown only once): {password}");
+        }
+        Ok(())
+    })
+}
+
+fn reset_mfa_main(config_path: &Path, email: &str) -> ExitCode {
+    let email = email.to_owned();
+    with_checked_config(
+        config_path,
+        "cannot reset multi-factor authentication",
+        |config| async move {
+            let (pool, migration, _) = prepare_database(&config).await?;
+            migration.close().await;
+            let user_id = find_user_for_cli(&pool, &email).await?;
+            let mut tx = pool.begin().await?;
+            auth::mfa::disable(&mut tx, user_id).await?;
+            auth::session::revoke_all(&mut *tx, user_id).await?;
+            audit::record(
+                &mut *tx,
+                None,
+                None,
+                audit::action::MFA_RESET_COMPLETED,
+                &[user_id],
+            )
+            .await?;
+            tx.commit().await?;
+            println!(
+                "Multi-factor authentication was removed for {email}. All sessions were revoked."
+            );
+            println!("Sign in with the password and set it up again.");
+            Ok(())
+        },
+    )
+}
+
 /// 共通のスキーマの移行と権限の付与を行い、(普段用のプール, 移行用のプール, 普段用のロール) を返す。
 async fn prepare_database(config: &Config) -> Result<(sqlx::PgPool, sqlx::PgPool, db::Ident)> {
     let migration_pool = db::migration_pool(&config.migration_database)

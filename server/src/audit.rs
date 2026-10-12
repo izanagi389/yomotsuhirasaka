@@ -16,6 +16,11 @@ pub mod action {
     pub const MEMBER_INVITED: &str = "member.invited";
     pub const INVITATION_REVOKED: &str = "invitation.revoked";
     pub const MEMBER_JOINED: &str = "member.joined";
+    pub const PASSWORD_RESET_REQUESTED: &str = "password_reset.requested";
+    pub const PASSWORD_RESET_ISSUED: &str = "password_reset.issued";
+    pub const PASSWORD_RESET_COMPLETED: &str = "password_reset.completed";
+    pub const MFA_RESET_ISSUED: &str = "mfa_reset.issued";
+    pub const MFA_RESET_COMPLETED: &str = "mfa_reset.completed";
 }
 
 /// 1件を記録する。`workspace_id` が None ならインスタンス全体の記録。
