@@ -43,6 +43,17 @@ HP16="$(host_port "$PG16_URL")"
   --database-url "postgres://cms_app@${HP16}/cms" \
   --migration-database-url "postgres://cms_migrate@${HP16}/cms" >/dev/null
 
+# テストの舞台に多要素認証のない所属者（編集者など）を作るため、全員への多要素認証の必須（Q197）を無効にする
+python3 - "$OUT/config.toml" <<'PY'
+import re, sys
+path = sys.argv[1]
+text = open(path).read()
+new, n = re.subn(r"(?m)^mfa_required_for_everyone = true$", "mfa_required_for_everyone = false", text)
+if n != 1:
+    sys.exit("setup.sh: mfa_required_for_everyone not found in the generated config")
+open(path, "w").write(new)
+PY
+
 APP_PW="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["database"]["password"])' "$OUT/config.toml")"
 MIG_PW="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["migration_database"]["password"])' "$OUT/config.toml")"
 create_roles "$PG16_URL" "$APP_PW" "$MIG_PW"

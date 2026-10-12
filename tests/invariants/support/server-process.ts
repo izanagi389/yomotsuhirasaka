@@ -79,6 +79,8 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (config.reauthWindowSeconds !== undefined) session.push(`reauth_window_seconds = ${config.reauthWindowSeconds}`);
   if (config.oneTimeTokenLifetimeSeconds !== undefined) session.push(`one_time_token_lifetime_seconds = ${config.oneTimeTokenLifetimeSeconds}`);
   if (session.length > 0) lines.push("", "[session]", ...session);
+  // undefined ならサーバーの既定（有効）に任せる
+  if (config.mfaRequiredForEveryone !== undefined) lines.push("", "[auth]", `mfa_required_for_everyone = ${config.mfaRequiredForEveryone}`);
   lines.push("");
   return lines.join("\n");
 }

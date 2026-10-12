@@ -8,6 +8,7 @@
 //! | POST | /api/admin/me/mfa/recovery-codes | 復旧コードを作り直す |
 //!
 //! どれも再認証が必要（多要素認証を設定した人は、多要素認証で再認証する）。
+//! 設定の開始と確定は、全員への多要素認証の必須（Q197）で他の操作を止められている人もできる。
 
 use axum::Json;
 use axum::extract::State;
@@ -17,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use super::AppState;
 use super::admin_auth::notify;
 use super::error::ApiError;
-use super::extract::{AuthSession, JsonBody};
+use super::extract::{AuthSession, AuthSessionForMfaSetup, JsonBody};
 use crate::auth::{mfa, session};
 use crate::mail::notify::Event;
 
@@ -55,7 +56,7 @@ fn not_enabled() -> ApiError {
 
 pub async fn begin_totp(
     State(state): State<AppState>,
-    AuthSession(current): AuthSession,
+    AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
 ) -> Result<Json<TotpSetup>, ApiError> {
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
@@ -86,7 +87,7 @@ pub struct ConfirmRequest {
 /// 設定を確定する。多要素認証の変更なので、他のセッションをすべて失効させる（Q107）。
 pub async fn confirm_totp(
     State(state): State<AppState>,
-    AuthSession(current): AuthSession,
+    AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
     JsonBody(req): JsonBody<ConfirmRequest>,
 ) -> Result<Json<RecoveryCodes>, ApiError> {
     if !current.reauth_fresh {

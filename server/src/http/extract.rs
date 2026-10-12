@@ -46,33 +46,62 @@ pub fn check_origin(headers: &HeaderMap, public_origin: &str) -> Result<(), ApiE
 }
 
 /// ログイン中のセッション（Cookieの経路）。状態を変えるメソッドでは、CSRFトークンも確かめる。
+/// 全員への多要素認証の必須が有効なとき（Q197）、多要素認証のない利用者は通さない。
 pub struct AuthSession(pub session::Current);
+
+/// [`AuthSession`] と同じだが、多要素認証のない利用者も通す。
+/// 多要素認証の設定に必要な操作（本人の情報の確認、多要素認証の設定、再認証、ログアウト）にだけ使う（INV-AUTH-25）。
+pub struct AuthSessionForMfaSetup(pub session::Current);
+
+async fn authenticate(parts: &mut Parts, state: &AppState) -> Result<session::Current, ApiError> {
+    // Bearerトークンの経路ではCookieを読まない（Q110）。個人トークンはまだ受け付けない。
+    if parts.headers.contains_key(header::AUTHORIZATION) {
+        return Err(ApiError::unauthenticated());
+    }
+    let presented = cookie(&parts.headers, SESSION_COOKIE).ok_or_else(ApiError::unauthenticated)?;
+    let current = session::resolve(&state.pool, &presented, &state.config.session)
+        .await?
+        .ok_or_else(ApiError::unauthenticated)?;
+    if !is_safe(&parts.method) {
+        check_origin(&parts.headers, &state.public_origin)?;
+        let ok = parts
+            .headers
+            .get(CSRF_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|t| current.csrf_matches(t));
+        if !ok {
+            return Err(ApiError::csrf());
+        }
+    }
+    Ok(current)
+}
+
+/// 多要素認証の設定を済ませるまで、他の操作をさせないか。
+pub fn mfa_setup_pending(state: &AppState, current: &session::Current) -> bool {
+    state.config.auth.mfa_required_for_everyone && !current.mfa_enabled
+}
 
 impl FromRequestParts<AppState> for AuthSession {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
-        // Bearerトークンの経路ではCookieを読まない（Q110）。個人トークンはまだ受け付けない。
-        if parts.headers.contains_key(header::AUTHORIZATION) {
-            return Err(ApiError::unauthenticated());
-        }
-        let presented =
-            cookie(&parts.headers, SESSION_COOKIE).ok_or_else(ApiError::unauthenticated)?;
-        let current = session::resolve(&state.pool, &presented, &state.config.session)
-            .await?
-            .ok_or_else(ApiError::unauthenticated)?;
-        if !is_safe(&parts.method) {
-            check_origin(&parts.headers, &state.public_origin)?;
-            let ok = parts
-                .headers
-                .get(CSRF_HEADER)
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|t| current.csrf_matches(t));
-            if !ok {
-                return Err(ApiError::csrf());
-            }
+        let current = authenticate(parts, state).await?;
+        if mfa_setup_pending(state, &current) {
+            return Err(ApiError::new(
+                axum::http::StatusCode::FORBIDDEN,
+                "mfa_setup_required",
+                "Set up multi-factor authentication before using the admin API.",
+            ));
         }
         Ok(Self(current))
+    }
+}
+
+impl FromRequestParts<AppState> for AuthSessionForMfaSetup {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+        Ok(Self(authenticate(parts, state).await?))
     }
 }
 
