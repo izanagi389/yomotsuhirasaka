@@ -125,6 +125,25 @@ impl IntoResponse for ApiError {
     }
 }
 
+impl From<crate::access::Denied> for ApiError {
+    fn from(d: crate::access::Denied) -> Self {
+        use crate::access::Denied;
+        match d {
+            Denied::NotFound => Self::not_found(),
+            Denied::Forbidden => Self::new(
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "You do not have permission for this operation.",
+            ),
+            Denied::MfaRequired => Self::new(
+                StatusCode::FORBIDDEN,
+                "mfa_required",
+                "Set up multi-factor authentication before administrative operations.",
+            ),
+        }
+    }
+}
+
 impl From<anyhow::Error> for ApiError {
     fn from(e: anyhow::Error) -> Self {
         // エラーの連鎖には、SQLの文や入力の値は含まれない（sqlx は束縛した値を表示しない）

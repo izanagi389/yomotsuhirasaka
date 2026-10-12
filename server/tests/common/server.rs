@@ -7,6 +7,7 @@ use cms_server::config::{Config, DatabaseConfig, LimitsConfig, SessionConfig};
 use cms_server::{db, http, keys, migrate};
 use sqlx::PgPool;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use totp_rs::{Builder, Secret};
 
 pub const PASSWORD: &str = "correct horse battery staple";
 
@@ -46,6 +47,8 @@ pub async fn start(config: Config) -> Server {
     let addr = listener.local_addr().unwrap();
     let app = http::router(http::AppState::new(
         pool.clone(),
+        migration,
+        app_role,
         config,
         keys::KeyRing::parse(&keys::generate_key_file()).unwrap(),
     ));
@@ -225,4 +228,94 @@ pub fn assert_security_headers(res: &Resp) {
     assert_eq!(res.header("x-content-type-options"), Some("nosniff"));
     assert_eq!(res.header("cache-control"), Some("no-store"));
     assert_eq!(res.header("access-control-allow-origin"), None);
+}
+
+/// 秘密（Base32）から、今の時間の区切りから `offset` だけずらした区切りのコードを作る。
+pub fn code(secret: &str, offset: i64) -> String {
+    let totp = Builder::new()
+        .with_secret(Secret::try_from_base32(secret).unwrap())
+        .build()
+        .unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let step = (now / 30).checked_add_signed(offset).unwrap();
+    totp.generate(step * 30).to_string()
+}
+
+/// 使用済みのコードの記録を消す（同じ区切りのコードを、別の確認で使えるようにするため）。
+pub async fn forget_used_steps(pool: &PgPool, email: &str) {
+    sqlx::query("UPDATE cms.users SET totp_last_step = NULL WHERE email = $1")
+        .bind(email)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+/// ログインの1段目。多要素認証が必要なら、途中のセッションのCookieを返す。
+pub async fn password_step(server: &Server, email: &str, password: &str) -> (Resp, Option<String>) {
+    let res = login_raw(server, email, password, "198.18.10.1").await;
+    let cookie = res.set_cookies().first().map(|c| {
+        c.split(';')
+            .next()
+            .unwrap()
+            .strip_prefix("__Host-cms_session=")
+            .unwrap()
+            .to_owned()
+    });
+    (res, cookie)
+}
+
+pub async fn mfa_step(server: &Server, pending: &str, body: &str) -> Resp {
+    request(
+        server,
+        "POST",
+        "/api/admin/session/mfa",
+        &[
+            ("Cookie", &format!("__Host-cms_session={pending}")),
+            ("X-Forwarded-For", "198.18.10.2"),
+        ],
+        Some(body),
+    )
+    .await
+}
+
+pub fn session_from(res: &Resp) -> Login {
+    assert_eq!(res.status, 200, "{}", res.body);
+    let cookie = res.set_cookies()[0]
+        .split(';')
+        .next()
+        .unwrap()
+        .strip_prefix("__Host-cms_session=")
+        .unwrap()
+        .to_owned();
+    Login {
+        cookie,
+        csrf: res.json_str("csrfToken").unwrap(),
+    }
+}
+
+/// TOTPを設定し、(秘密, 復旧コードの本文) を返す。
+pub async fn enroll(server: &Server, s: &Login) -> (String, String) {
+    let setup = send(server, "POST", "/api/admin/me/mfa/totp", s, None).await;
+    assert_eq!(setup.status, 200, "{}", setup.body);
+    let secret = setup.json_str("secret").unwrap();
+    let confirm = send(
+        server,
+        "POST",
+        "/api/admin/me/mfa/totp/confirm",
+        s,
+        Some(&format!("{{\"code\":\"{}\"}}", code(&secret, 0))),
+    )
+    .await;
+    assert_eq!(confirm.status, 200, "{}", confirm.body);
+    (secret, confirm.body)
+}
+
+pub fn recovery_codes(body: &str) -> Vec<String> {
+    let list = body.split('[').nth(1).unwrap().split(']').next().unwrap();
+    list.split(',')
+        .map(|c| c.trim().trim_matches('"').to_owned())
+        .collect()
 }

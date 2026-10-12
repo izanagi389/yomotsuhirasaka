@@ -21,6 +21,7 @@ use uuid::Uuid;
 use super::AppState;
 use super::error::ApiError;
 use super::extract::{AuthSession, ClientIp, JsonBody, SESSION_COOKIE, check_origin, cookie};
+use crate::audit;
 use crate::auth::{mfa, password, session, throttle, users};
 
 #[derive(Deserialize)]
@@ -138,6 +139,7 @@ async fn check_second_factor(
 /// ログインを完了させ、本番のセッションを発行して応答を作る。
 async fn complete_login(state: &AppState, user_id: Uuid) -> Result<Response, ApiError> {
     let issued = session::issue(&state.pool, user_id, &state.config.session).await?;
+    audit::record(&state.pool, None, Some(user_id), audit::action::LOGIN, &[]).await?;
     let current = session::resolve(&state.pool, &issued.token, &state.config.session)
         .await?
         .ok_or_else(ApiError::internal)?;

@@ -4,7 +4,7 @@
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
 
 import { randomUUID } from "node:crypto";
-import type { AdminOperation, Auth, CmsClient, Credentials, LoginOptions, OperationTarget, RequestExtras, Session } from "./driver.js";
+import type { AdminOperation, Auth, CmsClient, Credentials, LoginOptions, OperationTarget, RequestExtras, Session, WorkspaceRole } from "./driver.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
 import { totp } from "./totp.js";
 
@@ -198,6 +198,23 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("regenerateRecoveryCodes", true, "self", (auth, _t, extras) => request("POST", `${ADMIN}/me/mfa/recovery-codes`, { auth, extras })),
     op("disableTotp", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/mfa/totp`, { auth, extras })),
     op("logout", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/session`, { auth, extras })),
+    // --- ワークスペースと所属 ---
+    op("listWorkspaces", false, "self", (auth, _t, extras) => request("GET", `${ADMIN}/workspaces`, { auth, extras })),
+    op("createWorkspace", true, "instance", (auth, _t, extras) =>
+      request("POST", `${ADMIN}/workspaces`, { auth, extras, body: { name: `inv-op-${randomUUID().slice(0, 8)}` } }),
+    ),
+    op("listUsers", false, "instance", (auth, _t, extras) => request("GET", `${ADMIN}/users`, { auth, extras })),
+    op("getWorkspace", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}`, { auth, extras })),
+    op("listMembers", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/members`, { auth, extras })),
+    op("getMember", false, "workspace", (auth, t, extras) =>
+      request("GET", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}`, { auth, extras }),
+    ),
+    op("changeMemberRole", true, "workspace", (auth, t, extras) =>
+      request("PATCH", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}`, { auth, extras, body: { role: "editor" } }),
+    ),
+    op("removeMember", true, "workspace", (auth, t, extras) =>
+      request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}`, { auth, extras }),
+    ),
   ];
 
   const implemented = {
@@ -223,6 +240,27 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       ensure("パスワードの変更", await changePasswordRaw(s, creds.password, newPassword));
     },
     changePasswordRaw,
+    createWorkspaceRaw(auth: Auth, name: string): Promise<HttpResponse> {
+      return request("POST", `${ADMIN}/workspaces`, { auth, body: { name } });
+    },
+    async createWorkspace(s: Session, name: string, options: { template?: string } = {}): Promise<{ id: string }> {
+      const res = ensure(
+        "ワークスペースの作成",
+        await request("POST", `${ADMIN}/workspaces`, { auth: session(s), body: { name, template: options.template } }),
+      );
+      const { id } = JSON.parse(res.text) as { id?: unknown };
+      if (typeof id !== "string") throw new SetupError("ワークスペースの作成の応答の読み取り", res);
+      return { id };
+    },
+    async changeMemberRole(s: Session, workspaceId: string, userId: string, role: WorkspaceRole): Promise<void> {
+      ensure(
+        "ロールの変更",
+        await request("PATCH", `${ADMIN}/workspaces/${workspaceId}/members/${userId}`, { auth: session(s), body: { role } }),
+      );
+    },
+    async removeMember(s: Session, workspaceId: string, userId: string): Promise<void> {
+      ensure("所属から外す", await request("DELETE", `${ADMIN}/workspaces/${workspaceId}/members/${userId}`, { auth: session(s) }));
+    },
     async enrollTotp(s: Session, creds: Credentials): Promise<string> {
       await reauthenticate(s, creds);
       const setup = ensure("TOTPの設定の開始", await request("POST", `${ADMIN}/me/mfa/totp`, { auth: session(s) }));
