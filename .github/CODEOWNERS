@@ -1,0 +1,14 @@
+# 以下のファイルの変更は、リポジトリの持ち主の承認がないとマージできない。
+# ブランチ保護で「Require review from Code Owners」を有効にすること。
+# @izanagi389 を自分のGitHubのユーザー名に置き換える。
+
+/CLAUDE.md              @izanagi389
+/current-milestone      @izanagi389
+/docs/invariants.md     @izanagi389
+/docs/decisions/        @izanagi389
+/tests/invariants/      @izanagi389
+/.github/               @izanagi389
+
+# 依存の追加には承認が必要（Q99）
+**/Cargo.toml           @izanagi389
+**/package.json         @izanagi389

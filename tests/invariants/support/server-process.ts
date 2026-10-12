@@ -1,0 +1,157 @@
+// ドライバーの一部: サーバーの設定ファイルの書き出しと、プロセスの起動・停止。
+// 設定ファイルの書式は server/src/config.rs に合わせる。
+
+import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { CmsClient, ServerConfig, StartedServer } from "./driver.js";
+
+function requiredEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`環境変数 ${name} が設定されていません（tests/invariants/README.md の「テスト環境」）`);
+  return v;
+}
+
+/** サーバーの設定の秘密の値の名前（server/src/config.rs の SECRET_SETTING_NAMES と同じ）。 */
+export const SECRET_SETTING_NAMES = ["database.password", "migration_database.password"] as const;
+
+/** テスト環境のCMSと同じDB・鍵を使う、本番の設定として正しい設定。 */
+export function validServerConfigFromEnv(): ServerConfig {
+  return {
+    production: true,
+    devMode: false,
+    secrets: {
+      "database.password": requiredEnv("CMS_TEST_SERVER_DB_PASSWORD"),
+      "migration_database.password": requiredEnv("CMS_TEST_SERVER_MIGRATION_DB_PASSWORD"),
+    },
+    encryptionKeyFile: requiredEnv("CMS_TEST_SERVER_KEY_FILE"),
+    databaseUrl: requiredEnv("CMS_TEST_SERVER_DB_URL"),
+    migrationDatabaseUrl: requiredEnv("CMS_TEST_SERVER_MIGRATION_DB_URL"),
+    publicUrl: requiredEnv("CMS_TEST_PUBLIC_URL"),
+    internalDestinationExceptions: [],
+  };
+}
+
+/** URLにパスワードが入っていれば取り出す（設定ファイルでは、パスワードは別の項目に書く）。 */
+function splitPassword(url: string, fallback: string): { url: string; password: string } {
+  const u = new URL(url);
+  if (!u.password) return { url, password: fallback };
+  const password = decodeURIComponent(u.password);
+  u.password = "";
+  return { url: u.toString(), password };
+}
+
+const tomlString = (s: string): string => JSON.stringify(s); // TOMLの基本文字列は、JSONの文字列と同じエスケープで書ける
+
+/** まだサーバーが対応していない設定。指定されたら、黙って無視せずに失敗させる。 */
+function unsupported(config: ServerConfig): string[] {
+  const out: string[] = [];
+  if (config.internalDestinationExceptions.length > 0) out.push("internalDestinationExceptions");
+  for (const key of ["sessionLifetimeSeconds", "reauthWindowSeconds", "oneTimeTokenLifetimeSeconds", "rateLimits", "sharedCache", "egressProxy", "breachedPasswordApi", "loginHistoryRetention"] as const) {
+    if (config[key] !== undefined && config[key] !== null) out.push(key);
+  }
+  return out;
+}
+
+export function renderConfig(config: ServerConfig, listen: string): string {
+  const missing = unsupported(config);
+  if (missing.length > 0) throw new Error(`ドライバーが未実装です: サーバーの設定 ${missing.join(", ")}（tests/invariants/support/server-process.ts）`);
+  const db = splitPassword(config.databaseUrl, config.secrets["database.password"] ?? "");
+  const migration = splitPassword(config.migrationDatabaseUrl, config.secrets["migration_database.password"] ?? "");
+  const lines = [
+    `production = ${config.production}`,
+    `dev_mode = ${config.devMode}`,
+    `public_url = ${tomlString(config.publicUrl)}`,
+    `listen = ${tomlString(listen)}`,
+    `log_level = ${tomlString(config.logLevel ?? "info")}`,
+  ];
+  if (config.encryptionKeyFile !== null) lines.push(`encryption_key_file = ${tomlString(config.encryptionKeyFile)}`);
+  lines.push("", "[database]", `url = ${tomlString(db.url)}`, `password = ${tomlString(db.password)}`);
+  lines.push("", "[migration_database]", `url = ${tomlString(migration.url)}`, `password = ${tomlString(migration.password)}`, "");
+  return lines.join("\n");
+}
+
+async function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const s = createServer();
+    s.once("error", reject);
+    s.listen(0, "127.0.0.1", () => {
+      const port = (s.address() as { port: number }).port;
+      s.close(() => resolve(port));
+    });
+  });
+}
+
+export async function startServerProcess(config: ServerConfig, connect: (baseUrl: string) => CmsClient, timeoutMs = 60_000): Promise<StartedServer> {
+  const bin = requiredEnv("CMS_TEST_SERVER_BIN");
+  const dir = mkdtempSync(join(tmpdir(), "cms-server-"));
+  const port = await freePort();
+  const listen = `127.0.0.1:${port}`;
+  const configPath = join(dir, "config.toml");
+  writeFileSync(configPath, renderConfig(config, listen), { mode: 0o600 });
+
+  const child = spawn(bin, ["serve", "--config", configPath], { stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  child.stdout.on("data", (c: Buffer) => (output += c.toString("utf8")));
+  child.stderr.on("data", (c: Buffer) => (output += c.toString("utf8")));
+  let exitCode: number | null = null;
+  let exited = false;
+  const exitPromise = new Promise<void>((resolve) => {
+    child.on("exit", (code) => {
+      exitCode = code;
+      exited = true;
+      resolve();
+    });
+  });
+
+  const baseUrl = `http://${listen}`;
+  const deadline = Date.now() + timeoutMs;
+  let outcome: "ready" | "exited" = "exited";
+  while (Date.now() < deadline) {
+    if (exited) break;
+    try {
+      const res = await fetch(`${baseUrl}/healthz`);
+      if (res.ok) {
+        outcome = "ready";
+        break;
+      }
+    } catch {
+      // まだ受け付けていない
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  if (!exited && outcome !== "ready") {
+    child.kill("SIGKILL");
+    await exitPromise;
+    rmSync(dir, { recursive: true, force: true });
+    throw new Error(`サーバーが ${timeoutMs}ms 以内に受け付けを始めず、終了もしなかった:\n${output}`);
+  }
+  if (outcome === "exited") await exitPromise;
+
+  let client: CmsClient | null = null;
+  return {
+    outcome,
+    get exitCode() {
+      return exitCode;
+    },
+    get output() {
+      return output;
+    },
+    get client() {
+      if (outcome !== "ready") return null;
+      client ??= connect(baseUrl);
+      return client;
+    },
+    async stop() {
+      if (!exited) {
+        child.kill("SIGTERM");
+        const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
+        await exitPromise;
+        clearTimeout(timer);
+      }
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}

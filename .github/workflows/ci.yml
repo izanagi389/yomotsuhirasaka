@@ -1,0 +1,68 @@
+# サーバーの検査と、約束のテスト（tests/invariants/）。
+# 外部のアクションはコミットのSHAで固定する（13-security.md）。権限は最小（contents: read）。
+name: ci
+
+on:
+    pull_request:
+    push:
+        branches: [main]
+
+permissions:
+    contents: read
+
+jobs:
+    server:
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
+            - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+            - run: cargo fmt --check
+            - run: cargo clippy --locked --all-targets -- -D warnings
+            - run: cargo test --locked
+
+    invariants:
+        runs-on: ubuntu-24.04
+        services:
+            pg16:
+                image: postgres:16
+                env:
+                    POSTGRES_PASSWORD: ci-only-superuser-pw-16
+                ports: ["5432:5432"]
+                options: >-
+                    --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+            pg15:
+                image: postgres:15
+                env:
+                    POSTGRES_PASSWORD: ci-only-superuser-pw-15
+                ports: ["5433:5432"]
+                options: >-
+                    --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - run: rustup toolchain install stable --profile minimal && rustup default stable
+            - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+            - run: cargo build --locked
+            - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+              with:
+                  node-version: 22
+                  cache: npm
+                  cache-dependency-path: tests/invariants/package-lock.json
+            - name: Install test dependencies
+              working-directory: tests/invariants
+              run: npm ci --ignore-scripts
+            - name: Prepare databases and config
+              run: |
+                  sudo apt-get install -y --no-install-recommends postgresql-client >/dev/null
+                  scripts/test-env/setup.sh \
+                    postgres://postgres:ci-only-superuser-pw-16@127.0.0.1:5432/postgres \
+                    postgres://postgres:ci-only-superuser-pw-15@127.0.0.1:5433/postgres \
+                    "$RUNNER_TEMP/cms-test"
+            - name: Type check
+              working-directory: tests/invariants
+              run: npm run typecheck
+            - name: Invariant tests
+              working-directory: tests/invariants
+              run: |
+                  . "$RUNNER_TEMP/cms-test/test.env"
+                  npm test

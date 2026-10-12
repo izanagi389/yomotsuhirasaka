@@ -1,0 +1,20 @@
+{
+  "name": "cms-invariant-tests",
+  "private": true,
+  "type": "module",
+  "description": "約束（docs/invariants.md）のテスト。外から見た振る舞いだけを検査する",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/pg": "8.23.1",
+    "pg": "8.23.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}
