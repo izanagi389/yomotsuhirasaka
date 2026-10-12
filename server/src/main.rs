@@ -156,6 +156,7 @@ fn init(
         trusted_proxies: Vec::new(),
         session: config::SessionConfig::default(),
         limits: config::LimitsConfig::default(),
+        auth: config::AuthConfig::default(),
         smtp: None,
     };
     let report = startup::check_config(&Config {
@@ -263,7 +264,9 @@ fn create_server_admin_main(config_path: &Path, email: &str, password_stdin: boo
             if generated {
                 println!("Password (shown only once): {password}");
             }
-            println!("Set up multi-factor authentication after the first login.");
+            println!(
+                "Set up multi-factor authentication right after the first login; administrative operations require it."
+            );
             Ok(())
         },
     )

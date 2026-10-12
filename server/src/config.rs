@@ -40,9 +40,29 @@ pub struct Config {
     /// 回数制限（Q105）。
     #[serde(default)]
     pub limits: LimitsConfig,
+    /// 認証の方針。
+    #[serde(default)]
+    pub auth: AuthConfig,
     /// メールの送信（SMTP）。なければメールを送らない（通知は送らず、リセットや招待のリンクは画面に出す）。
     #[serde(default)]
     pub smtp: Option<SmtpConfig>,
+}
+
+/// 認証の方針。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct AuthConfig {
+    /// 全員に多要素認証を必須にする（Q197。既定で有効）。
+    /// 有効なとき、多要素認証のない利用者は、その設定に必要な操作しかできない。
+    pub mfa_required_for_everyone: bool,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            mfa_required_for_everyone: true,
+        }
+    }
 }
 
 /// SMTPの接続の守り方。

@@ -3,7 +3,7 @@
 use std::net::SocketAddr;
 
 use cms_server::auth::{password, users};
-use cms_server::config::{Config, DatabaseConfig, LimitsConfig, SessionConfig};
+use cms_server::config::{AuthConfig, Config, DatabaseConfig, LimitsConfig, SessionConfig};
 use cms_server::{db, http, keys, migrate};
 use sqlx::PgPool;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -26,6 +26,10 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         session: SessionConfig::default(),
         limits: LimitsConfig {
             login_attempts_per_ip_per_minute: 1000,
+        },
+        // 多くのテストは多要素認証のない利用者で操作するので、全員への必須は無効にする（有効な場合は admin_mfa.rs で確かめる）
+        auth: AuthConfig {
+            mfa_required_for_everyone: false,
         },
         smtp: None,
     }

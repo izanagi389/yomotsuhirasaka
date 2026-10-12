@@ -20,7 +20,10 @@ use uuid::Uuid;
 
 use super::AppState;
 use super::error::ApiError;
-use super::extract::{AuthSession, ClientIp, JsonBody, SESSION_COOKIE, check_origin, cookie};
+use super::extract::{
+    AuthSession, AuthSessionForMfaSetup, ClientIp, JsonBody, SESSION_COOKIE, check_origin, cookie,
+    mfa_setup_pending,
+};
 use crate::audit;
 use crate::auth::{mfa, password, session, throttle, users};
 use crate::mail::notify::Event;
@@ -50,15 +53,18 @@ struct Me {
     email: String,
     is_server_admin: bool,
     mfa_enabled: bool,
+    /// 他の操作の前に、多要素認証の設定が必要か（全員への必須が有効で、まだ設定していない。Q197）。
+    mfa_setup_required: bool,
 }
 
-impl From<&session::Current> for Me {
-    fn from(c: &session::Current) -> Self {
+impl Me {
+    fn new(state: &AppState, c: &session::Current) -> Self {
         Self {
             id: c.user_id,
             email: c.email.clone(),
             is_server_admin: c.is_server_admin,
             mfa_enabled: c.mfa_enabled,
+            mfa_setup_required: mfa_setup_pending(state, c),
         }
     }
 }
@@ -159,7 +165,7 @@ async fn complete_login(state: &AppState, user_id: Uuid) -> Result<Response, Api
     let mut res = Json(LoginResponse {
         mfa_required: false,
         csrf_token: Some(issued.csrf_token),
-        user: Some(Me::from(&current)),
+        user: Some(Me::new(state, &current)),
     })
     .into_response();
     res.headers_mut().append(
@@ -251,7 +257,7 @@ pub async fn login_mfa(
 
 pub async fn logout(
     State(state): State<AppState>,
-    AuthSession(current): AuthSession,
+    AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
 ) -> Result<Response, ApiError> {
     session::revoke(&state.pool, current.id).await?;
     let mut res = StatusCode::NO_CONTENT.into_response();
@@ -260,8 +266,11 @@ pub async fn logout(
     Ok(res)
 }
 
-pub async fn me(AuthSession(current): AuthSession) -> Json<impl Serialize> {
-    Json(Me::from(&current))
+pub async fn me(
+    State(state): State<AppState>,
+    AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
+) -> Json<impl Serialize> {
+    Json(Me::new(&state, &current))
 }
 
 #[derive(Deserialize)]
@@ -283,7 +292,7 @@ fn reauth_failed() -> ApiError {
 /// 再認証。多要素認証を設定した人は多要素認証のコードでだけ、設定していない人はパスワードで行う（Q108）。
 pub async fn reauth(
     State(state): State<AppState>,
-    AuthSession(current): AuthSession,
+    AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
     JsonBody(req): JsonBody<ReauthRequest>,
 ) -> Result<StatusCode, ApiError> {
     let given = [

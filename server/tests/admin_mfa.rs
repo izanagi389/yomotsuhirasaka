@@ -279,3 +279,85 @@ async fn regenerate_and_disable() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn mfa_required_for_everyone_limits_users_without_mfa() {
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.auth.mfa_required_for_everyone = true;
+        let server = start(cfg).await;
+        let email = "everyone@example.test";
+        create_user(&server.pool, email, false).await;
+
+        // ログインはでき、多要素認証の設定が必要だと分かる
+        let res = login_raw(&server, email, PASSWORD, "198.18.30.1").await;
+        assert!(
+            res.body.contains("\"mfaSetupRequired\":true"),
+            "{}",
+            res.body
+        );
+        let s = login(&server, email, PASSWORD).await;
+        let me = get(&server, "/api/admin/me", &s).await;
+        assert_eq!(me.status, 200);
+        assert!(me.body.contains("\"mfaSetupRequired\":true"), "{}", me.body);
+
+        // 設定に必要な操作以外は使えない（INV-AUTH-25）
+        for path in [
+            "/api/admin/workspaces",
+            "/api/admin/me/sessions",
+            "/api/admin/users",
+        ] {
+            let res = get(&server, path, &s).await;
+            assert_eq!(res.status, 403, "{path}");
+            assert_eq!(
+                res.json_str("error").as_deref(),
+                Some("mfa_setup_required"),
+                "{path}"
+            );
+        }
+        let res = send(
+            &server,
+            "POST",
+            "/api/admin/me/password",
+            &s,
+            Some(&format!(
+                "{{\"currentPassword\":\"{PASSWORD}\",\"newPassword\":\"another long passphrase\"}}"
+            )),
+        )
+        .await;
+        assert_eq!(res.status, 403);
+
+        // 再認証と、多要素認証の設定はできる
+        let res = send(
+            &server,
+            "POST",
+            "/api/admin/session/reauth",
+            &s,
+            Some(&format!("{{\"password\":\"{PASSWORD}\"}}")),
+        )
+        .await;
+        assert_eq!(res.status, 204);
+        enroll(&server, &s).await;
+
+        // 設定した後は使える
+        let me = get(&server, "/api/admin/me", &s).await;
+        assert!(
+            me.body.contains("\"mfaSetupRequired\":false"),
+            "{}",
+            me.body
+        );
+        assert_eq!(get(&server, "/api/admin/workspaces", &s).await.status, 200);
+        assert_eq!(get(&server, "/api/admin/me/sessions", &s).await.status, 200);
+
+        // ログアウトは、多要素認証がなくてもできる
+        create_user(&server.pool, "leaver@example.test", false).await;
+        let leaver = login(&server, "leaver@example.test", PASSWORD).await;
+        assert_eq!(
+            send(&server, "DELETE", "/api/admin/session", &leaver, None)
+                .await
+                .status,
+            204
+        );
+    })
+    .await;
+}
