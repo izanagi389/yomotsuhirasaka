@@ -3,9 +3,7 @@
 //! - `cms-server init`: 秘密の値と暗号化の鍵を生成し、設定ファイルと鍵のファイルを書き出す（Q172）
 //! - `cms-server serve`: 起動時の検査を行い、通ればHTTPの受け付けを始める
 
-mod config;
-mod keys;
-mod startup;
+use cms_server::{config, db, keys, migrate, startup};
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -236,6 +234,21 @@ async fn serve(config: &Config) -> Result<()> {
         "encryption key loaded (active version v{})",
         ring.active_version()
     );
+
+    // 共通のスキーマの移行と権限の付与（移行・ロールの作成用の接続で行う。Q173）
+    let migration_pool = db::migration_pool(&config.migration_database)
+        .await
+        .context("cannot connect with migration_database")?;
+    let app_pool = db::app_pool(&config.database)
+        .await
+        .context("cannot connect with database")?;
+    let app_role = db::current_role(&app_pool).await?;
+    let applied = migrate::run(&migration_pool).await?;
+    if !applied.is_empty() {
+        tracing::info!("applied migrations: {applied:?}");
+    }
+    migrate::apply_grants(&migration_pool, &app_role).await?;
+
     let app = Router::new().route("/healthz", get(|| async { "ok" }));
     let listener = tokio::net::TcpListener::bind(&config.listen)
         .await
