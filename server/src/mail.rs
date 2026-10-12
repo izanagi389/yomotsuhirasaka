@@ -151,6 +151,7 @@ pub mod notify {
         MfaDisabled,
         PersonalTokenIssued,
         ApiKeyIssued,
+        NewDeviceLogin,
     }
 
     /// (件名, 起きたこと)
@@ -196,6 +197,14 @@ pub mod notify {
                 "配信APIのキーを発行しました",
                 "あなたのアカウントで、配信APIのキーが発行されました。",
             ),
+            (Event::NewDeviceLogin, Locale::En) => (
+                "New sign-in to your account",
+                "Your account was signed in to from a new device or browser.",
+            ),
+            (Event::NewDeviceLogin, Locale::Ja) => (
+                "新しい端末からログインがありました",
+                "新しい端末またはブラウザから、アカウントにログインがありました。",
+            ),
         }
     }
 
@@ -212,12 +221,38 @@ pub mod notify {
 
     /// 通知のメール（1つの言語だけで書く。Q198）。`site` は公開URLのホスト名。
     pub fn mail(to: &str, site: &str, event: Event, locale: Locale) -> Mail {
+        mail_with(to, site, event, locale, None)
+    }
+
+    /// 新しい端末からのログインの通知。IPアドレスとブラウザの種類（決まった名前の1つ）を添える。
+    pub fn new_device_login(
+        to: &str,
+        site: &str,
+        locale: Locale,
+        ip: std::net::IpAddr,
+        browser: &str,
+    ) -> Mail {
+        let details = match locale {
+            Locale::En => format!("IP address: {ip}\nBrowser: {browser}"),
+            Locale::Ja => format!("IPアドレス: {ip}\nブラウザ: {browser}"),
+        };
+        mail_with(to, site, Event::NewDeviceLogin, locale, Some(&details))
+    }
+
+    fn mail_with(
+        to: &str,
+        site: &str,
+        event: Event,
+        locale: Locale,
+        details: Option<&str>,
+    ) -> Mail {
         let (subject, what) = texts(event, locale);
         let advice = advice(locale);
+        let details = details.map(|d| format!("{d}\n\n")).unwrap_or_default();
         Mail {
             to: to.to_owned(),
             subject: format!("[{site}] {subject}"),
-            body: format!("{what}\n\n{advice}\n\n{site}\n"),
+            body: format!("{what}\n\n{details}{advice}\n\n{site}\n"),
         }
     }
 }

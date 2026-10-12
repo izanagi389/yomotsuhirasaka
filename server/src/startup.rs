@@ -161,6 +161,14 @@ pub fn check_config(config: &Config) -> Report {
             "limits.login_attempts_per_ip_per_minute",
             config.limits.login_attempts_per_ip_per_minute,
         ),
+        (
+            "login_history.retention_seconds",
+            config.login_history.retention_seconds,
+        ),
+        (
+            "login_history.sweep_interval_seconds",
+            config.login_history.sweep_interval_seconds,
+        ),
     ] {
         if value == 0 {
             report

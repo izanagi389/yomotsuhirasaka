@@ -33,6 +33,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
             mfa_required_for_everyone: false,
         },
         smtp: None,
+        login_history: Default::default(),
     }
 }
 

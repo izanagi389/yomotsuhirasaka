@@ -49,6 +49,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "api_keys",
         include_str!("../migrations/0010_api_keys.sql"),
     ),
+    (
+        11,
+        "login_history",
+        include_str!("../migrations/0011_login_history.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -71,6 +76,9 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("reset_tokens", "SELECT, INSERT, UPDATE"),
     ("personal_tokens", "SELECT, INSERT, UPDATE"),
     ("api_keys", "SELECT, INSERT, UPDATE"),
+    // 長く使われていない端末と、保存期間を過ぎた履歴を消す
+    ("known_devices", "SELECT, INSERT, UPDATE, DELETE"),
+    ("login_history", "SELECT, INSERT, DELETE"),
 ];
 
 /// 移行の排他に使う、アドバイザリーロックのキー（任意の固定値）。

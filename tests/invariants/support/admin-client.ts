@@ -169,6 +169,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   }
 
   const meRaw = (auth: Auth, extras?: RequestExtras): Promise<HttpResponse> => request("GET", `${ADMIN}/me`, { auth, extras });
+  const loginHistoryRaw = (auth: Auth, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${ADMIN}/me/login-history`, { auth, extras });
 
   const op = (
     name: string,
@@ -183,6 +185,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     // 言語は既定の言語（英語）にする
     op("updateMe", true, "self", (auth, _t, extras) => request("PATCH", `${ADMIN}/me`, { auth, extras, body: { locale: "en" } })),
     op("listMySessions", false, "self", (auth, _t, extras) => request("GET", `${ADMIN}/me/sessions`, { auth, extras })),
+    op("getMyLoginHistory", false, "self", (auth, _t, extras) => loginHistoryRaw(auth, extras)),
     // 対象は存在しないセッション（本人の他のセッションを壊さないため）
     op("revokeMySession", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/sessions/${randomUUID()}`, { auth, extras })),
     // 現在のパスワードは誤った値にする（舞台の利用者のパスワードを変えないため）
@@ -295,6 +298,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     reauthenticate,
     reauthenticateRaw,
     meRaw,
+    loginHistoryRaw: (s: Session) => loginHistoryRaw(session(s)),
     async me(s: Session): Promise<{ userId: string; email: string }> {
       const res = ensure("本人の情報の取得", await meRaw(session(s)));
       const parsed = JSON.parse(res.text) as { id?: unknown; email?: unknown };

@@ -51,7 +51,7 @@ const tomlString = (s: string): string => JSON.stringify(s); // TOMLの基本文
 function unsupported(config: ServerConfig): string[] {
   const out: string[] = [];
   if (config.internalDestinationExceptions.length > 0) out.push("internalDestinationExceptions");
-  for (const key of ["rateLimits", "sharedCache", "egressProxy", "breachedPasswordApi", "loginHistoryRetention"] as const) {
+  for (const key of ["rateLimits", "sharedCache", "egressProxy", "breachedPasswordApi"] as const) {
     if (config[key] !== undefined && config[key] !== null) out.push(key);
   }
   return out;
@@ -81,6 +81,10 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (session.length > 0) lines.push("", "[session]", ...session);
   // undefined ならサーバーの既定（有効）に任せる
   if (config.mfaRequiredForEveryone !== undefined) lines.push("", "[auth]", `mfa_required_for_everyone = ${config.mfaRequiredForEveryone}`);
+  if (config.loginHistoryRetention) {
+    const r = config.loginHistoryRetention;
+    lines.push("", "[login_history]", `retention_seconds = ${r.retentionSeconds}`, `sweep_interval_seconds = ${r.sweepIntervalSeconds}`);
+  }
   lines.push("");
   return lines.join("\n");
 }

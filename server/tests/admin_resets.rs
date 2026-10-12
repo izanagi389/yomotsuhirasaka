@@ -158,8 +158,10 @@ async fn self_service_reset_by_email() {
         let reused = complete_password(&server, &token, "yet another passphrase").await;
         assert_eq!((reused.status, reused.json_str("error").as_deref()), (400, Some("invalid_token")));
         assert_eq!(audit_count(&server.pool, None, "password_reset.completed").await, 1);
-        // パスワードの変更の通知が積まれる
+        // パスワードの変更の通知と、新しい端末からのログインの通知（テストのクライアントは端末のCookieを持たない）が積まれる
         assert!(worker::run_once(&server.state).await.unwrap());
+        assert!(worker::run_once(&server.state).await.unwrap());
+        assert!(!worker::run_once(&server.state).await.unwrap());
 
         // 期限切れのトークンは使えない
         sqlx::query("UPDATE cms.reset_tokens SET created_at = now() - interval '2 minutes'")

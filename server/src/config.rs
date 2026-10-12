@@ -49,6 +49,28 @@ pub struct Config {
     /// メールの送信（SMTP）。なければメールを送らない（通知は送らず、リセットや招待のリンクは画面に出す）。
     #[serde(default)]
     pub smtp: Option<SmtpConfig>,
+    /// ログインの履歴（Q176）。
+    #[serde(default)]
+    pub login_history: LoginHistoryConfig,
+}
+
+/// ログインの履歴の保存期間と、削除の間隔（秒）。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LoginHistoryConfig {
+    /// 保存期間（既定は90日）。過ぎたものは自動で削除する。
+    pub retention_seconds: u32,
+    /// 期限を過ぎた履歴を探して削除する間隔（既定は1時間）。
+    pub sweep_interval_seconds: u32,
+}
+
+impl Default for LoginHistoryConfig {
+    fn default() -> Self {
+        Self {
+            retention_seconds: 90 * 24 * 60 * 60,
+            sweep_interval_seconds: 60 * 60,
+        }
+    }
 }
 
 /// 認証の方針。
