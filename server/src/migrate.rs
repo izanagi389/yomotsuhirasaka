@@ -23,6 +23,7 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "memberships",
         include_str!("../migrations/0004_memberships.sql"),
     ),
+    (5, "jobs", include_str!("../migrations/0005_jobs.sql")),
 ];
 
 /// 共通のスキーマの名前。
@@ -39,6 +40,8 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     // 作り直すときに古いコードを消す
     ("recovery_codes", "SELECT, INSERT, UPDATE, DELETE"),
     ("memberships", "SELECT, INSERT, UPDATE, DELETE"),
+    // 終わったジョブを消す
+    ("jobs", "SELECT, INSERT, UPDATE, DELETE"),
 ];
 
 /// 移行の排他に使う、アドバイザリーロックのキー（任意の固定値）。

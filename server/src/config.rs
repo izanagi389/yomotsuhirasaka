@@ -40,6 +40,37 @@ pub struct Config {
     /// 回数制限（Q105）。
     #[serde(default)]
     pub limits: LimitsConfig,
+    /// メールの送信（SMTP）。なければメールを送らない（通知は送らず、リセットや招待のリンクは画面に出す）。
+    #[serde(default)]
+    pub smtp: Option<SmtpConfig>,
+}
+
+/// SMTPの接続の守り方。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SmtpSecurity {
+    /// 平文で接続し、必ずSTARTTLSに切り替える（切り替えられなければ送らない）。既定のポートは587。
+    #[default]
+    Starttls,
+    /// 最初からTLSで接続する。既定のポートは465。
+    Tls,
+    /// 暗号化しない。同じホストの中継など、ループバックの宛先にだけ使う（本番の設定では、それ以外は起動を止める）。
+    None,
+}
+
+/// メールの送信の設定。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SmtpConfig {
+    pub host: String,
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub security: SmtpSecurity,
+    pub username: Option<String>,
+    /// 秘密の値。
+    pub password: Option<String>,
+    /// 差出人（`CMS <cms@example.com>` か `cms@example.com`）。
+    pub from: String,
 }
 
 /// セッションと再認証の時間（秒）。

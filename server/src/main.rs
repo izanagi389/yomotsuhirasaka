@@ -4,7 +4,7 @@
 //! - `cms-server serve`: 起動時の検査を行い、通ればHTTPの受け付けを始める
 //! - `cms-server create-server-admin`: サーバー管理者を作る（サーバー上でだけ行える。Q100）
 
-use cms_server::{auth, config, db, http, keys, migrate, startup};
+use cms_server::{auth, config, db, http, keys, migrate, startup, worker};
 
 use std::io::{BufRead as _, Write as _};
 use std::net::SocketAddr;
@@ -156,6 +156,7 @@ fn init(
         trusted_proxies: Vec::new(),
         session: config::SessionConfig::default(),
         limits: config::LimitsConfig::default(),
+        smtp: None,
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,
@@ -325,13 +326,9 @@ async fn serve(config: Config) -> Result<()> {
     let (app_pool, migration_pool, app_role) = prepare_database(&config).await?;
     auth::password::warm_up();
     let listen = config.listen.clone();
-    let app = http::router(http::AppState::new(
-        app_pool,
-        migration_pool,
-        app_role,
-        config,
-        ring,
-    ));
+    let state = http::AppState::new(app_pool, migration_pool, app_role, config, ring);
+    worker::spawn(state.clone());
+    let app = http::router(state);
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
         .with_context(|| format!("cannot listen on {listen}"))?;

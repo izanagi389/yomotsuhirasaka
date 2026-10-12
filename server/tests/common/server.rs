@@ -27,12 +27,15 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         limits: LimitsConfig {
             login_attempts_per_ip_per_minute: 1000,
         },
+        smtp: None,
     }
 }
 
 pub struct Server {
     pub addr: SocketAddr,
     pub pool: PgPool,
+    /// ジョブを手で1つずつ実行するための状態（テストでは常駐の処理を動かさない）。
+    pub state: http::AppState,
 }
 
 pub async fn start(config: Config) -> Server {
@@ -45,13 +48,14 @@ pub async fn start(config: Config) -> Server {
     migrate::apply_grants(&migration, &app_role).await.unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let app = http::router(http::AppState::new(
+    let state = http::AppState::new(
         pool.clone(),
         migration,
         app_role,
         config,
         keys::KeyRing::parse(&keys::generate_key_file()).unwrap(),
-    ));
+    );
+    let app = http::router(state.clone());
     tokio::spawn(async move {
         axum::serve(
             listener,
@@ -60,7 +64,7 @@ pub async fn start(config: Config) -> Server {
         .await
         .unwrap();
     });
-    Server { addr, pool }
+    Server { addr, pool, state }
 }
 
 pub async fn create_user(pool: &PgPool, email: &str, admin: bool) {
@@ -318,4 +322,16 @@ pub fn recovery_codes(body: &str) -> Vec<String> {
     list.split(',')
         .map(|c| c.trim().trim_matches('"').to_owned())
         .collect()
+}
+
+/// 利用者のすべてのセッションの「最後の本人確認」を1時間前にする（再認証の有効時間を過ぎた状態を、待たずに作る）。
+pub async fn expire_reauth(pool: &PgPool, email: &str) {
+    sqlx::query(
+        "UPDATE cms.sessions SET authenticated_at = now() - interval '1 hour'
+         WHERE user_id = (SELECT id FROM cms.users WHERE email = $1)",
+    )
+    .bind(email)
+    .execute(pool)
+    .await
+    .unwrap();
 }
