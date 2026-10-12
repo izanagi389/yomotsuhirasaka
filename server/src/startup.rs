@@ -164,6 +164,9 @@ pub fn check_config(config: &Config) -> Report {
                 .push(Problem::fatal(format!("`{name}` must be greater than 0")));
         }
     }
+    if let Some(smtp) = &config.smtp {
+        report.problems.extend(check_smtp(smtp));
+    }
     match &config.encryption_key_file {
         None => report
             .problems
@@ -177,6 +180,36 @@ pub fn check_config(config: &Config) -> Report {
         }
     }
     report
+}
+
+/// SMTPの設定の検査。
+fn check_smtp(smtp: &crate::config::SmtpConfig) -> Vec<Problem> {
+    use crate::config::SmtpSecurity;
+    let mut problems = Vec::new();
+    if smtp.host.trim().is_empty() {
+        problems.push(Problem::fatal("`smtp.host` is empty"));
+    }
+    if smtp.from.parse::<lettre::message::Mailbox>().is_err() {
+        problems.push(Problem::fatal("`smtp.from` is not a valid email address"));
+    }
+    if smtp.username.is_some() != smtp.password.is_some() {
+        problems.push(Problem::fatal(
+            "`smtp.username` and `smtp.password` must be set together",
+        ));
+    }
+    if let Some(password) = &smtp.password {
+        problems.extend(check_secret("smtp.password", password));
+    }
+    let loopback = matches!(
+        smtp.host.as_str(),
+        "localhost" | "127.0.0.1" | "::1" | "[::1]"
+    );
+    if smtp.security == SmtpSecurity::None && !loopback {
+        problems.push(Problem::config(
+            "`smtp.security = \"none\"` sends mail unencrypted; use it only for a relay on this host",
+        ));
+    }
+    problems
 }
 
 /// URLの userinfo にパスワードがあるか。
@@ -285,6 +318,42 @@ mod tests {
         // 問題の文に値が含まれない
         let p = check_secret("database.password", "abc123").unwrap();
         assert!(!p.message.contains("abc123"));
+    }
+
+    #[test]
+    fn smtp() {
+        use crate::config::{SmtpConfig, SmtpSecurity};
+        let ok = SmtpConfig {
+            host: "smtp.example.com".into(),
+            port: None,
+            security: SmtpSecurity::Starttls,
+            username: Some("cms".into()),
+            password: Some("kq3-Vd8_mZ2pL9xR4tY7".into()),
+            from: "CMS <cms@example.com>".into(),
+        };
+        assert!(check_smtp(&ok).is_empty());
+        let plain_remote = SmtpConfig {
+            security: SmtpSecurity::None,
+            ..ok.clone()
+        };
+        assert_eq!(check_smtp(&plain_remote).len(), 1);
+        let plain_local = SmtpConfig {
+            host: "127.0.0.1".into(),
+            username: None,
+            password: None,
+            ..plain_remote
+        };
+        assert!(check_smtp(&plain_local).is_empty());
+        let weak = SmtpConfig {
+            password: Some("secret".into()),
+            ..ok.clone()
+        };
+        assert_eq!(check_smtp(&weak).len(), 1);
+        let bad_from = SmtpConfig {
+            from: "not an address".into(),
+            ..ok
+        };
+        assert!(check_smtp(&bad_from).iter().any(|p| p.fatal));
     }
 
     #[test]

@@ -23,6 +23,7 @@ use super::error::ApiError;
 use super::extract::{AuthSession, ClientIp, JsonBody, SESSION_COOKIE, check_origin, cookie};
 use crate::audit;
 use crate::auth::{mfa, password, session, throttle, users};
+use crate::mail::notify::Event;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -73,6 +74,18 @@ fn clear_session_cookie() -> HeaderValue {
     HeaderValue::from_static(
         "__Host-cms_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict",
     )
+}
+
+/// 本人への通知のメールを積む（SMTPの設定がなければ何もしない）。
+pub(super) async fn notify<'e>(
+    state: &AppState,
+    executor: impl sqlx::PgExecutor<'e>,
+    to: &str,
+    event: Event,
+) -> anyhow::Result<()> {
+    let mail = crate::mail::notify::mail(to, &state.issuer, event);
+    crate::mail::enqueue(executor, &state.keys, state.config.smtp.as_ref(), &mail).await?;
+    Ok(())
 }
 
 /// アカウント単位の制限を守りながら、本人確認の結果を記録する。
@@ -343,6 +356,7 @@ pub async fn change_password(
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     users::set_password(&mut *tx, current.user_id, &hash).await?;
     session::revoke_others(&mut *tx, current.user_id, current.id).await?;
+    notify(&state, &mut *tx, &current.email, Event::PasswordChanged).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
