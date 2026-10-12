@@ -160,6 +160,7 @@ pub fn router(state: AppState) -> Router {
         .route("/me/password", post(admin_auth::change_password))
         .route("/me/sessions", get(admin_auth::list_sessions))
         .route("/me/sessions/{id}", delete(admin_auth::revoke_session))
+        .route("/me/login-history", get(admin_auth::login_history))
         .route(
             "/me/mfa/totp",
             post(admin_mfa::begin_totp).delete(admin_mfa::disable_totp),

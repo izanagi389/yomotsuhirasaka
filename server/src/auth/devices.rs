@@ -1,0 +1,233 @@
+//! 新しい端末の判定と、ログインの履歴（13-security.md「本人への通知」、Q171, Q175, Q176, Q181）。
+//!
+//! - ログインに成功した端末に、長期のCookie（ランダムなID）を置く。DBにはハッシュだけを保存する。
+//! - このCookieは新しい端末の通知だけに使う。多要素認証の省略などには使わない（Q181）。
+//! - ログインの履歴には、IPアドレス、ブラウザの種類（決まった名前の1つ）、国（GeoIPがある場合だけ。今は常に空）を残す。
+//!   User-Agent はそのまま保存しない。保存期間を過ぎた履歴は、定期的に削除する（INV-AUD-07）。
+//!   一覧を返すときも、保存期間の内側だけを返す（削除が遅れても見せない）。
+
+use std::net::IpAddr;
+
+use anyhow::Result;
+use sqlx::PgPool;
+use uuid::Uuid;
+
+use super::token;
+
+/// 端末のCookieの名前。
+pub const DEVICE_COOKIE: &str = "__Host-cms_device";
+/// 端末のCookieの有効期間（秒）。
+pub const DEVICE_COOKIE_MAX_AGE: u32 = 365 * 24 * 60 * 60;
+/// この日数のあいだログインのなかった端末の記録は消す（Cookieの有効期間より少し長く）。
+const DEVICE_RETENTION_DAYS: i32 = 400;
+/// 一覧で返す履歴の最大件数。
+const LIST_LIMIT: i64 = 200;
+
+const RFC3339: &str = r#"'YYYY-MM-DD"T"HH24:MI:SS"Z"'"#;
+
+/// ログインの記録の結果。
+pub struct Recorded {
+    /// 端末のCookieに入れる値（受け取った値か、新しく作った値）。
+    pub device_token: String,
+    /// この利用者にとって新しい端末か。
+    pub new_device: bool,
+    /// 本人に通知するか（新しい端末で、かつ、初めての端末ではない）。
+    pub notify: bool,
+}
+
+/// 受け取った端末のCookieが、こちらで作った形（43文字のURL-safe base64）か。
+fn well_formed(value: &str) -> bool {
+    value.len() == 43
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// User-Agent を、ブラウザの種類の決まった名前の1つにまとめる。
+pub fn browser_family(user_agent: Option<&str>) -> &'static str {
+    let Some(ua) = user_agent else {
+        return "Unknown";
+    };
+    let has = |s: &str| ua.contains(s);
+    if has("Edg/") || has("EdgA/") || has("EdgiOS/") {
+        "Edge"
+    } else if has("OPR/") || has("Opera") {
+        "Opera"
+    } else if has("SamsungBrowser/") {
+        "Samsung Internet"
+    } else if has("Firefox/") || has("FxiOS/") {
+        "Firefox"
+    } else if has("Chrome/") || has("CriOS/") || has("Chromium/") {
+        "Chrome"
+    } else if has("Safari/") {
+        "Safari"
+    } else {
+        "Other"
+    }
+}
+
+/// ログインの成功を記録する（端末の判定と履歴）。
+pub async fn record_login(
+    pool: &PgPool,
+    user_id: Uuid,
+    presented_device: Option<&str>,
+    ip: IpAddr,
+    user_agent: Option<&str>,
+) -> Result<Recorded> {
+    let device_token = presented_device
+        .filter(|v| well_formed(v))
+        .map_or_else(token::generate, str::to_owned);
+    let hash = token::digest(&device_token);
+
+    let mut tx = pool.begin().await?;
+    let known = sqlx::query(
+        "UPDATE cms.known_devices SET last_seen_at = now() WHERE user_id = $1 AND device_hash = $2",
+    )
+    .bind(user_id)
+    .bind(&hash)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected()
+        == 1;
+    let mut notify = false;
+    if !known {
+        let had_any: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM cms.known_devices WHERE user_id = $1)",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO cms.known_devices (user_id, device_hash) VALUES ($1, $2)
+             ON CONFLICT (user_id, device_hash) DO UPDATE SET last_seen_at = now()",
+        )
+        .bind(user_id)
+        .bind(&hash)
+        .execute(&mut *tx)
+        .await?;
+        // 初めての端末（招待を受けた直後など）は、知らせても本人の操作に決まっているので知らせない
+        notify = had_any;
+    }
+    sqlx::query(
+        "INSERT INTO cms.login_history (id, user_id, ip, browser, new_device)
+         VALUES ($1, $2, $3::inet, $4, $5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(ip.to_canonical().to_string())
+    .bind(browser_family(user_agent))
+    .bind(!known)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Recorded {
+        device_token,
+        new_device: !known,
+        notify,
+    })
+}
+
+/// ログインの履歴の1件。
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Entry {
+    pub at: String,
+    pub ip: String,
+    pub browser: String,
+    pub country: Option<String>,
+    pub new_device: bool,
+}
+
+type EntryRow = (String, String, String, Option<String>, bool);
+
+/// 本人のログインの履歴（新しい順。保存期間の内側だけ）。
+pub async fn list(pool: &PgPool, user_id: Uuid, retention_seconds: u32) -> Result<Vec<Entry>> {
+    let rows: Vec<EntryRow> = sqlx::query_as(crate::sql!(
+        "SELECT to_char(created_at AT TIME ZONE 'UTC', {RFC3339}), host(ip), browser, country, new_device
+         FROM cms.login_history
+         WHERE user_id = $1 AND created_at >= now() - make_interval(secs => $2)
+         ORDER BY created_at DESC
+         LIMIT $3"
+    ))
+    .bind(user_id)
+    .bind(f64::from(retention_seconds))
+    .bind(LIST_LIMIT)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(at, ip, browser, country, new_device)| Entry {
+            at,
+            ip,
+            browser,
+            country,
+            new_device,
+        })
+        .collect())
+}
+
+/// 保存期間を過ぎた履歴と、長く使われていない端末の記録を消す。消した履歴の件数を返す。
+pub async fn sweep(pool: &PgPool, retention_seconds: u32) -> Result<u64> {
+    let removed = sqlx::query(
+        "DELETE FROM cms.login_history WHERE created_at < now() - make_interval(secs => $1)",
+    )
+    .bind(f64::from(retention_seconds))
+    .execute(pool)
+    .await?
+    .rows_affected();
+    sqlx::query(
+        "DELETE FROM cms.known_devices WHERE last_seen_at < now() - make_interval(days => $1)",
+    )
+    .bind(DEVICE_RETENTION_DAYS)
+    .execute(pool)
+    .await?;
+    Ok(removed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_families() {
+        let cases = [
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+                "Chrome",
+            ),
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
+                "Edge",
+            ),
+            (
+                "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0",
+                "Firefox",
+            ),
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+                "Safari",
+            ),
+            (
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/129.0 Mobile/15E148 Safari/604.1",
+                "Chrome",
+            ),
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 OPR/114.0.0.0",
+                "Opera",
+            ),
+            ("curl/8.5.0", "Other"),
+        ];
+        for (ua, expected) in cases {
+            assert_eq!(browser_family(Some(ua)), expected, "{ua}");
+        }
+        assert_eq!(browser_family(None), "Unknown");
+    }
+
+    #[test]
+    fn device_cookie_format() {
+        assert!(well_formed(&token::generate()));
+        assert!(!well_formed("short"));
+        assert!(!well_formed(&"a".repeat(42)));
+        assert!(!well_formed(&format!("{};", "a".repeat(42))));
+    }
+}

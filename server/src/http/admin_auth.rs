@@ -10,6 +10,7 @@
 //! | POST | /api/admin/me/password | パスワードの変更（再認証が必要。他のセッションは失効） |
 //! | GET | /api/admin/me/sessions | 本人のログイン中のセッションの一覧 |
 //! | DELETE | /api/admin/me/sessions/{id} | 本人のセッションを1つ失効させる |
+//! | GET | /api/admin/me/login-history | 本人のログインの履歴（保存期間の内側だけ） |
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -25,7 +26,7 @@ use super::extract::{
     mfa_setup_pending, require_cookie_session,
 };
 use crate::audit;
-use crate::auth::{mfa, password, session, throttle, users};
+use crate::auth::{devices, mfa, password, session, throttle, users};
 use crate::locale::Locale;
 use crate::mail::notify::Event;
 
@@ -163,13 +164,45 @@ async fn check_second_factor(
     settle(state, record, matched).await
 }
 
+fn device_cookie(value: &str) -> HeaderValue {
+    HeaderValue::from_str(&format!(
+        "{}={value}; Path=/; Max-Age={}; Secure; HttpOnly; SameSite=Strict",
+        devices::DEVICE_COOKIE,
+        devices::DEVICE_COOKIE_MAX_AGE,
+    ))
+    .expect("device id is URL-safe base64")
+}
+
 /// ログインを完了させ、本番のセッションを発行して応答を作る。
-async fn complete_login(state: &AppState, user_id: Uuid) -> Result<Response, ApiError> {
+/// 端末の判定とログインの履歴を記録し、新しい端末なら本人に知らせる（13-security.md「本人への通知」）。
+async fn complete_login(
+    state: &AppState,
+    user_id: Uuid,
+    ip: std::net::IpAddr,
+    headers: &HeaderMap,
+) -> Result<Response, ApiError> {
     let issued = session::issue(&state.pool, user_id, &state.config.session).await?;
     audit::record(&state.pool, None, Some(user_id), audit::action::LOGIN, &[]).await?;
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok());
+    let device = cookie(headers, devices::DEVICE_COOKIE);
+    let recorded =
+        devices::record_login(&state.pool, user_id, device.as_deref(), ip, user_agent).await?;
     let current = session::resolve(&state.pool, &issued.token, &state.config.session)
         .await?
         .ok_or_else(ApiError::internal)?;
+    if recorded.notify {
+        let locale = current.locale.unwrap_or(state.config.default_locale);
+        let mail = crate::mail::notify::new_device_login(
+            &current.email,
+            &state.issuer,
+            locale,
+            ip.to_canonical(),
+            devices::browser_family(user_agent),
+        );
+        crate::mail::enqueue(&state.pool, &state.keys, state.config.smtp.as_ref(), &mail).await?;
+    }
     let mut res = Json(LoginResponse {
         mfa_required: false,
         csrf_token: Some(issued.csrf_token),
@@ -183,6 +216,8 @@ async fn complete_login(state: &AppState, user_id: Uuid) -> Result<Response, Api
             state.config.session.absolute_lifetime_seconds,
         ),
     );
+    res.headers_mut()
+        .append(header::SET_COOKIE, device_cookie(&recorded.device_token));
     Ok(res)
 }
 
@@ -212,7 +247,7 @@ pub async fn login(
         session::revoke_presented(&state.pool, &old).await?;
     }
     if !record.mfa_enabled {
-        return complete_login(&state, record.id).await;
+        return complete_login(&state, record.id, ip, &headers).await;
     }
     // 端末のCookieなどがあっても、多要素認証は省略しない（Q181）
     let pending = session::issue_mfa_pending(&state.pool, record.id).await?;
@@ -260,7 +295,7 @@ pub async fn login_mfa(
         return Err(invalid_mfa_code());
     }
     session::revoke(&state.pool, pending_id).await?;
-    complete_login(&state, user_id).await
+    complete_login(&state, user_id, ip, &headers).await
 }
 
 pub async fn logout(
@@ -451,4 +486,20 @@ pub async fn revoke_session(
     } else {
         Err(ApiError::not_found())
     }
+}
+
+/// 本人のログインの履歴（IPアドレス、ブラウザの種類、国、新しい端末だったか）。
+pub async fn login_history(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+) -> Result<Json<Vec<devices::Entry>>, ApiError> {
+    require_cookie_session(&current)?;
+    Ok(Json(
+        devices::list(
+            &state.pool,
+            current.user_id,
+            state.config.login_history.retention_seconds,
+        )
+        .await?,
+    ))
 }

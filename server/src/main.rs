@@ -188,6 +188,7 @@ fn init(
         default_locale: cms_server::locale::Locale::default(),
         auth: config::AuthConfig::default(),
         smtp: None,
+        login_history: config::LoginHistoryConfig::default(),
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,
@@ -460,6 +461,7 @@ async fn serve(config: Config) -> Result<()> {
     let listen = config.listen.clone();
     let state = http::AppState::new(app_pool, migration_pool, app_role, config, ring);
     worker::spawn(state.clone());
+    worker::spawn_sweeper(state.clone());
     let app = http::router(state);
     let listener = tokio::net::TcpListener::bind(&listen)
         .await

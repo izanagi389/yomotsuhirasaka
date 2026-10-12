@@ -50,3 +50,23 @@ pub fn spawn(state: AppState) -> tokio::task::JoinHandle<()> {
         }
     })
 }
+
+/// 保存期間を過ぎたログインの履歴を、設定の間隔で削除する常駐の処理（INV-AUD-07）。
+pub fn spawn_sweeper(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let every = Duration::from_secs(state.config.login_history.sweep_interval_seconds.into());
+        let mut ticker = tokio::time::interval(every);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            if let Err(e) = crate::auth::devices::sweep(
+                &state.pool,
+                state.config.login_history.retention_seconds,
+            )
+            .await
+            {
+                tracing::error!("login history sweeper: {e:#}");
+            }
+        }
+    })
+}
