@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use super::AppState;
 use super::error::ApiError;
-use super::extract::{AuthSession, ClientIp, JsonBody, check_origin};
+use super::extract::{AuthSession, ClientIp, JsonBody, check_origin, require_cookie_session};
 use crate::access::{self, Role};
 use crate::audit::{self, action};
 use crate::auth::{password, users};
@@ -81,7 +81,7 @@ pub async fn invite(
     }
     // SMTPがないとリンクは招待した人の手に渡る。ワークスペースの管理者が自分で承諾を試すと、
     // 他のワークスペースの利用者の存在が分かってしまうので、サーバー管理者だけに許す（Q194、INV-TEN-04）
-    if state.config.smtp.is_none() && !current.is_server_admin {
+    if state.config.smtp.is_none() && !access::acts_as_server_admin(&current) {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "smtp_required",
@@ -309,6 +309,7 @@ pub async fn accept_as_member(
     AuthSession(current): AuthSession,
     JsonBody(req): JsonBody<AcceptAsMember>,
 ) -> Result<Json<Accepted>, ApiError> {
+    require_cookie_session(&current)?;
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     let Some(invitation) = invitations::find_valid(&mut *tx, &req.token, true).await? else {
         return Err(invalid_token());

@@ -4,7 +4,7 @@
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
 
 import { randomUUID } from "node:crypto";
-import type { AdminOperation, Auth, CmsClient, Credentials, LoginOptions, Member, OperationTarget, RequestExtras, Session, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, Auth, CmsClient, Credentials, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, WorkspaceRole } from "./driver.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
 import { totp } from "./totp.js";
@@ -239,6 +239,12 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("issueMfaReset", true, "workspace", (auth, t, extras) =>
       request("POST", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}/mfa-reset`, { auth, extras }),
     ),
+    op("listPersonalTokens", false, "self", (auth, _t, extras) => request("GET", `${ADMIN}/me/tokens`, { auth, extras })),
+    op("createPersonalToken", true, "self", (auth, t, extras) =>
+      request("POST", `${ADMIN}/me/tokens`, { auth, extras, body: { scopes: ["read"], workspaceIds: [t.workspaceId] } }),
+    ),
+    // 対象は存在しないトークン（舞台のトークンを壊さないため）
+    op("revokePersonalToken", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/tokens/${randomUUID()}`, { auth, extras })),
     op("removeMember", true, "workspace", (auth, t, extras) =>
       request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}`, { auth, extras }),
     ),
@@ -316,6 +322,25 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     inviteRaw,
     acceptInviteRaw,
+    async createPersonalToken(
+      s: Session,
+      workspaceIds: string[],
+      options: { scopes?: TokenScope[]; expiresAt?: Date } = {},
+    ): Promise<IssuedSecret> {
+      const res = ensure(
+        "個人トークンの発行",
+        await request("POST", `${ADMIN}/me/tokens`, {
+          auth: session(s),
+          body: { scopes: options.scopes ?? ["read", "write"], workspaceIds, expiresAt: options.expiresAt?.toISOString() },
+        }),
+      );
+      const { id, token } = JSON.parse(res.text) as { id?: unknown; token?: unknown };
+      if (typeof id !== "string" || typeof token !== "string") throw new SetupError("個人トークンの発行の応答の読み取り", res);
+      return { id, secret: token, response: res };
+    },
+    async revokePersonalToken(s: Session, tokenId: string): Promise<void> {
+      ensure("個人トークンの失効", await request("DELETE", `${ADMIN}/me/tokens/${tokenId}`, { auth: session(s) }));
+    },
     requestPasswordResetRaw(email: string, extras?: RequestExtras): Promise<HttpResponse> {
       return request("POST", `${ADMIN}/password-resets`, { body: { email }, extras });
     },

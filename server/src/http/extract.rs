@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 
 use super::AppState;
 use super::error::ApiError;
-use crate::auth::session;
+use crate::auth::{personal_tokens, session};
 
 /// セッションのCookieの名前。`__Host-` の接頭辞により、Secure・Path=/・Domainなしでしか設定できない（Q91）。
 pub const SESSION_COOKIE: &str = "__Host-cms_session";
@@ -54,9 +54,30 @@ pub struct AuthSession(pub session::Current);
 pub struct AuthSessionForMfaSetup(pub session::Current);
 
 async fn authenticate(parts: &mut Parts, state: &AppState) -> Result<session::Current, ApiError> {
-    // Bearerトークンの経路ではCookieを読まない（Q110）。個人トークンはまだ受け付けない。
-    if parts.headers.contains_key(header::AUTHORIZATION) {
-        return Err(ApiError::unauthenticated());
+    // Bearerトークンの経路ではCookieを読まない。Cookieの経路では必ずCSRFトークンを求める（Q110）
+    if let Some(value) = parts.headers.get(header::AUTHORIZATION) {
+        let presented = value
+            .to_str()
+            .ok()
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .map(str::trim)
+            .ok_or_else(ApiError::unauthenticated)?;
+        let current = personal_tokens::resolve(&state.pool, presented)
+            .await?
+            .ok_or_else(ApiError::unauthenticated)?;
+        let grant = current
+            .grant
+            .as_ref()
+            .expect("token sessions carry a grant");
+        // 状態を変える操作には write の範囲が要る（実際にできるかは、さらに本人のロールで決まる）
+        if !is_safe(&parts.method) && !grant.has_scope("write") {
+            return Err(ApiError::new(
+                axum::http::StatusCode::FORBIDDEN,
+                "insufficient_scope",
+                "This token is not allowed to make changes.",
+            ));
+        }
+        return Ok(current);
     }
     let presented = cookie(&parts.headers, SESSION_COOKIE).ok_or_else(ApiError::unauthenticated)?;
     let current = session::resolve(&state.pool, &presented, &state.config.session)
@@ -74,6 +95,19 @@ async fn authenticate(parts: &mut Parts, state: &AppState) -> Result<session::Cu
         }
     }
     Ok(current)
+}
+
+/// Cookieのセッション（管理画面）でだけ許す操作か確かめる。
+/// ログアウト・再認証・パスワードや多要素認証の変更・セッションやトークンの管理などは、個人トークンではできない。
+pub fn require_cookie_session(current: &session::Current) -> Result<(), ApiError> {
+    if current.via_token() {
+        return Err(ApiError::new(
+            axum::http::StatusCode::FORBIDDEN,
+            "session_required",
+            "This operation is only available from the admin screen, not with a personal token.",
+        ));
+    }
+    Ok(())
 }
 
 /// 多要素認証の設定を済ませるまで、他の操作をさせないか。

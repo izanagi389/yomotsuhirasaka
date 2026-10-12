@@ -267,7 +267,7 @@ async fn issue_reset(
                 return Err(ApiError::not_found());
             }
             // サーバー管理者として操作しているなら範囲の制限はない。ワークスペースの管理者には範囲がある（INV-AUTH-14）
-            if !current.is_server_admin
+            if !access::acts_as_server_admin(current)
                 && !access::reset_within_scope(&state.pool, current.user_id, target).await?
             {
                 return Err(ApiError::new(

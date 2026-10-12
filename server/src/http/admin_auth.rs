@@ -22,7 +22,7 @@ use super::AppState;
 use super::error::ApiError;
 use super::extract::{
     AuthSession, AuthSessionForMfaSetup, ClientIp, JsonBody, SESSION_COOKIE, check_origin, cookie,
-    mfa_setup_pending,
+    mfa_setup_pending, require_cookie_session,
 };
 use crate::audit;
 use crate::auth::{mfa, password, session, throttle, users};
@@ -267,6 +267,7 @@ pub async fn logout(
     State(state): State<AppState>,
     AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
 ) -> Result<Response, ApiError> {
+    require_cookie_session(&current)?;
     session::revoke(&state.pool, current.id).await?;
     let mut res = StatusCode::NO_CONTENT.into_response();
     res.headers_mut()
@@ -343,6 +344,7 @@ pub async fn reauth(
     AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
     JsonBody(req): JsonBody<ReauthRequest>,
 ) -> Result<StatusCode, ApiError> {
+    require_cookie_session(&current)?;
     let given = [
         req.password.is_some(),
         req.totp_code.is_some(),
@@ -388,6 +390,7 @@ pub async fn change_password(
     AuthSession(current): AuthSession,
     JsonBody(req): JsonBody<ChangePasswordRequest>,
 ) -> Result<StatusCode, ApiError> {
+    require_cookie_session(&current)?;
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }
@@ -424,6 +427,7 @@ pub async fn list_sessions(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
 ) -> Result<Json<Vec<session::Summary>>, ApiError> {
+    require_cookie_session(&current)?;
     Ok(Json(
         session::list_active(
             &state.pool,
@@ -440,6 +444,7 @@ pub async fn revoke_session(
     AuthSession(current): AuthSession,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    require_cookie_session(&current)?;
     let id = Uuid::parse_str(&id).map_err(|_| ApiError::not_found())?;
     if session::revoke_own(&state.pool, current.user_id, id).await? {
         Ok(StatusCode::NO_CONTENT)

@@ -21,6 +21,8 @@ pub mod action {
     pub const PASSWORD_RESET_COMPLETED: &str = "password_reset.completed";
     pub const MFA_RESET_ISSUED: &str = "mfa_reset.issued";
     pub const MFA_RESET_COMPLETED: &str = "mfa_reset.completed";
+    pub const PERSONAL_TOKEN_ISSUED: &str = "personal_token.issued";
+    pub const PERSONAL_TOKEN_REVOKED: &str = "personal_token.revoked";
 }
 
 /// 1件を記録する。`workspace_id` が None ならインスタンス全体の記録。
