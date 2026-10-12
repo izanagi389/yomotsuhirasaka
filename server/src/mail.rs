@@ -149,6 +149,7 @@ pub mod notify {
         PasswordChanged,
         MfaEnabled,
         MfaDisabled,
+        PersonalTokenIssued,
     }
 
     /// (件名, 起きたこと)
@@ -177,6 +178,14 @@ pub mod notify {
             (Event::MfaDisabled, Locale::Ja) => (
                 "多要素認証が解除されました",
                 "アカウントの多要素認証が解除されました。",
+            ),
+            (Event::PersonalTokenIssued, Locale::En) => (
+                "A personal access token was created",
+                "A personal access token (for the CLI) was created for your account.",
+            ),
+            (Event::PersonalTokenIssued, Locale::Ja) => (
+                "個人トークンが発行されました",
+                "アカウントに、CLI用の個人トークンが発行されました。",
             ),
         }
     }

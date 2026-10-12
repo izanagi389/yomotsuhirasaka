@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use super::AppState;
 use super::admin_auth::notify;
 use super::error::ApiError;
-use super::extract::{AuthSession, AuthSessionForMfaSetup, JsonBody};
+use super::extract::{AuthSession, AuthSessionForMfaSetup, JsonBody, require_cookie_session};
 use crate::auth::{mfa, session};
 use crate::mail::notify::Event;
 
@@ -58,6 +58,7 @@ pub async fn begin_totp(
     State(state): State<AppState>,
     AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
 ) -> Result<Json<TotpSetup>, ApiError> {
+    require_cookie_session(&current)?;
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }
@@ -90,6 +91,7 @@ pub async fn confirm_totp(
     AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
     JsonBody(req): JsonBody<ConfirmRequest>,
 ) -> Result<Json<RecoveryCodes>, ApiError> {
+    require_cookie_session(&current)?;
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }
@@ -119,6 +121,7 @@ pub async fn disable_totp(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
 ) -> Result<StatusCode, ApiError> {
+    require_cookie_session(&current)?;
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }
@@ -137,6 +140,7 @@ pub async fn regenerate_recovery_codes(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
 ) -> Result<Json<RecoveryCodes>, ApiError> {
+    require_cookie_session(&current)?;
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }

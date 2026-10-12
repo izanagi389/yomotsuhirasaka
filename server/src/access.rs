@@ -94,6 +94,12 @@ async fn workspace_exists(pool: &PgPool, workspace_id: Uuid) -> Result<bool> {
     )
 }
 
+/// サーバー管理者として、所属していないワークスペースも操作できるか。
+/// 個人トークンでは、サーバー管理者でもこの立場は取れない（トークンの権限は、本人の所属とロールの範囲だけ。Q119）。
+pub fn acts_as_server_admin(current: &Current) -> bool {
+    current.is_server_admin && !current.via_token()
+}
+
 /// 所属者（どのロールでも）かサーバー管理者なら通す。
 pub async fn member(
     pool: &PgPool,
@@ -103,14 +109,20 @@ pub async fn member(
     if !workspace_exists(pool, workspace_id).await? {
         return Ok(Err(Denied::NotFound));
     }
+    // 個人トークンは、発行時に選んだワークスペースでだけ使える（INV-AUTH-09）
+    if let Some(grant) = &current.grant
+        && !grant.workspaces.contains(&workspace_id)
+    {
+        return Ok(Err(Denied::NotFound));
+    }
     let role = role_in(pool, workspace_id, current.user_id).await?;
-    if role.is_none() && !current.is_server_admin {
+    if role.is_none() && !acts_as_server_admin(current) {
         return Ok(Err(Denied::NotFound));
     }
     Ok(Ok(Access {
         workspace_id,
         role,
-        server_admin: current.is_server_admin && role.is_none(),
+        server_admin: acts_as_server_admin(current) && role.is_none(),
     }))
 }
 
@@ -124,7 +136,7 @@ pub async fn workspace_admin(
         Ok(a) => a,
         Err(d) => return Ok(Err(d)),
     };
-    if access.role != Some(Role::Admin) && !current.is_server_admin {
+    if access.role != Some(Role::Admin) && !acts_as_server_admin(current) {
         return Ok(Err(Denied::Forbidden));
     }
     if !current.mfa_enabled {
@@ -144,7 +156,7 @@ pub async fn member_list_viewer(
         Ok(a) => a,
         Err(d) => return Ok(Err(d)),
     };
-    if access.role == Some(Role::Admin) || current.is_server_admin {
+    if access.role == Some(Role::Admin) || acts_as_server_admin(current) {
         if !current.mfa_enabled {
             return Ok(Err(Denied::MfaRequired));
         }
@@ -183,7 +195,8 @@ pub async fn reset_within_scope(pool: &PgPool, issuer: Uuid, target: Uuid) -> Re
 
 /// サーバー管理者で、多要素認証を設定していれば通す。
 pub fn server_admin(current: &Current) -> Result<(), Denied> {
-    if !current.is_server_admin {
+    // インスタンス全体の操作は、個人トークンではできない（デプロイの範囲は、デプロイの機能とともに扱う）
+    if !acts_as_server_admin(current) {
         return Err(Denied::Forbidden);
     }
     if !current.mfa_enabled {

@@ -69,11 +69,15 @@ pub async fn list_workspaces(
         "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role
          FROM cms.workspaces w
          LEFT JOIN cms.memberships m ON m.workspace_id = w.id AND m.user_id = $1
-         WHERE m.user_id IS NOT NULL OR $2
+         WHERE (m.user_id IS NOT NULL OR $2)
+           AND ($3::uuid[] IS NULL OR w.id = ANY ($3))
          ORDER BY w.created_at, w.id"
     ))
     .bind(current.user_id)
-    .bind(current.is_server_admin)
+    // サーバー管理者として全体を見るのは、Cookieのセッションのときだけ
+    .bind(access::acts_as_server_admin(&current))
+    // 個人トークンなら、選んだワークスペースだけ
+    .bind(current.grant.as_ref().map(|g| g.workspaces.clone()))
     .fetch_all(&state.pool)
     .await
     .map_err(anyhow::Error::from)?;

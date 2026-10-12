@@ -35,14 +35,58 @@ pub struct Current {
     pub mfa_enabled: bool,
     /// 本人が設定した言語（未設定なら None。Q198）。
     pub locale: Option<crate::locale::Locale>,
-    /// 最後の本人確認（ログインか再認証）から、再認証が有効な時間内か。
+    /// 最後の本人確認（ログインか再認証）から、再認証が有効な時間内か。個人トークンでは常に false。
     pub reauth_fresh: bool,
+    /// 個人トークンで認証したときの、トークンの範囲（Cookieのセッションなら None）。
+    pub grant: Option<TokenGrant>,
     csrf_hash: Vec<u8>,
+}
+
+/// 個人トークンの範囲。
+#[derive(Debug, Clone)]
+pub struct TokenGrant {
+    pub token_id: Uuid,
+    pub scopes: Vec<String>,
+    pub workspaces: Vec<Uuid>,
+}
+
+impl TokenGrant {
+    pub fn has_scope(&self, scope: &str) -> bool {
+        self.scopes.iter().any(|s| s == scope)
+    }
 }
 
 impl Current {
     pub fn csrf_matches(&self, presented: &str) -> bool {
-        token::matches(presented, &self.csrf_hash)
+        // 個人トークンにはCSRFトークンがない（Bearerの経路ではCSRFを確かめない）
+        !self.csrf_hash.is_empty() && token::matches(presented, &self.csrf_hash)
+    }
+
+    /// 個人トークンで認証したときの立場を作る。`id` はトークンのID。
+    pub fn from_token(
+        user_id: Uuid,
+        email: String,
+        is_server_admin: bool,
+        mfa_enabled: bool,
+        locale: Option<crate::locale::Locale>,
+        grant: TokenGrant,
+    ) -> Self {
+        Self {
+            id: grant.token_id,
+            user_id,
+            email,
+            is_server_admin,
+            mfa_enabled,
+            locale,
+            reauth_fresh: false,
+            grant: Some(grant),
+            csrf_hash: Vec::new(),
+        }
+    }
+
+    /// 個人トークンで認証しているか。
+    pub fn via_token(&self) -> bool {
+        self.grant.is_some()
     }
 }
 
@@ -155,6 +199,7 @@ pub async fn resolve(
         mfa_enabled,
         locale: locale.and_then(|l| l.parse().ok()),
         reauth_fresh,
+        grant: None,
         csrf_hash,
     }))
 }

@@ -4,6 +4,7 @@ pub mod admin_auth;
 pub mod admin_invitations;
 pub mod admin_mfa;
 pub mod admin_resets;
+pub mod admin_tokens;
 pub mod admin_workspaces;
 pub mod error;
 pub mod extract;
@@ -122,6 +123,26 @@ async fn security_headers(mut res: Response) -> Response {
     res
 }
 
+/// URLのクエリに配信APIのキーや個人トークンらしい値があれば、処理せずに拒否する（INV-AUTH-11）。
+/// ヘッダーにも正しく付いていても拒否する（URLに載った時点で、ログなどに漏れたものとして扱う）。
+async fn reject_credentials_in_url(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if req
+        .uri()
+        .query()
+        .is_some_and(crate::auth::personal_tokens::credential_in_query)
+    {
+        return axum::response::IntoResponse::into_response(ApiError::new(
+            axum::http::StatusCode::UNAUTHORIZED,
+            "credential_in_url",
+            "Send keys and tokens in the Authorization header, not in the URL. Revoke the one you sent.",
+        ));
+    }
+    next.run(req).await
+}
+
 async fn not_found() -> ApiError {
     ApiError::not_found()
 }
@@ -207,12 +228,18 @@ pub fn router(state: AppState) -> Router {
             "/users/{user}/mfa-reset",
             post(admin_resets::issue_mfa_reset),
         )
+        .route(
+            "/me/tokens",
+            get(admin_tokens::list).post(admin_tokens::create),
+        )
+        .route("/me/tokens/{id}", delete(admin_tokens::revoke))
         .fallback(not_found);
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .nest("/api/admin", admin)
         .fallback(not_found)
         .with_state(state)
+        .layer(axum::middleware::from_fn(reject_credentials_in_url))
         .layer(axum::middleware::map_response(security_headers))
 }
 

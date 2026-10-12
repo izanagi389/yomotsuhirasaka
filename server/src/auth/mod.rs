@@ -2,6 +2,7 @@
 
 pub mod mfa;
 pub mod password;
+pub mod personal_tokens;
 pub mod session;
 pub mod throttle;
 pub mod token;
