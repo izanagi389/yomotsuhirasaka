@@ -4,7 +4,8 @@
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
 
 import { randomUUID } from "node:crypto";
-import type { AdminOperation, Auth, CmsClient, Credentials, LoginOptions, OperationTarget, RequestExtras, Session, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, Auth, CmsClient, Credentials, LoginOptions, Member, OperationTarget, RequestExtras, Session, WorkspaceRole } from "./driver.js";
+import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
 import { totp } from "./totp.js";
 
@@ -212,10 +213,54 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("changeMemberRole", true, "workspace", (auth, t, extras) =>
       request("PATCH", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}`, { auth, extras, body: { role: "editor" } }),
     ),
+    op("inviteMember", true, "workspace", (auth, t, extras) =>
+      request("POST", `${ADMIN}/workspaces/${t.workspaceId}/invitations`, {
+        auth,
+        extras,
+        body: { email: `inv-op-${randomUUID().slice(0, 12)}@inv.test`, role: "viewer" },
+      }),
+    ),
+    op("listInvitations", false, "workspace", (auth, t, extras) =>
+      request("GET", `${ADMIN}/workspaces/${t.workspaceId}/invitations`, { auth, extras }),
+    ),
+    // 対象は存在しない招待（舞台の招待を壊さないため）
+    op("revokeInvitation", true, "workspace", (auth, t, extras) =>
+      request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/invitations/${randomUUID()}`, { auth, extras }),
+    ),
+    // トークンは誤った値にする
+    op("acceptInvitation", true, "self", (auth, _t, extras) =>
+      request("POST", `${ADMIN}/me/invitations/accept`, { auth, extras, body: { token: `wrong-${randomUUID()}` } }),
+    ),
     op("removeMember", true, "workspace", (auth, t, extras) =>
       request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}`, { auth, extras }),
     ),
   ];
+
+  function inviteRaw(adminSession: Session, workspaceId: string, email: string, role: WorkspaceRole): Promise<HttpResponse> {
+    return request("POST", `${ADMIN}/workspaces/${workspaceId}/invitations`, { auth: session(adminSession), body: { email, role } });
+  }
+
+  function acceptInviteRaw(token: string, as: { newPassword: string } | { session: Session }): Promise<HttpResponse> {
+    if ("session" in as) {
+      return request("POST", `${ADMIN}/me/invitations/accept`, { auth: session(as.session), body: { token } });
+    }
+    return request("POST", `${ADMIN}/invitations/accept`, { body: { token, newPassword: as.newPassword } });
+  }
+
+  /** 招待し、トークンを受け取る。SMTPがなければ応答のリンクから、あればメールから取り出す。 */
+  async function inviteAndGetToken(adminSession: Session, workspaceId: string, email: string, role: WorkspaceRole): Promise<string> {
+    // メールで届く場合に備え、招待の前に届いているメールを覚えておく（メールの受け口がない環境では null）
+    const seen = await mailCursor(email).catch(() => null);
+    const res = ensure("招待", await inviteRaw(adminSession, workspaceId, email, role));
+    const { inviteUrl } = JSON.parse(res.text) as { inviteUrl?: unknown };
+    if (typeof inviteUrl === "string") {
+      const token = new URL(inviteUrl).hash.match(/token=([^&]+)/)?.[1];
+      if (!token) throw new SetupError("招待のリンクの読み取り", res);
+      return token;
+    }
+    if (seen === null) throw new SetupError("招待のメールの受け取り（メールの受け口が使えない）", res);
+    return waitForToken(email, seen, "invite");
+  }
 
   const implemented = {
     baseUrl: base,
@@ -260,6 +305,27 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     async removeMember(s: Session, workspaceId: string, userId: string): Promise<void> {
       ensure("所属から外す", await request("DELETE", `${ADMIN}/workspaces/${workspaceId}/members/${userId}`, { auth: session(s) }));
+    },
+    inviteRaw,
+    acceptInviteRaw,
+    async createMember(adminSession: Session, workspaceId: string, role: WorkspaceRole, options: { mfa?: boolean; email?: string } = {}): Promise<Member> {
+      const email = options.email ?? `member-${randomUUID().slice(0, 12)}@inv.test`;
+      const token = await inviteAndGetToken(adminSession, workspaceId, email, role);
+      const password = `inv-${randomUUID()}`;
+      const accepted = ensure("招待の承諾", await acceptInviteRaw(token, { newPassword: password }));
+      const { userId } = JSON.parse(accepted.text) as { userId?: unknown };
+      if (typeof userId !== "string") throw new SetupError("招待の承諾の応答の読み取り", accepted);
+      const member: Member = { email, password, userId };
+      if (options.mfa ?? role === "admin") {
+        const session = await login(member);
+        member.totpSecret = await implemented.enrollTotp(session, member);
+      }
+      return member;
+    },
+    async addExistingMember(adminSession: Session, workspaceId: string, member: Member, role: WorkspaceRole): Promise<void> {
+      const token = await inviteAndGetToken(adminSession, workspaceId, member.email, role);
+      const session = await login(member);
+      ensure("既存の利用者による招待の承諾", await acceptInviteRaw(token, { session }));
     },
     async enrollTotp(s: Session, creds: Credentials): Promise<string> {
       await reauthenticate(s, creds);

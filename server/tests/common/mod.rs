@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 pub mod server;
+pub mod smtp;
 
 use cms_server::config::DatabaseConfig;
 use cms_server::db;

@@ -133,6 +133,38 @@ pub async fn workspace_admin(
     Ok(Ok(access))
 }
 
+/// 所属者の一覧を見られる人なら通す（Q190）。
+/// 管理者とサーバー管理者は管理操作として多要素認証を求める。閲覧の権限を与えられた所属者はそのまま通す。
+pub async fn member_list_viewer(
+    pool: &PgPool,
+    current: &Current,
+    workspace_id: Uuid,
+) -> Result<Result<Access, Denied>> {
+    let access = match member(pool, current, workspace_id).await? {
+        Ok(a) => a,
+        Err(d) => return Ok(Err(d)),
+    };
+    if access.role == Some(Role::Admin) || current.is_server_admin {
+        if !current.mfa_enabled {
+            return Ok(Err(Denied::MfaRequired));
+        }
+        return Ok(Ok(access));
+    }
+    let granted: bool = sqlx::query_scalar(
+        "SELECT can_view_members FROM cms.memberships WHERE workspace_id = $1 AND user_id = $2",
+    )
+    .bind(workspace_id)
+    .bind(current.user_id)
+    .fetch_optional(pool)
+    .await?
+    .unwrap_or(false);
+    if granted {
+        Ok(Ok(access))
+    } else {
+        Ok(Err(Denied::Forbidden))
+    }
+}
+
 /// サーバー管理者で、多要素認証を設定していれば通す。
 pub fn server_admin(current: &Current) -> Result<(), Denied> {
     if !current.is_server_admin {

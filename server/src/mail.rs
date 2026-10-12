@@ -191,6 +191,29 @@ pub mod notify {
     }
 }
 
+/// 招待のメール。リンクにはトークンが入るので、ジョブの中身は暗号化して保存される。
+pub fn invitation(
+    to: &str,
+    site: &str,
+    workspace_name: &str,
+    link: &str,
+    expires_at: &str,
+) -> Mail {
+    Mail {
+        to: to.to_owned(),
+        subject: format!("[{site}] Invitation to {workspace_name} / {workspace_name} への招待"),
+        body: format!(
+            "You have been invited to the workspace \"{workspace_name}\". Open the link below to accept.\n\
+             ワークスペース「{workspace_name}」に招待されました。次のリンクを開いて承諾してください。\n\n\
+             {link}\n\n\
+             This link can be used once and expires at {expires_at} (UTC).\n\
+             このリンクは一度だけ使え、{expires_at}（UTC）に期限が切れます。\n\n\
+             If you were not expecting this, you can ignore this email.\n\
+             心当たりがない場合は、このメールを無視してください。\n"
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

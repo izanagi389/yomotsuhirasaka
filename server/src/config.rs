@@ -83,6 +83,8 @@ pub struct SessionConfig {
     pub idle_timeout_seconds: u32,
     /// 再認証が有効な時間。重い操作は、最後の本人確認からこの時間内にだけ行える。
     pub reauth_window_seconds: u32,
+    /// リセット・招待のリンクの有効期限（Q104）。
+    pub one_time_token_lifetime_seconds: u32,
 }
 
 impl Default for SessionConfig {
@@ -91,6 +93,7 @@ impl Default for SessionConfig {
             absolute_lifetime_seconds: 12 * 60 * 60,
             idle_timeout_seconds: 2 * 60 * 60,
             reauth_window_seconds: 10 * 60,
+            one_time_token_lifetime_seconds: 30 * 60,
         }
     }
 }

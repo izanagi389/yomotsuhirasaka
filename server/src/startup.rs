@@ -154,6 +154,10 @@ pub fn check_config(config: &Config) -> Report {
             config.session.reauth_window_seconds,
         ),
         (
+            "session.one_time_token_lifetime_seconds",
+            config.session.one_time_token_lifetime_seconds,
+        ),
+        (
             "limits.login_attempts_per_ip_per_minute",
             config.limits.login_attempts_per_ip_per_minute,
         ),
