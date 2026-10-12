@@ -14,7 +14,7 @@
 import type { HttpResponse } from "./http.js";
 import type { TiptapDoc, TiptapNode } from "./body.js";
 import type { TemplateSpec } from "./template.js";
-import { SECRET_SETTING_NAMES, startServerProcess, validServerConfigFromEnv } from "./server-process.js";
+import { SECRET_SETTING_NAMES, runServerCli, startServerProcess, validServerConfigFromEnv } from "./server-process.js";
 import { connectAdmin } from "./admin-client.js";
 
 export class NotImplementedError extends Error {
@@ -551,8 +551,8 @@ export const driver = {
   },
 
   /** 緊急停止: すべてのセッションと個人トークンを失効させる（サーバー上のCLI）。 */
-  emergencyRevokeAllSessions(_config: ServerConfig): Promise<CliResult> {
-    return todo("emergencyRevokeAllSessions");
+  emergencyRevokeAllSessions(config: ServerConfig): Promise<CliResult> {
+    return runServerCli(config, ["revoke-all-sessions", "--yes"]);
   },
 
   /** 暗号化の鍵を入れ替える（サーバー上のCLIで新しい鍵を加えて再暗号化し、古い鍵を外した設定を返す）。 */

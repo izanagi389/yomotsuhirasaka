@@ -6,6 +6,7 @@ pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod db;
+pub mod emergency;
 pub mod geoip;
 pub mod http;
 pub mod invitations;

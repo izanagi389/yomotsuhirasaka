@@ -25,6 +25,10 @@ pub mod action {
     pub const PERSONAL_TOKEN_REVOKED: &str = "personal_token.revoked";
     pub const API_KEY_ISSUED: &str = "api_key.issued";
     pub const API_KEY_REVOKED: &str = "api_key.revoked";
+    /// 緊急停止: すべてのセッションと個人トークンの一斉失効（サーバー上のCLI）。
+    pub const EMERGENCY_SESSIONS_REVOKED: &str = "emergency.sessions_revoked";
+    /// 緊急停止: 配信APIのキーの入れ替え（サーバー上のCLI）。
+    pub const API_KEYS_ROTATED: &str = "api_key.rotated";
 }
 
 /// 1件を記録する。`workspace_id` が None ならインスタンス全体の記録。
