@@ -165,6 +165,22 @@ pub async fn member_list_viewer(
     }
 }
 
+/// ワークスペースの管理者が、利用者のリセットを発行できるか（Q117、INV-AUTH-14）。
+/// 対象が所属するすべてのワークスペースで、発行する人が管理者であれば true。
+pub async fn reset_within_scope(pool: &PgPool, issuer: Uuid, target: Uuid) -> Result<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT NOT EXISTS (
+             SELECT 1 FROM cms.memberships t
+             WHERE t.user_id = $2
+               AND NOT EXISTS (SELECT 1 FROM cms.memberships c
+                               WHERE c.workspace_id = t.workspace_id AND c.user_id = $1 AND c.role = 'admin'))",
+    )
+    .bind(issuer)
+    .bind(target)
+    .fetch_one(pool)
+    .await?)
+}
+
 /// サーバー管理者で、多要素認証を設定していれば通す。
 pub fn server_admin(current: &Current) -> Result<(), Denied> {
     if !current.is_server_admin {

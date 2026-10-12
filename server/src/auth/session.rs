@@ -217,6 +217,17 @@ pub async fn revoke_others<'e>(
     Ok(())
 }
 
+/// 利用者のセッションをすべて失効させる（リセットの完了、緊急停止など）。
+pub async fn revoke_all<'e>(executor: impl PgExecutor<'e>, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE cms.sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 /// 本人のログイン中のセッションの一覧に出す情報。
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
