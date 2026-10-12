@@ -75,6 +75,30 @@ enum Command {
         #[arg(long)]
         email: String,
     },
+    /// Emergency stop: revoke every session and every personal access token of all users.
+    ///
+    /// Everyone has to sign in again. Run this when sessions or tokens may have leaked.
+    RevokeAllSessions {
+        #[arg(long)]
+        config: PathBuf,
+        /// Confirm the operation (required).
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Emergency stop: replace the secret of every active delivery API key.
+    ///
+    /// The old values stop working immediately. The new values are printed once, one key per line
+    /// (workspace id, key id, name, new key), tab-separated. Update the sites that use them.
+    RotateApiKeys {
+        #[arg(long)]
+        config: PathBuf,
+        /// Only the keys of this workspace.
+        #[arg(long)]
+        workspace: Option<Uuid>,
+        /// Confirm the operation (required).
+        #[arg(long)]
+        yes: bool,
+    },
     /// Create a server administrator account.
     ///
     /// By default a strong password is generated and printed once.
@@ -131,6 +155,12 @@ fn main() -> ExitCode {
             password_stdin,
         } => reset_password_main(&config, &email, password_stdin),
         Command::ResetMfa { config, email } => reset_mfa_main(&config, &email),
+        Command::RevokeAllSessions { config, yes } => revoke_all_sessions_main(&config, yes),
+        Command::RotateApiKeys {
+            config,
+            workspace,
+            yes,
+        } => rotate_api_keys_main(&config, workspace, yes),
     }
 }
 
@@ -426,6 +456,66 @@ fn reset_mfa_main(config_path: &Path, email: &str) -> ExitCode {
             Ok(())
         },
     )
+}
+
+/// 取り消せない（全員に影響する）操作の確認。`--yes` がなければ説明して止める。
+fn confirmed(yes: bool, what: &str) -> bool {
+    if !yes {
+        eprintln!("error: this will {what}. Run again with --yes to confirm.");
+    }
+    yes
+}
+
+fn revoke_all_sessions_main(config_path: &Path, yes: bool) -> ExitCode {
+    if !confirmed(
+        yes,
+        "sign out every user and revoke every personal access token",
+    ) {
+        return ExitCode::FAILURE;
+    }
+    with_checked_config(config_path, "cannot revoke sessions", |config| async move {
+        let (pool, migration, _) = prepare_database(&config).await?;
+        migration.close().await;
+        let revoked = cms_server::emergency::revoke_all_sessions_and_tokens(&pool).await?;
+        println!(
+            "Revoked {} sessions and {} personal access tokens. Everyone has to sign in again.",
+            revoked.sessions, revoked.personal_tokens
+        );
+        Ok(())
+    })
+}
+
+fn rotate_api_keys_main(config_path: &Path, workspace: Option<Uuid>, yes: bool) -> ExitCode {
+    if !confirmed(
+        yes,
+        "replace every active delivery API key; the old values stop working immediately",
+    ) {
+        return ExitCode::FAILURE;
+    }
+    with_checked_config(config_path, "cannot rotate API keys", |config| async move {
+        let (pool, migration, _) = prepare_database(&config).await?;
+        migration.close().await;
+        let rotated = cms_server::emergency::rotate_api_keys(&pool, workspace).await?;
+        eprintln!(
+            "Rotated {} delivery API keys. The new values are shown only now:",
+            rotated.len()
+        );
+        let mut out = std::io::stdout().lock();
+        for k in &rotated {
+            // 名前に区切りの文字があっても列がずれないようにする
+            let name: String = k
+                .name
+                .chars()
+                .map(|c| if c.is_control() { ' ' } else { c })
+                .collect();
+            writeln!(
+                out,
+                "{}\t{}\t{}\t{}",
+                k.workspace_id, k.key_id, name, k.secret
+            )?;
+        }
+        Ok(())
+    })
 }
 
 /// 共通のスキーマの移行と権限の付与を行い、(普段用のプール, 移行用のプール, 普段用のロール) を返す。

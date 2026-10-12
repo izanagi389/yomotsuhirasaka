@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CmsClient, ServerConfig, StartedServer } from "./driver.js";
+import type { CliResult, CmsClient, ServerConfig, StartedServer } from "./driver.js";
 
 function requiredEnv(name: string): string {
   const v = process.env[name];
@@ -170,4 +170,33 @@ export async function startServerProcess(config: ServerConfig, connect: (baseUrl
       rmSync(dir, { recursive: true, force: true });
     },
   };
+}
+
+/** サーバーのバイナリのサブコマンド（緊急停止などのCLI）を、設定ファイルを書き出して実行する。 */
+export async function runServerCli(config: ServerConfig, args: string[], timeoutMs = 120_000): Promise<CliResult> {
+  const bin = requiredEnv("CMS_TEST_SERVER_BIN");
+  const dir = mkdtempSync(join(tmpdir(), "cms-cli-"));
+  const configPath = join(dir, "config.toml");
+  // CLIは待ち受けないが、設定ファイルには必要
+  writeFileSync(configPath, renderConfig(config, "127.0.0.1:0"), { mode: 0o600 });
+  try {
+    const child = spawn(bin, [...args, "--config", configPath], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    child.stdout.on("data", (c: Buffer) => (output += c.toString("utf8")));
+    child.stderr.on("data", (c: Buffer) => (output += c.toString("utf8")));
+    const exitCode = await new Promise<number>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error(`CLI（${args.join(" ")}）が ${timeoutMs}ms 以内に終わらなかった:\n${output}`));
+      }, timeoutMs);
+      child.on("error", reject);
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        resolve(code ?? -1);
+      });
+    });
+    return { exitCode, output };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
