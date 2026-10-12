@@ -2,16 +2,16 @@
 //!
 //! - `cms-server init`: 秘密の値と暗号化の鍵を生成し、設定ファイルと鍵のファイルを書き出す（Q172）
 //! - `cms-server serve`: 起動時の検査を行い、通ればHTTPの受け付けを始める
+//! - `cms-server create-server-admin`: サーバー管理者を作る（サーバー上でだけ行える。Q100）
 
-use cms_server::{config, db, keys, migrate, startup};
+use cms_server::{auth, config, db, http, keys, migrate, startup};
 
-use std::io::Write as _;
+use std::io::{BufRead as _, Write as _};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use axum::Router;
-use axum::routing::get;
 use base64::Engine as _;
 use clap::{Parser, Subcommand};
 
@@ -52,6 +52,19 @@ enum Command {
         #[arg(long)]
         config: PathBuf,
     },
+    /// Create a server administrator account.
+    ///
+    /// By default a strong password is generated and printed once.
+    /// With --password-stdin, the password is read from the first line of standard input.
+    CreateServerAdmin {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        email: String,
+        /// Read the password from standard input instead of generating one.
+        #[arg(long)]
+        password_stdin: bool,
+    },
 }
 
 /// 起動時の検査に通らなかったときの終了コード。
@@ -84,6 +97,11 @@ fn main() -> ExitCode {
             }
         }
         Command::Serve { config } => serve_main(&config),
+        Command::CreateServerAdmin {
+            config,
+            email,
+            password_stdin,
+        } => create_server_admin_main(&config, &email, password_stdin),
     }
 }
 
@@ -135,6 +153,9 @@ fn init(
             url: migration_database_url,
             password: random_secret(),
         },
+        trusted_proxies: Vec::new(),
+        session: config::SessionConfig::default(),
+        limits: config::LimitsConfig::default(),
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,
@@ -160,7 +181,12 @@ fn init(
     Ok(())
 }
 
-fn serve_main(config_path: &Path) -> ExitCode {
+/// 設定を読み、起動時の検査を通ったら `body` を実行する。
+fn with_checked_config<F, Fut>(config_path: &Path, what: &str, body: F) -> ExitCode
+where
+    F: FnOnce(Config) -> Fut,
+    Fut: std::future::Future<Output = Result<()>>,
+{
     let config = match Config::load(config_path) {
         Ok(c) => c,
         Err(e) => {
@@ -183,14 +209,56 @@ fn serve_main(config_path: &Path) -> ExitCode {
         if !run_startup_checks(&config).await {
             return ExitCode::from(EXIT_CONFIG);
         }
-        match serve(&config).await {
+        match body(config).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                tracing::error!("server stopped: {e:#}");
+                tracing::error!("{what}: {e:#}");
                 ExitCode::FAILURE
             }
         }
     })
+}
+
+fn serve_main(config_path: &Path) -> ExitCode {
+    with_checked_config(config_path, "server stopped", |config| async move {
+        serve(config).await
+    })
+}
+
+fn create_server_admin_main(config_path: &Path, email: &str, password_stdin: bool) -> ExitCode {
+    let Some(email) = auth::users::normalize_email(email) else {
+        eprintln!("error: invalid email address");
+        return ExitCode::FAILURE;
+    };
+    let (password, generated) = if password_stdin {
+        let mut line = String::new();
+        if let Err(e) = std::io::stdin().lock().read_line(&mut line) {
+            eprintln!("error: cannot read password from stdin: {e}");
+            return ExitCode::FAILURE;
+        }
+        (line.trim_end_matches(['\r', '\n']).to_owned(), false)
+    } else {
+        (random_secret(), true)
+    };
+    if let Err(weakness) = auth::password::check_policy(&password) {
+        eprintln!("error: {}", weakness.message());
+        return ExitCode::FAILURE;
+    }
+    with_checked_config(
+        config_path,
+        "cannot create server administrator",
+        |config| async move {
+            let pool = prepare_database(&config).await?;
+            let hash = auth::password::hash(password.clone()).await?;
+            let id = auth::users::create(&pool, &email, &hash, true).await?;
+            println!("Created server administrator {email} (id {id}).");
+            if generated {
+                println!("Password (shown only once): {password}");
+            }
+            println!("Set up multi-factor authentication after the first login.");
+            Ok(())
+        },
+    )
 }
 
 fn init_logging(level: &str) {
@@ -224,18 +292,9 @@ async fn run_startup_checks(config: &Config) -> bool {
     false
 }
 
-async fn serve(config: &Config) -> Result<()> {
-    let key_path = config
-        .encryption_key_file
-        .as_deref()
-        .context("encryption_key_file is not set")?;
-    let ring = keys::KeyRing::load(key_path)?;
-    tracing::info!(
-        "encryption key loaded (active version v{})",
-        ring.active_version()
-    );
-
-    // 共通のスキーマの移行と権限の付与（移行・ロールの作成用の接続で行う。Q173）
+/// 共通のスキーマの移行と権限の付与を行い、普段用の接続のプールを返す。
+/// 移行と付与は、移行・ロールの作成用の接続で行う（Q173）。
+async fn prepare_database(config: &Config) -> Result<sqlx::PgPool> {
     let migration_pool = db::migration_pool(&config.migration_database)
         .await
         .context("cannot connect with migration_database")?;
@@ -248,15 +307,35 @@ async fn serve(config: &Config) -> Result<()> {
         tracing::info!("applied migrations: {applied:?}");
     }
     migrate::apply_grants(&migration_pool, &app_role).await?;
+    migration_pool.close().await;
+    Ok(app_pool)
+}
 
-    let app = Router::new().route("/healthz", get(|| async { "ok" }));
-    let listener = tokio::net::TcpListener::bind(&config.listen)
+async fn serve(config: Config) -> Result<()> {
+    let key_path = config
+        .encryption_key_file
+        .as_deref()
+        .context("encryption_key_file is not set")?;
+    let ring = keys::KeyRing::load(key_path)?;
+    tracing::info!(
+        "encryption key loaded (active version v{})",
+        ring.active_version()
+    );
+
+    let app_pool = prepare_database(&config).await?;
+    auth::password::warm_up();
+    let listen = config.listen.clone();
+    let app = http::router(http::AppState::new(app_pool, config));
+    let listener = tokio::net::TcpListener::bind(&listen)
         .await
-        .with_context(|| format!("cannot listen on {}", config.listen))?;
+        .with_context(|| format!("cannot listen on {listen}"))?;
     tracing::info!("ready: listening on {}", listener.local_addr()?);
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
     Ok(())
 }
 

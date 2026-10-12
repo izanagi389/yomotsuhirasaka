@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use sqlx::postgres::{PgConnectOptions, PgConnection};
-use sqlx::{ConnectOptions, Connection};
+use sqlx::{ConnectOptions as _, Connection as _};
 
 use crate::config::{Config, DatabaseConfig};
 use crate::keys::KeyRing;
@@ -140,6 +140,30 @@ pub fn check_config(config: &Config) -> Report {
             "`public_url` must use https (run behind an HTTPS reverse proxy)",
         ));
     }
+    for (name, value) in [
+        (
+            "session.absolute_lifetime_seconds",
+            config.session.absolute_lifetime_seconds,
+        ),
+        (
+            "session.idle_timeout_seconds",
+            config.session.idle_timeout_seconds,
+        ),
+        (
+            "session.reauth_window_seconds",
+            config.session.reauth_window_seconds,
+        ),
+        (
+            "limits.login_attempts_per_ip_per_minute",
+            config.limits.login_attempts_per_ip_per_minute,
+        ),
+    ] {
+        if value == 0 {
+            report
+                .problems
+                .push(Problem::fatal(format!("`{name}` must be greater than 0")));
+        }
+    }
     match &config.encryption_key_file {
         None => report
             .problems
@@ -167,13 +191,6 @@ fn url_has_password(url: &str) -> bool {
     }
 }
 
-fn connect_options(db: &DatabaseConfig) -> Result<PgConnectOptions, sqlx::Error> {
-    let options: PgConnectOptions = db.url.parse()?;
-    Ok(options
-        .password(&db.password)
-        .log_statements(tracing::log::LevelFilter::Off))
-}
-
 /// 接続したロールの属性。
 #[derive(Debug)]
 pub struct RoleInfo {
@@ -183,7 +200,7 @@ pub struct RoleInfo {
 }
 
 pub async fn inspect_connection(db: &DatabaseConfig) -> Result<RoleInfo, sqlx::Error> {
-    let options = connect_options(db)?;
+    let options = crate::db::connect_options(db)?;
     let mut conn: PgConnection = tokio::time::timeout(Duration::from_secs(15), options.connect())
         .await
         .map_err(|_| sqlx::Error::PoolTimedOut)??;

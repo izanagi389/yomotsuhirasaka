@@ -10,8 +10,14 @@ use sqlx::PgPool;
 use crate::db::Ident;
 
 /// 埋め込んだ移行（バージョン, 名前, SQL）。バージョンの昇順に並べる。
-pub const MIGRATIONS: &[(i32, &str, &str)] =
-    &[(1, "init", include_str!("../migrations/0001_init.sql"))];
+pub const MIGRATIONS: &[(i32, &str, &str)] = &[
+    (1, "init", include_str!("../migrations/0001_init.sql")),
+    (
+        2,
+        "users_sessions",
+        include_str!("../migrations/0002_users_sessions.sql"),
+    ),
+];
 
 /// 共通のスキーマの名前。
 pub const SHARED_SCHEMA: &str = "cms";
@@ -22,6 +28,8 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("schema_migrations", "SELECT"),
     ("workspaces", "SELECT"),
     ("audit_log", "SELECT, INSERT"),
+    ("users", "SELECT, INSERT, UPDATE"),
+    ("sessions", "SELECT, INSERT, UPDATE"),
 ];
 
 /// 移行の排他に使う、アドバイザリーロックのキー（任意の固定値）。

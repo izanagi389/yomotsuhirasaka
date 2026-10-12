@@ -3,6 +3,7 @@
 //! 秘密の値（DBのパスワード）は専用の項目に書き、接続先のURLには含めない。
 //! 起動時の検査（`startup`）が、秘密の値を個別に確かめられるようにするため（Q168）。
 
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -29,6 +30,54 @@ pub struct Config {
     pub database: DatabaseConfig,
     /// 移行とワークスペースのDBロールの作成に使う接続（Q173, Q179）。
     pub migration_database: DatabaseConfig,
+    /// `X-Forwarded-For` を信頼するプロキシ（リバースプロキシ）のIPアドレス（Q106）。
+    /// ここにないところから届いた `X-Forwarded-For` は無視し、接続元のアドレスを使う。
+    #[serde(default)]
+    pub trusted_proxies: Vec<IpAddr>,
+    /// セッションと再認証の時間（Q91, Q108）。
+    #[serde(default)]
+    pub session: SessionConfig,
+    /// 回数制限（Q105）。
+    #[serde(default)]
+    pub limits: LimitsConfig,
+}
+
+/// セッションと再認証の時間（秒）。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct SessionConfig {
+    /// 絶対的な期限（ログインからの最大時間）。
+    pub absolute_lifetime_seconds: u32,
+    /// 無操作の期限。
+    pub idle_timeout_seconds: u32,
+    /// 再認証が有効な時間。重い操作は、最後の本人確認からこの時間内にだけ行える。
+    pub reauth_window_seconds: u32,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            absolute_lifetime_seconds: 12 * 60 * 60,
+            idle_timeout_seconds: 2 * 60 * 60,
+            reauth_window_seconds: 10 * 60,
+        }
+    }
+}
+
+/// 回数制限。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LimitsConfig {
+    /// 接続元のIPアドレス（IPv6は /64）ごとの、1分あたりのログインの試行の上限（成功・失敗を問わない）。
+    pub login_attempts_per_ip_per_minute: u32,
+}
+
+impl Default for LimitsConfig {
+    fn default() -> Self {
+        Self {
+            login_attempts_per_ip_per_minute: 30,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
