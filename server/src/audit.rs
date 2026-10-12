@@ -12,6 +12,10 @@ pub mod action {
     pub const WORKSPACE_CREATED: &str = "workspace.created";
     pub const MEMBER_ROLE_CHANGED: &str = "member.role_changed";
     pub const MEMBER_REMOVED: &str = "member.removed";
+    pub const MEMBER_PERMISSION_CHANGED: &str = "member.permission_changed";
+    pub const MEMBER_INVITED: &str = "member.invited";
+    pub const INVITATION_REVOKED: &str = "invitation.revoked";
+    pub const MEMBER_JOINED: &str = "member.joined";
 }
 
 /// 1件を記録する。`workspace_id` が None ならインスタンス全体の記録。

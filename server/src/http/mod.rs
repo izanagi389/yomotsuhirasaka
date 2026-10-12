@@ -1,6 +1,7 @@
 //! HTTPの受け付け: ルーティング、共通の応答ヘッダー、アプリの状態。
 
 pub mod admin_auth;
+pub mod admin_invitations;
 pub mod admin_mfa;
 pub mod admin_workspaces;
 pub mod error;
@@ -160,6 +161,22 @@ pub fn router(state: AppState) -> Router {
             get(admin_workspaces::get_member)
                 .patch(admin_workspaces::change_member_role)
                 .delete(admin_workspaces::remove_member),
+        )
+        .route(
+            "/workspaces/{ws}/invitations",
+            get(admin_invitations::list).post(admin_invitations::invite),
+        )
+        .route(
+            "/workspaces/{ws}/invitations/{id}",
+            delete(admin_invitations::revoke),
+        )
+        .route(
+            "/invitations/accept",
+            post(admin_invitations::accept_as_new),
+        )
+        .route(
+            "/me/invitations/accept",
+            post(admin_invitations::accept_as_member),
         )
         .fallback(not_found);
     Router::new()

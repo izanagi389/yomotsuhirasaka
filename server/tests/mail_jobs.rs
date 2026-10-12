@@ -4,90 +4,10 @@
 
 mod common;
 
-use std::sync::{Arc, Mutex};
-
-use cms_server::config::{SmtpConfig, SmtpSecurity};
 use cms_server::worker;
 use common::server::*;
+use common::smtp::*;
 use common::with_scratch;
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
-
-/// 擬似SMTPサーバーのふるまい。
-#[derive(Default)]
-struct Smtp {
-    /// 受け取ったメール（DATAの中身）。
-    received: Vec<String>,
-    /// この回数だけ、宛先の段階で一時的な失敗（451）を返す。
-    transient_failures: u32,
-    /// 宛先の段階で恒久的な失敗（550）を返す。
-    reject: bool,
-}
-
-async fn fake_smtp() -> (u16, Arc<Mutex<Smtp>>) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let state = Arc::new(Mutex::new(Smtp::default()));
-    let shared = state.clone();
-    tokio::spawn(async move {
-        loop {
-            let (stream, _) = listener.accept().await.unwrap();
-            let state = shared.clone();
-            tokio::spawn(async move {
-                let (read, mut write) = stream.into_split();
-                let mut lines = BufReader::new(read).lines();
-                write.write_all(b"220 fake ESMTP\r\n").await.unwrap();
-                let mut data: Option<String> = None;
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if let Some(buf) = data.as_mut() {
-                        if line == "." {
-                            state.lock().unwrap().received.push(data.take().unwrap());
-                            write.write_all(b"250 queued\r\n").await.unwrap();
-                        } else {
-                            buf.push_str(&line);
-                            buf.push('\n');
-                        }
-                        continue;
-                    }
-                    let upper = line.to_ascii_uppercase();
-                    let reply: &[u8] = if upper.starts_with("EHLO") || upper.starts_with("HELO") {
-                        b"250 fake\r\n"
-                    } else if upper.starts_with("RCPT") {
-                        let mut s = state.lock().unwrap();
-                        if s.reject {
-                            b"550 5.1.1 no such user\r\n"
-                        } else if s.transient_failures > 0 {
-                            s.transient_failures -= 1;
-                            b"451 4.3.0 try again later\r\n"
-                        } else {
-                            b"250 ok\r\n"
-                        }
-                    } else if upper.starts_with("DATA") {
-                        data = Some(String::new());
-                        b"354 go ahead\r\n"
-                    } else if upper.starts_with("QUIT") {
-                        write.write_all(b"221 bye\r\n").await.unwrap();
-                        break;
-                    } else {
-                        b"250 ok\r\n"
-                    };
-                    write.write_all(reply).await.unwrap();
-                }
-            });
-        }
-    });
-    (port, state)
-}
-
-fn smtp_config(port: u16) -> SmtpConfig {
-    SmtpConfig {
-        host: "127.0.0.1".into(),
-        port: Some(port),
-        security: SmtpSecurity::None,
-        username: None,
-        password: None,
-        from: "CMS <cms@example.test>".into(),
-    }
-}
 
 async fn job_rows(server: &Server) -> Vec<(i32, Option<String>, bool, bool)> {
     sqlx::query_as(
@@ -147,7 +67,10 @@ async fn notifications_are_queued_encrypted_and_retried() {
             received[0]
         );
         assert!(received[0].contains("From: CMS <cms@example.test>"));
-        assert!(!received[0].contains(new_password) && !received[0].contains(PASSWORD));
+        // 本文は符号化されて届くので、読める形にしてから確かめる
+        let body = decoded_body(&received[0]);
+        assert!(body.contains("パスワード"), "{body}");
+        assert!(!body.contains(new_password) && !body.contains(PASSWORD));
         assert!(job_rows(&server).await.is_empty());
 
         // 一時的な失敗はやり直す（すぐにはやり直さない）
@@ -170,7 +93,7 @@ async fn notifications_are_queued_encrypted_and_retried() {
         assert!(job_rows(&server).await.is_empty());
         assert_eq!(smtp.lock().unwrap().received.len(), 2);
         assert!(
-            !smtp.lock().unwrap().received[1].contains(&secret),
+            !decoded_body(&smtp.lock().unwrap().received[1]).contains(&secret),
             "the TOTP secret must not be mailed"
         );
 

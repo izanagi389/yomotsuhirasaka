@@ -5,14 +5,14 @@
 //! | GET | /api/admin/workspaces | 自分の所属するワークスペース（サーバー管理者はすべて） | ログイン中の人 |
 //! | POST | /api/admin/workspaces | ワークスペースの作成 | サーバー管理者（多要素認証・再認証） |
 //! | GET | /api/admin/workspaces/{ws} | ワークスペースの情報 | 所属者・サーバー管理者 |
-//! | GET | /api/admin/workspaces/{ws}/members | 所属者の一覧 | 管理者・サーバー管理者（多要素認証） |
+//! | GET | /api/admin/workspaces/{ws}/members | 所属者の一覧 | 管理者・サーバー管理者（多要素認証）、閲覧の権限を与えられた所属者（Q190） |
 //! | GET | /api/admin/workspaces/{ws}/members/{user} | 所属者の1人 | 同上 |
-//! | PATCH | /api/admin/workspaces/{ws}/members/{user} | ロールの変更 | 同上・再認証 |
+//! | PATCH | /api/admin/workspaces/{ws}/members/{user} | ロールと閲覧の権限の変更 | 管理者・サーバー管理者（多要素認証・再認証） |
 //! | DELETE | /api/admin/workspaces/{ws}/members/{user} | 所属から外す | 同上・再認証 |
 //! | GET | /api/admin/users | インスタンスの利用者の一覧 | サーバー管理者（多要素認証） |
 //!
 //! 所属していないワークスペースや、そのワークスペースに所属していない利用者は、存在しないものと同じ404にする（INV-TEN-04）。
-//! 所属者を加えるのは招待の承諾だけ（Q121。招待は次の段階で追加する）。
+//! 所属者を加えるのは招待の承諾だけ（Q121。`admin_invitations.rs`）。
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -169,17 +169,21 @@ pub struct MemberInfo {
     user_id: Uuid,
     email: String,
     role: String,
+    can_view_members: bool,
     mfa_enabled: bool,
     joined_at: String,
 }
 
-type MemberRow = (Uuid, String, String, bool, String);
+type MemberRow = (Uuid, String, String, bool, bool, String);
 
-fn member_info((user_id, email, role, mfa_enabled, joined_at): MemberRow) -> MemberInfo {
+fn member_info(
+    (user_id, email, role, can_view_members, mfa_enabled, joined_at): MemberRow,
+) -> MemberInfo {
     MemberInfo {
         user_id,
         email,
         role,
+        can_view_members,
         mfa_enabled,
         joined_at,
     }
@@ -187,7 +191,7 @@ fn member_info((user_id, email, role, mfa_enabled, joined_at): MemberRow) -> Mem
 
 fn member_sql(filter: &str) -> sqlx::AssertSqlSafe<String> {
     crate::sql!(
-        "SELECT u.id, u.email, m.role, u.totp_enabled_at IS NOT NULL,
+        "SELECT u.id, u.email, m.role, m.can_view_members, u.totp_enabled_at IS NOT NULL,
                 to_char(m.created_at AT TIME ZONE 'UTC', {RFC3339})
          FROM cms.memberships m JOIN cms.users u ON u.id = m.user_id
          WHERE m.workspace_id = $1 {filter}
@@ -201,7 +205,7 @@ pub async fn list_members(
     Path(ws): Path<String>,
 ) -> Result<Json<Vec<MemberInfo>>, ApiError> {
     let id = parse_id(&ws)?;
-    access::workspace_admin(&state.pool, &current, id).await??;
+    access::member_list_viewer(&state.pool, &current, id).await??;
     let rows: Vec<MemberRow> = sqlx::query_as(member_sql(""))
         .bind(id)
         .fetch_all(&state.pool)
@@ -227,14 +231,16 @@ pub async fn get_member(
     Path((ws, user)): Path<(String, String)>,
 ) -> Result<Json<MemberInfo>, ApiError> {
     let (ws, user) = (parse_id(&ws)?, parse_id(&user)?);
-    access::workspace_admin(&state.pool, &current, ws).await??;
+    access::member_list_viewer(&state.pool, &current, ws).await??;
     Ok(Json(fetch_member(&state, ws, user).await?))
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ChangeRole {
-    role: String,
+pub struct ChangeMember {
+    role: Option<String>,
+    /// 所属者の一覧の閲覧の権限（Q190）。
+    can_view_members: Option<bool>,
 }
 
 fn last_admin() -> ApiError {
@@ -269,41 +275,54 @@ pub async fn change_member_role(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
     Path((ws, user)): Path<(String, String)>,
-    JsonBody(req): JsonBody<ChangeRole>,
+    JsonBody(req): JsonBody<ChangeMember>,
 ) -> Result<Json<MemberInfo>, ApiError> {
     let (ws, user) = (parse_id(&ws)?, parse_id(&user)?);
     access::workspace_admin(&state.pool, &current, ws).await??;
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }
-    let role: Role = req
+    if req.role.is_none() && req.can_view_members.is_none() {
+        return Err(ApiError::bad_request(
+            "Send `role`, `canViewMembers` or both.",
+        ));
+    }
+    let role: Option<Role> = req
         .role
-        .parse()
+        .as_deref()
+        .map(str::parse)
+        .transpose()
         .map_err(|()| ApiError::bad_request("`role` must be admin, editor, author or viewer."))?;
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
-    if role != Role::Admin {
+    if role.is_some_and(|r| r != Role::Admin) {
         ensure_other_admin_remains(&mut tx, ws, user).await?;
     }
     let done = sqlx::query(
-        "UPDATE cms.memberships SET role = $3 WHERE workspace_id = $1 AND user_id = $2",
+        "UPDATE cms.memberships
+         SET role = coalesce($3, role), can_view_members = coalesce($4, can_view_members)
+         WHERE workspace_id = $1 AND user_id = $2",
     )
     .bind(ws)
     .bind(user)
-    .bind(role.as_str())
+    .bind(role.map(Role::as_str))
+    .bind(req.can_view_members)
     .execute(&mut *tx)
     .await
     .map_err(anyhow::Error::from)?;
     if done.rows_affected() != 1 {
         return Err(ApiError::not_found());
     }
-    audit::record(
-        &mut *tx,
-        Some(ws),
-        Some(current.user_id),
-        action::MEMBER_ROLE_CHANGED,
-        &[user],
-    )
-    .await?;
+    for (changed, what) in [
+        (role.is_some(), action::MEMBER_ROLE_CHANGED),
+        (
+            req.can_view_members.is_some(),
+            action::MEMBER_PERMISSION_CHANGED,
+        ),
+    ] {
+        if changed {
+            audit::record(&mut *tx, Some(ws), Some(current.user_id), what, &[user]).await?;
+        }
+    }
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(fetch_member(&state, ws, user).await?))
 }
