@@ -2,6 +2,7 @@
 
 pub mod admin_auth;
 pub mod admin_mfa;
+pub mod admin_workspaces;
 pub mod error;
 pub mod extract;
 
@@ -16,6 +17,7 @@ use sqlx::PgPool;
 
 use crate::auth::throttle::IpLimiter;
 use crate::config::Config;
+use crate::db::Ident;
 use crate::keys::KeyRing;
 use error::ApiError;
 
@@ -26,6 +28,10 @@ pub struct AppState(Arc<Inner>);
 pub struct Inner {
     /// 普段用の接続のプール。
     pub pool: PgPool,
+    /// 移行・ロールの作成用の接続（1本）。ワークスペースのスキーマとロールの作成にだけ使う（Q173, Q179）。
+    pub migration: PgPool,
+    /// 普段用の接続のロール（ワークスペースのロールへの切り替えの権限を付ける相手）。
+    pub app_role: Ident,
     pub config: Config,
     /// 公開URLのオリジン（`https://host[:port]`）。`Origin` ヘッダーの確認に使う。
     pub public_origin: String,
@@ -44,7 +50,13 @@ impl Deref for AppState {
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, config: Config, keys: KeyRing) -> Self {
+    pub fn new(
+        pool: PgPool,
+        migration: PgPool,
+        app_role: Ident,
+        config: Config,
+        keys: KeyRing,
+    ) -> Self {
         let public_origin = origin_of(&config.public_url);
         let issuer = public_origin
             .split_once("://")
@@ -53,6 +65,8 @@ impl AppState {
         let login_limiter = IpLimiter::per_minute(config.limits.login_attempts_per_ip_per_minute);
         Self(Arc::new(Inner {
             pool,
+            migration,
+            app_role,
             config,
             public_origin,
             issuer,
@@ -130,6 +144,22 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/me/mfa/recovery-codes",
             post(admin_mfa::regenerate_recovery_codes),
+        )
+        .route("/users", get(admin_workspaces::list_users))
+        .route(
+            "/workspaces",
+            get(admin_workspaces::list_workspaces).post(admin_workspaces::create_workspace),
+        )
+        .route("/workspaces/{ws}", get(admin_workspaces::get_workspace))
+        .route(
+            "/workspaces/{ws}/members",
+            get(admin_workspaces::list_members),
+        )
+        .route(
+            "/workspaces/{ws}/members/{user}",
+            get(admin_workspaces::get_member)
+                .patch(admin_workspaces::change_member_role)
+                .delete(admin_workspaces::remove_member),
         )
         .fallback(not_found);
     Router::new()

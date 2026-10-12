@@ -248,7 +248,8 @@ fn create_server_admin_main(config_path: &Path, email: &str, password_stdin: boo
         config_path,
         "cannot create server administrator",
         |config| async move {
-            let pool = prepare_database(&config).await?;
+            let (pool, migration, _) = prepare_database(&config).await?;
+            migration.close().await;
             let hash = auth::password::hash(password.clone()).await?;
             let id = auth::users::create(&pool, &email, &hash, true).await?;
             println!("Created server administrator {email} (id {id}).");
@@ -292,9 +293,9 @@ async fn run_startup_checks(config: &Config) -> bool {
     false
 }
 
-/// 共通のスキーマの移行と権限の付与を行い、普段用の接続のプールを返す。
 /// 移行と付与は、移行・ロールの作成用の接続で行う（Q173）。
-async fn prepare_database(config: &Config) -> Result<sqlx::PgPool> {
+/// 共通のスキーマの移行と権限の付与を行い、(普段用のプール, 移行用のプール, 普段用のロール) を返す。
+async fn prepare_database(config: &Config) -> Result<(sqlx::PgPool, sqlx::PgPool, db::Ident)> {
     let migration_pool = db::migration_pool(&config.migration_database)
         .await
         .context("cannot connect with migration_database")?;
@@ -307,8 +308,7 @@ async fn prepare_database(config: &Config) -> Result<sqlx::PgPool> {
         tracing::info!("applied migrations: {applied:?}");
     }
     migrate::apply_grants(&migration_pool, &app_role).await?;
-    migration_pool.close().await;
-    Ok(app_pool)
+    Ok((app_pool, migration_pool, app_role))
 }
 
 async fn serve(config: Config) -> Result<()> {
@@ -322,10 +322,16 @@ async fn serve(config: Config) -> Result<()> {
         ring.active_version()
     );
 
-    let app_pool = prepare_database(&config).await?;
+    let (app_pool, migration_pool, app_role) = prepare_database(&config).await?;
     auth::password::warm_up();
     let listen = config.listen.clone();
-    let app = http::router(http::AppState::new(app_pool, config, ring));
+    let app = http::router(http::AppState::new(
+        app_pool,
+        migration_pool,
+        app_role,
+        config,
+        ring,
+    ));
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
         .with_context(|| format!("cannot listen on {listen}"))?;
