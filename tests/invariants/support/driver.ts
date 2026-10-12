@@ -15,6 +15,7 @@ import type { HttpResponse } from "./http.js";
 import type { TiptapDoc, TiptapNode } from "./body.js";
 import type { TemplateSpec } from "./template.js";
 import { SECRET_SETTING_NAMES, startServerProcess, validServerConfigFromEnv } from "./server-process.js";
+import { connectAdmin } from "./admin-client.js";
 
 export class NotImplementedError extends Error {
   constructor(what: string) {
@@ -520,8 +521,8 @@ export interface DbLayout {
 
 export const driver = {
   /** 起動済みのCMSにつなぐ。 */
-  connect(_baseUrl: string): CmsClient {
-    return todo("connect");
+  connect(baseUrl: string): CmsClient {
+    return connectAdmin(baseUrl, todo);
   },
 
   /** テスト環境のCMSと同じDBを使う、本番の設定として正しい設定（各テストはここから一部だけ変える）。 */

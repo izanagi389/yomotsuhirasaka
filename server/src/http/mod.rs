@@ -1,0 +1,136 @@
+//! HTTPの受け付け: ルーティング、共通の応答ヘッダー、アプリの状態。
+
+pub mod admin_auth;
+pub mod error;
+pub mod extract;
+
+use std::ops::Deref;
+use std::sync::Arc;
+
+use axum::Router;
+use axum::http::{HeaderName, HeaderValue, header};
+use axum::response::Response;
+use axum::routing::{delete, get, post};
+use sqlx::PgPool;
+
+use crate::auth::throttle::IpLimiter;
+use crate::config::Config;
+use error::ApiError;
+
+/// リクエストの処理で共有する状態。
+#[derive(Clone)]
+pub struct AppState(Arc<Inner>);
+
+pub struct Inner {
+    /// 普段用の接続のプール。
+    pub pool: PgPool,
+    pub config: Config,
+    /// 公開URLのオリジン（`https://host[:port]`）。`Origin` ヘッダーの確認に使う。
+    pub public_origin: String,
+    pub login_limiter: IpLimiter,
+}
+
+impl Deref for AppState {
+    type Target = Inner;
+    fn deref(&self) -> &Inner {
+        &self.0
+    }
+}
+
+impl AppState {
+    pub fn new(pool: PgPool, config: Config) -> Self {
+        let public_origin = origin_of(&config.public_url);
+        let login_limiter = IpLimiter::per_minute(config.limits.login_attempts_per_ip_per_minute);
+        Self(Arc::new(Inner {
+            pool,
+            config,
+            public_origin,
+            login_limiter,
+        }))
+    }
+}
+
+/// URLのオリジン（スキーム・ホスト・ポート）。末尾のスラッシュやパスは除く。
+fn origin_of(url: &str) -> String {
+    let (scheme, rest) = url.split_once("://").unwrap_or(("https", url));
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    format!(
+        "{}://{}",
+        scheme.to_ascii_lowercase(),
+        authority.to_ascii_lowercase()
+    )
+}
+
+/// すべての応答に付けるセキュリティヘッダー（Q114）。
+/// 管理APIはHTMLを返さないので、CSPはすべてを禁じる。管理画面（SPA）は配信のときに自分のCSPを付ける。
+const SECURITY_HEADERS: &[(&str, &str)] = &[
+    (
+        "content-security-policy",
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    ),
+    (
+        "strict-transport-security",
+        "max-age=63072000; includeSubDomains",
+    ),
+    ("x-content-type-options", "nosniff"),
+    ("x-frame-options", "DENY"),
+    ("referrer-policy", "no-referrer"),
+    ("cross-origin-opener-policy", "same-origin"),
+    ("cross-origin-resource-policy", "same-origin"),
+    ("cache-control", "no-store"),
+];
+
+async fn security_headers(mut res: Response) -> Response {
+    let headers = res.headers_mut();
+    for (name, value) in SECURITY_HEADERS {
+        let name = HeaderName::from_static(name);
+        if !headers.contains_key(&name) {
+            headers.insert(name, HeaderValue::from_static(value));
+        }
+    }
+    // CORSは許さない（Q110）。どこかで付けられても消す
+    headers.remove(header::ACCESS_CONTROL_ALLOW_ORIGIN);
+    headers.remove(header::ACCESS_CONTROL_ALLOW_CREDENTIALS);
+    res
+}
+
+async fn not_found() -> ApiError {
+    ApiError::not_found()
+}
+
+pub fn router(state: AppState) -> Router {
+    let admin = Router::new()
+        .route(
+            "/session",
+            post(admin_auth::login).delete(admin_auth::logout),
+        )
+        .route("/session/reauth", post(admin_auth::reauth))
+        .route("/me", get(admin_auth::me))
+        .route("/me/password", post(admin_auth::change_password))
+        .route("/me/sessions", get(admin_auth::list_sessions))
+        .route("/me/sessions/{id}", delete(admin_auth::revoke_session))
+        .fallback(not_found);
+    Router::new()
+        .route("/healthz", get(|| async { "ok" }))
+        .nest("/api/admin", admin)
+        .fallback(not_found)
+        .with_state(state)
+        .layer(axum::middleware::map_response(security_headers))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn origins() {
+        assert_eq!(
+            origin_of("https://CMS.example.com/"),
+            "https://cms.example.com"
+        );
+        assert_eq!(
+            origin_of("https://cms.example.com:8443/admin?x"),
+            "https://cms.example.com:8443"
+        );
+    }
+}

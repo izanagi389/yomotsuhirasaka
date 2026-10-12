@@ -49,7 +49,7 @@ const tomlString = (s: string): string => JSON.stringify(s); // TOMLの基本文
 function unsupported(config: ServerConfig): string[] {
   const out: string[] = [];
   if (config.internalDestinationExceptions.length > 0) out.push("internalDestinationExceptions");
-  for (const key of ["sessionLifetimeSeconds", "reauthWindowSeconds", "oneTimeTokenLifetimeSeconds", "rateLimits", "sharedCache", "egressProxy", "breachedPasswordApi", "loginHistoryRetention"] as const) {
+  for (const key of ["oneTimeTokenLifetimeSeconds", "rateLimits", "sharedCache", "egressProxy", "breachedPasswordApi", "loginHistoryRetention"] as const) {
     if (config[key] !== undefined && config[key] !== null) out.push(key);
   }
   return out;
@@ -66,10 +66,17 @@ export function renderConfig(config: ServerConfig, listen: string): string {
     `public_url = ${tomlString(config.publicUrl)}`,
     `listen = ${tomlString(listen)}`,
     `log_level = ${tomlString(config.logLevel ?? "info")}`,
+    // テストの実行環境（同じホスト）を信頼するプロキシにし、接続元のIPアドレスを X-Forwarded-For で渡せるようにする（Q106）
+    `trusted_proxies = ["127.0.0.1", "::1"]`,
   ];
   if (config.encryptionKeyFile !== null) lines.push(`encryption_key_file = ${tomlString(config.encryptionKeyFile)}`);
   lines.push("", "[database]", `url = ${tomlString(db.url)}`, `password = ${tomlString(db.password)}`);
-  lines.push("", "[migration_database]", `url = ${tomlString(migration.url)}`, `password = ${tomlString(migration.password)}`, "");
+  lines.push("", "[migration_database]", `url = ${tomlString(migration.url)}`, `password = ${tomlString(migration.password)}`);
+  const session: string[] = [];
+  if (config.sessionLifetimeSeconds !== undefined) session.push(`absolute_lifetime_seconds = ${config.sessionLifetimeSeconds}`);
+  if (config.reauthWindowSeconds !== undefined) session.push(`reauth_window_seconds = ${config.reauthWindowSeconds}`);
+  if (session.length > 0) lines.push("", "[session]", ...session);
+  lines.push("");
   return lines.join("\n");
 }
 
