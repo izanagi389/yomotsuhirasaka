@@ -179,6 +179,13 @@ pub fn check_config(config: &Config) -> Report {
     if let Some(smtp) = &config.smtp {
         report.problems.extend(check_smtp(smtp));
     }
+    if let Some(path) = &config.login_history.geoip_database
+        && let Err(e) = crate::geoip::GeoIp::open(path)
+    {
+        report.problems.push(Problem::fatal(format!(
+            "`login_history.geoip_database` is not usable: {e:#}"
+        )));
+    }
     match &config.encryption_key_file {
         None => report
             .problems

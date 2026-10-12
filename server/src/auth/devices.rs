@@ -2,7 +2,8 @@
 //!
 //! - ログインに成功した端末に、長期のCookie（ランダムなID）を置く。DBにはハッシュだけを保存する。
 //! - このCookieは新しい端末の通知だけに使う。多要素認証の省略などには使わない（Q181）。
-//! - ログインの履歴には、IPアドレス、ブラウザの種類（決まった名前の1つ）、国（GeoIPがある場合だけ。今は常に空）を残す。
+//! - ログインの履歴には、IPアドレス、ブラウザの種類（決まった名前の1つ）、国（GeoIPのデータがある場合だけ）を残す。
+//! - 知っている端末でも、前回と違う国からのログインなら知らせる（国のデータがある場合だけ。Q175）。
 //!   User-Agent はそのまま保存しない。保存期間を過ぎた履歴は、定期的に削除する（INV-AUD-07）。
 //!   一覧を返すときも、保存期間の内側だけを返す（削除が遅れても見せない）。
 
@@ -25,14 +26,23 @@ const LIST_LIMIT: i64 = 200;
 
 const RFC3339: &str = r#"'YYYY-MM-DD"T"HH24:MI:SS"Z"'"#;
 
+/// 本人に知らせること。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Notice {
+    /// 新しい端末からのログイン（初めての端末は除く）。
+    NewDevice,
+    /// 知っている端末だが、前回と違う国からのログイン（国のデータがある場合だけ。Q175）。
+    NewCountry,
+}
+
 /// ログインの記録の結果。
 pub struct Recorded {
     /// 端末のCookieに入れる値（受け取った値か、新しく作った値）。
     pub device_token: String,
     /// この利用者にとって新しい端末か。
     pub new_device: bool,
-    /// 本人に通知するか（新しい端末で、かつ、初めての端末ではない）。
-    pub notify: bool,
+    /// 本人に知らせることがあれば、その種類。
+    pub notice: Option<Notice>,
 }
 
 /// 受け取った端末のCookieが、こちらで作った形（43文字のURL-safe base64）か。
@@ -66,13 +76,14 @@ pub fn browser_family(user_agent: Option<&str>) -> &'static str {
     }
 }
 
-/// ログインの成功を記録する（端末の判定と履歴）。
+/// ログインの成功を記録する（端末と国の判定、履歴）。`country` は国のデータがある場合だけ。
 pub async fn record_login(
     pool: &PgPool,
     user_id: Uuid,
     presented_device: Option<&str>,
     ip: IpAddr,
     user_agent: Option<&str>,
+    country: Option<&str>,
 ) -> Result<Recorded> {
     let device_token = presented_device
         .filter(|v| well_formed(v))
@@ -89,7 +100,7 @@ pub async fn record_login(
     .await?
     .rows_affected()
         == 1;
-    let mut notify = false;
+    let mut notice = None;
     if !known {
         let had_any: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM cms.known_devices WHERE user_id = $1)",
@@ -106,16 +117,35 @@ pub async fn record_login(
         .execute(&mut *tx)
         .await?;
         // 初めての端末（招待を受けた直後など）は、知らせても本人の操作に決まっているので知らせない
-        notify = had_any;
+        if had_any {
+            notice = Some(Notice::NewDevice);
+        }
+    }
+    if notice.is_none()
+        && let Some(country) = country
+    {
+        // 国の変化: 国の分かっている直前のログインと比べる（分からなければ知らせない）
+        let previous: Option<String> = sqlx::query_scalar(
+            "SELECT country FROM cms.login_history
+             WHERE user_id = $1 AND country IS NOT NULL
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if previous.is_some_and(|p| p != country) {
+            notice = Some(Notice::NewCountry);
+        }
     }
     sqlx::query(
-        "INSERT INTO cms.login_history (id, user_id, ip, browser, new_device)
-         VALUES ($1, $2, $3::inet, $4, $5)",
+        "INSERT INTO cms.login_history (id, user_id, ip, browser, country, new_device)
+         VALUES ($1, $2, $3::inet, $4, $5, $6)",
     )
     .bind(Uuid::new_v4())
     .bind(user_id)
     .bind(ip.to_canonical().to_string())
     .bind(browser_family(user_agent))
+    .bind(country)
     .bind(!known)
     .execute(&mut *tx)
     .await?;
@@ -123,7 +153,7 @@ pub async fn record_login(
     Ok(Recorded {
         device_token,
         new_device: !known,
-        notify,
+        notice,
     })
 }
 

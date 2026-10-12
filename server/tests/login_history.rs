@@ -196,3 +196,116 @@ async fn device_cookie_does_not_skip_mfa() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn country_change_with_geoip_data() {
+    // 国のデータそのものの確認
+    let path = common::mmdb::write(&[
+        ("198.18.1.0".parse().unwrap(), 24, "JP"),
+        ("198.18.2.0".parse().unwrap(), 24, "US"),
+        ("198.18.4.0".parse().unwrap(), 24, "us\nX"),
+    ]);
+    let geo = cms_server::geoip::GeoIp::open(&path).unwrap();
+    assert_eq!(
+        geo.country("198.18.1.9".parse().unwrap()).as_deref(),
+        Some("JP")
+    );
+    assert_eq!(
+        geo.country("::ffff:198.18.2.9".parse().unwrap()).as_deref(),
+        Some("US")
+    );
+    assert_eq!(geo.country("198.18.3.1".parse().unwrap()), None);
+    // IPv4だけのデータでIPv6を調べても、エラーにせず「分からない」
+    assert_eq!(geo.country("2001:db8::1".parse().unwrap()), None);
+    // 決まった形でない値は使わない（メールの本文に入るため）
+    assert_eq!(geo.country("198.18.4.1".parse().unwrap()), None);
+
+    // 読めないデータは起動の検査で止める
+    let broken = std::env::temp_dir().join(format!(
+        "cms-test-geoip-broken-{}.mmdb",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::write(&broken, b"not a database").unwrap();
+    assert!(cms_server::geoip::GeoIp::open(&broken).is_err());
+
+    let (db, broken_db) = (path.clone(), broken.clone());
+    with_scratch(|app, migration| async move {
+        let (port, smtp) = fake_smtp().await;
+        let mut cfg = config(&app, &migration);
+        cfg.smtp = Some(smtp_config(port));
+        cfg.login_history.geoip_database = Some(db.clone());
+        let report = cms_server::startup::check_config(&cfg);
+        assert!(
+            !report.problems.iter().any(|p| p.message.contains("geoip")),
+            "{:?}",
+            report
+                .problems
+                .iter()
+                .map(|p| &p.message)
+                .collect::<Vec<_>>()
+        );
+        let mut bad = cfg.clone();
+        bad.login_history.geoip_database = Some(broken_db.clone());
+        assert!(
+            cms_server::startup::check_config(&bad)
+                .problems
+                .iter()
+                .any(|p| p.message.contains("login_history.geoip_database"))
+        );
+
+        let server = start(cfg).await;
+        let email = "traveler@example.test";
+        create_user(&server.pool, email, false).await;
+        let last_body = || decoded_body(smtp.lock().unwrap().received.last().unwrap());
+
+        let (_, device) = login_with(&server, email, "198.18.1.1", None).await;
+        login_with(&server, email, "198.18.1.2", Some(&device)).await;
+        assert_eq!(drain(&server).await, 0);
+
+        // 知っている端末でも、前回と違う国なら知らせる
+        login_with(&server, email, "198.18.2.1", Some(&device)).await;
+        assert_eq!(drain(&server).await, 1);
+        let body = last_body();
+        assert!(
+            body.contains("different country")
+                && body.contains("Country: US")
+                && body.contains("198.18.2.1"),
+            "{body}"
+        );
+
+        // 同じ国、国の分からない接続元では知らせない。比べる相手は、国の分かっている直前のログイン
+        login_with(&server, email, "198.18.2.2", Some(&device)).await;
+        login_with(&server, email, "198.18.3.1", Some(&device)).await;
+        assert_eq!(drain(&server).await, 0);
+        login_with(&server, email, "198.18.1.3", Some(&device)).await;
+        assert_eq!(drain(&server).await, 1);
+        assert!(last_body().contains("Country: JP"));
+
+        // 新しい端末なら、その通知1通に国も添える
+        login_with(&server, email, "198.18.2.3", None).await;
+        assert_eq!(drain(&server).await, 1);
+        let body = last_body();
+        assert!(
+            body.contains("new device") && body.contains("Country: US"),
+            "{body}"
+        );
+
+        // 履歴に国が残る
+        let session = session_from(
+            &login_with(&server, email, "198.18.1.4", Some(&device))
+                .await
+                .0,
+        );
+        let res = get(&server, "/api/admin/me/login-history", &session).await;
+        assert!(
+            res.body.contains("\"country\":\"JP\"")
+                && res.body.contains("\"country\":\"US\"")
+                && res.body.contains("\"country\":null"),
+            "{}",
+            res.body
+        );
+    })
+    .await;
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&broken);
+}

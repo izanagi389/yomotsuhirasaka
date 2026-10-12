@@ -152,6 +152,7 @@ pub mod notify {
         PersonalTokenIssued,
         ApiKeyIssued,
         NewDeviceLogin,
+        NewCountryLogin,
     }
 
     /// (件名, 起きたこと)
@@ -205,6 +206,14 @@ pub mod notify {
                 "新しい端末からログインがありました",
                 "新しい端末またはブラウザから、アカウントにログインがありました。",
             ),
+            (Event::NewCountryLogin, Locale::En) => (
+                "Sign-in to your account from a different country",
+                "Your account was signed in to from a different country than the previous sign-in.",
+            ),
+            (Event::NewCountryLogin, Locale::Ja) => (
+                "前回と違う国からログインがありました",
+                "前回のログインと違う国から、アカウントにログインがありました。",
+            ),
         }
     }
 
@@ -224,19 +233,25 @@ pub mod notify {
         mail_with(to, site, event, locale, None)
     }
 
-    /// 新しい端末からのログインの通知。IPアドレスとブラウザの種類（決まった名前の1つ）を添える。
-    pub fn new_device_login(
+    /// ログインの通知（新しい端末・国の変化）。IPアドレス、ブラウザの種類（決まった名前の1つ）、国のコードを添える。
+    pub fn login(
         to: &str,
         site: &str,
         locale: Locale,
+        event: Event,
         ip: std::net::IpAddr,
         browser: &str,
+        country: Option<&str>,
     ) -> Mail {
-        let details = match locale {
-            Locale::En => format!("IP address: {ip}\nBrowser: {browser}"),
-            Locale::Ja => format!("IPアドレス: {ip}\nブラウザ: {browser}"),
+        let (ip_label, browser_label, country_label) = match locale {
+            Locale::En => ("IP address", "Browser", "Country"),
+            Locale::Ja => ("IPアドレス", "ブラウザ", "国"),
         };
-        mail_with(to, site, Event::NewDeviceLogin, locale, Some(&details))
+        let mut details = format!("{ip_label}: {ip}\n{browser_label}: {browser}");
+        if let Some(c) = country {
+            details.push_str(&format!("\n{country_label}: {c}"));
+        }
+        mail_with(to, site, event, locale, Some(&details))
     }
 
     fn mail_with(
