@@ -48,6 +48,9 @@ pub async fn check_expiry<'e>(
     executor: impl PgExecutor<'e>,
     expires_at: &str,
 ) -> Result<Result<(), ExpiryError>> {
+    if !crate::timefmt::is_rfc3339(expires_at) {
+        return Ok(Err(ExpiryError::Invalid));
+    }
     let checked = sqlx::query_scalar::<_, bool>(
         "SELECT $1::timestamptz > now() AND $1::timestamptz <= now() + make_interval(days => $2)",
     )

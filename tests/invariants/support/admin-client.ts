@@ -4,7 +4,7 @@
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
 
 import { randomUUID } from "node:crypto";
-import type { AdminOperation, Auth, CmsClient, Credentials, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, WorkspaceRole } from "./driver.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
 import { totp } from "./totp.js";
@@ -245,6 +245,13 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     ),
     // 対象は存在しないトークン（舞台のトークンを壊さないため）
     op("revokePersonalToken", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/tokens/${randomUUID()}`, { auth, extras })),
+    op("listApiKeys", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/api-keys`, { auth, extras })),
+    op("createApiKey", true, "workspace", (auth, t, extras) =>
+      request("POST", `${ADMIN}/workspaces/${t.workspaceId}/api-keys`, { auth, extras, body: { scopes: ["read"] } }),
+    ),
+    op("revokeApiKey", true, "workspace", (auth, t, extras) =>
+      request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/api-keys/${t.apiKeyId}`, { auth, extras }),
+    ),
     op("removeMember", true, "workspace", (auth, t, extras) =>
       request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}`, { auth, extras }),
     ),
@@ -337,6 +344,21 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       const { id, token } = JSON.parse(res.text) as { id?: unknown; token?: unknown };
       if (typeof id !== "string" || typeof token !== "string") throw new SetupError("個人トークンの発行の応答の読み取り", res);
       return { id, secret: token, response: res };
+    },
+    async createApiKey(s: Session, workspaceId: string, scopes: ApiKeyScope[], options: { expiresAt?: Date } = {}): Promise<IssuedSecret> {
+      const res = ensure(
+        "配信APIのキーの発行",
+        await request("POST", `${ADMIN}/workspaces/${workspaceId}/api-keys`, {
+          auth: session(s),
+          body: { scopes, expiresAt: options.expiresAt?.toISOString() },
+        }),
+      );
+      const { id, key } = JSON.parse(res.text) as { id?: unknown; key?: unknown };
+      if (typeof id !== "string" || typeof key !== "string") throw new SetupError("配信APIのキーの発行の応答の読み取り", res);
+      return { id, secret: key, response: res };
+    },
+    async revokeApiKey(s: Session, workspaceId: string, keyId: string): Promise<void> {
+      ensure("配信APIのキーの失効", await request("DELETE", `${ADMIN}/workspaces/${workspaceId}/api-keys/${keyId}`, { auth: session(s) }));
     },
     async revokePersonalToken(s: Session, tokenId: string): Promise<void> {
       ensure("個人トークンの失効", await request("DELETE", `${ADMIN}/me/tokens/${tokenId}`, { auth: session(s) }));

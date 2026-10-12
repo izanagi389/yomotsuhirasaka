@@ -1,6 +1,7 @@
 //! CMSのサーバーのライブラリ部分。`main.rs`（`cms-server`）と結合テストから使う。
 
 pub mod access;
+pub mod api_keys;
 pub mod audit;
 pub mod auth;
 pub mod config;
@@ -14,5 +15,6 @@ pub mod mail;
 pub mod migrate;
 pub mod resets;
 pub mod startup;
+pub mod timefmt;
 pub mod worker;
 pub mod workspace_db;

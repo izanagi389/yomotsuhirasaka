@@ -23,6 +23,8 @@ pub mod action {
     pub const MFA_RESET_COMPLETED: &str = "mfa_reset.completed";
     pub const PERSONAL_TOKEN_ISSUED: &str = "personal_token.issued";
     pub const PERSONAL_TOKEN_REVOKED: &str = "personal_token.revoked";
+    pub const API_KEY_ISSUED: &str = "api_key.issued";
+    pub const API_KEY_REVOKED: &str = "api_key.revoked";
 }
 
 /// 1件を記録する。`workspace_id` が None ならインスタンス全体の記録。
