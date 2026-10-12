@@ -44,6 +44,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "personal_tokens",
         include_str!("../migrations/0009_personal_tokens.sql"),
     ),
+    (
+        10,
+        "api_keys",
+        include_str!("../migrations/0010_api_keys.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -65,6 +70,7 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("invitations", "SELECT, INSERT, UPDATE"),
     ("reset_tokens", "SELECT, INSERT, UPDATE"),
     ("personal_tokens", "SELECT, INSERT, UPDATE"),
+    ("api_keys", "SELECT, INSERT, UPDATE"),
 ];
 
 /// 移行の排他に使う、アドバイザリーロックのキー（任意の固定値）。

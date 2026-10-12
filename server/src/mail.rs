@@ -150,6 +150,7 @@ pub mod notify {
         MfaEnabled,
         MfaDisabled,
         PersonalTokenIssued,
+        ApiKeyIssued,
     }
 
     /// (件名, 起きたこと)
@@ -186,6 +187,14 @@ pub mod notify {
             (Event::PersonalTokenIssued, Locale::Ja) => (
                 "個人トークンが発行されました",
                 "アカウントに、CLI用の個人トークンが発行されました。",
+            ),
+            (Event::ApiKeyIssued, Locale::En) => (
+                "You created a delivery API key",
+                "A delivery API key was created with your account.",
+            ),
+            (Event::ApiKeyIssued, Locale::Ja) => (
+                "配信APIのキーを発行しました",
+                "あなたのアカウントで、配信APIのキーが発行されました。",
             ),
         }
     }

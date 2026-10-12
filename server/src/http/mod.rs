@@ -1,5 +1,6 @@
 //! HTTPの受け付け: ルーティング、共通の応答ヘッダー、アプリの状態。
 
+pub mod admin_api_keys;
 pub mod admin_auth;
 pub mod admin_invitations;
 pub mod admin_mfa;
@@ -233,6 +234,14 @@ pub fn router(state: AppState) -> Router {
             get(admin_tokens::list).post(admin_tokens::create),
         )
         .route("/me/tokens/{id}", delete(admin_tokens::revoke))
+        .route(
+            "/workspaces/{ws}/api-keys",
+            get(admin_api_keys::list).post(admin_api_keys::create),
+        )
+        .route(
+            "/workspaces/{ws}/api-keys/{id}",
+            delete(admin_api_keys::revoke),
+        )
         .fallback(not_found);
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
