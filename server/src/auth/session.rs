@@ -33,6 +33,8 @@ pub struct Current {
     pub is_server_admin: bool,
     /// 多要素認証（TOTP）を設定しているか。
     pub mfa_enabled: bool,
+    /// 本人が設定した言語（未設定なら None。Q198）。
+    pub locale: Option<crate::locale::Locale>,
     /// 最後の本人確認（ログインか再認証）から、再認証が有効な時間内か。
     pub reauth_fresh: bool,
     csrf_hash: Vec<u8>,
@@ -88,8 +90,18 @@ pub async fn resolve_mfa_pending(pool: &PgPool, presented: &str) -> Result<Optio
     .await?)
 }
 
-/// (id, user_id, email, is_server_admin, mfa_enabled, csrf_hash, reauth_fresh, stale)
-type ResolvedRow = (Uuid, Uuid, String, bool, bool, Vec<u8>, bool, bool);
+/// (id, user_id, email, is_server_admin, mfa_enabled, locale, csrf_hash, reauth_fresh, stale)
+type ResolvedRow = (
+    Uuid,
+    Uuid,
+    String,
+    bool,
+    bool,
+    Option<String>,
+    Vec<u8>,
+    bool,
+    bool,
+);
 
 /// Cookieで受け取ったセッションIDを照合する。無効なら None。
 pub async fn resolve(
@@ -98,7 +110,7 @@ pub async fn resolve(
     config: &SessionConfig,
 ) -> Result<Option<Current>> {
     let row: Option<ResolvedRow> = sqlx::query_as(
-        "SELECT s.id, s.user_id, u.email, u.is_server_admin, u.totp_enabled_at IS NOT NULL, s.csrf_hash,
+        "SELECT s.id, s.user_id, u.email, u.is_server_admin, u.totp_enabled_at IS NOT NULL, u.locale, s.csrf_hash,
                 s.authenticated_at > now() - make_interval(secs => $3),
                 s.last_seen_at < now() - make_interval(secs => $4)
          FROM cms.sessions s JOIN cms.users u ON u.id = s.user_id
@@ -115,8 +127,17 @@ pub async fn resolve(
     .bind(TOUCH_INTERVAL_SECONDS)
     .fetch_optional(pool)
     .await?;
-    let Some((id, user_id, email, is_server_admin, mfa_enabled, csrf_hash, reauth_fresh, stale)) =
-        row
+    let Some((
+        id,
+        user_id,
+        email,
+        is_server_admin,
+        mfa_enabled,
+        locale,
+        csrf_hash,
+        reauth_fresh,
+        stale,
+    )) = row
     else {
         return Ok(None);
     };
@@ -132,6 +153,7 @@ pub async fn resolve(
         email,
         is_server_admin,
         mfa_enabled,
+        locale: locale.and_then(|l| l.parse().ok()),
         reauth_fresh,
         csrf_hash,
     }))

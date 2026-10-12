@@ -26,6 +26,7 @@ use super::extract::{
 };
 use crate::audit;
 use crate::auth::{mfa, password, session, throttle, users};
+use crate::locale::Locale;
 use crate::mail::notify::Event;
 
 #[derive(Deserialize)]
@@ -55,6 +56,10 @@ struct Me {
     mfa_enabled: bool,
     /// 他の操作の前に、多要素認証の設定が必要か（全員への必須が有効で、まだ設定していない。Q197）。
     mfa_setup_required: bool,
+    /// 本人が設定した言語（未設定なら null）。
+    locale: Option<Locale>,
+    /// 実際にメールに使う言語（未設定ならインスタンスの既定の言語）。
+    effective_locale: Locale,
 }
 
 impl Me {
@@ -65,6 +70,8 @@ impl Me {
             is_server_admin: c.is_server_admin,
             mfa_enabled: c.mfa_enabled,
             mfa_setup_required: mfa_setup_pending(state, c),
+            locale: c.locale,
+            effective_locale: c.locale.unwrap_or(state.config.default_locale),
         }
     }
 }
@@ -86,10 +93,11 @@ fn clear_session_cookie() -> HeaderValue {
 pub(super) async fn notify<'e>(
     state: &AppState,
     executor: impl sqlx::PgExecutor<'e>,
-    to: &str,
+    to: &session::Current,
     event: Event,
 ) -> anyhow::Result<()> {
-    let mail = crate::mail::notify::mail(to, &state.issuer, event);
+    let locale = to.locale.unwrap_or(state.config.default_locale);
+    let mail = crate::mail::notify::mail(&to.email, &state.issuer, event, locale);
     crate::mail::enqueue(executor, &state.keys, state.config.smtp.as_ref(), &mail).await?;
     Ok(())
 }
@@ -275,6 +283,46 @@ pub async fn me(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateMe {
+    /// 言語。null で未設定に戻す（インスタンスの既定の言語を使う）。項目がなければ変えない。
+    #[serde(default, deserialize_with = "present")]
+    locale: Option<Option<String>>,
+}
+
+/// 項目が「ない」ことと「null」を区別する（ない: None、null: Some(None)）。
+fn present<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(d).map(Some)
+}
+
+/// 本人の設定の変更（今は言語だけ。Q198）。
+pub async fn update_me(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    JsonBody(req): JsonBody<UpdateMe>,
+) -> Result<Json<impl Serialize>, ApiError> {
+    let Some(locale) = req.locale else {
+        return Err(ApiError::bad_request("Send `locale`."));
+    };
+    let locale: Option<Locale> = locale
+        .map(|l| l.parse())
+        .transpose()
+        .map_err(|()| ApiError::bad_request("`locale` must be \"en\", \"ja\" or null."))?;
+    sqlx::query("UPDATE cms.users SET locale = $2 WHERE id = $1")
+        .bind(current.user_id)
+        .bind(locale.map(Locale::as_str))
+        .execute(&state.pool)
+        .await
+        .map_err(anyhow::Error::from)?;
+    let mut updated = current;
+    updated.locale = locale;
+    Ok(Json(Me::new(&state, &updated)))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReauthRequest {
     password: Option<String>,
     totp_code: Option<String>,
@@ -367,7 +415,7 @@ pub async fn change_password(
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     users::set_password(&mut *tx, current.user_id, &hash).await?;
     session::revoke_others(&mut *tx, current.user_id, current.id).await?;
-    notify(&state, &mut *tx, &current.email, Event::PasswordChanged).await?;
+    notify(&state, &mut *tx, &current, Event::PasswordChanged).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }

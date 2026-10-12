@@ -29,6 +29,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "invitations",
         include_str!("../migrations/0006_invitations.sql"),
     ),
+    (
+        7,
+        "user_locale",
+        include_str!("../migrations/0007_user_locale.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。

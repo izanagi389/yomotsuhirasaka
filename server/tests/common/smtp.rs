@@ -95,7 +95,31 @@ pub fn decoded_body(raw: &str) -> String {
                 .expect("base64 body"),
         )
         .expect("utf-8 body")
+    } else if head.contains("content-transfer-encoding: quoted-printable") {
+        decode_quoted_printable(body)
     } else {
-        body.replace("=\n", "")
+        body.to_owned()
     }
+}
+
+/// quoted-printable を戻す（行末の `=` は改行なしでつなぐ、`=XX` は1バイト）。
+fn decode_quoted_printable(body: &str) -> String {
+    let joined = body.replace("=\n", "");
+    let bytes = joined.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = bytes
+            .get(i + 1..i + 3)
+            .and_then(|h| std::str::from_utf8(h).ok())
+            .and_then(|h| u8::from_str_radix(h, 16).ok());
+        if let (b'=', Some(b)) = (bytes[i], hex) {
+            out.push(b);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).expect("utf-8 body")
 }

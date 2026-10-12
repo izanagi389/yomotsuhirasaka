@@ -141,6 +141,7 @@ fn transport(smtp: &SmtpConfig, hello_name: &str) -> Result<AsyncSmtpTransport<T
 /// 本人への通知（13-security.md「本人への通知」、INV-AUD-06）。秘密の値は本文に含めない。
 pub mod notify {
     use super::Mail;
+    use crate::locale::Locale;
 
     /// 通知の種類。
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,43 +151,55 @@ pub mod notify {
         MfaDisabled,
     }
 
-    impl Event {
-        fn texts(self) -> (&'static str, &'static str, &'static str) {
-            match self {
-                Event::PasswordChanged => (
-                    "Your password was changed",
-                    "パスワードが変更されました",
-                    "The password for your CMS account was changed.\n\
-                     アカウントのパスワードが変更されました。",
-                ),
-                Event::MfaEnabled => (
-                    "Multi-factor authentication was enabled",
-                    "多要素認証が設定されました",
-                    "Multi-factor authentication (authenticator app) was enabled for your CMS account.\n\
-                     アカウントに多要素認証（認証アプリ）が設定されました。",
-                ),
-                Event::MfaDisabled => (
-                    "Multi-factor authentication was disabled",
-                    "多要素認証が解除されました",
-                    "Multi-factor authentication was disabled for your CMS account.\n\
-                     アカウントの多要素認証が解除されました。",
-                ),
+    /// (件名, 起きたこと)
+    fn texts(event: Event, locale: Locale) -> (&'static str, &'static str) {
+        match (event, locale) {
+            (Event::PasswordChanged, Locale::En) => (
+                "Your password was changed",
+                "The password for your account was changed.",
+            ),
+            (Event::PasswordChanged, Locale::Ja) => (
+                "パスワードが変更されました",
+                "アカウントのパスワードが変更されました。",
+            ),
+            (Event::MfaEnabled, Locale::En) => (
+                "Multi-factor authentication was enabled",
+                "Multi-factor authentication (authenticator app) was enabled for your account.",
+            ),
+            (Event::MfaEnabled, Locale::Ja) => (
+                "多要素認証が設定されました",
+                "アカウントに多要素認証（認証アプリ）が設定されました。",
+            ),
+            (Event::MfaDisabled, Locale::En) => (
+                "Multi-factor authentication was disabled",
+                "Multi-factor authentication was disabled for your account.",
+            ),
+            (Event::MfaDisabled, Locale::Ja) => (
+                "多要素認証が解除されました",
+                "アカウントの多要素認証が解除されました。",
+            ),
+        }
+    }
+
+    fn advice(locale: Locale) -> &'static str {
+        match locale {
+            Locale::En => {
+                "If you did not do this, sign in and change your password, and contact your administrator."
+            }
+            Locale::Ja => {
+                "心当たりがない場合は、ログインしてパスワードを変更し、管理者に連絡してください。"
             }
         }
     }
 
-    /// 通知のメール。`site` は公開URLのホスト名。
-    pub fn mail(to: &str, site: &str, event: Event) -> Mail {
-        let (subject_en, subject_ja, what) = event.texts();
+    /// 通知のメール（1つの言語だけで書く。Q198）。`site` は公開URLのホスト名。
+    pub fn mail(to: &str, site: &str, event: Event, locale: Locale) -> Mail {
+        let (subject, what) = texts(event, locale);
+        let advice = advice(locale);
         Mail {
             to: to.to_owned(),
-            subject: format!("[{site}] {subject_en} / {subject_ja}"),
-            body: format!(
-                "{what}\n\n\
-                 If you did not do this, sign in and change your password, and contact your administrator.\n\
-                 心当たりがない場合は、ログインしてパスワードを変更し、管理者に連絡してください。\n\n\
-                 {site}\n"
-            ),
+            subject: format!("[{site}] {subject}"),
+            body: format!("{what}\n\n{advice}\n\n{site}\n"),
         }
     }
 }
@@ -198,19 +211,33 @@ pub fn invitation(
     workspace_name: &str,
     link: &str,
     expires_at: &str,
+    locale: crate::locale::Locale,
 ) -> Mail {
+    use crate::locale::Locale;
+    let (subject, body) = match locale {
+        Locale::En => (
+            format!("[{site}] Invitation to {workspace_name}"),
+            format!(
+                "You have been invited to the workspace \"{workspace_name}\". Open the link below to accept.\n\n\
+                 {link}\n\n\
+                 This link can be used once and expires at {expires_at} (UTC).\n\n\
+                 If you were not expecting this, you can ignore this email.\n"
+            ),
+        ),
+        Locale::Ja => (
+            format!("[{site}] {workspace_name} への招待"),
+            format!(
+                "ワークスペース「{workspace_name}」に招待されました。次のリンクを開いて承諾してください。\n\n\
+                 {link}\n\n\
+                 このリンクは一度だけ使え、{expires_at}（UTC）に期限が切れます。\n\n\
+                 心当たりがない場合は、このメールを無視してください。\n"
+            ),
+        ),
+    };
     Mail {
         to: to.to_owned(),
-        subject: format!("[{site}] Invitation to {workspace_name} / {workspace_name} への招待"),
-        body: format!(
-            "You have been invited to the workspace \"{workspace_name}\". Open the link below to accept.\n\
-             ワークスペース「{workspace_name}」に招待されました。次のリンクを開いて承諾してください。\n\n\
-             {link}\n\n\
-             This link can be used once and expires at {expires_at} (UTC).\n\
-             このリンクは一度だけ使え、{expires_at}（UTC）に期限が切れます。\n\n\
-             If you were not expecting this, you can ignore this email.\n\
-             心当たりがない場合は、このメールを無視してください。\n"
-        ),
+        subject,
+        body,
     }
 }
 
@@ -235,14 +262,23 @@ mod tests {
     }
 
     #[test]
-    fn notifications_mention_the_site_and_no_secrets() {
-        let m = notify::mail(
+    fn notifications_are_written_in_one_language() {
+        use crate::locale::Locale;
+        let ja = notify::mail(
             "a@example.com",
             "cms.example.com",
             notify::Event::PasswordChanged,
+            Locale::Ja,
         );
-        assert_eq!(m.to, "a@example.com");
-        assert!(m.subject.starts_with("[cms.example.com]"));
-        assert!(m.body.contains("パスワード"));
+        assert_eq!(ja.to, "a@example.com");
+        assert!(ja.subject.starts_with("[cms.example.com]"));
+        assert!(ja.body.contains("パスワード") && !ja.body.contains("password"));
+        let en = notify::mail(
+            "a@example.com",
+            "cms.example.com",
+            notify::Event::PasswordChanged,
+            Locale::En,
+        );
+        assert!(en.body.contains("password") && !en.body.contains("パスワード"));
     }
 }
