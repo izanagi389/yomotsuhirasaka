@@ -325,7 +325,7 @@ async fn serve(config: Config) -> Result<()> {
     let app_pool = prepare_database(&config).await?;
     auth::password::warm_up();
     let listen = config.listen.clone();
-    let app = http::router(http::AppState::new(app_pool, config));
+    let app = http::router(http::AppState::new(app_pool, config, ring));
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
         .with_context(|| format!("cannot listen on {listen}"))?;

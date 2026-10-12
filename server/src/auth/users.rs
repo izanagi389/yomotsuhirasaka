@@ -22,42 +22,43 @@ pub struct LoginRecord {
     pub disabled: bool,
     /// ログインの失敗による待ち時間中か。
     pub blocked: bool,
+    /// 多要素認証（TOTP）を設定しているか。
+    pub mfa_enabled: bool,
+}
+
+/// (id, password_hash, disabled, blocked, mfa_enabled)
+type LoginRow = (Uuid, Option<String>, bool, bool, bool);
+
+const LOGIN_COLUMNS: &str = "id, password_hash, disabled, coalesce(login_blocked_until > now(), false), totp_enabled_at IS NOT NULL";
+
+fn login_record((id, password_hash, disabled, blocked, mfa_enabled): LoginRow) -> LoginRecord {
+    LoginRecord {
+        id,
+        password_hash,
+        disabled,
+        blocked,
+        mfa_enabled,
+    }
 }
 
 pub async fn find_for_login(pool: &PgPool, email: &str) -> Result<Option<LoginRecord>> {
-    let row: Option<(Uuid, Option<String>, bool, bool)> = sqlx::query_as(
-        "SELECT id, password_hash, disabled, coalesce(login_blocked_until > now(), false)
-         FROM cms.users WHERE email = $1",
-    )
+    let row: Option<LoginRow> = sqlx::query_as(crate::sql!(
+        "SELECT {LOGIN_COLUMNS} FROM cms.users WHERE email = $1"
+    ))
     .bind(email)
     .fetch_optional(pool)
     .await?;
-    Ok(
-        row.map(|(id, password_hash, disabled, blocked)| LoginRecord {
-            id,
-            password_hash,
-            disabled,
-            blocked,
-        }),
-    )
+    Ok(row.map(login_record))
 }
 
 pub async fn find_by_id_for_login(pool: &PgPool, id: Uuid) -> Result<Option<LoginRecord>> {
-    let row: Option<(Uuid, Option<String>, bool, bool)> = sqlx::query_as(
-        "SELECT id, password_hash, disabled, coalesce(login_blocked_until > now(), false)
-         FROM cms.users WHERE id = $1",
-    )
+    let row: Option<LoginRow> = sqlx::query_as(crate::sql!(
+        "SELECT {LOGIN_COLUMNS} FROM cms.users WHERE id = $1"
+    ))
     .bind(id)
     .fetch_optional(pool)
     .await?;
-    Ok(
-        row.map(|(id, password_hash, disabled, blocked)| LoginRecord {
-            id,
-            password_hash,
-            disabled,
-            blocked,
-        }),
-    )
+    Ok(row.map(login_record))
 }
 
 /// 利用者を作る。同じメールアドレスの利用者がいればエラー。

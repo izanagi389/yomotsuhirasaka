@@ -3,15 +3,24 @@
 //! 1行に1つの鍵を `v<バージョン>:<32バイトのBase64>` の形で書く。`#` で始まる行は注釈。
 //! いちばん大きいバージョンを、新しく暗号化するときに使う（鍵の入れ替え、Q93）。
 //! 鍵がない・読めない・形が正しくない場合、サーバーは起動しない（INV-KEY-02）。
+//!
+//! 暗号化は XChaCha20-Poly1305（chacha20poly1305 クレート）。暗号文の形は
+//! `[鍵のバージョン 4バイト（ビッグエンディアン）][ノンス 24バイト][暗号文とタグ]`。
+//! ノンスは毎回ランダムに作る（24バイトなので衝突を気にしなくてよい）。
+//! 追加の認証データ（AAD）に、値の持ち主と用途を入れ、暗号文を別の行や別の用途に移しても復号できないようにする。
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use chacha20poly1305::aead::{Aead as _, KeyInit as _, Payload};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 
 pub const KEY_BYTES: usize = 32;
+const NONCE_BYTES: usize = 24;
+const HEADER_BYTES: usize = 4 + NONCE_BYTES;
 
 /// 鍵の一覧（バージョン → 鍵）。値は表示しない。
 pub struct KeyRing {
@@ -77,6 +86,54 @@ impl KeyRing {
             .next_back()
             .expect("key ring is never empty")
     }
+
+    fn cipher(&self, version: u32) -> Result<XChaCha20Poly1305> {
+        let key = self
+            .keys
+            .get(&version)
+            .ok_or_else(|| anyhow!("encryption key v{version} is not in the key file"))?;
+        XChaCha20Poly1305::new_from_slice(key).map_err(|_| anyhow!("invalid key length"))
+    }
+
+    /// 現在の鍵で暗号化する。
+    pub fn encrypt(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
+        let version = self.active_version();
+        let mut nonce = [0u8; NONCE_BYTES];
+        rand::fill(&mut nonce);
+        let sealed = self
+            .cipher(version)?
+            .encrypt(
+                &XNonce::from(nonce),
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
+            .map_err(|_| anyhow!("encryption failed"))?;
+        let mut out = Vec::with_capacity(HEADER_BYTES + sealed.len());
+        out.extend_from_slice(&version.to_be_bytes());
+        out.extend_from_slice(&nonce);
+        out.extend_from_slice(&sealed);
+        Ok(out)
+    }
+
+    /// 暗号文に記録された版の鍵で復号する。改ざん・AADの不一致・鍵がないときはエラー。
+    pub fn decrypt(&self, blob: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
+        if blob.len() < HEADER_BYTES {
+            bail!("ciphertext is too short");
+        }
+        let version = u32::from_be_bytes(blob[..4].try_into().expect("4 bytes"));
+        let nonce: [u8; NONCE_BYTES] = blob[4..HEADER_BYTES].try_into().expect("24 bytes");
+        self.cipher(version)?
+            .decrypt(
+                &XNonce::from(nonce),
+                Payload {
+                    msg: &blob[HEADER_BYTES..],
+                    aad,
+                },
+            )
+            .map_err(|_| anyhow!("decryption failed (wrong key, tampered data or wrong context)"))
+    }
 }
 
 /// 新しい鍵のファイルの中身（バージョン1の鍵を1つ）。
@@ -121,6 +178,41 @@ mod tests {
         }
         let k = STANDARD.encode([1u8; KEY_BYTES]);
         assert!(KeyRing::parse(&format!("v1:{k}\nv1:{k}")).is_err());
+    }
+
+    #[test]
+    fn encrypt_and_decrypt() {
+        let ring = KeyRing::parse(&generate_key_file()).unwrap();
+        let blob = ring.encrypt(b"secret", b"ctx:1").unwrap();
+        assert_eq!(ring.decrypt(&blob, b"ctx:1").unwrap(), b"secret");
+        assert!(!blob.windows(6).any(|w| w == b"secret"));
+        // ノンスは毎回違う
+        assert_ne!(blob, ring.encrypt(b"secret", b"ctx:1").unwrap());
+        // 別の文脈・改ざん・別の鍵では復号できない
+        assert!(ring.decrypt(&blob, b"ctx:2").is_err());
+        let mut tampered = blob.clone();
+        *tampered.last_mut().unwrap() ^= 1;
+        assert!(ring.decrypt(&tampered, b"ctx:1").is_err());
+        let other = KeyRing::parse(&generate_key_file()).unwrap();
+        assert!(other.decrypt(&blob, b"ctx:1").is_err());
+        assert!(ring.decrypt(&blob[..10], b"ctx:1").is_err());
+    }
+
+    #[test]
+    fn old_versions_still_decrypt_after_rotation() {
+        let k1 = STANDARD.encode([1u8; KEY_BYTES]);
+        let k2 = STANDARD.encode([2u8; KEY_BYTES]);
+        let old = KeyRing::parse(&format!("v1:{k1}")).unwrap();
+        let blob = old.encrypt(b"x", b"a").unwrap();
+        let rotated = KeyRing::parse(&format!("v1:{k1}\nv2:{k2}")).unwrap();
+        assert_eq!(rotated.decrypt(&blob, b"a").unwrap(), b"x");
+        assert_eq!(
+            &rotated.encrypt(b"x", b"a").unwrap()[..4],
+            &2u32.to_be_bytes()
+        );
+        // 古い鍵を外すと、古い暗号文は読めない
+        let removed = KeyRing::parse(&format!("v2:{k2}")).unwrap();
+        assert!(removed.decrypt(&blob, b"a").is_err());
     }
 
     #[test]
