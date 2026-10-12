@@ -241,7 +241,8 @@ fn create_server_admin_main(config_path: &Path, email: &str, password_stdin: boo
     } else {
         (random_secret(), true)
     };
-    if let Err(weakness) = auth::password::check_policy(&password) {
+    // 長さは設定を読む前に確かめる（パターンとメールアドレス・サイト名は、設定を読んでから確かめる）
+    if let Err(weakness) = auth::password::check_policy(&password, &[]) {
         eprintln!("error: {}", weakness.message());
         return ExitCode::FAILURE;
     }
@@ -249,6 +250,11 @@ fn create_server_admin_main(config_path: &Path, email: &str, password_stdin: boo
         config_path,
         "cannot create server administrator",
         |config| async move {
+            let words = auth::password::personal_words(&email, &config.public_url);
+            let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+            if let Err(weakness) = auth::password::check_policy(&password, &refs) {
+                bail!("{}", weakness.message());
+            }
             let (pool, migration, _) = prepare_database(&config).await?;
             migration.close().await;
             let hash = auth::password::hash(password.clone()).await?;
