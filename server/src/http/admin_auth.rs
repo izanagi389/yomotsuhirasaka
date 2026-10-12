@@ -334,7 +334,9 @@ pub async fn change_password(
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }
-    if let Err(weakness) = password::check_policy(&req.new_password) {
+    let words = password::personal_words(&current.email, &state.config.public_url);
+    let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+    if let Err(weakness) = password::check_policy(&req.new_password, &refs) {
         return Err(ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "weak_password",

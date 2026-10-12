@@ -269,6 +269,26 @@ async fn reauth_and_password_change() {
         )
         .await;
         assert_eq!(res.status, 422);
+        // 単純なパターンと、メールアドレス・サイト名を含むもの（Q196）
+        for weak in [
+            "qwertyuiop12",
+            "123456789012",
+            "1qaz2wsx3edc",
+            "dave@example.test!!",
+            "i-am-dave-forever",
+            "cms.example.test-pw",
+        ] {
+            let res = send(
+                &server,
+                "POST",
+                "/api/admin/me/password",
+                &s1,
+                Some(&change(PASSWORD, weak)),
+            )
+            .await;
+            assert_eq!(res.status, 422, "{weak}");
+            assert_eq!(res.json_str("error").as_deref(), Some("weak_password"));
+        }
         let res = send(
             &server,
             "POST",

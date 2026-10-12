@@ -155,6 +155,9 @@ async fn invitations_without_smtp() {
 
         // 新しい利用者: 弱いパスワードではトークンを使わずに断り、直せば承諾できる。二度目は使えない
         assert_eq!(accept_new(&server, &new_token, "short pass!").await.status, 422);
+        for weak in ["aaaaaaaaaaaa", "abcdefghijkl", "new@example.test-2026"] {
+            assert_eq!(accept_new(&server, &new_token, weak).await.status, 422, "{weak}");
+        }
         let accepted = accept_new(&server, &new_token, "a long enough passphrase").await;
         assert_eq!(accepted.status, 201, "{}", accepted.body);
         assert_eq!(accepted.json_str("role").as_deref(), Some("editor"));
