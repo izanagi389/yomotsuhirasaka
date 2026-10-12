@@ -78,22 +78,80 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
 
   const session = (s: Session): Auth => ({ kind: "session", session: s, csrf: "valid" });
 
-  async function loginRaw(creds: Credentials, options: LoginOptions = {}): Promise<HttpResponse> {
-    // 多要素認証の段階は、サーバーが対応したらここに加える
-    return request("POST", `${ADMIN}/session`, {
+  /**
+   * TOTPのコードを作る。サーバーは同じ時間の区切りのコードを二度受け付けないので、
+   * 秘密ごとに使った区切りを覚え、前後1区切りの中でまだ使っていないものを使う（なければ次の区切りまで待つ）。
+   */
+  const usedSteps = new Map<string, number>();
+  async function nextTotpCode(secret: string): Promise<string> {
+    for (;;) {
+      const current = Math.floor(Date.now() / 30_000);
+      const last = usedSteps.get(secret) ?? -Infinity;
+      const step = [current - 1, current, current + 1].find((s) => s > last);
+      if (step !== undefined) {
+        usedSteps.set(secret, step);
+        return totp(secret, new Date(step * 30_000));
+      }
+      await new Promise((r) => setTimeout(r, (current + 1) * 30_000 - Date.now() + 50));
+    }
+  }
+
+  interface LoginFlow {
+    /** 最後の応答。 */
+    response: HttpResponse;
+    cookies: Map<string, string>;
+    setCookieHeaders: string[];
+  }
+
+  /** ログインの段階を順に行う。passwordOnly なら1段目（パスワード）だけ。 */
+  async function loginFlow(creds: Credentials, options: LoginOptions, passwordOnly: boolean): Promise<LoginFlow> {
+    const cookies = new Map(options.cookies ?? []);
+    const setCookieHeaders: string[] = [];
+    const first = await request("POST", `${ADMIN}/session`, {
       body: { email: creds.email, password: creds.password },
-      cookies: options.cookies,
+      cookies,
       extras: options.extras,
     });
+    applySetCookies(cookies, first.setCookies);
+    setCookieHeaders.push(...first.setCookies);
+    const needsMfa = isSuccess(first) && (JSON.parse(first.text) as { mfaRequired?: unknown }).mfaRequired === true;
+    if (!needsMfa || passwordOnly || !creds.totpSecret) return { response: first, cookies, setCookieHeaders };
+
+    const second = await request("POST", `${ADMIN}/session/mfa`, {
+      body: { totpCode: await nextTotpCode(creds.totpSecret) },
+      cookies,
+      extras: options.extras,
+    });
+    applySetCookies(cookies, second.setCookies);
+    setCookieHeaders.push(...second.setCookies);
+    return { response: second, cookies, setCookieHeaders };
+  }
+
+  async function loginRaw(creds: Credentials, options: LoginOptions = {}): Promise<HttpResponse> {
+    return (await loginFlow(creds, options, false)).response;
+  }
+
+  function sessionOf(flow: LoginFlow): Session {
+    const parsed = JSON.parse(flow.response.text) as { csrfToken?: unknown };
+    return {
+      cookies: flow.cookies,
+      csrfToken: typeof parsed.csrfToken === "string" ? parsed.csrfToken : "",
+      setCookieHeaders: flow.setCookieHeaders,
+    };
   }
 
   async function login(creds: Credentials, options: LoginOptions = {}): Promise<Session> {
-    const res = ensure("ログイン", await loginRaw(creds, options));
-    const cookies = new Map(options.cookies ?? []);
-    applySetCookies(cookies, res.setCookies);
-    const parsed = JSON.parse(res.text) as { csrfToken?: unknown };
-    if (typeof parsed.csrfToken !== "string") throw new SetupError("ログインの応答の読み取り", res);
-    return { cookies, csrfToken: parsed.csrfToken, setCookieHeaders: [...res.setCookies] };
+    const flow = await loginFlow(creds, options, false);
+    ensure("ログイン", flow.response);
+    const session = sessionOf(flow);
+    if (session.csrfToken === "") throw new SetupError("ログイン（多要素認証まで完了しなかった）", flow.response);
+    return session;
+  }
+
+  async function loginPasswordOnly(creds: Credentials, options: LoginOptions = {}): Promise<Session> {
+    const flow = await loginFlow(creds, options, true);
+    ensure("ログインのパスワードの段階", flow.response);
+    return sessionOf(flow);
   }
 
   function reauthenticateRaw(s: Session, method: { password?: string; totpCode?: string }): Promise<HttpResponse> {
@@ -101,7 +159,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   }
 
   async function reauthenticate(s: Session, creds: Credentials): Promise<void> {
-    const method = creds.totpSecret ? { totpCode: totp(creds.totpSecret) } : { password: creds.password };
+    const method = creds.totpSecret ? { totpCode: await nextTotpCode(creds.totpSecret) } : { password: creds.password };
     ensure("再認証", await reauthenticateRaw(s, method));
   }
 
@@ -132,6 +190,13 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         body: { currentPassword: `wrong-${randomUUID()}`, newPassword: `inv-${randomUUID()}` },
       }),
     ),
+    op("beginTotpSetup", true, "self", (auth, _t, extras) => request("POST", `${ADMIN}/me/mfa/totp`, { auth, extras })),
+    // コードは誤った値にする（舞台の利用者の多要素認証を変えないため）
+    op("confirmTotpSetup", true, "self", (auth, _t, extras) =>
+      request("POST", `${ADMIN}/me/mfa/totp/confirm`, { auth, extras, body: { code: "000000" } }),
+    ),
+    op("regenerateRecoveryCodes", true, "self", (auth, _t, extras) => request("POST", `${ADMIN}/me/mfa/recovery-codes`, { auth, extras })),
+    op("disableTotp", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/mfa/totp`, { auth, extras })),
     op("logout", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/session`, { auth, extras })),
   ];
 
@@ -140,6 +205,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     adminOperations,
     login,
     loginRaw,
+    loginPasswordOnly,
     async logout(s: Session): Promise<void> {
       ensure("ログアウト", await request("DELETE", `${ADMIN}/session`, { auth: session(s) }));
     },
@@ -157,6 +223,17 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       ensure("パスワードの変更", await changePasswordRaw(s, creds.password, newPassword));
     },
     changePasswordRaw,
+    async enrollTotp(s: Session, creds: Credentials): Promise<string> {
+      await reauthenticate(s, creds);
+      const setup = ensure("TOTPの設定の開始", await request("POST", `${ADMIN}/me/mfa/totp`, { auth: session(s) }));
+      const { secret } = JSON.parse(setup.text) as { secret?: unknown };
+      if (typeof secret !== "string") throw new SetupError("TOTPの設定の開始の応答の読み取り", setup);
+      ensure(
+        "TOTPの設定の確定",
+        await request("POST", `${ADMIN}/me/mfa/totp/confirm`, { auth: session(s), body: { code: await nextTotpCode(secret) } }),
+      );
+      return secret;
+    },
   } satisfies Partial<CmsClient>;
 
   // まだない操作は、呼ばれたときに NotImplementedError を投げる

@@ -4,6 +4,8 @@
 //! テストごとに使い捨てのロールとDBを作り、終わったら消す。
 #![allow(dead_code)]
 
+pub mod server;
+
 use cms_server::config::DatabaseConfig;
 use cms_server::db;
 use sqlx::postgres::PgPoolOptions;

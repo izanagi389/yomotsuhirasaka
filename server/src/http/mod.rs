@@ -1,6 +1,7 @@
 //! HTTPの受け付け: ルーティング、共通の応答ヘッダー、アプリの状態。
 
 pub mod admin_auth;
+pub mod admin_mfa;
 pub mod error;
 pub mod extract;
 
@@ -15,6 +16,7 @@ use sqlx::PgPool;
 
 use crate::auth::throttle::IpLimiter;
 use crate::config::Config;
+use crate::keys::KeyRing;
 use error::ApiError;
 
 /// リクエストの処理で共有する状態。
@@ -27,7 +29,11 @@ pub struct Inner {
     pub config: Config,
     /// 公開URLのオリジン（`https://host[:port]`）。`Origin` ヘッダーの確認に使う。
     pub public_origin: String,
+    /// 認証アプリに表示する発行者の名前（公開URLのホスト名）。
+    pub issuer: String,
     pub login_limiter: IpLimiter,
+    /// 暗号化の鍵（TOTPの秘密などの保存に使う）。
+    pub keys: KeyRing,
 }
 
 impl Deref for AppState {
@@ -38,14 +44,20 @@ impl Deref for AppState {
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, config: Config) -> Self {
+    pub fn new(pool: PgPool, config: Config, keys: KeyRing) -> Self {
         let public_origin = origin_of(&config.public_url);
+        let issuer = public_origin
+            .split_once("://")
+            .map_or(public_origin.as_str(), |(_, host)| host)
+            .to_owned();
         let login_limiter = IpLimiter::per_minute(config.limits.login_attempts_per_ip_per_minute);
         Self(Arc::new(Inner {
             pool,
             config,
             public_origin,
+            issuer,
             login_limiter,
+            keys,
         }))
     }
 }
@@ -104,11 +116,21 @@ pub fn router(state: AppState) -> Router {
             "/session",
             post(admin_auth::login).delete(admin_auth::logout),
         )
+        .route("/session/mfa", post(admin_auth::login_mfa))
         .route("/session/reauth", post(admin_auth::reauth))
         .route("/me", get(admin_auth::me))
         .route("/me/password", post(admin_auth::change_password))
         .route("/me/sessions", get(admin_auth::list_sessions))
         .route("/me/sessions/{id}", delete(admin_auth::revoke_session))
+        .route(
+            "/me/mfa/totp",
+            post(admin_mfa::begin_totp).delete(admin_mfa::disable_totp),
+        )
+        .route("/me/mfa/totp/confirm", post(admin_mfa::confirm_totp))
+        .route(
+            "/me/mfa/recovery-codes",
+            post(admin_mfa::regenerate_recovery_codes),
+        )
         .fallback(not_found);
     Router::new()
         .route("/healthz", get(|| async { "ok" }))

@@ -14,6 +14,8 @@ use crate::config::SessionConfig;
 
 /// 無操作の期限の判定に使う、最終利用時刻の更新の間隔（秒）。毎回は書き込まない。
 const TOUCH_INTERVAL_SECONDS: f64 = 30.0;
+/// パスワードを通った後、多要素認証のコードを送るまでの期限（秒）。
+pub const MFA_PENDING_SECONDS: u32 = 5 * 60;
 
 /// 新しく発行したセッション。`token` と `csrf_token` はこの場でだけ手に入る。
 pub struct Issued {
@@ -29,6 +31,8 @@ pub struct Current {
     pub user_id: Uuid,
     pub email: String,
     pub is_server_admin: bool,
+    /// 多要素認証（TOTP）を設定しているか。
+    pub mfa_enabled: bool,
     /// 最後の本人確認（ログインか再認証）から、再認証が有効な時間内か。
     pub reauth_fresh: bool,
     csrf_hash: Vec<u8>,
@@ -42,27 +46,50 @@ impl Current {
 
 /// セッションを発行する。
 pub async fn issue(pool: &PgPool, user_id: Uuid, config: &SessionConfig) -> Result<Issued> {
+    insert(pool, user_id, config.absolute_lifetime_seconds, false).await
+}
+
+/// 多要素認証の途中のセッションを発行する。多要素認証のコードを送ること以外には使えない。
+pub async fn issue_mfa_pending(pool: &PgPool, user_id: Uuid) -> Result<Issued> {
+    insert(pool, user_id, MFA_PENDING_SECONDS, true).await
+}
+
+async fn insert(pool: &PgPool, user_id: Uuid, lifetime: u32, mfa_pending: bool) -> Result<Issued> {
     let issued = Issued {
         id: Uuid::new_v4(),
         token: token::generate(),
         csrf_token: token::generate(),
     };
     sqlx::query(
-        "INSERT INTO cms.sessions (id, user_id, token_hash, csrf_hash, expires_at)
-         VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5))",
+        "INSERT INTO cms.sessions (id, user_id, token_hash, csrf_hash, expires_at, mfa_pending)
+         VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5), $6)",
     )
     .bind(issued.id)
     .bind(user_id)
     .bind(token::digest(&issued.token))
     .bind(token::digest(&issued.csrf_token))
-    .bind(f64::from(config.absolute_lifetime_seconds))
+    .bind(f64::from(lifetime))
+    .bind(mfa_pending)
     .execute(pool)
     .await?;
     Ok(issued)
 }
 
-/// (id, user_id, email, is_server_admin, csrf_hash, reauth_fresh, stale)
-type ResolvedRow = (Uuid, Uuid, String, bool, Vec<u8>, bool, bool);
+/// 多要素認証の途中のセッションを照合する。有効なら (セッションID, 利用者ID)。
+pub async fn resolve_mfa_pending(pool: &PgPool, presented: &str) -> Result<Option<(Uuid, Uuid)>> {
+    Ok(sqlx::query_as(
+        "SELECT s.id, s.user_id
+         FROM cms.sessions s JOIN cms.users u ON u.id = s.user_id
+         WHERE s.token_hash = $1 AND s.mfa_pending
+           AND s.revoked_at IS NULL AND s.expires_at > now() AND NOT u.disabled",
+    )
+    .bind(token::digest(presented))
+    .fetch_optional(pool)
+    .await?)
+}
+
+/// (id, user_id, email, is_server_admin, mfa_enabled, csrf_hash, reauth_fresh, stale)
+type ResolvedRow = (Uuid, Uuid, String, bool, bool, Vec<u8>, bool, bool);
 
 /// Cookieで受け取ったセッションIDを照合する。無効なら None。
 pub async fn resolve(
@@ -71,11 +98,12 @@ pub async fn resolve(
     config: &SessionConfig,
 ) -> Result<Option<Current>> {
     let row: Option<ResolvedRow> = sqlx::query_as(
-        "SELECT s.id, s.user_id, u.email, u.is_server_admin, s.csrf_hash,
+        "SELECT s.id, s.user_id, u.email, u.is_server_admin, u.totp_enabled_at IS NOT NULL, s.csrf_hash,
                 s.authenticated_at > now() - make_interval(secs => $3),
                 s.last_seen_at < now() - make_interval(secs => $4)
          FROM cms.sessions s JOIN cms.users u ON u.id = s.user_id
          WHERE s.token_hash = $1
+           AND NOT s.mfa_pending
            AND s.revoked_at IS NULL
            AND s.expires_at > now()
            AND s.last_seen_at > now() - make_interval(secs => $2)
@@ -87,7 +115,9 @@ pub async fn resolve(
     .bind(TOUCH_INTERVAL_SECONDS)
     .fetch_optional(pool)
     .await?;
-    let Some((id, user_id, email, is_server_admin, csrf_hash, reauth_fresh, stale)) = row else {
+    let Some((id, user_id, email, is_server_admin, mfa_enabled, csrf_hash, reauth_fresh, stale)) =
+        row
+    else {
         return Ok(None);
     };
     if stale {
@@ -101,6 +131,7 @@ pub async fn resolve(
         user_id,
         email,
         is_server_admin,
+        mfa_enabled,
         reauth_fresh,
         csrf_hash,
     }))
@@ -189,7 +220,7 @@ pub async fn list_active(
                 to_char(last_seen_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(expires_at AT TIME ZONE 'UTC', {RFC3339})
          FROM cms.sessions
-         WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+         WHERE user_id = $1 AND NOT mfa_pending AND revoked_at IS NULL AND expires_at > now()
            AND last_seen_at > now() - make_interval(secs => $2)
          ORDER BY created_at DESC"
     );
