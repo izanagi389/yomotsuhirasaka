@@ -180,6 +180,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   // 管理APIの操作の一覧（サーバーにある操作だけ。操作を作ったら、ここにも足す）
   const adminOperations: AdminOperation[] = [
     op("me", false, "self", (auth, _t, extras) => meRaw(auth, extras)),
+    // 言語は既定の言語（英語）にする
+    op("updateMe", true, "self", (auth, _t, extras) => request("PATCH", `${ADMIN}/me`, { auth, extras, body: { locale: "en" } })),
     op("listMySessions", false, "self", (auth, _t, extras) => request("GET", `${ADMIN}/me/sessions`, { auth, extras })),
     // 対象は存在しないセッション（本人の他のセッションを壊さないため）
     op("revokeMySession", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/sessions/${randomUUID()}`, { auth, extras })),

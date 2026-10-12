@@ -69,12 +69,26 @@ async fn notifications_are_queued_encrypted_and_retried() {
         assert!(received[0].contains("From: CMS <cms@example.test>"));
         // 本文は符号化されて届くので、読める形にしてから確かめる
         let body = decoded_body(&received[0]);
-        assert!(body.contains("パスワード"), "{body}");
+        // 言語を設定していなければ、インスタンスの既定の言語（英語）だけで書く（Q198）
+        assert!(
+            body.contains("password") && !body.contains("パスワード"),
+            "{body}"
+        );
         assert!(!body.contains(new_password) && !body.contains(PASSWORD));
         assert!(job_rows(&server).await.is_empty());
 
         // 一時的な失敗はやり直す（すぐにはやり直さない）
         smtp.lock().unwrap().transient_failures = 1;
+        // 言語を日本語にすると、以後の通知は日本語だけで届く
+        let res = send(
+            &server,
+            "PATCH",
+            "/api/admin/me",
+            &s,
+            Some("{\"locale\":\"ja\"}"),
+        )
+        .await;
+        assert_eq!(res.status, 200, "{}", res.body);
         let (secret, _) = enroll(&server, &s).await;
         assert!(worker::run_once(&server.state).await.unwrap());
         assert_eq!(
@@ -92,6 +106,11 @@ async fn notifications_are_queued_encrypted_and_retried() {
         assert!(worker::run_once(&server.state).await.unwrap());
         assert!(job_rows(&server).await.is_empty());
         assert_eq!(smtp.lock().unwrap().received.len(), 2);
+        let ja = decoded_body(&smtp.lock().unwrap().received[1]);
+        assert!(
+            ja.contains("多要素認証") && !ja.contains("authentication"),
+            "{ja}"
+        );
         assert!(
             !decoded_body(&smtp.lock().unwrap().received[1]).contains(&secret),
             "the TOTP secret must not be mailed"

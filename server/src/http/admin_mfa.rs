@@ -106,7 +106,7 @@ pub async fn confirm_totp(
         ));
     };
     session::revoke_others(&state.pool, current.user_id, current.id).await?;
-    notify(&state, &state.pool, &current.email, Event::MfaEnabled).await?;
+    notify(&state, &state.pool, &current, Event::MfaEnabled).await?;
     // 今コードを確かめたので、このセッションは本人確認を済ませたものとする
     session::mark_reauthenticated(&state.pool, current.id).await?;
     Ok(Json(RecoveryCodes {
@@ -128,7 +128,7 @@ pub async fn disable_totp(
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     mfa::disable(&mut tx, current.user_id).await?;
     session::revoke_others(&mut *tx, current.user_id, current.id).await?;
-    notify(&state, &mut *tx, &current.email, Event::MfaDisabled).await?;
+    notify(&state, &mut *tx, &current, Event::MfaDisabled).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }

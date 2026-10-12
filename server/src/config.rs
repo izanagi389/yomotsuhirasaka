@@ -40,6 +40,9 @@ pub struct Config {
     /// 回数制限（Q105）。
     #[serde(default)]
     pub limits: LimitsConfig,
+    /// インスタンスの既定の言語（Q198）。言語を設定していない利用者や、まだ利用者でない宛先へのメールに使う。
+    #[serde(default)]
+    pub default_locale: crate::locale::Locale,
     /// 認証の方針。
     #[serde(default)]
     pub auth: AuthConfig,

@@ -487,3 +487,81 @@ async fn create_server_admin_cli() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn locale_can_be_set_and_reset() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        create_user(&server.pool, "lang@example.test", false).await;
+        let s = login(&server, "lang@example.test", PASSWORD).await;
+        let me = get(&server, "/api/admin/me", &s).await;
+        assert!(
+            me.body.contains("\"locale\":null") && me.body.contains("\"effectiveLocale\":\"en\""),
+            "{}",
+            me.body
+        );
+
+        let res = send(
+            &server,
+            "PATCH",
+            "/api/admin/me",
+            &s,
+            Some("{\"locale\":\"ja\"}"),
+        )
+        .await;
+        assert_eq!(res.status, 200);
+        assert!(
+            res.body.contains("\"locale\":\"ja\"")
+                && res.body.contains("\"effectiveLocale\":\"ja\""),
+            "{}",
+            res.body
+        );
+        let me = get(&server, "/api/admin/me", &s).await;
+        assert!(me.body.contains("\"locale\":\"ja\""), "{}", me.body);
+
+        // 対応していない言語・項目なし・CSRFなしは断る
+        assert_eq!(
+            send(
+                &server,
+                "PATCH",
+                "/api/admin/me",
+                &s,
+                Some("{\"locale\":\"fr\"}")
+            )
+            .await
+            .status,
+            400
+        );
+        assert_eq!(
+            send(&server, "PATCH", "/api/admin/me", &s, Some("{}"))
+                .await
+                .status,
+            400
+        );
+        let no_csrf = request(
+            &server,
+            "PATCH",
+            "/api/admin/me",
+            &[("Cookie", &s.cookie_header())],
+            Some("{\"locale\":\"en\"}"),
+        )
+        .await;
+        assert_eq!(no_csrf.status, 403);
+
+        // null で未設定に戻す
+        let res = send(
+            &server,
+            "PATCH",
+            "/api/admin/me",
+            &s,
+            Some("{\"locale\":null}"),
+        )
+        .await;
+        assert!(
+            res.body.contains("\"locale\":null") && res.body.contains("\"effectiveLocale\":\"en\""),
+            "{}",
+            res.body
+        );
+    })
+    .await;
+}

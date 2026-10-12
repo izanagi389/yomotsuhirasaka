@@ -156,6 +156,7 @@ fn init(
         trusted_proxies: Vec::new(),
         session: config::SessionConfig::default(),
         limits: config::LimitsConfig::default(),
+        default_locale: cms_server::locale::Locale::default(),
         auth: config::AuthConfig::default(),
         smtp: None,
     };

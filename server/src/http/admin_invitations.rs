@@ -134,12 +134,25 @@ pub async fn invite(
     )
     .await?;
     let link = invitations::link(&state.config.public_url, &created.token);
+    // 宛先が既存の利用者で言語を設定していればその言語、なければインスタンスの既定の言語（Q198）。
+    // メールの言語は招待した人には見えないので、相手が既存の利用者かどうかは漏れない
+    let recipient_locale: Option<String> =
+        sqlx::query_scalar("SELECT locale FROM cms.users WHERE email = $1")
+            .bind(&email)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(anyhow::Error::from)?
+            .flatten();
+    let locale = recipient_locale
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(state.config.default_locale);
     let message = mail::invitation(
         &email,
         &state.issuer,
         &workspace_name,
         &link,
         &created.expires_at,
+        locale,
     );
     let mailed = mail::enqueue(&mut *tx, &state.keys, state.config.smtp.as_ref(), &message).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;

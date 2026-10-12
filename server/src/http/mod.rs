@@ -133,7 +133,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/session/mfa", post(admin_auth::login_mfa))
         .route("/session/reauth", post(admin_auth::reauth))
-        .route("/me", get(admin_auth::me))
+        .route("/me", get(admin_auth::me).patch(admin_auth::update_me))
         .route("/me/password", post(admin_auth::change_password))
         .route("/me/sessions", get(admin_auth::list_sessions))
         .route("/me/sessions/{id}", delete(admin_auth::revoke_session))
