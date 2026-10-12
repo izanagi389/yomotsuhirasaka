@@ -44,6 +44,8 @@ pub struct Inner {
     pub login_limiter: IpLimiter,
     /// 暗号化の鍵（TOTPの秘密などの保存に使う）。
     pub keys: KeyRing,
+    /// 国を調べるデータ（設定したときだけ。Q175）。
+    pub geoip: Option<crate::geoip::GeoIp>,
 }
 
 impl Deref for AppState {
@@ -67,6 +69,16 @@ impl AppState {
             .map_or(public_origin.as_str(), |(_, host)| host)
             .to_owned();
         let login_limiter = IpLimiter::per_minute(config.limits.login_attempts_per_ip_per_minute);
+        // 起動時の設定の検査で、読み込めることは確かめてある。ここで失敗したら国を調べずに続ける
+        let geoip = config
+            .login_history
+            .geoip_database
+            .as_deref()
+            .and_then(|path| {
+                crate::geoip::GeoIp::open(path)
+                    .inspect_err(|e| tracing::error!("GeoIP database is not available: {e:#}"))
+                    .ok()
+            });
         Self(Arc::new(Inner {
             pool,
             migration,
@@ -76,6 +88,7 @@ impl AppState {
             issuer,
             login_limiter,
             keys,
+            geoip,
         }))
     }
 }

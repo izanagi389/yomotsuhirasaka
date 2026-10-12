@@ -62,6 +62,10 @@ pub struct LoginHistoryConfig {
     pub retention_seconds: u32,
     /// 期限を過ぎた履歴を探して削除する間隔（既定は1時間）。
     pub sweep_interval_seconds: u32,
+    /// 国を調べるデータ（MaxMind DB 形式。GeoLite2-Country など）の置き場所。
+    /// 指定したときだけ、履歴に国を残し、国の変化を本人に知らせる（Q175）。データは同梱しない。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geoip_database: Option<PathBuf>,
 }
 
 impl Default for LoginHistoryConfig {
@@ -69,6 +73,7 @@ impl Default for LoginHistoryConfig {
         Self {
             retention_seconds: 90 * 24 * 60 * 60,
             sweep_interval_seconds: 60 * 60,
+            geoip_database: None,
         }
     }
 }

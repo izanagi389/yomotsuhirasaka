@@ -174,7 +174,7 @@ fn device_cookie(value: &str) -> HeaderValue {
 }
 
 /// ログインを完了させ、本番のセッションを発行して応答を作る。
-/// 端末の判定とログインの履歴を記録し、新しい端末なら本人に知らせる（13-security.md「本人への通知」）。
+/// 端末と国の判定、ログインの履歴を記録し、新しい端末や国の変化なら本人に知らせる（13-security.md「本人への通知」）。
 async fn complete_login(
     state: &AppState,
     user_id: Uuid,
@@ -187,19 +187,33 @@ async fn complete_login(
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok());
     let device = cookie(headers, devices::DEVICE_COOKIE);
-    let recorded =
-        devices::record_login(&state.pool, user_id, device.as_deref(), ip, user_agent).await?;
+    let country = state.geoip.as_ref().and_then(|g| g.country(ip));
+    let recorded = devices::record_login(
+        &state.pool,
+        user_id,
+        device.as_deref(),
+        ip,
+        user_agent,
+        country.as_deref(),
+    )
+    .await?;
     let current = session::resolve(&state.pool, &issued.token, &state.config.session)
         .await?
         .ok_or_else(ApiError::internal)?;
-    if recorded.notify {
+    if let Some(notice) = recorded.notice {
+        let event = match notice {
+            devices::Notice::NewDevice => Event::NewDeviceLogin,
+            devices::Notice::NewCountry => Event::NewCountryLogin,
+        };
         let locale = current.locale.unwrap_or(state.config.default_locale);
-        let mail = crate::mail::notify::new_device_login(
+        let mail = crate::mail::notify::login(
             &current.email,
             &state.issuer,
             locale,
+            event,
             ip.to_canonical(),
             devices::browser_family(user_agent),
+            country.as_deref(),
         );
         crate::mail::enqueue(&state.pool, &state.keys, state.config.smtp.as_ref(), &mail).await?;
     }
