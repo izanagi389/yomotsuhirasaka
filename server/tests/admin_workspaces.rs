@@ -72,9 +72,7 @@ async fn audit_count(
 #[tokio::test]
 async fn only_server_admins_with_mfa_create_workspaces() {
     with_scratch(|app, migration| async move {
-        let mut cfg = config(&app, &migration);
-        cfg.session.reauth_window_seconds = 2;
-        let server = start(cfg).await;
+        let server = start(config(&app, &migration)).await;
         let (_, plain_admin) = user(&server, "root-nomfa@example.test", true, false).await;
         let (_, member) = user(&server, "member@example.test", false, true).await;
         let (root_id, root) = user(&server, "root@example.test", true, true).await;
@@ -141,7 +139,7 @@ async fn only_server_admins_with_mfa_create_workspaces() {
         assert_eq!(list.body, "[]");
 
         // 再認証の有効時間を過ぎると作れない
-        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        expire_reauth(&server.pool, "root@example.test").await;
         let res = send(&server, "POST", "/api/admin/workspaces", &root, body).await;
         assert_eq!(
             (res.status, res.json_str("error").as_deref()),

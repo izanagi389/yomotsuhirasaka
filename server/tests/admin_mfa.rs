@@ -232,9 +232,7 @@ async fn wrong_codes_count_toward_the_account_throttle() {
 #[tokio::test]
 async fn regenerate_and_disable() {
     with_scratch(|app, migration| async move {
-        let mut cfg = config(&app, &migration);
-        cfg.session.reauth_window_seconds = 1;
-        let server = start(cfg).await;
+        let server = start(config(&app, &migration)).await;
         let email = "manage@example.test";
         create_user(&server.pool, email, false).await;
         let s = login(&server, email, PASSWORD).await;
@@ -242,7 +240,7 @@ async fn regenerate_and_disable() {
         let old_codes = recovery_codes(&body);
 
         // 再認証の有効時間を過ぎると、作り直しも停止もできない
-        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        expire_reauth(&server.pool, email).await;
         assert_eq!(send(&server, "POST", "/api/admin/me/mfa/recovery-codes", &s, None).await.status, 403);
         assert_eq!(send(&server, "DELETE", "/api/admin/me/mfa/totp", &s, None).await.status, 403);
 

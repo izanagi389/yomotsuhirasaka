@@ -5,8 +5,6 @@
 
 mod common;
 
-use std::time::Duration;
-
 use common::server::*;
 use common::with_scratch;
 
@@ -209,13 +207,11 @@ async fn account_throttle_and_ip_limit() {
 #[tokio::test]
 async fn reauth_and_password_change() {
     with_scratch(|app, migration| async move {
-        let mut cfg = config(&app, &migration);
-        cfg.session.reauth_window_seconds = 1;
-        let server = start(cfg).await;
+        let server = start(config(&app, &migration)).await;
         create_user(&server.pool, "dave@example.test", false).await;
         let s1 = login(&server, "dave@example.test", PASSWORD).await;
         let s2 = login(&server, "dave@example.test", PASSWORD).await;
-        tokio::time::sleep(Duration::from_millis(1500)).await;
+        expire_reauth(&server.pool, "dave@example.test").await;
 
         let new_password = "a brand new passphrase";
         let change = |current: &str, new: &str| {
@@ -326,21 +322,40 @@ async fn reauth_and_password_change() {
 #[tokio::test]
 async fn sessions_expire_and_can_be_listed_and_revoked() {
     with_scratch(|app, migration| async move {
+        // 絶対的な期限: 設定どおりの期限が付き、期限を過ぎると使えない（待つ代わりに期限を過去にする）
         let mut cfg = config(&app, &migration);
-        cfg.session.absolute_lifetime_seconds = 1;
+        cfg.session.absolute_lifetime_seconds = 5;
+        cfg.session.idle_timeout_seconds = 60;
         let short = start(cfg).await;
         create_user(&short.pool, "erin@example.test", false).await;
         let s = login(&short, "erin@example.test", PASSWORD).await;
         assert_eq!(get(&short, "/api/admin/me", &s).await.status, 200);
-        tokio::time::sleep(Duration::from_millis(2000)).await;
+        let lifetime: f64 = sqlx::query_scalar(
+            "SELECT extract(epoch FROM expires_at - created_at)::float8 FROM cms.sessions
+             WHERE revoked_at IS NULL AND user_id = (SELECT id FROM cms.users WHERE email = 'erin@example.test')",
+        )
+        .fetch_one(&short.pool)
+        .await
+        .unwrap();
+        assert!((lifetime - 5.0).abs() < 1.0, "{lifetime}");
+        let set = |sql: &'static str| {
+            let pool = short.pool.clone();
+            async move {
+                sqlx::query(sql)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+        };
+        set("UPDATE cms.sessions SET expires_at = now() - interval '1 second'").await;
         assert_eq!(get(&short, "/api/admin/me", &s).await.status, 401);
 
-        let mut cfg = config(&app, &migration);
-        cfg.session.idle_timeout_seconds = 1;
-        let idle = start(cfg).await;
-        let s = login(&idle, "erin@example.test", PASSWORD).await;
-        tokio::time::sleep(Duration::from_millis(2000)).await;
-        assert_eq!(get(&idle, "/api/admin/me", &s).await.status, 401);
+        // 無操作の期限: 期限の内なら使え、過ぎると使えない
+        let s = login(&short, "erin@example.test", PASSWORD).await;
+        set("UPDATE cms.sessions SET last_seen_at = now() - interval '30 seconds' WHERE revoked_at IS NULL AND expires_at > now()").await;
+        assert_eq!(get(&short, "/api/admin/me", &s).await.status, 200);
+        set("UPDATE cms.sessions SET last_seen_at = now() - interval '61 seconds' WHERE revoked_at IS NULL AND expires_at > now()").await;
+        assert_eq!(get(&short, "/api/admin/me", &s).await.status, 401);
 
         let server = start(config(&app, &migration)).await;
         create_user(&server.pool, "frank@example.test", false).await;

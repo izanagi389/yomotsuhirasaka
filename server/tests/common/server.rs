@@ -323,3 +323,15 @@ pub fn recovery_codes(body: &str) -> Vec<String> {
         .map(|c| c.trim().trim_matches('"').to_owned())
         .collect()
 }
+
+/// 利用者のすべてのセッションの「最後の本人確認」を1時間前にする（再認証の有効時間を過ぎた状態を、待たずに作る）。
+pub async fn expire_reauth(pool: &PgPool, email: &str) {
+    sqlx::query(
+        "UPDATE cms.sessions SET authenticated_at = now() - interval '1 hour'
+         WHERE user_id = (SELECT id FROM cms.users WHERE email = $1)",
+    )
+    .bind(email)
+    .execute(pool)
+    .await
+    .unwrap();
+}
