@@ -17,6 +17,7 @@ use crate::schema::manifest::Manifest;
 
 /// ワークスペースに適用済みのスキーマ。
 pub struct Applied {
+    pub template: String,
     pub version: i32,
     /// 移行待ちか（Q53）。移行待ちの間は、編集の操作を受け付けない。
     pub pending: bool,
@@ -38,6 +39,7 @@ pub async fn applied_schema(pool: &PgPool, workspace_id: Uuid) -> Result<Option<
         .await?
         .context("applied template version is missing")?;
     Ok(Some(Applied {
+        template,
         version,
         pending: state == "pending",
         manifest,

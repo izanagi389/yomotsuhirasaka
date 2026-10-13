@@ -276,6 +276,8 @@ pub fn validate(m: &Manifest) -> Vec<String> {
             problems.push(format!("body.nodes: `{required}` is required"));
         }
     }
+    // 配信API（GraphQL）の名前がぶつからないこと
+    problems.extend(crate::delivery::names::problems(m));
     // CMSが意味を知っているノードは、検証と公開の検査に使う属性を持たなければならない（Q75, Q97）
     for (i, n) in body.nodes.iter().enumerate() {
         let needed: &[&str] = match n.name.as_str() {

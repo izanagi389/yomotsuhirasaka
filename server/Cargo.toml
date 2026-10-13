@@ -40,6 +40,8 @@ serde_json = "1.0.145"
 # リンクと埋め込みのURLの解釈（WHATWGのURLの仕様どおり。webauthn-rs などが既に使っているもの）
 url = "2.5"
 # 画像の形式の判定・デコード・エンコードし直し（Rustだけで書かれた JPEG・PNG・GIF・WebP だけを有効にする。13-security.md「メディア」、Q96, Q127）
+# 配信API（GraphQL）。テンプレートの版ごとに、動的スキーマ機能でスキーマを組み立てる（02-schema-and-delivery-api.md、Q55, Q130）
+async-graphql = { version = "=7.2.1", default-features = false, features = ["dynamic-schema"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 
 [dev-dependencies]

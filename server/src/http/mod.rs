@@ -12,6 +12,7 @@ pub mod admin_templates;
 pub mod admin_tokens;
 pub mod admin_translations;
 pub mod admin_workspaces;
+pub mod delivery;
 pub mod error;
 pub mod extract;
 
@@ -51,6 +52,8 @@ pub struct Inner {
     pub keys: KeyRing,
     /// 国を調べるデータ（設定したときだけ。Q175）。
     pub geoip: Option<crate::geoip::GeoIp>,
+    /// 配信APIのスキーマ（テンプレートの版ごと）。
+    pub graphql: crate::delivery::schema::Cache,
     /// パスキーの照合の設定（公開URLから作る。作れなければ起動時の検査で止める）。
     pub passkeys: Option<webauthn_rs::prelude::Webauthn>,
 }
@@ -100,6 +103,7 @@ impl AppState {
             keys,
             geoip,
             passkeys,
+            graphql: Default::default(),
         }))
     }
 }
@@ -354,6 +358,8 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/media/{ws}/{file}", get(admin_media::serve))
+        .route("/ws/{ws}/graphql", get(delivery::get).post(delivery::post))
+        .route("/ws/{ws}/graphql/queries", post(delivery::register))
         .nest("/api/admin", admin)
         .fallback(not_found)
         .with_state(state)
