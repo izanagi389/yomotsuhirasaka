@@ -54,6 +54,8 @@ pub struct Inner {
     pub geoip: Option<crate::geoip::GeoIp>,
     /// 配信APIのスキーマ（テンプレートの版ごと）。
     pub graphql: crate::delivery::schema::Cache,
+    /// 配信APIの回数制限。
+    pub delivery_limiter: crate::delivery::limiter::Limiter,
     /// パスキーの照合の設定（公開URLから作る。作れなければ起動時の検査で止める）。
     pub passkeys: Option<webauthn_rs::prelude::Webauthn>,
 }
@@ -104,6 +106,7 @@ impl AppState {
             geoip,
             passkeys,
             graphql: Default::default(),
+            delivery_limiter: Default::default(),
         }))
     }
 }

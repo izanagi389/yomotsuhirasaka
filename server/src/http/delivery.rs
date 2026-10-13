@@ -59,6 +59,7 @@ fn denied(d: Denied) -> ApiError {
     }
 }
 
+/// キーを照合し、回数制限を数える。
 async fn authenticate(
     state: &AppState,
     headers: &HeaderMap,
@@ -69,7 +70,25 @@ async fn authenticate(
     let grant = api_keys::authenticate(&state.pool, bearer(headers), ws, scope)
         .await?
         .map_err(denied)?;
+    // 回数制限（INV-GQL-03）。用途で、キーの上限の既定値を分ける（Q153）
+    let c = &state.config.delivery;
+    let key_limit = if grant.purpose == "server" {
+        c.server_key_requests_per_minute
+    } else {
+        c.build_key_requests_per_minute
+    };
+    state
+        .delivery_limiter
+        .check_request(ws, grant.key_id, key_limit, c.workspace_requests_per_minute)
+        .map_err(ApiError::rate_limited)?;
     Ok((ws, grant))
+}
+
+/// 共有キャッシュに載せてよいか（設定で許し、キーの範囲が公開版の読み取りだけのとき。INV-GQL-08）。
+fn shared_cacheable(state: &AppState, grant: &Grant) -> bool {
+    state.config.delivery.shared_cache
+        && grant.has_scope("read")
+        && grant.scopes.iter().all(|s| s == "read")
 }
 
 /// ワークスペースに適用済みのスキーマ。
@@ -274,7 +293,7 @@ async fn execute(
     headers: &HeaderMap,
     req: Execute,
 ) -> Result<Response, ApiError> {
-    let (ws, _grant) = authenticate(state, headers, ws, "read").await?;
+    let (ws, grant) = authenticate(state, headers, ws, "read").await?;
     let db = workspace_db::lookup(&state.pool, ws)
         .await?
         .ok_or_else(ApiError::not_found)?;
@@ -326,16 +345,30 @@ async fn execute(
         tx.rollback().await.map_err(anyhow::Error::from)?;
     }
     let body = serde_json::to_vec(&response).map_err(anyhow::Error::from)?;
+    // 応答の大きさの上限。途中まで返すことはしない
+    if body.len() > state.config.delivery.max_response_bytes {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "response_too_large",
+            "The response is larger than this server allows. Request fewer entries or fields.",
+        ));
+    }
     let mut res = (StatusCode::OK, body).into_response();
     let h = res.headers_mut();
     h.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
-    // 既定で共有キャッシュに載せない（INV-GQL-08）
-    h.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("private, no-cache"),
-    );
+    // 既定で共有キャッシュに載せない。許すのは、設定で有効にし、公開版の読み取りだけのキーで実行したときだけ（INV-GQL-08）
+    let cache = if shared_cacheable(state, &grant) {
+        HeaderValue::from_str(&format!(
+            "public, max-age=0, s-maxage={}",
+            state.config.delivery.shared_cache_seconds
+        ))
+        .map_err(anyhow::Error::from)?
+    } else {
+        HeaderValue::from_static("private, no-cache")
+    };
+    h.insert(header::CACHE_CONTROL, cache);
     Ok(res)
 }

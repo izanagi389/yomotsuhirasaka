@@ -51,7 +51,7 @@ const tomlString = (s: string): string => JSON.stringify(s); // TOMLの基本文
 function unsupported(config: ServerConfig): string[] {
   const out: string[] = [];
   if (config.internalDestinationExceptions.length > 0) out.push("internalDestinationExceptions");
-  for (const key of ["rateLimits", "sharedCache", "egressProxy", "breachedPasswordApi"] as const) {
+  for (const key of ["egressProxy", "breachedPasswordApi"] as const) {
     if (config[key] !== undefined && config[key] !== null) out.push(key);
   }
   return out;
@@ -83,6 +83,14 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (session.length > 0) lines.push("", "[session]", ...session);
   // undefined ならサーバーの既定（有効）に任せる
   if (config.mfaRequiredForEveryone !== undefined) lines.push("", "[auth]", `mfa_required_for_everyone = ${config.mfaRequiredForEveryone}`);
+  // 配信API: キーごとの上限は、用途（ビルド用・サーバー配信用）の両方に同じ値を使う
+  const delivery: string[] = [];
+  if (config.rateLimits?.deliveryPerKey !== undefined) {
+    delivery.push(`build_key_requests_per_minute = ${config.rateLimits.deliveryPerKey}`, `server_key_requests_per_minute = ${config.rateLimits.deliveryPerKey}`);
+  }
+  if (config.rateLimits?.deliveryPerWorkspace !== undefined) delivery.push(`workspace_requests_per_minute = ${config.rateLimits.deliveryPerWorkspace}`);
+  if (config.sharedCache !== undefined) delivery.push(`shared_cache = ${config.sharedCache}`);
+  if (delivery.length > 0) lines.push("", "[delivery]", ...delivery);
   if (config.loginHistoryRetention) {
     const r = config.loginHistoryRetention;
     lines.push("", "[login_history]", `retention_seconds = ${r.retentionSeconds}`, `sweep_interval_seconds = ${r.sweepIntervalSeconds}`);
