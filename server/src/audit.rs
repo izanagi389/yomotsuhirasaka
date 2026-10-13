@@ -33,6 +33,10 @@ pub mod action {
     pub const ENCRYPTION_KEY_ADDED: &str = "encryption_key.added";
     pub const SECRETS_REENCRYPTED: &str = "encryption_key.secrets_reencrypted";
     pub const ENCRYPTION_KEY_REMOVED: &str = "encryption_key.removed";
+    /// テンプレートのデプロイ（インスタンス）と、ワークスペースごとの移行の結果。
+    pub const TEMPLATE_DEPLOYED: &str = "template.deployed";
+    pub const SCHEMA_MIGRATED: &str = "schema.migrated";
+    pub const SCHEMA_MIGRATION_FAILED: &str = "schema.migration_failed";
 }
 
 /// 1件を記録する。`workspace_id` が None ならインスタンス全体の記録。

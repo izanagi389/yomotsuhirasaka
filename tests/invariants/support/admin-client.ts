@@ -8,6 +8,8 @@ import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, IssuedS
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
 import { totp } from "./totp.js";
+import { toManifest } from "./manifest.js";
+import { BASE_TEMPLATE, cloneTemplate, type TemplateSpec } from "./template.js";
 
 /** セッションのCookieの名前以外の、管理APIの細部。 */
 const ADMIN = "/api/admin";
@@ -169,6 +171,21 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   }
 
   const meRaw = (auth: Auth, extras?: RequestExtras): Promise<HttpResponse> => request("GET", `${ADMIN}/me`, { auth, extras });
+  const schemaInfoRaw = (auth: Auth, workspaceId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${ADMIN}/workspaces/${workspaceId}/schema`, { auth, extras });
+  const deployTemplateRaw = (
+    auth: Auth,
+    template: TemplateSpec,
+    options: { allowDestructive?: boolean; allowBrokenQueries?: boolean } = {},
+    extras?: RequestExtras,
+  ): Promise<HttpResponse> =>
+    request("POST", `${ADMIN}/templates/${encodeURIComponent(template.name)}/deploy`, {
+      auth,
+      extras,
+      body: { manifest: toManifest(template), allowDestructive: options.allowDestructive, allowBrokenQueries: options.allowBrokenQueries },
+    });
+  // 操作の一覧で使うテンプレート（何度デプロイしても同じ内容なので、版は増えない）
+  const OPERATION_TEMPLATE = cloneTemplate("inv-operations");
   const loginHistoryRaw = (auth: Auth, extras?: RequestExtras): Promise<HttpResponse> =>
     request("GET", `${ADMIN}/me/login-history`, { auth, extras });
 
@@ -186,6 +203,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("updateMe", true, "self", (auth, _t, extras) => request("PATCH", `${ADMIN}/me`, { auth, extras, body: { locale: "en" } })),
     op("listMySessions", false, "self", (auth, _t, extras) => request("GET", `${ADMIN}/me/sessions`, { auth, extras })),
     op("getMyLoginHistory", false, "self", (auth, _t, extras) => loginHistoryRaw(auth, extras)),
+    op("deploySchema", true, "instance", (auth, _t, extras) => deployTemplateRaw(auth, OPERATION_TEMPLATE, {}, extras)),
+    op("getSchemaInfo", false, "workspace", (auth, t, extras) => schemaInfoRaw(auth, t.workspaceId, extras)),
     // 対象は存在しないセッション（本人の他のセッションを壊さないため）
     op("revokeMySession", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/sessions/${randomUUID()}`, { auth, extras })),
     // 現在のパスワードは誤った値にする（舞台の利用者のパスワードを変えないため）
@@ -298,6 +317,26 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     reauthenticate,
     reauthenticateRaw,
     meRaw,
+    schemaInfoRaw: (auth: Auth, workspaceId: string) => schemaInfoRaw(auth, workspaceId),
+    deployTemplateRaw: (auth: Auth, template: TemplateSpec, options?: { allowDestructive?: boolean; allowBrokenQueries?: boolean }) =>
+      deployTemplateRaw(auth, template, options),
+    async deployToken(s: Session, creds: Credentials): Promise<string> {
+      // デプロイの範囲のトークンは、多要素認証で再認証してから発行する
+      await reauthenticate(s, creds);
+      const res = ensure(
+        "デプロイの範囲の個人トークンの発行",
+        await request("POST", `${ADMIN}/me/tokens`, { auth: session(s), body: { name: "inv-deploy", scopes: ["deploy"], workspaceIds: [] } }),
+      );
+      const { token } = JSON.parse(res.text) as { token?: unknown };
+      if (typeof token !== "string") throw new SetupError("デプロイの範囲の個人トークンの読み取り", res);
+      return token;
+    },
+    async migrationState(s: Session, workspaceId: string): Promise<"ok" | "pending"> {
+      const res = ensure("スキーマ情報の取得", await schemaInfoRaw(session(s), workspaceId));
+      const { state } = JSON.parse(res.text) as { state?: unknown };
+      if (state !== "ok" && state !== "pending") throw new SetupError("移行の状態の読み取り", res);
+      return state;
+    },
     loginHistoryRaw: (s: Session) => loginHistoryRaw(session(s)),
     async me(s: Session): Promise<{ userId: string; email: string }> {
       const res = ensure("本人の情報の取得", await meRaw(session(s)));
@@ -313,10 +352,11 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     createWorkspaceRaw(auth: Auth, name: string): Promise<HttpResponse> {
       return request("POST", `${ADMIN}/workspaces`, { auth, body: { name } });
     },
+    // テンプレートを指定しなければ、テスト環境でデプロイ済みの BASE_TEMPLATE を使う（README「テスト環境」）
     async createWorkspace(s: Session, name: string, options: { template?: string } = {}): Promise<{ id: string }> {
       const res = ensure(
         "ワークスペースの作成",
-        await request("POST", `${ADMIN}/workspaces`, { auth: session(s), body: { name, template: options.template } }),
+        await request("POST", `${ADMIN}/workspaces`, { auth: session(s), body: { name, template: options.template ?? BASE_TEMPLATE.name } }),
       );
       const { id } = JSON.parse(res.text) as { id?: unknown };
       if (typeof id !== "string") throw new SetupError("ワークスペースの作成の応答の読み取り", res);

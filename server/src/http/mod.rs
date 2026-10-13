@@ -5,6 +5,7 @@ pub mod admin_auth;
 pub mod admin_invitations;
 pub mod admin_mfa;
 pub mod admin_resets;
+pub mod admin_templates;
 pub mod admin_tokens;
 pub mod admin_workspaces;
 pub mod error;
@@ -209,6 +210,11 @@ pub fn router(state: AppState) -> Router {
             get(admin_workspaces::list_workspaces).post(admin_workspaces::create_workspace),
         )
         .route("/workspaces/{ws}", get(admin_workspaces::get_workspace))
+        .route("/workspaces/{ws}/schema", get(admin_templates::schema_info))
+        .route(
+            "/templates/{name}/deploy",
+            post(admin_templates::deploy_template),
+        )
         .route(
             "/workspaces/{ws}/members",
             get(admin_workspaces::list_members),

@@ -59,6 +59,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "passkeys",
         include_str!("../migrations/0012_passkeys.sql"),
     ),
+    (
+        13,
+        "templates",
+        include_str!("../migrations/0013_templates.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -87,6 +92,8 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("passkeys", "SELECT, INSERT, UPDATE, DELETE"),
     // 同じセッション・用途で始め直したら上書きし、使ったら・期限を過ぎたら消す
     ("webauthn_challenges", "SELECT, INSERT, UPDATE, DELETE"),
+    // 書き込みはデプロイの処理（移行・ロールの作成用の接続）だけ
+    ("template_versions", "SELECT"),
 ];
 
 /// 移行の排他に使う、アドバイザリーロックのキー（任意の固定値）。
