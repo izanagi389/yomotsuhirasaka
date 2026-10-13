@@ -5,3 +5,4 @@ pub mod limiter;
 pub mod names;
 pub mod queries;
 pub mod schema;
+pub mod validate;

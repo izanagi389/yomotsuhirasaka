@@ -29,6 +29,27 @@ pub enum Rejected {
     Invalid(Vec<String>),
     /// 明示的な指定のない、破壊的な変更。
     Destructive(Vec<Breaking>),
+    /// 明示的な指定のない、登録済みのクエリを壊す変更（Q54）。
+    BreaksQueries(Vec<BrokenQuery>),
+}
+
+/// 新しいスキーマで壊れる登録済みのクエリ。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrokenQuery {
+    pub workspace_id: Uuid,
+    pub query_id: String,
+    pub problems: Vec<String>,
+}
+
+/// デプロイのときの、登録済みのクエリの検証の設定。
+#[derive(Debug, Clone, Copy)]
+pub struct QueryCheck {
+    /// 壊れるクエリがあってもデプロイする（明示的な指定）。
+    pub allow_broken: bool,
+    pub limits: crate::delivery::schema::QueryLimits,
+    /// この日数より長く使われていないクエリは検証しない（Q151）。
+    pub unused_days: u32,
 }
 
 /// ワークスペースごとの結果。
@@ -91,6 +112,7 @@ pub async fn deploy(
     template: &str,
     manifest: Manifest,
     allow_destructive: bool,
+    queries: QueryCheck,
     actor: Uuid,
 ) -> Result<Result<Outcome, Rejected>> {
     let problems = validate(&manifest);
@@ -102,7 +124,16 @@ pub async fn deploy(
         .bind(DEPLOY_LOCK_KEY)
         .execute(&mut *conn)
         .await?;
-    let result = deploy_locked(&mut conn, app, template, manifest, allow_destructive, actor).await;
+    let result = deploy_locked(
+        &mut conn,
+        app,
+        template,
+        manifest,
+        allow_destructive,
+        queries,
+        actor,
+    )
+    .await;
     sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(DEPLOY_LOCK_KEY)
         .execute(&mut *conn)
@@ -116,12 +147,20 @@ async fn deploy_locked(
     template: &str,
     manifest: Manifest,
     allow_destructive: bool,
+    queries: QueryCheck,
     actor: Uuid,
 ) -> Result<Result<Outcome, Rejected>> {
     let latest = latest_version(conn, template).await?;
     let breaking = breaking_changes(latest.as_ref().map(|(_, m)| m), &manifest);
     if !breaking.is_empty() && !allow_destructive {
         return Ok(Err(Rejected::Destructive(breaking)));
+    }
+    // 登録済みのクエリを、新しいスキーマで検証する（Q54、INV-SCH-03）。破壊的な変更を許しても、この検証は別に行う
+    if !queries.allow_broken && latest.as_ref().is_none_or(|(_, m)| *m != manifest) {
+        let broken = broken_queries(conn, template, &manifest, queries).await?;
+        if !broken.is_empty() {
+            return Ok(Err(Rejected::BreaksQueries(broken)));
+        }
     }
     let (version, unchanged) = match &latest {
         Some((v, m)) if *m == manifest => (*v, true),
@@ -170,6 +209,45 @@ async fn deploy_locked(
         unchanged,
         workspaces,
     }))
+}
+
+/// テンプレートを使うワークスペースの登録済みのクエリのうち、新しいスキーマで検証に通らないもの。
+/// 移行・ロールの作成用の接続で、各ワークスペースのスキーマのテーブルを読む。
+async fn broken_queries(
+    conn: &mut PgConnection,
+    template: &str,
+    manifest: &Manifest,
+    check: QueryCheck,
+) -> Result<Vec<BrokenQuery>> {
+    let schema = crate::delivery::schema::build(manifest, false, check.limits)?;
+    let ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM cms.workspaces WHERE template = $1 ORDER BY created_at, id",
+    )
+    .bind(template)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut broken = Vec::new();
+    for workspace_id in ids {
+        let db = WorkspaceDb::names_for(workspace_id);
+        let schema_name = &db.schema;
+        let queries: Vec<(String, String)> = sqlx::query_as(crate::sql!(
+            "SELECT id, query FROM {schema_name}.queries
+             WHERE last_used_at > now() - make_interval(days => $1) ORDER BY id"
+        ))
+        .bind(i32::try_from(check.unused_days).unwrap_or(i32::MAX))
+        .fetch_all(&mut *conn)
+        .await?;
+        for (query_id, query) in queries {
+            if let Err(problems) = crate::delivery::validate::check(&schema, &query).await {
+                broken.push(BrokenQuery {
+                    workspace_id,
+                    query_id,
+                    problems,
+                });
+            }
+        }
+    }
+    Ok(broken)
 }
 
 /// 1つのワークスペースを、テンプレートの指定の版へ移行する（別のトランザクション）。
