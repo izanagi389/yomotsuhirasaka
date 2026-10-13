@@ -21,6 +21,11 @@ pub const RECOVERY_CODE_COUNT: usize = 10;
 /// 入力では、I と L は 1、O は 0 と読む。
 const RECOVERY_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
+/// 多要素認証を設定しているか（TOTPか、パスキーが1つ以上）のSQLの式。`cms.users` を `u` と名付けた問い合わせで使う。
+pub const MFA_ENABLED_U: &str = "(u.totp_enabled_at IS NOT NULL OR EXISTS (SELECT 1 FROM cms.passkeys pk WHERE pk.user_id = u.id))";
+/// 同じ式を、`cms.users` に別名を付けない問い合わせで使う形。
+pub const MFA_ENABLED: &str = "(cms.users.totp_enabled_at IS NOT NULL OR EXISTS (SELECT 1 FROM cms.passkeys pk WHERE pk.user_id = cms.users.id))";
+
 pub(crate) fn aad(user_id: Uuid) -> Vec<u8> {
     format!("cms:totp:{user_id}").into_bytes()
 }
@@ -93,6 +98,7 @@ fn check_code(keys: &KeyRing, user_id: Uuid, sealed: &[u8], code: &str) -> Resul
 }
 
 /// 設定を確定する: 確認前の秘密でコードが合えば有効にし、復旧コードを発行して返す。
+/// 既にほかの方法（パスキー）で多要素認証を設定していれば、復旧コードは作り直さない（空を返す）。
 /// コードが合わない・途中の設定がなければ None。
 pub async fn confirm_enrollment(
     pool: &PgPool,
@@ -112,6 +118,12 @@ pub async fn confirm_enrollment(
         return Ok(None);
     };
     let mut tx = pool.begin().await?;
+    let had_mfa: bool = sqlx::query_scalar(crate::sql!(
+        "SELECT {MFA_ENABLED_U} FROM cms.users u WHERE u.id = $1 FOR UPDATE"
+    ))
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await?;
     let done = sqlx::query(
         "UPDATE cms.users SET totp_secret_enc = totp_pending_secret_enc, totp_pending_secret_enc = NULL,
                 totp_enabled_at = now(), totp_last_step = $3
@@ -126,7 +138,11 @@ pub async fn confirm_enrollment(
         // 同時に別の設定が始まった
         return Ok(None);
     }
-    let codes = replace_recovery_codes(&mut tx, user_id).await?;
+    let codes = if had_mfa {
+        Vec::new()
+    } else {
+        replace_recovery_codes(&mut tx, user_id).await?
+    };
     tx.commit().await?;
     Ok(Some(codes))
 }
@@ -135,8 +151,21 @@ fn step_i64(step: u64) -> i64 {
     i64::try_from(step).unwrap_or(i64::MAX)
 }
 
-/// TOTPを止め、復旧コードも消す。
+/// 多要素認証をすべて止める（TOTP・パスキー・復旧コード）。多要素認証のリセットで使う。
 pub async fn disable(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> Result<()> {
+    clear_totp(tx, user_id).await?;
+    sqlx::query("DELETE FROM cms.passkeys WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM cms.recovery_codes WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn clear_totp(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> Result<()> {
     sqlx::query(
         "UPDATE cms.users SET totp_secret_enc = NULL, totp_pending_secret_enc = NULL,
                 totp_enabled_at = NULL, totp_last_step = NULL
@@ -145,11 +174,49 @@ pub async fn disable(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> Resul
     .bind(user_id)
     .execute(&mut **tx)
     .await?;
-    sqlx::query("DELETE FROM cms.recovery_codes WHERE user_id = $1")
+    Ok(())
+}
+
+/// TOTPだけを止める。ほかの方法（パスキー）が残っていなければ、復旧コードも消す。
+/// 多要素認証が残っていれば true。
+pub async fn remove_totp(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> Result<bool> {
+    sqlx::query("SELECT 1 FROM cms.users WHERE id = $1 FOR UPDATE")
         .bind(user_id)
         .execute(&mut **tx)
         .await?;
-    Ok(())
+    clear_totp(tx, user_id).await?;
+    forget_recovery_codes_if_no_method(tx, user_id).await
+}
+
+/// 多要素認証の方法が1つも残っていなければ、復旧コードを消す。方法が残っていれば true。
+pub async fn forget_recovery_codes_if_no_method(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: Uuid,
+) -> Result<bool> {
+    let still: bool = sqlx::query_scalar(crate::sql!(
+        "SELECT {MFA_ENABLED_U} FROM cms.users u WHERE u.id = $1"
+    ))
+    .bind(user_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if !still {
+        sqlx::query("DELETE FROM cms.recovery_codes WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(still)
+}
+
+/// TOTPを設定しているか。
+pub async fn totp_enabled(pool: &PgPool, user_id: Uuid) -> Result<bool> {
+    Ok(
+        sqlx::query_scalar("SELECT totp_enabled_at IS NOT NULL FROM cms.users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or(false),
+    )
 }
 
 /// 設定済みのTOTPでコードを確かめる。合えば、その時間の区切りを使用済みにする（同じコードは二度通らない）。

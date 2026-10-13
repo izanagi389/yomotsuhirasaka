@@ -195,11 +195,12 @@ fn member_info(
 
 fn member_sql(filter: &str) -> sqlx::AssertSqlSafe<String> {
     crate::sql!(
-        "SELECT u.id, u.email, m.role, m.can_view_members, u.totp_enabled_at IS NOT NULL,
+        "SELECT u.id, u.email, m.role, m.can_view_members, {mfa},
                 to_char(m.created_at AT TIME ZONE 'UTC', {RFC3339})
          FROM cms.memberships m JOIN cms.users u ON u.id = m.user_id
          WHERE m.workspace_id = $1 {filter}
-         ORDER BY m.created_at, u.id"
+         ORDER BY m.created_at, u.id",
+        mfa = crate::auth::mfa::MFA_ENABLED_U
     )
 }
 
@@ -381,10 +382,11 @@ pub async fn list_users(
     AuthSession(current): AuthSession,
 ) -> Result<Json<Vec<UserInfo>>, ApiError> {
     access::server_admin(&current)?;
-    let rows: Vec<(Uuid, String, bool, bool, bool)> = sqlx::query_as(
-        "SELECT id, email, is_server_admin, disabled, totp_enabled_at IS NOT NULL
+    let rows: Vec<(Uuid, String, bool, bool, bool)> = sqlx::query_as(crate::sql!(
+        "SELECT id, email, is_server_admin, disabled, {}
          FROM cms.users ORDER BY email",
-    )
+        crate::auth::mfa::MFA_ENABLED
+    ))
     .fetch_all(&state.pool)
     .await
     .map_err(anyhow::Error::from)?;

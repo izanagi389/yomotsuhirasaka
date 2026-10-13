@@ -46,6 +46,8 @@ pub struct Inner {
     pub keys: KeyRing,
     /// 国を調べるデータ（設定したときだけ。Q175）。
     pub geoip: Option<crate::geoip::GeoIp>,
+    /// パスキーの照合の設定（公開URLから作る。作れなければ起動時の検査で止める）。
+    pub passkeys: Option<webauthn_rs::prelude::Webauthn>,
 }
 
 impl Deref for AppState {
@@ -79,6 +81,9 @@ impl AppState {
                     .inspect_err(|e| tracing::error!("GeoIP database is not available: {e:#}"))
                     .ok()
             });
+        let passkeys = crate::auth::passkeys::relying_party(&config.public_url, &issuer)
+            .inspect_err(|e| tracing::error!("passkeys are not available: {e:#}"))
+            .ok();
         Self(Arc::new(Inner {
             pool,
             migration,
@@ -89,6 +94,7 @@ impl AppState {
             login_limiter,
             keys,
             geoip,
+            passkeys,
         }))
     }
 }
@@ -168,7 +174,21 @@ pub fn router(state: AppState) -> Router {
             post(admin_auth::login).delete(admin_auth::logout),
         )
         .route("/session/mfa", post(admin_auth::login_mfa))
+        .route(
+            "/session/mfa/passkey",
+            post(admin_auth::begin_login_passkey),
+        )
         .route("/session/reauth", post(admin_auth::reauth))
+        .route(
+            "/session/reauth/passkey",
+            post(admin_auth::begin_reauth_passkey),
+        )
+        .route(
+            "/me/mfa/passkeys",
+            get(admin_mfa::list_passkeys).post(admin_mfa::begin_passkey),
+        )
+        .route("/me/mfa/passkeys/confirm", post(admin_mfa::confirm_passkey))
+        .route("/me/mfa/passkeys/{id}", delete(admin_mfa::remove_passkey))
         .route("/me", get(admin_auth::me).patch(admin_auth::update_me))
         .route("/me/password", post(admin_auth::change_password))
         .route("/me/sessions", get(admin_auth::list_sessions))

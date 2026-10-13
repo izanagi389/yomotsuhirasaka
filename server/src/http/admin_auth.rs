@@ -26,7 +26,7 @@ use super::extract::{
     mfa_setup_pending, require_cookie_session,
 };
 use crate::audit;
-use crate::auth::{devices, mfa, password, session, throttle, users};
+use crate::auth::{devices, mfa, passkeys, password, session, throttle, users};
 use crate::locale::Locale;
 use crate::mail::notify::Event;
 
@@ -139,26 +139,47 @@ async fn check_password(
     Ok(settle(state, &record, matched).await?.then_some(record))
 }
 
-/// 多要素認証のコード（TOTPか復旧コードのどちらか一方）。
+/// 多要素認証の2段目（TOTPのコード・復旧コード・パスキーの応答のどれか1つ）。
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SecondFactor {
     totp_code: Option<String>,
     recovery_code: Option<String>,
+    /// `navigator.credentials.get()` の結果。先に照合を始めておく（`.../passkey`）。
+    passkey: Option<Box<webauthn_rs::prelude::PublicKeyCredential>>,
 }
 
-/// 多要素認証のコードを確かめる。待ち時間中は確かめずに失敗とする（コードの総当たりを防ぐ）。
+/// 多要素認証の2段目を確かめる。待ち時間中は確かめずに失敗とする（コードの総当たりを防ぐ）。
+/// パスキーは、`challenge` のセッションと用途で始めた照合だけを受け付ける。
 async fn check_second_factor(
     state: &AppState,
     record: &users::LoginRecord,
     factor: SecondFactor,
+    challenge: (Uuid, passkeys::Purpose),
 ) -> anyhow::Result<bool> {
     if record.disabled || record.blocked || !record.mfa_enabled {
         return Ok(false);
     }
-    let matched = match (factor.totp_code, factor.recovery_code) {
-        (Some(code), None) => mfa::verify_totp(&state.pool, &state.keys, record.id, &code).await?,
-        (None, Some(code)) => mfa::use_recovery_code(&state.pool, record.id, &code).await?,
+    let matched = match (factor.totp_code, factor.recovery_code, factor.passkey) {
+        (Some(code), None, None) => {
+            mfa::verify_totp(&state.pool, &state.keys, record.id, &code).await?
+        }
+        (None, Some(code), None) => mfa::use_recovery_code(&state.pool, record.id, &code).await?,
+        (None, None, Some(response)) => match &state.passkeys {
+            Some(rp) => {
+                let (session_id, purpose) = challenge;
+                passkeys::finish_authentication(
+                    &state.pool,
+                    rp,
+                    session_id,
+                    record.id,
+                    purpose,
+                    &response,
+                )
+                .await?
+            }
+            None => false,
+        },
         _ => false,
     };
     settle(state, record, matched).await
@@ -305,7 +326,14 @@ pub async fn login_mfa(
     let record = users::find_by_id_for_login(&state.pool, user_id)
         .await?
         .ok_or_else(ApiError::unauthenticated)?;
-    if !check_second_factor(&state, &record, factor).await? {
+    if !check_second_factor(
+        &state,
+        &record,
+        factor,
+        (pending_id, passkeys::Purpose::Login),
+    )
+    .await?
+    {
         return Err(invalid_mfa_code());
     }
     session::revoke(&state.pool, pending_id).await?;
@@ -377,6 +405,8 @@ pub struct ReauthRequest {
     password: Option<String>,
     totp_code: Option<String>,
     recovery_code: Option<String>,
+    /// `navigator.credentials.get()` の結果。先に照合を始めておく（`/session/reauth/passkey`）。
+    passkey: Option<Box<webauthn_rs::prelude::PublicKeyCredential>>,
 }
 
 fn reauth_failed() -> ApiError {
@@ -398,10 +428,11 @@ pub async fn reauth(
         req.password.is_some(),
         req.totp_code.is_some(),
         req.recovery_code.is_some(),
+        req.passkey.is_some(),
     ];
     if given.iter().filter(|g| **g).count() != 1 {
         return Err(ApiError::bad_request(
-            "Send exactly one of `password`, `totpCode` or `recoveryCode`.",
+            "Send exactly one of `password`, `totpCode`, `recoveryCode` or `passkey`.",
         ));
     }
     let record = users::find_by_id_for_login(&state.pool, current.user_id)
@@ -415,8 +446,15 @@ pub async fn reauth(
             let factor = SecondFactor {
                 totp_code: req.totp_code,
                 recovery_code: req.recovery_code,
+                passkey: req.passkey,
             };
-            check_second_factor(&state, &record, factor).await?
+            check_second_factor(
+                &state,
+                &record,
+                factor,
+                (current.id, passkeys::Purpose::Reauth),
+            )
+            .await?
         }
     };
     if !ok {
@@ -516,4 +554,72 @@ pub async fn login_history(
         )
         .await?,
     ))
+}
+
+fn passkeys_unavailable() -> ApiError {
+    ApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "passkeys_unavailable",
+        "Passkeys are not available on this server.",
+    )
+}
+
+fn no_passkeys() -> ApiError {
+    ApiError::new(
+        StatusCode::CONFLICT,
+        "no_passkeys",
+        "No passkey is registered for this account.",
+    )
+}
+
+/// ログインの2段目をパスキーで行うための照合を始める（多要素認証の途中のセッションで呼ぶ）。
+/// 返す値をブラウザの `navigator.credentials.get()` に渡し、その結果を `POST /session/mfa` の `passkey` で送る。
+pub async fn begin_login_passkey(
+    State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    check_origin(&headers, &state.public_origin)?;
+    state
+        .login_limiter
+        .check(ip)
+        .map_err(ApiError::rate_limited)?;
+    let rp = state.passkeys.as_ref().ok_or_else(passkeys_unavailable)?;
+    let presented = cookie(&headers, SESSION_COOKIE).ok_or_else(ApiError::unauthenticated)?;
+    let (pending_id, user_id) = session::resolve_mfa_pending(&state.pool, &presented)
+        .await?
+        .ok_or_else(ApiError::unauthenticated)?;
+    match passkeys::begin_authentication(
+        &state.pool,
+        rp,
+        pending_id,
+        user_id,
+        passkeys::Purpose::Login,
+    )
+    .await?
+    {
+        Ok(challenge) => Ok(Json(challenge).into_response()),
+        Err(_) => Err(no_passkeys()),
+    }
+}
+
+/// 再認証をパスキーで行うための照合を始める。結果を `POST /session/reauth` の `passkey` で送る。
+pub async fn begin_reauth_passkey(
+    State(state): State<AppState>,
+    AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
+) -> Result<Response, ApiError> {
+    require_cookie_session(&current)?;
+    let rp = state.passkeys.as_ref().ok_or_else(passkeys_unavailable)?;
+    match passkeys::begin_authentication(
+        &state.pool,
+        rp,
+        current.id,
+        current.user_id,
+        passkeys::Purpose::Reauth,
+    )
+    .await?
+    {
+        Ok(challenge) => Ok(Json(challenge).into_response()),
+        Err(_) => Err(no_passkeys()),
+    }
 }

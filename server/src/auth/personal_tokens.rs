@@ -203,11 +203,14 @@ pub async fn resolve(pool: &PgPool, presented: &str) -> Result<Option<Current>> 
         return Ok(None);
     }
     let row: Option<ResolvedRow> = sqlx::query_as(
+        crate::sql!(
         "SELECT t.id, t.scopes, t.workspace_ids,
                 t.last_used_at IS NULL OR t.last_used_at < now() - make_interval(secs => $2),
-                u.id, u.email, u.is_server_admin, u.totp_enabled_at IS NOT NULL, u.locale
+                u.id, u.email, u.is_server_admin, {}, u.locale
          FROM cms.personal_tokens t JOIN cms.users u ON u.id = t.user_id
          WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now() AND NOT u.disabled",
+        crate::auth::mfa::MFA_ENABLED_U
+    ),
     )
     .bind(token::digest(presented))
     .bind(TOUCH_INTERVAL_SECONDS)

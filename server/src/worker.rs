@@ -67,6 +67,9 @@ pub fn spawn_sweeper(state: AppState) -> tokio::task::JoinHandle<()> {
             {
                 tracing::error!("login history sweeper: {e:#}");
             }
+            if let Err(e) = crate::auth::passkeys::sweep_challenges(&state.pool).await {
+                tracing::error!("passkey challenge sweeper: {e:#}");
+            }
         }
     })
 }

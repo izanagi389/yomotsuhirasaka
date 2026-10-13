@@ -26,6 +26,8 @@ jobs:
             CMS_TEST_PG_SUPERUSER_URL: postgres://postgres:ci-only-superuser-pw-16@127.0.0.1:5432/postgres
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            # パスキーの照合（webauthn-rs）が OpenSSL を使う
+            - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config >/dev/null
             - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
             - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
             - run: cargo fmt --check
@@ -51,6 +53,8 @@ jobs:
                     --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            # パスキーの照合（webauthn-rs）が OpenSSL を使う
+            - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config >/dev/null
             - run: rustup toolchain install stable --profile minimal && rustup default stable
             - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
             - run: cargo build --locked

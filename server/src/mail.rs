@@ -153,6 +153,9 @@ pub mod notify {
         ApiKeyIssued,
         NewDeviceLogin,
         NewCountryLogin,
+        PasskeyAdded,
+        PasskeyRemoved,
+        TotpRemoved,
     }
 
     /// (件名, 起きたこと)
@@ -205,6 +208,30 @@ pub mod notify {
             (Event::NewDeviceLogin, Locale::Ja) => (
                 "新しい端末からログインがありました",
                 "新しい端末またはブラウザから、アカウントにログインがありました。",
+            ),
+            (Event::PasskeyAdded, Locale::En) => (
+                "A passkey was added",
+                "A passkey was added to your account for multi-factor authentication.",
+            ),
+            (Event::PasskeyAdded, Locale::Ja) => (
+                "パスキーが追加されました",
+                "アカウントの多要素認証に、パスキーが追加されました。",
+            ),
+            (Event::PasskeyRemoved, Locale::En) => (
+                "A passkey was removed",
+                "A passkey was removed from your account. Multi-factor authentication is still enabled with your other methods.",
+            ),
+            (Event::PasskeyRemoved, Locale::Ja) => (
+                "パスキーが削除されました",
+                "アカウントからパスキーが削除されました。ほかの方法で、多要素認証は引き続き有効です。",
+            ),
+            (Event::TotpRemoved, Locale::En) => (
+                "The authenticator app was removed",
+                "The authenticator app was removed from your account. Multi-factor authentication is still enabled with your passkeys.",
+            ),
+            (Event::TotpRemoved, Locale::Ja) => (
+                "認証アプリが解除されました",
+                "アカウントから認証アプリが解除されました。パスキーで、多要素認証は引き続き有効です。",
             ),
             (Event::NewCountryLogin, Locale::En) => (
                 "Sign-in to your account from a different country",
