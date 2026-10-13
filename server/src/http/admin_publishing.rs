@@ -8,11 +8,14 @@
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/versions | 版の一覧 |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/versions/{vid} | 版（抹消した版は本文なし） |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/url-history | 公開URLの変更履歴 |
+//! | GET | /api/admin/workspaces/{ws}/entries/{id}/versions/{vid}/erase-candidates | 抹消と一緒に削除できるメディアと、他のロケールの記事 |
+//! | POST | /api/admin/workspaces/{ws}/entries/{id}/versions/{vid}/erase | 版の本文を抹消する（`{deleteMediaIds}`） |
 //!
 //! - 公開・訂正としての公開・非公開・削除は、管理者・編集者とサーバー管理者だけ（執筆者はできない。Q77, Q200、INV-PERM-01）。
 //! - 公開は移行待ちの間は受け付けない（INV-SCH-04）。非公開と削除は、記事を急いで取り下げられるよう、移行待ちの間も受け付ける。
 //! - 訂正としての公開は、誰が行っても監査ログに残す（11-permissions-and-audit.md）。それ以外は、所属していないサーバー管理者が
 //!   行ったときに残す（Q122）。
+//! - 版の本文の抹消は、管理者とサーバー管理者だけで、再認証を求め、必ず監査ログに残す（Q134）。現在公開中の版は抹消できない。
 //! - 版とURLの変更履歴を読むのは、下書きと同じく所属者全員とサーバー管理者。
 
 use axum::Json;
@@ -249,4 +252,86 @@ pub async fn url_history(
         .ok_or_else(ApiError::not_found)?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(out))
+}
+
+/// 抹消は管理者とサーバー管理者だけ（重い操作のため再認証も求める）。
+async fn eraser(state: &AppState, current: &Current, ws: Uuid) -> Result<Access, ApiError> {
+    let access = reader(state, current, ws).await?;
+    if !(access.server_admin || access.role == Some(Role::Admin)) {
+        return Err(access::Denied::Forbidden.into());
+    }
+    Ok(access)
+}
+
+pub async fn erase_candidates(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id, vid)): Path<(String, String, String)>,
+) -> Result<Json<crate::content::erase::Candidates>, ApiError> {
+    let (ws, id, vid) = (parse(&ws)?, parse(&id)?, parse(&vid)?);
+    eraser(&state, &current, ws).await?;
+    let applied = readable(&state, ws).await?;
+    let db = db(&state, ws).await?;
+    let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let out = crate::content::erase::candidates(&mut tx, &applied.manifest, id, vid)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    Ok(Json(out))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Erase {
+    /// 一緒に削除するメディア（どこかで使われているものは削除しない）。
+    #[serde(default)]
+    delete_media_ids: Vec<Uuid>,
+}
+
+pub async fn erase(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id, vid)): Path<(String, String, String)>,
+    JsonBody(req): JsonBody<Erase>,
+) -> Result<Json<crate::content::erase::Erased>, ApiError> {
+    use crate::content::erase::{self, Refused as EraseRefused};
+    let (ws, id, vid) = (parse(&ws)?, parse(&id)?, parse(&vid)?);
+    eraser(&state, &current, ws).await?;
+    if !current.reauth_fresh {
+        return Err(ApiError::reauth_required());
+    }
+    if req.delete_media_ids.len() > 1000 {
+        return Err(ApiError::bad_request("Too many media IDs."));
+    }
+    let applied = readable(&state, ws).await?;
+    let db = db(&state, ws).await?;
+    let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let erased = match erase::erase(&mut tx, &applied.manifest, id, vid, &req.delete_media_ids)
+        .await?
+    {
+        Ok(e) => e,
+        Err(EraseRefused::NotFound) => return Err(ApiError::not_found()),
+        Err(EraseRefused::Published) => {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "version_is_published",
+                "The published version cannot be erased. Publish a corrected version or unpublish the entry first.",
+            ));
+        }
+    };
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    for file in &erased.deleted_files {
+        crate::media::store::remove_file(&state.config.media.root, ws, file).await?;
+    }
+    let mut targets = vec![id, vid];
+    targets.extend(&erased.deleted_media_ids);
+    audit::record(
+        &state.pool,
+        Some(ws),
+        Some(current.user_id),
+        action::VERSION_ERASED,
+        &targets,
+    )
+    .await?;
+    Ok(Json(erased))
 }

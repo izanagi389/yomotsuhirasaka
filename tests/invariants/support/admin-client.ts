@@ -245,6 +245,12 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const urlHistoryRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("GET", `${entriesPath(workspaceId)}/${entryId}/url-history`, { auth, extras });
 
+  // --- 版の本文の抹消 ---
+  const eraseCandidatesRaw = (auth: Auth, workspaceId: string, entryId: string, versionId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${entriesPath(workspaceId)}/${entryId}/versions/${versionId}/erase-candidates`, { auth, extras });
+  const eraseVersionRaw = (auth: Auth, workspaceId: string, entryId: string, versionId: string, deleteMediaIds: string[], extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", `${entriesPath(workspaceId)}/${entryId}/versions/${versionId}/erase`, { auth, extras, body: { deleteMediaIds } });
+
   // --- 翻訳 ---
   const createTranslationRaw = (auth: Auth, workspaceId: string, entryId: string, locale: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("POST", `${entriesPath(workspaceId)}/${entryId}/translations`, { auth, extras, body: { locale } });
@@ -319,6 +325,13 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("getWorkspaceLimits", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/limits`, { auth, extras })),
     // 上限は既定値のまま（null）にする
     op("setWorkspaceLimits", true, "instance", (auth, t, extras) => setWorkspaceLimitsRaw(auth, t.workspaceId, {}, extras)),
+    // 対象は存在しない版（舞台の版を壊さないため）
+    op("eraseVersion", true, "workspace", (auth, t, extras) => eraseVersionRaw(auth, t.workspaceId, t.entryId, randomUUID(), [], extras)),
+    op("getEraseCandidates", false, "workspace", async (auth, t, extras) => {
+      const list = await versionsRaw(auth, t.workspaceId, t.entryId, extras);
+      const first = isSuccess(list) ? (JSON.parse(list.text) as { id: string }[])[0]?.id : undefined;
+      return eraseCandidatesRaw(auth, t.workspaceId, t.entryId, first ?? randomUUID(), extras);
+    }),
     op("getUrlHistory", false, "workspace", (auth, t, extras) => urlHistoryRaw(auth, t.workspaceId, t.entryId, extras)),
     // 対象は存在しないセッション（本人の他のセッションを壊さないため）
     op("revokeMySession", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/sessions/${randomUUID()}`, { auth, extras })),
@@ -507,6 +520,14 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     async setWorkspaceLimits(s: Session, workspaceId: string, limits: { mediaBytes?: number }): Promise<void> {
       ensure("ワークスペースの上限の変更", await setWorkspaceLimitsRaw(session(s), workspaceId, limits));
     },
+    async eraseCandidates(s: Session, workspaceId: string, entryId: string, versionId: string): Promise<string[]> {
+      const res = ensure("抹消の候補の取得", await eraseCandidatesRaw(session(s), workspaceId, entryId, versionId));
+      const { media } = JSON.parse(res.text) as { media?: unknown };
+      if (!Array.isArray(media) || !media.every((m) => typeof m === "string")) throw new SetupError("抹消の候補の読み取り", res);
+      return media as string[];
+    },
+    eraseVersionRaw: (s: Session, workspaceId: string, entryId: string, versionId: string, deleteMediaIds: string[]) =>
+      eraseVersionRaw(session(s), workspaceId, entryId, versionId, deleteMediaIds),
     async getUrlHistory(s: Session, workspaceId: string, entryId: string): Promise<UrlChange[]> {
       const res = ensure("URLの変更履歴", await urlHistoryRaw(session(s), workspaceId, entryId));
       const list = JSON.parse(res.text) as { from?: unknown; to?: unknown }[];

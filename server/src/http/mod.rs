@@ -244,6 +244,14 @@ pub fn router(state: AppState) -> Router {
             get(admin_publishing::version),
         )
         .route(
+            "/workspaces/{ws}/entries/{id}/versions/{vid}/erase-candidates",
+            get(admin_publishing::erase_candidates),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/versions/{vid}/erase",
+            post(admin_publishing::erase),
+        )
+        .route(
             "/workspaces/{ws}/entries/{id}/translations",
             post(admin_translations::create),
         )
