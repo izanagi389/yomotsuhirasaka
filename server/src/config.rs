@@ -59,7 +59,7 @@ pub struct Config {
     pub delivery: DeliveryConfig,
 }
 
-/// 配信APIの上限。
+/// 配信APIの上限と、キャッシュの扱い。
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct DeliveryConfig {
@@ -67,6 +67,19 @@ pub struct DeliveryConfig {
     pub max_depth: usize,
     /// クエリの複雑さ（選ぶフィールドの数）の上限（既定は500。別名1000個のクエリは必ず拒否する大きさにする。Q186）。
     pub max_complexity: usize,
+    /// APIキーごとの1分あたりの回数の上限。用途がビルド用のキー（既定は600）。
+    pub build_key_requests_per_minute: u32,
+    /// 同じく、用途がサーバー配信用（SSRなど）のキー（既定は6000。Q145, Q153）。
+    pub server_key_requests_per_minute: u32,
+    /// ワークスペースごとの1分あたりの回数の上限（キーをまたいだ合計。既定は30000。Q120）。
+    pub workspace_requests_per_minute: u32,
+    /// 応答の大きさの上限（バイト。既定は5MB）。超える応答は返さない。
+    pub max_response_bytes: usize,
+    /// 共有キャッシュ（CDNなど）に載せることを許すか（既定は許さない。Q125）。許しても、公開版の読み取りだけを範囲とするキーの
+    /// 応答に限る。共有キャッシュに載った応答は、APIキーの照合なしに、URLを知っている人なら誰でも取得できる。
+    pub shared_cache: bool,
+    /// 共有キャッシュに載せる時間（秒。既定は60）。
+    pub shared_cache_seconds: u32,
 }
 
 impl Default for DeliveryConfig {
@@ -74,6 +87,12 @@ impl Default for DeliveryConfig {
         Self {
             max_depth: 15,
             max_complexity: 500,
+            build_key_requests_per_minute: 600,
+            server_key_requests_per_minute: 6000,
+            workspace_requests_per_minute: 30_000,
+            max_response_bytes: 5 * 1024 * 1024,
+            shared_cache: false,
+            shared_cache_seconds: 60,
         }
     }
 }
