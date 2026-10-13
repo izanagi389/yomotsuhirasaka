@@ -4,7 +4,8 @@
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
 
 import { randomUUID } from "node:crypto";
-import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, WorkspaceRole } from "./driver.js";
+import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
 import { totp } from "./totp.js";
@@ -184,6 +185,39 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       extras,
       body: { manifest: toManifest(template), allowDestructive: options.allowDestructive, allowBrokenQueries: options.allowBrokenQueries },
     });
+  // --- 記事（BASE_TEMPLATE の最初のコンテンツタイプを使う） ---
+  const CONTENT_TYPE = BASE_TEMPLATE.contentTypes[0]!.name;
+  const entriesPath = (workspaceId: string) => `${ADMIN}/workspaces/${workspaceId}/entries`;
+  const entryFields = (input: Partial<EntryInput>, forCreate: boolean): Record<string, unknown> => {
+    const out: Record<string, unknown> = { ...(input.fields ?? {}) };
+    if (input.title !== undefined) out["title"] = input.title;
+    if (input.body !== undefined) out["body"] = input.body;
+    if (input.slug !== undefined) out["slug"] = input.slug;
+    else if (forCreate) out["slug"] = `inv-${randomUUID()}`;
+    return out;
+  };
+  const createEntryRaw = (auth: Auth, workspaceId: string, input: EntryInput, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", entriesPath(workspaceId), {
+      auth,
+      extras,
+      body: { contentType: CONTENT_TYPE, locale: input.locale, fields: entryFields(input, true) },
+    });
+  const getEntryRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${entriesPath(workspaceId)}/${entryId}`, { auth, extras });
+  const saveDraftRaw = (auth: Auth, workspaceId: string, entryId: string, changes: Partial<EntryInput>, revision: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("PUT", `${entriesPath(workspaceId)}/${entryId}/draft`, {
+      auth,
+      extras,
+      body: { revision: Number(revision), fields: entryFields(changes, false) },
+    });
+  const toDraft = (res: HttpResponse): Draft => {
+    const d = JSON.parse(res.text) as { revision?: unknown; fields?: Record<string, unknown> };
+    const fields = d.fields ?? {};
+    if (typeof d.revision !== "number" || typeof fields["slug"] !== "string") throw new SetupError("下書きの読み取り", res);
+    const { title, body, slug, ...rest } = fields;
+    return { revision: String(d.revision), title: typeof title === "string" ? title : "", body: body as TiptapDoc, slug: slug as string, fields: rest };
+  };
+
   // 操作の一覧で使うテンプレート（何度デプロイしても同じ内容なので、版は増えない）
   const OPERATION_TEMPLATE = cloneTemplate("inv-operations");
   const loginHistoryRaw = (auth: Auth, extras?: RequestExtras): Promise<HttpResponse> =>
@@ -205,6 +239,17 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("getMyLoginHistory", false, "self", (auth, _t, extras) => loginHistoryRaw(auth, extras)),
     op("deploySchema", true, "instance", (auth, _t, extras) => deployTemplateRaw(auth, OPERATION_TEMPLATE, {}, extras)),
     op("getSchemaInfo", false, "workspace", (auth, t, extras) => schemaInfoRaw(auth, t.workspaceId, extras)),
+    op("listEntries", false, "workspace", (auth, t, extras) => request("GET", entriesPath(t.workspaceId), { auth, extras })),
+    op("getEntry", false, "workspace", (auth, t, extras) => getEntryRaw(auth, t.workspaceId, t.entryId, extras)),
+    op("createEntry", true, "workspace", (auth, t, extras) =>
+      createEntryRaw(auth, t.workspaceId, { title: "inv-op", body: { type: "doc", content: [] } }, extras),
+    ),
+    // 同じ認証で最新のリビジョン番号を読み、何も変えずに保存する（読めなければ、合わないリビジョン番号で送る）
+    op("saveDraft", true, "workspace", async (auth, t, extras) => {
+      const current = await getEntryRaw(auth, t.workspaceId, t.entryId, extras);
+      const revision = isSuccess(current) ? String((JSON.parse(current.text) as { revision: number }).revision) : "0";
+      return saveDraftRaw(auth, t.workspaceId, t.entryId, {}, revision, extras);
+    }),
     // 対象は存在しないセッション（本人の他のセッションを壊さないため）
     op("revokeMySession", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/sessions/${randomUUID()}`, { auth, extras })),
     // 現在のパスワードは誤った値にする（舞台の利用者のパスワードを変えないため）
@@ -317,6 +362,28 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     reauthenticate,
     reauthenticateRaw,
     meRaw,
+    createEntryRaw: (auth: Auth, workspaceId: string, input: EntryInput) => createEntryRaw(auth, workspaceId, input),
+    async createEntry(s: Session, workspaceId: string, input: EntryInput): Promise<{ id: string }> {
+      const res = ensure("記事の作成", await createEntryRaw(session(s), workspaceId, input));
+      const { id } = JSON.parse(res.text) as { id?: unknown };
+      if (typeof id !== "string") throw new SetupError("記事の作成の応答の読み取り", res);
+      return { id };
+    },
+    getEntryRaw: (auth: Auth, workspaceId: string, entryId: string) => getEntryRaw(auth, workspaceId, entryId),
+    async getDraft(s: Session, workspaceId: string, entryId: string): Promise<Draft> {
+      return toDraft(ensure("下書きの取得", await getEntryRaw(session(s), workspaceId, entryId)));
+    },
+    async listEntries(s: Session, workspaceId: string): Promise<{ id: string; slug: string; locale: string }[]> {
+      const res = ensure("記事の一覧", await request("GET", entriesPath(workspaceId), { auth: session(s) }));
+      const list = JSON.parse(res.text) as { id: string; locale: string; fields: Record<string, unknown> }[];
+      return list.map((e) => ({ id: e.id, locale: e.locale, slug: String(e.fields["slug"] ?? "") }));
+    },
+    saveDraftRaw: (auth: Auth, workspaceId: string, entryId: string, changes: Partial<EntryInput>, revision: string) =>
+      saveDraftRaw(auth, workspaceId, entryId, changes, revision),
+    async saveDraft(s: Session, workspaceId: string, entryId: string, changes: Partial<EntryInput>): Promise<void> {
+      const current = toDraft(ensure("下書きの取得", await getEntryRaw(session(s), workspaceId, entryId)));
+      ensure("下書きの保存", await saveDraftRaw(session(s), workspaceId, entryId, changes, current.revision));
+    },
     schemaInfoRaw: (auth: Auth, workspaceId: string) => schemaInfoRaw(auth, workspaceId),
     deployTemplateRaw: (auth: Auth, template: TemplateSpec, options?: { allowDestructive?: boolean; allowBrokenQueries?: boolean }) =>
       deployTemplateRaw(auth, template, options),

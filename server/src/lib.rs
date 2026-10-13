@@ -5,6 +5,7 @@ pub mod api_keys;
 pub mod audit;
 pub mod auth;
 pub mod config;
+pub mod content;
 pub mod db;
 pub mod emergency;
 pub mod geoip;

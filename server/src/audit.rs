@@ -37,6 +37,9 @@ pub mod action {
     pub const TEMPLATE_DEPLOYED: &str = "template.deployed";
     pub const SCHEMA_MIGRATED: &str = "schema.migrated";
     pub const SCHEMA_MIGRATION_FAILED: &str = "schema.migration_failed";
+    /// 所属していないサーバー管理者による記事の作成と下書きの保存（Q122）。
+    pub const ENTRY_CREATED: &str = "entry.created";
+    pub const ENTRY_DRAFT_SAVED: &str = "entry.draft_saved";
 }
 
 /// 1件を記録する。`workspace_id` が None ならインスタンス全体の記録。

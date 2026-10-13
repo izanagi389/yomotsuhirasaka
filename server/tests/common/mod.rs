@@ -4,6 +4,7 @@
 //! テストごとに使い捨てのロールとDBを作り、終わったら消す。
 #![allow(dead_code)]
 
+pub mod content;
 pub mod mmdb;
 pub mod server;
 pub mod smtp;

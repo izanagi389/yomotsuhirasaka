@@ -577,11 +577,18 @@ export const driver = {
 
   /** 本文のCMS固有のノード。 */
   body: {
-    image: (_media: { mediaId: string; alt?: string; decorative?: boolean }): TiptapNode => todo("body.image"),
-    embed: (_url: string): TiptapNode => todo("body.embed"),
-    /** 見出しにアンカーIDを付けたもの。 */
-    withAnchor: (_headingNode: TiptapNode, _anchorId: string): TiptapNode => todo("body.withAnchor"),
-    anchorIdOf: (_headingNode: TiptapNode): string | undefined => todo("body.anchorIdOf"),
+    // CMSの画像のノード（属性は server/src/content/body.rs）
+    image: (media: { mediaId: string; alt?: string; decorative?: boolean }): TiptapNode => ({
+      type: "image",
+      attrs: Object.fromEntries(Object.entries({ mediaId: media.mediaId, alt: media.alt, decorative: media.decorative }).filter(([, v]) => v !== undefined)),
+    }),
+    embed: (url: string): TiptapNode => ({ type: "embed", attrs: { src: url } }),
+    /** 見出しにアンカーIDを付けたもの（アンカーIDは見出しの属性 `id`）。 */
+    withAnchor: (headingNode: TiptapNode, anchorId: string): TiptapNode => ({ ...headingNode, attrs: { ...headingNode.attrs, id: anchorId } }),
+    anchorIdOf: (headingNode: TiptapNode): string | undefined => {
+      const id = headingNode.attrs?.["id"];
+      return typeof id === "string" ? id : undefined;
+    },
   },
 
   /** Webhookの読み取り。 */

@@ -27,7 +27,7 @@ const NODE_DEFS: Record<string, NodeDef> = {
   horizontalRule: { children: [], attrs: [], marks: false },
   hardBreak: { children: [], attrs: [], marks: false },
   text: { children: [], attrs: [], marks: false },
-  image: { children: [], attrs: ["mediaId", "alt"], marks: false },
+  image: { children: [], attrs: ["mediaId", "alt", "decorative"], marks: false },
   embed: { children: [], attrs: ["src"], marks: false },
 };
 
