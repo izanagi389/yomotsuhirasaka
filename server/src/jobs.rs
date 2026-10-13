@@ -15,7 +15,7 @@ const LOCK_SECONDS: f64 = 300.0;
 const BASE_BACKOFF_SECONDS: f64 = 30.0;
 const MAX_BACKOFF_SECONDS: f64 = 3600.0;
 
-fn aad(id: Uuid, kind: &str) -> Vec<u8> {
+pub(crate) fn aad(id: Uuid, kind: &str) -> Vec<u8> {
     format!("cms:job:{kind}:{id}").into_bytes()
 }
 

@@ -87,6 +87,11 @@ impl KeyRing {
             .expect("key ring is never empty")
     }
 
+    /// 鍵のファイルにあるバージョンの一覧（昇順）。
+    pub fn versions(&self) -> Vec<u32> {
+        self.keys.keys().copied().collect()
+    }
+
     fn cipher(&self, version: u32) -> Result<XChaCha20Poly1305> {
         let key = self
             .keys
@@ -134,6 +139,88 @@ impl KeyRing {
             )
             .map_err(|_| anyhow!("decryption failed (wrong key, tampered data or wrong context)"))
     }
+}
+
+/// 暗号文を作った鍵のバージョン（暗号文の先頭の4バイト）。
+pub fn version_of(blob: &[u8]) -> Option<u32> {
+    Some(u32::from_be_bytes(blob.get(..4)?.try_into().ok()?))
+}
+
+fn random_key_line(version: u32) -> String {
+    let mut key = [0u8; KEY_BYTES];
+    rand::fill(&mut key);
+    format!("v{version}:{}", STANDARD.encode(key))
+}
+
+/// 鍵の入れ替えの1段目: いちばん大きいバージョンの次の版で新しい鍵を加えた、鍵のファイルの中身を返す。
+/// 既存の行（注釈を含む）はそのまま残す。
+pub fn with_new_key(text: &str) -> Result<(String, u32)> {
+    let version = KeyRing::parse(text)?.active_version() + 1;
+    let mut out = text.to_owned();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&random_key_line(version));
+    out.push('\n');
+    Ok((out, version))
+}
+
+/// 鍵の入れ替えの3段目: 指定したバージョンの鍵の行を外した、鍵のファイルの中身を返す。
+/// 新しく暗号化するときに使う鍵（いちばん大きいバージョン）は外せない。
+pub fn without_version(text: &str, version: u32) -> Result<String> {
+    let ring = KeyRing::parse(text)?;
+    if !ring.keys.contains_key(&version) {
+        bail!("encryption key v{version} is not in the key file");
+    }
+    if version == ring.active_version() {
+        bail!("encryption key v{version} is the current key and cannot be removed");
+    }
+    let prefix = format!("v{version}:");
+    let out: Vec<&str> = text
+        .lines()
+        .filter(|l| !l.trim().starts_with(&prefix))
+        .collect();
+    let out = format!("{}\n", out.join("\n"));
+    KeyRing::parse(&out)?;
+    Ok(out)
+}
+
+/// 鍵のファイルを置き換える。同じ場所に所有者だけが読める一時ファイルを作ってから名前を変えるので、
+/// 途中で止まっても、古い中身か新しい中身のどちらかが残る。
+pub fn replace_key_file(path: &Path, contents: &str) -> Result<()> {
+    use std::io::Write as _;
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow!("invalid key file path"))?
+        .to_string_lossy();
+    let mut suffix = [0u8; 8];
+    rand::fill(&mut suffix);
+    let tmp = dir.join(format!(".{name}.{}.tmp", u64::from_be_bytes(suffix)));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let result = (|| -> Result<()> {
+        let mut file = options
+            .open(&tmp)
+            .with_context(|| format!("cannot create {}", tmp.display()))?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)
+            .with_context(|| format!("cannot replace {}", path.display()))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 /// 新しい鍵のファイルの中身（バージョン1の鍵を1つ）。
@@ -213,6 +300,59 @@ mod tests {
         // 古い鍵を外すと、古い暗号文は読めない
         let removed = KeyRing::parse(&format!("v2:{k2}")).unwrap();
         assert!(removed.decrypt(&blob, b"a").is_err());
+    }
+
+    #[test]
+    fn key_file_editing() {
+        let original = generate_key_file();
+        let (added, v) = with_new_key(&original).unwrap();
+        assert_eq!(v, 2);
+        assert!(
+            added.starts_with(&original),
+            "existing lines and comments are kept"
+        );
+        let ring = KeyRing::parse(&added).unwrap();
+        assert_eq!(ring.versions(), vec![1, 2]);
+        // 古い版を外す。新しい版は外せない。ない版も外せない
+        let removed = without_version(&added, 1).unwrap();
+        assert_eq!(KeyRing::parse(&removed).unwrap().versions(), vec![2]);
+        assert!(removed.contains("# CMS encryption keys"));
+        assert!(without_version(&added, 2).is_err());
+        assert!(without_version(&added, 7).is_err());
+        assert!(without_version(&original, 1).is_err());
+        // 新しい版で暗号化したものが、外した後も読める
+        let blob = ring.encrypt(b"s", b"a").unwrap();
+        assert_eq!(version_of(&blob), Some(2));
+        assert_eq!(
+            KeyRing::parse(&removed)
+                .unwrap()
+                .decrypt(&blob, b"a")
+                .unwrap(),
+            b"s"
+        );
+        assert_eq!(version_of(&[0, 0]), None);
+    }
+
+    #[test]
+    fn key_file_is_replaced_privately() {
+        let dir = std::env::temp_dir().join(format!("cms-keys-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("encryption.key");
+        replace_key_file(&path, "v1:x\n").unwrap();
+        replace_key_file(&path, "v1:y\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "v1:y\n");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "no temporary files are left"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

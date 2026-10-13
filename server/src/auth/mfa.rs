@@ -21,7 +21,7 @@ pub const RECOVERY_CODE_COUNT: usize = 10;
 /// 入力では、I と L は 1、O は 0 と読む。
 const RECOVERY_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-fn aad(user_id: Uuid) -> Vec<u8> {
+pub(crate) fn aad(user_id: Uuid) -> Vec<u8> {
     format!("cms:totp:{user_id}").into_bytes()
 }
 

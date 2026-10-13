@@ -15,6 +15,7 @@ pub mod keys;
 pub mod locale;
 pub mod mail;
 pub mod migrate;
+pub mod rekey;
 pub mod resets;
 pub mod startup;
 pub mod timefmt;

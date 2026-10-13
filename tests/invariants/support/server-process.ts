@@ -2,7 +2,7 @@
 // 設定ファイルの書式は server/src/config.rs に合わせる。
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -199,4 +199,39 @@ export async function runServerCli(config: ServerConfig, args: string[], timeout
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** 鍵のファイルにある鍵のバージョン（`v<版>:<Base64>` の行。書式は server/src/keys.rs）。 */
+function keyVersions(path: string): number[] {
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .map((l) => /^\s*v(\d+):/.exec(l)?.[1])
+    .filter((v): v is string => v !== undefined)
+    .map(Number);
+}
+
+/**
+ * 暗号化の鍵の入れ替え: 鍵のファイルを別の場所に写し、サーバーのCLIで
+ * 新しい鍵を加える → 保存済みの秘密を暗号化し直す → 元からあった鍵を外す、を順に行う。
+ * 写した鍵のファイルを使う設定を返す（元の鍵のファイルは変えない）。
+ */
+export async function rotateEncryptionKeyWithCli(config: ServerConfig): Promise<{ config: ServerConfig; result: CliResult }> {
+  if (config.encryptionKeyFile === null) throw new Error("暗号化の鍵のファイルが設定されていません");
+  const dir = mkdtempSync(join(tmpdir(), "cms-key-"));
+  const keyFile = join(dir, "encryption.key");
+  copyFileSync(config.encryptionKeyFile, keyFile);
+  chmodSync(keyFile, 0o600);
+  const next: ServerConfig = { ...config, encryptionKeyFile: keyFile };
+  const steps = [
+    ["add-encryption-key"],
+    ["reencrypt-secrets", "--yes"],
+    ...keyVersions(config.encryptionKeyFile).map((v) => ["remove-encryption-key", "--version", String(v), "--yes"]),
+  ];
+  let output = "";
+  for (const step of steps) {
+    const r = await runServerCli(next, step);
+    output += `$ cms-server ${step.join(" ")}\n${r.output}\n`;
+    if (r.exitCode !== 0) return { config: next, result: { exitCode: r.exitCode, output } };
+  }
+  return { config: next, result: { exitCode: 0, output } };
 }
