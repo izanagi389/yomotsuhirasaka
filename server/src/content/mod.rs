@@ -3,6 +3,8 @@
 pub mod body;
 pub mod entries;
 pub mod fields;
+pub mod publishing;
+pub mod sections;
 
 use anyhow::{Context, Result};
 use sqlx::PgPool;

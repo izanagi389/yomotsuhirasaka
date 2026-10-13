@@ -5,6 +5,7 @@ pub mod admin_auth;
 pub mod admin_entries;
 pub mod admin_invitations;
 pub mod admin_mfa;
+pub mod admin_publishing;
 pub mod admin_resets;
 pub mod admin_templates;
 pub mod admin_tokens;
@@ -216,10 +217,33 @@ pub fn router(state: AppState) -> Router {
             "/workspaces/{ws}/entries",
             get(admin_entries::list).post(admin_entries::create),
         )
-        .route("/workspaces/{ws}/entries/{id}", get(admin_entries::get))
+        .route(
+            "/workspaces/{ws}/entries/{id}",
+            get(admin_entries::get).delete(admin_publishing::delete),
+        )
         .route(
             "/workspaces/{ws}/entries/{id}/draft",
             put(admin_entries::save_draft),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/publish",
+            post(admin_publishing::publish),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/unpublish",
+            post(admin_publishing::unpublish),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/versions",
+            get(admin_publishing::versions),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/versions/{vid}",
+            get(admin_publishing::version),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/url-history",
+            get(admin_publishing::url_history),
         )
         .route(
             "/templates/{name}/deploy",

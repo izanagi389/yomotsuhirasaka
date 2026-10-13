@@ -40,6 +40,11 @@ pub mod action {
     /// 所属していないサーバー管理者による記事の作成と下書きの保存（Q122）。
     pub const ENTRY_CREATED: &str = "entry.created";
     pub const ENTRY_DRAFT_SAVED: &str = "entry.draft_saved";
+    pub const ENTRY_PUBLISHED: &str = "entry.published";
+    /// 訂正としての公開（重い操作として、誰が行っても記録する）。
+    pub const ENTRY_PUBLISHED_AS_CORRECTION: &str = "entry.published_as_correction";
+    pub const ENTRY_UNPUBLISHED: &str = "entry.unpublished";
+    pub const ENTRY_DELETED: &str = "entry.deleted";
 }
 
 /// 1件を記録する。`workspace_id` が None ならインスタンス全体の記録。
