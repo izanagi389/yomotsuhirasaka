@@ -54,6 +54,28 @@ pub struct Config {
     pub login_history: LoginHistoryConfig,
     /// メディア（13-security.md「メディア」）。
     pub media: MediaConfig,
+    /// 配信API（13-security.md「GraphQL」）。
+    #[serde(default)]
+    pub delivery: DeliveryConfig,
+}
+
+/// 配信APIの上限。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct DeliveryConfig {
+    /// クエリの深さの上限（既定は15。深さ25のクエリは必ず拒否する大きさにする。Q186）。
+    pub max_depth: usize,
+    /// クエリの複雑さ（選ぶフィールドの数）の上限（既定は500。別名1000個のクエリは必ず拒否する大きさにする。Q186）。
+    pub max_complexity: usize,
+}
+
+impl Default for DeliveryConfig {
+    fn default() -> Self {
+        Self {
+            max_depth: 15,
+            max_complexity: 500,
+        }
+    }
 }
 
 /// メディアの保存先と上限。

@@ -93,6 +93,7 @@ pub const BASE_MIGRATIONS: &[(i32, &str)] = &[
         include_str!("../migrations/workspace/0003_translations.sql"),
     ),
     (4, include_str!("../migrations/workspace/0004_media.sql")),
+    (5, include_str!("../migrations/workspace/0005_queries.sql")),
 ];
 
 /// 1つのワークスペースの土台のテーブルを、最新の版にそろえる。移行・ロールの作成用の接続で呼ぶ。
@@ -172,6 +173,11 @@ pub async fn lookup(app: &PgPool, workspace_id: Uuid) -> Result<Option<Workspace
 /// ワークスペースのロールに切り替えたトランザクションを始める。
 /// このトランザクションの中では、そのワークスペースのスキーマのテーブルにしか触れられない。
 pub async fn begin<'a>(app: &'a PgPool, db: &WorkspaceDb) -> Result<Transaction<'a, Postgres>> {
+    begin_owned(app, db).await
+}
+
+/// [`begin`] と同じ。プールを借りずに持てるトランザクションを返す（配信APIのリゾルバーから共有するため）。
+pub async fn begin_owned(app: &PgPool, db: &WorkspaceDb) -> Result<Transaction<'static, Postgres>> {
     let mut tx = app.begin().await?;
     let (schema, role) = (&db.schema, &db.role);
     sqlx::query(crate::sql!("SET LOCAL ROLE {role}"))

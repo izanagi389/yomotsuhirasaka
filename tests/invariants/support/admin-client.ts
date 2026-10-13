@@ -4,13 +4,13 @@
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
 
 import { randomUUID } from "node:crypto";
-import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
 import { totp } from "./totp.js";
 import { toManifest } from "./manifest.js";
-import { BASE_TEMPLATE, cloneTemplate, type TemplateSpec } from "./template.js";
+import { BASE_TEMPLATE, cloneTemplate, postType, type TemplateSpec } from "./template.js";
 
 /** セッションのCookieの名前以外の、管理APIの細部。 */
 const ADMIN = "/api/admin";
@@ -266,6 +266,38 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     request("PUT", `${ADMIN}/workspaces/${workspaceId}/limits`, { auth, extras, body: { mediaBytes: limits.mediaBytes ?? null } });
   // 操作の一覧で使う小さな画像（1×1のPNG）
   const TINY_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+
+  // --- 配信API（GraphQL） ---
+  // 名前はサーバーの決まりに合わせる: コンテンツタイプ blog_post → 型 BlogPost、blogPost・blogPostBySlug・blogPostList
+  const POST_TYPE = postType(BASE_TEMPLATE);
+  const camel = (name: string): string => name.split("_").filter(Boolean).map((p, i) => (i === 0 ? p : p[0]!.toUpperCase() + p.slice(1))).join("");
+  const SINGLE = camel(POST_TYPE.name);
+  const LIST = `${SINGLE}List`;
+  const DEFAULT_LOCALE = BASE_TEMPLATE.defaultLocale;
+  const selection = (fields?: string[]): string => (fields ? ["id", ...fields.filter((f) => f !== "id")] : ["id", "title", "slug"]).join(" ");
+  const INCLUDES: Record<"body" | "alternates" | "related", string> = {
+    body: "body",
+    alternates: "alternates { id locale url }",
+    related: "related { id title slug }",
+  };
+  const queryText = (spec: QuerySpec): string => {
+    switch (spec.kind) {
+      case "list":
+        // 変数を省略したときは、既定のロケールと上限の件数
+        return `query($locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $limit: Int) { ${LIST}(locale: $locale, limit: $limit) { ${selection(spec.fields)} } }`;
+      case "byId":
+        return `query($id: ID!, $locale: String) { ${SINGLE}(id: $id, locale: $locale) { ${[selection(spec.fields), ...(spec.include ?? []).map((i) => INCLUDES[i])].join(" ")} } }`;
+      case "deep":
+        return `{ ${LIST}(locale: ${JSON.stringify(DEFAULT_LOCALE)}) { ${"related { ".repeat(spec.depth)}id${" }".repeat(spec.depth)} } }`;
+      case "wide":
+        return `{ ${Array.from({ length: spec.aliases }, (_, i) => `a${i}: ${LIST}(locale: ${JSON.stringify(DEFAULT_LOCALE)}) { id }`).join(" ")} }`;
+      case "text":
+        return spec.text;
+    }
+  };
+  const deliveryAuth = (apiKey: string | null): Auth => (apiKey === null ? { kind: "none" } : { kind: "bearer", token: apiKey });
+  const registerQueryRaw = (workspaceIdInUrl: string, apiKey: string | null, spec: QuerySpec): Promise<HttpResponse> =>
+    request("POST", `/ws/${workspaceIdInUrl}/graphql/queries`, { auth: deliveryAuth(apiKey), body: { query: queryText(spec) } });
 
   // 操作の一覧で使うテンプレート（何度デプロイしても同じ内容なので、版は増えない）
   const OPERATION_TEMPLATE = cloneTemplate("inv-operations");
@@ -528,6 +560,31 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     eraseVersionRaw: (s: Session, workspaceId: string, entryId: string, versionId: string, deleteMediaIds: string[]) =>
       eraseVersionRaw(session(s), workspaceId, entryId, versionId, deleteMediaIds),
+    registerQueryRaw,
+    async registerQuery(workspaceId: string, registerKey: string, spec: QuerySpec): Promise<RegisteredQuery> {
+      const res = ensure("クエリの登録", await registerQueryRaw(workspaceId, registerKey, spec));
+      const { id } = JSON.parse(res.text) as { id?: unknown };
+      if (typeof id !== "string") throw new SetupError("クエリの登録の応答の読み取り", res);
+      return { workspaceId, ref: id };
+    },
+    deliveryRaw(
+      workspaceIdInUrl: string,
+      apiKey: string | null,
+      query: RegisteredQuery,
+      variables: Record<string, unknown> = {},
+      extras?: RequestExtras,
+    ): Promise<HttpResponse> {
+      return request("GET", `/ws/${workspaceIdInUrl}/graphql`, {
+        auth: deliveryAuth(apiKey),
+        extras: { ...extras, query: { ...(extras?.query ?? {}), id: query.ref, variables: JSON.stringify(variables) } },
+      });
+    },
+    deliveryAdHocRaw(workspaceIdInUrl: string, apiKey: string, spec: QuerySpec, variables: Record<string, unknown> = {}): Promise<HttpResponse> {
+      return request("POST", `/ws/${workspaceIdInUrl}/graphql`, { auth: deliveryAuth(apiKey), body: { query: queryText(spec), variables } });
+    },
+    deliveryBatchRaw(workspaceIdInUrl: string, apiKey: string, queries: RegisteredQuery[]): Promise<HttpResponse> {
+      return request("POST", `/ws/${workspaceIdInUrl}/graphql`, { auth: deliveryAuth(apiKey), body: queries.map((q) => ({ id: q.ref })) });
+    },
     async getUrlHistory(s: Session, workspaceId: string, entryId: string): Promise<UrlChange[]> {
       const res = ensure("URLの変更履歴", await urlHistoryRaw(session(s), workspaceId, entryId));
       const list = JSON.parse(res.text) as { from?: unknown; to?: unknown }[];

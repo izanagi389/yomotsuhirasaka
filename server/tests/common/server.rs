@@ -37,6 +37,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         media: cms_server::config::MediaConfig::at(
             std::env::temp_dir().join(format!("cms-test-media-{}", uuid::Uuid::new_v4().simple())),
         ),
+        delivery: Default::default(),
     }
 }
 
