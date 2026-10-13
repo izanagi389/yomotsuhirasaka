@@ -2,6 +2,7 @@
 
 pub mod body;
 pub mod entries;
+pub mod erase;
 pub mod fields;
 pub mod publishing;
 pub mod sections;

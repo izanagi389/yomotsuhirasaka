@@ -45,6 +45,8 @@ pub mod action {
     pub const ENTRY_PUBLISHED_AS_CORRECTION: &str = "entry.published_as_correction";
     pub const ENTRY_UNPUBLISHED: &str = "entry.unpublished";
     pub const ENTRY_DELETED: &str = "entry.deleted";
+    /// 版の本文の抹消（重い操作として、誰が行っても記録する。対象は記事・版・削除したメディア）。
+    pub const VERSION_ERASED: &str = "version.erased";
     pub const MEDIA_UPLOADED: &str = "media.uploaded";
     pub const MEDIA_DELETED: &str = "media.deleted";
     pub const WORKSPACE_LIMITS_CHANGED: &str = "workspace.limits_changed";
