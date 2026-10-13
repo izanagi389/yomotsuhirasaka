@@ -82,8 +82,13 @@ pub async fn provision(
 
 /// ワークスペースのスキーマの土台のテーブルの移行（版, SQL）。版の昇順に並べる。
 /// SQLは、search_path をそのワークスペースのスキーマにした中で実行する。
-pub const BASE_MIGRATIONS: &[(i32, &str)] =
-    &[(1, include_str!("../migrations/workspace/0001_entries.sql"))];
+pub const BASE_MIGRATIONS: &[(i32, &str)] = &[
+    (1, include_str!("../migrations/workspace/0001_entries.sql")),
+    (
+        2,
+        include_str!("../migrations/workspace/0002_publishing.sql"),
+    ),
+];
 
 /// 1つのワークスペースの土台のテーブルを、最新の版にそろえる。移行・ロールの作成用の接続で呼ぶ。
 pub async fn upgrade_base(conn: &mut PgConnection, db: &WorkspaceDb) -> Result<()> {

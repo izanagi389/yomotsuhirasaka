@@ -276,6 +276,22 @@ pub fn validate(m: &Manifest) -> Vec<String> {
             problems.push(format!("body.nodes: `{required}` is required"));
         }
     }
+    // CMSが意味を知っているノードは、検証と公開の検査に使う属性を持たなければならない（Q75, Q97）
+    for (i, n) in body.nodes.iter().enumerate() {
+        let needed: &[&str] = match n.name.as_str() {
+            "image" => &["mediaId", "alt", "decorative"],
+            "embed" => &["src"],
+            _ => &[],
+        };
+        for a in needed {
+            if !n.attrs.iter().any(|x| x == a) {
+                problems.push(format!(
+                    "body.nodes[{i}].attrs: `{}` needs the attribute `{a}`",
+                    n.name
+                ));
+            }
+        }
+    }
     for (i, n) in body.nodes.iter().enumerate() {
         for (j, c) in n.children.iter().enumerate() {
             if !node_names.contains(c.as_str()) {
@@ -434,6 +450,24 @@ pub(crate) mod tests {
     #[test]
     fn sample_is_valid() {
         assert_eq!(validate(&sample()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn known_nodes_need_their_attributes() {
+        let mut m = sample();
+        m.body.nodes[0].children.push("image".into());
+        m.body
+            .nodes
+            .push(serde_json::from_str(r#"{"name": "image", "attrs": ["mediaId"]}"#).unwrap());
+        let problems = validate(&m);
+        assert!(problems.iter().any(|p| p.contains("`alt`")), "{problems:?}");
+        assert!(
+            problems.iter().any(|p| p.contains("`decorative`")),
+            "{problems:?}"
+        );
+        m.body.nodes.last_mut().unwrap().attrs =
+            vec!["mediaId".into(), "alt".into(), "decorative".into()];
+        assert_eq!(validate(&m), Vec::<String>::new());
     }
 
     #[test]

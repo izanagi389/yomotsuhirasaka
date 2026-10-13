@@ -18,7 +18,7 @@ pub const HEADING: &str = "heading";
 pub const ANCHOR_ATTR: &str = "id";
 /// CMSが意味を知っているノード。
 const EMBED: &str = "embed";
-const IMAGE: &str = "image";
+pub const IMAGE: &str = "image";
 const LINK: &str = "link";
 
 const MAX_DEPTH: usize = 50;

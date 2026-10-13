@@ -32,7 +32,7 @@ use crate::content::{Applied, applied_schema};
 use crate::schema::manifest::{ContentType, FieldType};
 use crate::workspace_db;
 
-fn parse(id: &str) -> Result<Uuid, ApiError> {
+pub(super) fn parse(id: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(id).map_err(|_| ApiError::not_found())
 }
 
@@ -40,7 +40,7 @@ fn can_edit(access: &Access) -> bool {
     access.server_admin || matches!(access.role, Some(Role::Admin | Role::Editor | Role::Author))
 }
 
-fn not_deployed() -> ApiError {
+pub(super) fn not_deployed() -> ApiError {
     ApiError::new(
         StatusCode::CONFLICT,
         "schema_not_deployed",
@@ -48,7 +48,7 @@ fn not_deployed() -> ApiError {
     )
 }
 
-fn invalid(problems: Vec<String>) -> ApiError {
+pub(super) fn invalid(problems: Vec<String>) -> ApiError {
     ApiError::new(
         StatusCode::UNPROCESSABLE_ENTITY,
         "invalid_entry",
@@ -57,14 +57,14 @@ fn invalid(problems: Vec<String>) -> ApiError {
 }
 
 /// 読むためのスキーマ（移行待ちでも、適用済みの版で読める）。
-async fn readable(state: &AppState, ws: Uuid) -> Result<Applied, ApiError> {
+pub(super) async fn readable(state: &AppState, ws: Uuid) -> Result<Applied, ApiError> {
     applied_schema(&state.pool, ws)
         .await?
         .ok_or_else(not_deployed)
 }
 
 /// 書くためのスキーマ（移行待ちなら断る）。
-async fn writable(state: &AppState, ws: Uuid) -> Result<Applied, ApiError> {
+pub(super) async fn writable(state: &AppState, ws: Uuid) -> Result<Applied, ApiError> {
     let applied = readable(state, ws).await?;
     if applied.pending {
         return Err(ApiError::new(
@@ -76,7 +76,11 @@ async fn writable(state: &AppState, ws: Uuid) -> Result<Applied, ApiError> {
     Ok(applied)
 }
 
-async fn reader(state: &AppState, current: &Current, ws: Uuid) -> Result<Access, ApiError> {
+pub(super) async fn reader(
+    state: &AppState,
+    current: &Current,
+    ws: Uuid,
+) -> Result<Access, ApiError> {
     Ok(access::member(&state.pool, current, ws).await??)
 }
 
@@ -88,7 +92,7 @@ async fn editor(state: &AppState, current: &Current, ws: Uuid) -> Result<Access,
     Ok(access)
 }
 
-async fn db(state: &AppState, ws: Uuid) -> Result<workspace_db::WorkspaceDb, ApiError> {
+pub(super) async fn db(state: &AppState, ws: Uuid) -> Result<workspace_db::WorkspaceDb, ApiError> {
     workspace_db::lookup(&state.pool, ws)
         .await?
         .ok_or_else(ApiError::not_found)
@@ -241,7 +245,7 @@ pub struct SaveDraft {
     fields: Map<String, Value>,
 }
 
-fn revision_conflict() -> ApiError {
+pub(super) fn revision_conflict() -> ApiError {
     ApiError::new(
         StatusCode::CONFLICT,
         "revision_conflict",

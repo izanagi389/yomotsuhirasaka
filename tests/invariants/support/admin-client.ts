@@ -4,7 +4,7 @@
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
 
 import { randomUUID } from "node:crypto";
-import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -218,6 +218,28 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     return { revision: String(d.revision), title: typeof title === "string" ? title : "", body: body as TiptapDoc, slug: slug as string, fields: rest };
   };
 
+  // --- 公開・版 ---
+  // 公開は、同じ認証で読んだ下書きのリビジョン番号を付けて送る（読めなければ、合わないリビジョン番号で送る）
+  const publishRaw = async (auth: Auth, workspaceId: string, entryId: string, options: { correction?: boolean } = {}, extras?: RequestExtras): Promise<HttpResponse> => {
+    const current = await getEntryRaw(auth, workspaceId, entryId, extras);
+    const revision = isSuccess(current) ? (JSON.parse(current.text) as { revision: number }).revision : 0;
+    return request("POST", `${entriesPath(workspaceId)}/${entryId}/publish`, {
+      auth,
+      extras,
+      body: { revision, correction: options.correction ?? false },
+    });
+  };
+  const unpublishRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", `${entriesPath(workspaceId)}/${entryId}/unpublish`, { auth, extras });
+  const deleteEntryRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("DELETE", `${entriesPath(workspaceId)}/${entryId}`, { auth, extras });
+  const versionsRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${entriesPath(workspaceId)}/${entryId}/versions`, { auth, extras });
+  const versionRaw = (auth: Auth, workspaceId: string, entryId: string, versionId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${entriesPath(workspaceId)}/${entryId}/versions/${versionId}`, { auth, extras });
+  const urlHistoryRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${entriesPath(workspaceId)}/${entryId}/url-history`, { auth, extras });
+
   // 操作の一覧で使うテンプレート（何度デプロイしても同じ内容なので、版は増えない）
   const OPERATION_TEMPLATE = cloneTemplate("inv-operations");
   const loginHistoryRaw = (auth: Auth, extras?: RequestExtras): Promise<HttpResponse> =>
@@ -250,6 +272,19 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       const revision = isSuccess(current) ? String((JSON.parse(current.text) as { revision: number }).revision) : "0";
       return saveDraftRaw(auth, t.workspaceId, t.entryId, {}, revision, extras);
     }),
+    op("publishEntry", true, "workspace", (auth, t, extras) => publishRaw(auth, t.workspaceId, t.entryId, {}, extras)),
+    op("publishAsCorrection", true, "workspace", (auth, t, extras) => publishRaw(auth, t.workspaceId, t.entryId, { correction: true }, extras)),
+    op("unpublishEntry", true, "workspace", (auth, t, extras) => unpublishRaw(auth, t.workspaceId, t.entryId, extras)),
+    // 対象は存在しない記事（舞台の記事を壊さないため）
+    op("deleteEntry", true, "workspace", (auth, t, extras) => deleteEntryRaw(auth, t.workspaceId, randomUUID(), extras)),
+    op("listEntryVersions", false, "workspace", (auth, t, extras) => versionsRaw(auth, t.workspaceId, t.entryId, extras)),
+    // 同じ認証で版の一覧を読み、最新の版を読む（読めなければ、存在しない版を読む）
+    op("getEntryVersion", false, "workspace", async (auth, t, extras) => {
+      const list = await versionsRaw(auth, t.workspaceId, t.entryId, extras);
+      const first = isSuccess(list) ? (JSON.parse(list.text) as { id: string }[])[0]?.id : undefined;
+      return versionRaw(auth, t.workspaceId, t.entryId, first ?? randomUUID(), extras);
+    }),
+    op("getUrlHistory", false, "workspace", (auth, t, extras) => urlHistoryRaw(auth, t.workspaceId, t.entryId, extras)),
     // 対象は存在しないセッション（本人の他のセッションを壊さないため）
     op("revokeMySession", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/sessions/${randomUUID()}`, { auth, extras })),
     // 現在のパスワードは誤った値にする（舞台の利用者のパスワードを変えないため）
@@ -383,6 +418,33 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     async saveDraft(s: Session, workspaceId: string, entryId: string, changes: Partial<EntryInput>): Promise<void> {
       const current = toDraft(ensure("下書きの取得", await getEntryRaw(session(s), workspaceId, entryId)));
       ensure("下書きの保存", await saveDraftRaw(session(s), workspaceId, entryId, changes, current.revision));
+    },
+    publishRaw: (auth: Auth, workspaceId: string, entryId: string, options?: { correction?: boolean }) => publishRaw(auth, workspaceId, entryId, options),
+    async publishEntry(s: Session, workspaceId: string, entryId: string, options?: { correction?: boolean }): Promise<void> {
+      ensure(options?.correction ? "訂正としての公開" : "公開", await publishRaw(session(s), workspaceId, entryId, options));
+    },
+    async unpublishEntry(s: Session, workspaceId: string, entryId: string): Promise<void> {
+      ensure("非公開", await unpublishRaw(session(s), workspaceId, entryId));
+    },
+    async deleteEntry(s: Session, workspaceId: string, entryId: string): Promise<void> {
+      ensure("記事の削除", await deleteEntryRaw(session(s), workspaceId, entryId));
+    },
+    async listVersions(s: Session, workspaceId: string, entryId: string): Promise<VersionInfo[]> {
+      const res = ensure("版の一覧", await versionsRaw(session(s), workspaceId, entryId));
+      const list = JSON.parse(res.text) as { id?: unknown; isCorrection?: unknown; erased?: unknown }[];
+      return list.map((v) => {
+        if (typeof v.id !== "string" || typeof v.isCorrection !== "boolean" || typeof v.erased !== "boolean") throw new SetupError("版の一覧の読み取り", res);
+        return { id: v.id, isCorrection: v.isCorrection, erased: v.erased };
+      });
+    },
+    getVersionRaw: (auth: Auth, workspaceId: string, entryId: string, versionId: string) => versionRaw(auth, workspaceId, entryId, versionId),
+    async getUrlHistory(s: Session, workspaceId: string, entryId: string): Promise<UrlChange[]> {
+      const res = ensure("URLの変更履歴", await urlHistoryRaw(session(s), workspaceId, entryId));
+      const list = JSON.parse(res.text) as { from?: unknown; to?: unknown }[];
+      return list.map((c) => {
+        if (typeof c.from !== "string" || typeof c.to !== "string") throw new SetupError("URLの変更履歴の読み取り", res);
+        return { from: c.from, to: c.to };
+      });
     },
     schemaInfoRaw: (auth: Auth, workspaceId: string) => schemaInfoRaw(auth, workspaceId),
     deployTemplateRaw: (auth: Auth, template: TemplateSpec, options?: { allowDestructive?: boolean; allowBrokenQueries?: boolean }) =>
