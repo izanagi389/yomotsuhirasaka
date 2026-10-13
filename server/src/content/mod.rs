@@ -5,6 +5,7 @@ pub mod entries;
 pub mod fields;
 pub mod publishing;
 pub mod sections;
+pub mod translations;
 
 use anyhow::{Context, Result};
 use sqlx::PgPool;

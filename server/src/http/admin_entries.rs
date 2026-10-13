@@ -84,7 +84,11 @@ pub(super) async fn reader(
     Ok(access::member(&state.pool, current, ws).await??)
 }
 
-async fn editor(state: &AppState, current: &Current, ws: Uuid) -> Result<Access, ApiError> {
+pub(super) async fn editor(
+    state: &AppState,
+    current: &Current,
+    ws: Uuid,
+) -> Result<Access, ApiError> {
     let access = reader(state, current, ws).await?;
     if !can_edit(&access) {
         return Err(access::Denied::Forbidden.into());

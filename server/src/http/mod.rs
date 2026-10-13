@@ -9,6 +9,7 @@ pub mod admin_publishing;
 pub mod admin_resets;
 pub mod admin_templates;
 pub mod admin_tokens;
+pub mod admin_translations;
 pub mod admin_workspaces;
 pub mod error;
 pub mod extract;
@@ -240,6 +241,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/entries/{id}/versions/{vid}",
             get(admin_publishing::version),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/translations",
+            post(admin_translations::create),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/translation",
+            get(admin_translations::info),
         )
         .route(
             "/workspaces/{ws}/entries/{id}/url-history",
