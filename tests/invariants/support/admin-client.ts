@@ -4,7 +4,7 @@
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
 
 import { randomUUID } from "node:crypto";
-import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, TranslationInfo, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -240,6 +240,12 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const urlHistoryRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("GET", `${entriesPath(workspaceId)}/${entryId}/url-history`, { auth, extras });
 
+  // --- 翻訳 ---
+  const createTranslationRaw = (auth: Auth, workspaceId: string, entryId: string, locale: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", `${entriesPath(workspaceId)}/${entryId}/translations`, { auth, extras, body: { locale } });
+  const translationInfoRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${entriesPath(workspaceId)}/${entryId}/translation`, { auth, extras });
+
   // 操作の一覧で使うテンプレート（何度デプロイしても同じ内容なので、版は増えない）
   const OPERATION_TEMPLATE = cloneTemplate("inv-operations");
   const loginHistoryRaw = (auth: Auth, extras?: RequestExtras): Promise<HttpResponse> =>
@@ -284,6 +290,11 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       const first = isSuccess(list) ? (JSON.parse(list.text) as { id: string }[])[0]?.id : undefined;
       return versionRaw(auth, t.workspaceId, t.entryId, first ?? randomUUID(), extras);
     }),
+    // テンプレートの最後のロケールの翻訳を作る（もうあれば 409）
+    op("createTranslation", true, "workspace", (auth, t, extras) =>
+      createTranslationRaw(auth, t.workspaceId, t.entryId, BASE_TEMPLATE.locales[BASE_TEMPLATE.locales.length - 1]!, extras),
+    ),
+    op("getTranslationInfo", false, "workspace", (auth, t, extras) => translationInfoRaw(auth, t.workspaceId, t.entryId, extras)),
     op("getUrlHistory", false, "workspace", (auth, t, extras) => urlHistoryRaw(auth, t.workspaceId, t.entryId, extras)),
     // 対象は存在しないセッション（本人の他のセッションを壊さないため）
     op("revokeMySession", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/sessions/${randomUUID()}`, { auth, extras })),
@@ -438,6 +449,23 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       });
     },
     getVersionRaw: (auth: Auth, workspaceId: string, entryId: string, versionId: string) => versionRaw(auth, workspaceId, entryId, versionId),
+    async createTranslation(s: Session, workspaceId: string, sourceEntryId: string, locale: string): Promise<{ id: string }> {
+      const res = ensure("翻訳の作成", await createTranslationRaw(session(s), workspaceId, sourceEntryId, locale));
+      const { id } = JSON.parse(res.text) as { id?: unknown };
+      if (typeof id !== "string") throw new SetupError("翻訳の作成の応答の読み取り", res);
+      return { id };
+    },
+    async getTranslationInfo(s: Session, workspaceId: string, entryId: string): Promise<TranslationInfo> {
+      const res = ensure("翻訳の情報の取得", await translationInfoRaw(session(s), workspaceId, entryId));
+      const t = JSON.parse(res.text) as { groupId?: unknown; locale?: unknown; sourceEntryId?: unknown; reflectedSourceVersionId?: unknown };
+      const idOrNull = (v: unknown) => (typeof v === "string" ? v : v === null ? null : undefined);
+      const sourceEntryId = idOrNull(t.sourceEntryId);
+      const reflectedSourceVersionId = idOrNull(t.reflectedSourceVersionId);
+      if (typeof t.groupId !== "string" || typeof t.locale !== "string" || sourceEntryId === undefined || reflectedSourceVersionId === undefined) {
+        throw new SetupError("翻訳の情報の読み取り", res);
+      }
+      return { groupId: t.groupId, locale: t.locale, sourceEntryId, reflectedSourceVersionId };
+    },
     async getUrlHistory(s: Session, workspaceId: string, entryId: string): Promise<UrlChange[]> {
       const res = ensure("URLの変更履歴", await urlHistoryRaw(session(s), workspaceId, entryId));
       const list = JSON.parse(res.text) as { from?: unknown; to?: unknown }[];
