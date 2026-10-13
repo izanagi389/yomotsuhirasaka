@@ -16,7 +16,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_graphql::dynamic::Schema;
-use async_graphql::parser::types::{BaseType, DocumentOperations, OperationType, Type};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
@@ -121,22 +120,6 @@ fn invalid_query(messages: Vec<String>) -> ApiError {
     )
 }
 
-/// 検証のための仮の変数の値（型に合う最小の値）。
-fn placeholder(ty: &Type) -> Value {
-    if ty.nullable {
-        return Value::Null;
-    }
-    match &ty.base {
-        BaseType::List(_) => Value::Array(Vec::new()),
-        BaseType::Named(name) => match name.as_str() {
-            "Int" => Value::from(0),
-            "Float" => Value::from(0.0),
-            "Boolean" => Value::Bool(false),
-            _ => Value::String(String::new()),
-        },
-    }
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Register {
@@ -157,57 +140,11 @@ pub async fn register(
     let (ws, grant) = authenticate(&state, &headers, &ws, "register").await?;
     let Json(req) =
         body.map_err(|_| ApiError::bad_request("Send `{\"query\": \"...\"}` as JSON."))?;
-    if req.query.len() > queries::MAX_QUERY_BYTES {
-        return Err(invalid_query(vec!["the query is too long".to_owned()]));
-    }
-    // 1つの問い合わせ（query）だけを登録できる
-    let doc = async_graphql::parser::parse_query(&req.query)
-        .map_err(|e| invalid_query(vec![e.to_string()]))?;
-    let op = match &doc.operations {
-        DocumentOperations::Single(op) => op,
-        DocumentOperations::Multiple(ops) if ops.len() == 1 => {
-            ops.values().next().expect("one operation")
-        }
-        DocumentOperations::Multiple(_) => {
-            return Err(invalid_query(vec![
-                "a registered query must contain exactly one operation".to_owned(),
-            ]));
-        }
-    };
-    if op.node.ty != OperationType::Query {
-        return Err(invalid_query(vec![
-            "only queries can be registered".to_owned(),
-        ]));
-    }
-    let variables: Map<String, Value> = op
-        .node
-        .variable_definitions
-        .iter()
-        .map(|v| {
-            (
-                v.node.name.node.to_string(),
-                placeholder(&v.node.var_type.node),
-            )
-        })
-        .collect();
-    // スキーマに対する検証と、深さ・複雑さの上限。データは読まない
+    // 1つの問い合わせだけか、スキーマに合うか、深さ・複雑さの上限。データは読まない
     let schema = schema_for(&state, ws).await?;
-    let data = Arc::new(RequestData {
-        tx: Mutex::new(None),
-        workspace_id: ws,
-        media_base: String::new(),
-    });
-    let request = async_graphql::Request::new(req.query.clone())
-        .variables(async_graphql::Variables::from_json(Value::Object(
-            variables,
-        )))
-        .data(data);
-    let response = schema.execute(request).await;
-    if !response.errors.is_empty() {
-        return Err(invalid_query(
-            response.errors.into_iter().map(|e| e.message).collect(),
-        ));
-    }
+    crate::delivery::validate::check(&schema, &req.query)
+        .await
+        .map_err(invalid_query)?;
     let db = workspace_db::lookup(&state.pool, ws)
         .await?
         .ok_or_else(ApiError::not_found)?;

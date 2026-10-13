@@ -70,9 +70,8 @@ pub struct DeployRequest {
     /// 破壊的な変更（フィールドの削除など）を許す（Q53）。
     #[serde(default)]
     allow_destructive: bool,
-    /// 登録済みのクエリを壊す変更を許す（Q54）。クエリの登録は配信APIと一緒に作る。
+    /// 登録済みのクエリを壊す変更を許す（Q54）。
     #[serde(default)]
-    #[allow(dead_code)]
     allow_broken_queries: bool,
 }
 
@@ -100,6 +99,14 @@ pub async fn deploy_template(
         &name,
         req.manifest,
         req.allow_destructive,
+        deploy::QueryCheck {
+            allow_broken: req.allow_broken_queries,
+            limits: crate::delivery::schema::QueryLimits {
+                depth: state.config.delivery.max_depth,
+                complexity: state.config.delivery.max_complexity,
+            },
+            unused_days: state.config.delivery.query_check_unused_days,
+        },
         current.user_id,
     )
     .await?
@@ -119,6 +126,19 @@ pub async fn deploy_template(
             format!(
                 "The deployment contains destructive changes. Add a field, migrate the data and remove the old one in separate deployments, or allow destructive changes explicitly: {}",
                 report(changes.iter().map(|c| c.describe()))
+            ),
+        )),
+        Err(Rejected::BreaksQueries(broken)) => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "breaks_registered_queries",
+            format!(
+                "The deployment breaks registered queries. Update the site's queries and register them again, deprecate the field first, or allow broken queries explicitly: {}",
+                report(broken.iter().map(|b| format!(
+                    "workspace {} query {}: {}",
+                    b.workspace_id,
+                    b.query_id,
+                    b.problems.join(", ")
+                )))
             ),
         )),
     }

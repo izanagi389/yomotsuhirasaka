@@ -80,6 +80,8 @@ pub struct DeliveryConfig {
     pub shared_cache: bool,
     /// 共有キャッシュに載せる時間（秒。既定は60）。
     pub shared_cache_seconds: u32,
+    /// テンプレートのデプロイで、登録済みのクエリを検証する範囲。この日数より長く使われていないクエリは検証しない（既定は90日。Q151）。
+    pub query_check_unused_days: u32,
 }
 
 impl Default for DeliveryConfig {
@@ -93,6 +95,7 @@ impl Default for DeliveryConfig {
             max_response_bytes: 5 * 1024 * 1024,
             shared_cache: false,
             shared_cache_seconds: 60,
+            query_check_unused_days: 90,
         }
     }
 }
