@@ -22,14 +22,16 @@ pub struct LoginRecord {
     pub disabled: bool,
     /// ログインの失敗による待ち時間中か。
     pub blocked: bool,
-    /// 多要素認証（TOTP）を設定しているか。
+    /// 多要素認証（TOTPかパスキー）を設定しているか。
     pub mfa_enabled: bool,
 }
 
 /// (id, password_hash, disabled, blocked, mfa_enabled)
 type LoginRow = (Uuid, Option<String>, bool, bool, bool);
 
-const LOGIN_COLUMNS: &str = "id, password_hash, disabled, coalesce(login_blocked_until > now(), false), totp_enabled_at IS NOT NULL";
+/// 多要素認証の有無は [`super::mfa::MFA_ENABLED_U`]（TOTPかパスキー）で判定する。
+const LOGIN_COLUMNS: &str =
+    "u.id, u.password_hash, u.disabled, coalesce(u.login_blocked_until > now(), false)";
 
 fn login_record((id, password_hash, disabled, blocked, mfa_enabled): LoginRow) -> LoginRecord {
     LoginRecord {
@@ -43,7 +45,8 @@ fn login_record((id, password_hash, disabled, blocked, mfa_enabled): LoginRow) -
 
 pub async fn find_for_login(pool: &PgPool, email: &str) -> Result<Option<LoginRecord>> {
     let row: Option<LoginRow> = sqlx::query_as(crate::sql!(
-        "SELECT {LOGIN_COLUMNS} FROM cms.users WHERE email = $1"
+        "SELECT {LOGIN_COLUMNS}, {} FROM cms.users u WHERE u.email = $1",
+        super::mfa::MFA_ENABLED_U
     ))
     .bind(email)
     .fetch_optional(pool)
@@ -53,7 +56,8 @@ pub async fn find_for_login(pool: &PgPool, email: &str) -> Result<Option<LoginRe
 
 pub async fn find_by_id_for_login(pool: &PgPool, id: Uuid) -> Result<Option<LoginRecord>> {
     let row: Option<LoginRow> = sqlx::query_as(crate::sql!(
-        "SELECT {LOGIN_COLUMNS} FROM cms.users WHERE id = $1"
+        "SELECT {LOGIN_COLUMNS}, {} FROM cms.users u WHERE u.id = $1",
+        super::mfa::MFA_ENABLED_U
     ))
     .bind(id)
     .fetch_optional(pool)

@@ -179,6 +179,9 @@ pub fn check_config(config: &Config) -> Report {
     if let Some(smtp) = &config.smtp {
         report.problems.extend(check_smtp(smtp));
     }
+    if let Err(e) = crate::auth::passkeys::relying_party(&config.public_url, "check") {
+        report.problems.push(Problem::fatal(format!("{e:#}")));
+    }
     if let Some(path) = &config.login_history.geoip_database
         && let Err(e) = crate::geoip::GeoIp::open(path)
     {

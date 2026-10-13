@@ -34,3 +34,13 @@ totp-rs = "6.0"
 chacha20poly1305 = "0.11"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
 maxminddb = "0.32.0"
+webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
+# webauthn-rs の型（パスキー、途中の状態）をJSONでDBに保存する（axum・webauthn-rs が既に使っているもの）
+serde_json = "1.0.145"
+
+[dev-dependencies]
+# テストで、ブラウザと認証器の代わりにパスキーを作って使う
+passkey-client = "0.6.0"
+passkey-authenticator = { version = "0.6.0", features = ["testable"] }
+passkey-types = "0.6.0"
+passkey-crypto = "0.1.1"

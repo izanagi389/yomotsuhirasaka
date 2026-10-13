@@ -153,8 +153,8 @@ pub async fn resolve(
     presented: &str,
     config: &SessionConfig,
 ) -> Result<Option<Current>> {
-    let row: Option<ResolvedRow> = sqlx::query_as(
-        "SELECT s.id, s.user_id, u.email, u.is_server_admin, u.totp_enabled_at IS NOT NULL, u.locale, s.csrf_hash,
+    let row: Option<ResolvedRow> = sqlx::query_as(crate::sql!(
+        "SELECT s.id, s.user_id, u.email, u.is_server_admin, {}, u.locale, s.csrf_hash,
                 s.authenticated_at > now() - make_interval(secs => $3),
                 s.last_seen_at < now() - make_interval(secs => $4)
          FROM cms.sessions s JOIN cms.users u ON u.id = s.user_id
@@ -164,7 +164,8 @@ pub async fn resolve(
            AND s.expires_at > now()
            AND s.last_seen_at > now() - make_interval(secs => $2)
            AND NOT u.disabled",
-    )
+        crate::auth::mfa::MFA_ENABLED_U
+    ))
     .bind(token::digest(presented))
     .bind(f64::from(config.idle_timeout_seconds))
     .bind(f64::from(config.reauth_window_seconds))

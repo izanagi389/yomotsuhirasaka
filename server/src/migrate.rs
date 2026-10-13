@@ -54,6 +54,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "login_history",
         include_str!("../migrations/0011_login_history.sql"),
     ),
+    (
+        12,
+        "passkeys",
+        include_str!("../migrations/0012_passkeys.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -79,6 +84,9 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     // 長く使われていない端末と、保存期間を過ぎた履歴を消す
     ("known_devices", "SELECT, INSERT, UPDATE, DELETE"),
     ("login_history", "SELECT, INSERT, DELETE"),
+    ("passkeys", "SELECT, INSERT, UPDATE, DELETE"),
+    // 同じセッション・用途で始め直したら上書きし、使ったら・期限を過ぎたら消す
+    ("webauthn_challenges", "SELECT, INSERT, UPDATE, DELETE"),
 ];
 
 /// 移行の排他に使う、アドバイザリーロックのキー（任意の固定値）。

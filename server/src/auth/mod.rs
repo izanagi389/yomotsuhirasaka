@@ -2,6 +2,7 @@
 
 pub mod devices;
 pub mod mfa;
+pub mod passkeys;
 pub mod password;
 pub mod personal_tokens;
 pub mod session;
