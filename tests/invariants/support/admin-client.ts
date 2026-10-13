@@ -4,7 +4,7 @@
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
 
 import { randomUUID } from "node:crypto";
-import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, TranslationInfo, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -19,6 +19,8 @@ const CSRF_HEADER = "X-CSRF-Token";
 interface RequestOptions {
   auth?: Auth;
   body?: unknown;
+  /** JSONではなく、バイト列をそのまま本文にする（メディアのアップロード）。 */
+  rawBody?: { contentType: string; bytes: Buffer };
   extras?: RequestExtras;
   /** auth を使わずに送るCookie（ログインの前から持っているCookie）。 */
   cookies?: Map<string, string>;
@@ -70,10 +72,13 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       if (cookie) headers["Cookie"] = cookie;
     }
     if (options.extras?.clientIp) headers["X-Forwarded-For"] = options.extras.clientIp;
-    let body: string | undefined;
+    let body: string | Blob | undefined;
     if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
       body = JSON.stringify(options.body);
+    } else if (options.rawBody !== undefined) {
+      headers["Content-Type"] = options.rawBody.contentType;
+      body = new Blob([new Uint8Array(options.rawBody.bytes)]);
     }
     Object.assign(headers, options.extras?.headers ?? {});
     const res = await fetch(url, { method, headers, body, redirect: "manual" });
@@ -246,6 +251,16 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const translationInfoRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("GET", `${entriesPath(workspaceId)}/${entryId}/translation`, { auth, extras });
 
+  // --- メディア ---
+  // ファイルのバイト列をそのまま本文にして送る。ファイル名はサーバーに送らない（サーバーはランダムな名前で保存する）
+  const mediaPath = (workspaceId: string) => `${ADMIN}/workspaces/${workspaceId}/media`;
+  const uploadMediaRaw = (auth: Auth, workspaceId: string, file: UploadFile, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", mediaPath(workspaceId), { auth, extras, rawBody: { contentType: file.contentType, bytes: file.bytes } });
+  const setWorkspaceLimitsRaw = (auth: Auth, workspaceId: string, limits: { mediaBytes?: number }, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("PUT", `${ADMIN}/workspaces/${workspaceId}/limits`, { auth, extras, body: { mediaBytes: limits.mediaBytes ?? null } });
+  // 操作の一覧で使う小さな画像（1×1のPNG）
+  const TINY_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+
   // 操作の一覧で使うテンプレート（何度デプロイしても同じ内容なので、版は増えない）
   const OPERATION_TEMPLATE = cloneTemplate("inv-operations");
   const loginHistoryRaw = (auth: Auth, extras?: RequestExtras): Promise<HttpResponse> =>
@@ -295,6 +310,15 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       createTranslationRaw(auth, t.workspaceId, t.entryId, BASE_TEMPLATE.locales[BASE_TEMPLATE.locales.length - 1]!, extras),
     ),
     op("getTranslationInfo", false, "workspace", (auth, t, extras) => translationInfoRaw(auth, t.workspaceId, t.entryId, extras)),
+    op("listMedia", false, "workspace", (auth, t, extras) => request("GET", mediaPath(t.workspaceId), { auth, extras })),
+    op("uploadMedia", true, "workspace", (auth, t, extras) =>
+      uploadMediaRaw(auth, t.workspaceId, { filename: "op.png", bytes: TINY_PNG, contentType: "image/png" }, extras),
+    ),
+    // 対象は存在しないメディア（舞台のメディアを壊さないため）
+    op("deleteMedia", true, "workspace", (auth, t, extras) => request("DELETE", `${mediaPath(t.workspaceId)}/${randomUUID()}`, { auth, extras })),
+    op("getWorkspaceLimits", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/limits`, { auth, extras })),
+    // 上限は既定値のまま（null）にする
+    op("setWorkspaceLimits", true, "instance", (auth, t, extras) => setWorkspaceLimitsRaw(auth, t.workspaceId, {}, extras)),
     op("getUrlHistory", false, "workspace", (auth, t, extras) => urlHistoryRaw(auth, t.workspaceId, t.entryId, extras)),
     // 対象は存在しないセッション（本人の他のセッションを壊さないため）
     op("revokeMySession", true, "self", (auth, _t, extras) => request("DELETE", `${ADMIN}/me/sessions/${randomUUID()}`, { auth, extras })),
@@ -465,6 +489,23 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         throw new SetupError("翻訳の情報の読み取り", res);
       }
       return { groupId: t.groupId, locale: t.locale, sourceEntryId, reflectedSourceVersionId };
+    },
+    uploadMediaRaw: (s: Session, workspaceId: string, file: UploadFile) => uploadMediaRaw(session(s), workspaceId, file),
+    async uploadMedia(s: Session, workspaceId: string, file: UploadFile): Promise<{ id: string; url: string }> {
+      const res = ensure("メディアのアップロード", await uploadMediaRaw(session(s), workspaceId, file));
+      const { id, url } = JSON.parse(res.text) as { id?: unknown; url?: unknown };
+      if (typeof id !== "string" || typeof url !== "string") throw new SetupError("メディアのアップロードの応答の読み取り", res);
+      return { id, url };
+    },
+    async fetchMediaRaw(url: string): Promise<HttpResponse & { bytes: Buffer }> {
+      // 配信のURLは公開URL（テストの環境では待ち受けていない）を指すので、パスだけを使ってこのサーバーに送る
+      const u = new URL(url);
+      const res = await fetch(new URL(u.pathname + u.search, base), { redirect: "manual" });
+      const bytes = Buffer.from(await res.arrayBuffer());
+      return { status: res.status, headers: res.headers, setCookies: res.headers.getSetCookie(), text: bytes.toString("latin1"), bytes };
+    },
+    async setWorkspaceLimits(s: Session, workspaceId: string, limits: { mediaBytes?: number }): Promise<void> {
+      ensure("ワークスペースの上限の変更", await setWorkspaceLimitsRaw(session(s), workspaceId, limits));
     },
     async getUrlHistory(s: Session, workspaceId: string, entryId: string): Promise<UrlChange[]> {
       const res = ensure("URLの変更履歴", await urlHistoryRaw(session(s), workspaceId, entryId));

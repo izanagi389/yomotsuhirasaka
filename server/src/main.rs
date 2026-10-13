@@ -49,6 +49,9 @@ enum Command {
         /// Address to listen on.
         #[arg(long, default_value = "127.0.0.1:8080")]
         listen: String,
+        /// Directory to store media files in.
+        #[arg(long, default_value = "/var/lib/cms/media")]
+        media_root: PathBuf,
     },
     /// Check the configuration and start serving.
     Serve {
@@ -158,6 +161,7 @@ fn main() -> ExitCode {
             database_url,
             migration_database_url,
             listen,
+            media_root,
         } => {
             match init(
                 &config,
@@ -166,6 +170,7 @@ fn main() -> ExitCode {
                 database_url,
                 migration_database_url,
                 listen,
+                media_root,
             ) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
@@ -231,6 +236,7 @@ fn init(
     database_url: String,
     migration_database_url: String,
     listen: String,
+    media_root: PathBuf,
 ) -> Result<()> {
     if config_path.exists() || key_path.exists() {
         bail!("refusing to overwrite an existing config or key file");
@@ -257,6 +263,7 @@ fn init(
         auth: config::AuthConfig::default(),
         smtp: None,
         login_history: config::LoginHistoryConfig::default(),
+        media: config::MediaConfig::at(media_root),
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,
@@ -700,6 +707,7 @@ async fn serve(config: Config) -> Result<()> {
         ring.active_version()
     );
 
+    cms_server::media::store::prepare_root(&config.media.root)?;
     let (app_pool, migration_pool, app_role) = prepare_database(&config).await?;
     auth::password::warm_up();
     let listen = config.listen.clone();

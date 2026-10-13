@@ -16,6 +16,7 @@ BIN="${CMS_SERVER_BIN:-$(pwd)/target/debug/cms-server}"
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
+mkdir -p "$OUT/fs"
 rm -f "$OUT/config.toml" "$OUT/encryption.key" "$OUT/test.env"
 
 host_port() { python3 -c 'import sys,urllib.parse as u; p=u.urlsplit(sys.argv[1]); print(f"{p.hostname}:{p.port or 5432}")' "$1"; }
@@ -41,7 +42,8 @@ HP16="$(host_port "$PG16_URL")"
   --key-file "$OUT/encryption.key" \
   --public-url "https://cms.inv.test" \
   --database-url "postgres://cms_app@${HP16}/cms" \
-  --migration-database-url "postgres://cms_migrate@${HP16}/cms" >/dev/null
+  --migration-database-url "postgres://cms_migrate@${HP16}/cms" \
+  --media-root "$OUT/fs/media" >/dev/null
 
 # テストの舞台に多要素認証のない所属者（編集者など）を作るため、全員への多要素認証の必須（Q197）を無効にする
 python3 - "$OUT/config.toml" <<'PY'
@@ -68,6 +70,8 @@ create_roles "$PG16_URL" "$APP_PW" "$MIG_PW"
   echo "export CMS_TEST_PUBLIC_URL='https://cms.inv.test'"
   echo "export CMS_TEST_DB_SUPERUSER_URL='${PG16_URL}'"
   echo "export CMS_TEST_DB_APP_URL='postgres://cms_app:${APP_PW}@${HP16}/cms'"
+  # CMSが書くファイル（メディアなど）の置き場所。テストは、この下に想定外のファイルができていないかを調べる
+  echo "export CMS_TEST_FS_ROOT='$OUT/fs'"
 } > "$OUT/test.env"
 
 if [ -n "$PG15_URL" ]; then

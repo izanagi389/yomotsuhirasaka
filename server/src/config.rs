@@ -52,6 +52,59 @@ pub struct Config {
     /// ログインの履歴（Q176）。
     #[serde(default)]
     pub login_history: LoginHistoryConfig,
+    /// メディア（13-security.md「メディア」）。
+    pub media: MediaConfig,
+}
+
+/// メディアの保存先と上限。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaConfig {
+    /// 保存先のディレクトリ（ローカルのファイルシステムのみ）。ワークスペースごとのディレクトリをこの下に作る。
+    pub root: PathBuf,
+    /// 配信に使うURLの先頭（例: `https://media.example.com`）。管理画面とは別のドメインを推奨する（Q96）。
+    /// 省略時は `public_url` の `/media`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_base_url: Option<String>,
+    /// 1枚の画像の画素数の上限（既定は5千万）。
+    #[serde(default = "default_max_pixels")]
+    pub max_pixels: u64,
+    /// 1つのファイルの大きさの上限（バイト。既定は20MB）。
+    #[serde(default = "default_max_file_bytes")]
+    pub max_file_bytes: u64,
+    /// ワークスペースの容量の既定の上限（バイト。既定は5GB）。サーバー管理者がワークスペースごとに変えられる。
+    #[serde(default = "default_workspace_quota_bytes")]
+    pub default_workspace_quota_bytes: u64,
+    /// 画像の処理（デコードとエンコードし直し）にかける時間の上限（秒。既定は20秒）。
+    #[serde(default = "default_processing_timeout_seconds")]
+    pub processing_timeout_seconds: u32,
+}
+
+fn default_max_pixels() -> u64 {
+    50_000_000
+}
+fn default_max_file_bytes() -> u64 {
+    20 * 1024 * 1024
+}
+fn default_workspace_quota_bytes() -> u64 {
+    5 * 1024 * 1024 * 1024
+}
+fn default_processing_timeout_seconds() -> u32 {
+    20
+}
+
+impl MediaConfig {
+    /// 保存先だけを指定し、上限は既定値にした設定。
+    pub fn at(root: PathBuf) -> Self {
+        Self {
+            root,
+            public_base_url: None,
+            max_pixels: default_max_pixels(),
+            max_file_bytes: default_max_file_bytes(),
+            default_workspace_quota_bytes: default_workspace_quota_bytes(),
+            processing_timeout_seconds: default_processing_timeout_seconds(),
+        }
+    }
 }
 
 /// ログインの履歴の保存期間と、削除の間隔（秒）。
@@ -192,6 +245,11 @@ impl Config {
         {
             *key = dir.join(&*key);
         }
+        if let Some(dir) = path.parent()
+            && config.media.root.is_relative()
+        {
+            config.media.root = dir.join(&config.media.root);
+        }
         Ok(config)
     }
 
@@ -219,11 +277,13 @@ mod tests {
         std::fs::write(
             &path,
             "production = true\npublic_url = \"https://x\"\nlisten = \"127.0.0.1:1\"\nencryption_key_file = \"k.key\"\n\
-             [database]\nurl = \"postgres://a@h/d\"\npassword = \"p\"\n[migration_database]\nurl = \"postgres://b@h/d\"\npassword = \"q\"\n",
+             [database]\nurl = \"postgres://a@h/d\"\npassword = \"p\"\n[migration_database]\nurl = \"postgres://b@h/d\"\npassword = \"q\"\n[media]\nroot = \"media\"\n",
         )
         .unwrap();
         let config = Config::load(&path).unwrap();
         assert_eq!(config.encryption_key_file.unwrap(), dir.join("k.key"));
+        assert_eq!(config.media.root, dir.join("media"));
+        assert_eq!(config.media.max_pixels, 50_000_000);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

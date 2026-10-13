@@ -4,6 +4,7 @@ pub mod admin_api_keys;
 pub mod admin_auth;
 pub mod admin_entries;
 pub mod admin_invitations;
+pub mod admin_media;
 pub mod admin_mfa;
 pub mod admin_publishing;
 pub mod admin_resets;
@@ -325,9 +326,26 @@ pub fn router(state: AppState) -> Router {
             "/workspaces/{ws}/api-keys/{id}",
             delete(admin_api_keys::revoke),
         )
+        .route(
+            "/workspaces/{ws}/media",
+            get(admin_media::list).post(admin_media::upload).layer(
+                axum::extract::DefaultBodyLimit::max(
+                    usize::try_from(state.config.media.max_file_bytes).unwrap_or(usize::MAX),
+                ),
+            ),
+        )
+        .route(
+            "/workspaces/{ws}/media/{id}",
+            get(admin_media::get).delete(admin_media::delete),
+        )
+        .route(
+            "/workspaces/{ws}/limits",
+            get(admin_media::get_limits).put(admin_media::set_limits),
+        )
         .fallback(not_found);
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
+        .route("/media/{ws}/{file}", get(admin_media::serve))
         .nest("/api/admin", admin)
         .fallback(not_found)
         .with_state(state)
