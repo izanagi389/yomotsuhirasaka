@@ -15,6 +15,7 @@ pub mod jobs;
 pub mod keys;
 pub mod locale;
 pub mod mail;
+pub mod media;
 pub mod migrate;
 pub mod rekey;
 pub mod resets;

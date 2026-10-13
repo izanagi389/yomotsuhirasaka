@@ -338,7 +338,29 @@ pub fn validate(doc: &Value, body: &Body) -> Result<Value, Vec<String>> {
     }
     let mut out = doc.clone();
     assign_anchors(&mut out, &ctx.headings);
+    normalize_media_ids(&mut out);
     Ok(out)
+}
+
+/// 画像のメディアのIDを、小文字・ハイフン区切りの形にそろえる（メディアの使用箇所を本文から探せるように）。
+fn normalize_media_ids(v: &mut Value) {
+    if v.get("type").and_then(Value::as_str) == Some(IMAGE)
+        && let Some(attrs) = v.get_mut("attrs").and_then(Value::as_object_mut)
+        && let Some(id) = attrs
+            .get("mediaId")
+            .and_then(Value::as_str)
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+    {
+        attrs.insert(
+            "mediaId".to_owned(),
+            Value::String(id.hyphenated().to_string()),
+        );
+    }
+    if let Some(children) = v.get_mut("content").and_then(Value::as_array_mut) {
+        for c in children {
+            normalize_media_ids(c);
+        }
+    }
 }
 
 fn node_at<'a>(doc: &'a mut Value, path: &[usize]) -> Option<&'a mut Value> {
@@ -412,6 +434,16 @@ pub fn media_ids(doc: &Value) -> Vec<uuid::Uuid> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn media_ids_are_normalized() {
+        let doc = json!({"type": "doc", "content": [{"type": "image", "attrs": {"mediaId": "0123456789ABCDEF0123456789ABCDEF", "alt": "a"}}]});
+        let out = validate(&doc, &body()).unwrap();
+        assert_eq!(
+            out["content"][0]["attrs"]["mediaId"],
+            "01234567-89ab-cdef-0123-456789abcdef"
+        );
+    }
 
     fn body() -> Body {
         serde_json::from_value(json!({

@@ -64,6 +64,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "templates",
         include_str!("../migrations/0013_templates.sql"),
     ),
+    (
+        14,
+        "workspace_limits",
+        include_str!("../migrations/0014_workspace_limits.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -94,6 +99,8 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("webauthn_challenges", "SELECT, INSERT, UPDATE, DELETE"),
     // 書き込みはデプロイの処理（移行・ロールの作成用の接続）だけ
     ("template_versions", "SELECT"),
+    // サーバー管理者が上限を変える
+    ("workspace_limits", "SELECT, INSERT, UPDATE"),
 ];
 
 /// 移行の排他に使う、アドバイザリーロックのキー（任意の固定値）。

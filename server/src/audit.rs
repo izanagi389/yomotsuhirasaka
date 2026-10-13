@@ -45,6 +45,9 @@ pub mod action {
     pub const ENTRY_PUBLISHED_AS_CORRECTION: &str = "entry.published_as_correction";
     pub const ENTRY_UNPUBLISHED: &str = "entry.unpublished";
     pub const ENTRY_DELETED: &str = "entry.deleted";
+    pub const MEDIA_UPLOADED: &str = "media.uploaded";
+    pub const MEDIA_DELETED: &str = "media.deleted";
+    pub const WORKSPACE_LIMITS_CHANGED: &str = "workspace.limits_changed";
 }
 
 /// 1件を記録する。`workspace_id` が None ならインスタンス全体の記録。

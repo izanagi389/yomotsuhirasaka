@@ -34,6 +34,9 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         },
         smtp: None,
         login_history: Default::default(),
+        media: cms_server::config::MediaConfig::at(
+            std::env::temp_dir().join(format!("cms-test-media-{}", uuid::Uuid::new_v4().simple())),
+        ),
     }
 }
 
@@ -342,4 +345,97 @@ pub async fn expire_reauth(pool: &PgPool, email: &str) {
     .execute(pool)
     .await
     .unwrap();
+}
+
+/// バイト列の応答（画像の取得など）。
+pub struct RawResp {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl RawResp {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
+}
+
+/// バイト列を本文にして送り、バイト列で受け取る（メディアのアップロードと取得）。
+pub async fn request_bytes(
+    server: &Server,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: Option<(&str, &[u8])>,
+) -> RawResp {
+    let mut stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
+    let mut req =
+        format!("{method} {path} HTTP/1.1\r\nHost: cms.example.test\r\nConnection: close\r\n");
+    for (k, v) in headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
+    }
+    let payload: &[u8] = match body {
+        Some((content_type, b)) => {
+            req.push_str(&format!(
+                "Content-Type: {content_type}\r\nContent-Length: {}\r\n\r\n",
+                b.len()
+            ));
+            b
+        }
+        None => {
+            req.push_str("Content-Length: 0\r\n\r\n");
+            &[]
+        }
+    };
+    stream.write_all(req.as_bytes()).await.unwrap();
+    // 大きすぎる本文は、サーバーが途中で接続を閉じることがある
+    let _ = stream.write_all(payload).await;
+    let mut raw = Vec::new();
+    let _ = stream.read_to_end(&mut raw).await;
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8(raw[..split].to_vec()).unwrap();
+    let mut lines = head.split("\r\n");
+    let status = lines
+        .next()
+        .unwrap()
+        .split(' ')
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
+    let headers = lines
+        .filter_map(|l| l.split_once(':'))
+        .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_owned()))
+        .collect();
+    RawResp {
+        status,
+        headers,
+        body: raw[split + 4..].to_vec(),
+    }
+}
+
+/// メディアをアップロードする。
+pub async fn upload(
+    server: &Server,
+    path: &str,
+    s: &Login,
+    content_type: &str,
+    bytes: &[u8],
+) -> Resp {
+    let res = request_bytes(
+        server,
+        "POST",
+        path,
+        &[("Cookie", &s.cookie_header()), ("X-CSRF-Token", &s.csrf)],
+        Some((content_type, bytes)),
+    )
+    .await;
+    Resp {
+        status: res.status,
+        headers: res.headers,
+        body: String::from_utf8_lossy(&res.body).into_owned(),
+    }
 }

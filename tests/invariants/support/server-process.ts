@@ -74,6 +74,8 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (config.encryptionKeyFile !== null) lines.push(`encryption_key_file = ${tomlString(config.encryptionKeyFile)}`);
   lines.push("", "[database]", `url = ${tomlString(db.url)}`, `password = ${tomlString(db.password)}`);
   lines.push("", "[migration_database]", `url = ${tomlString(migration.url)}`, `password = ${tomlString(migration.password)}`);
+  // メディアの保存先: テストが調べるファイルシステムの範囲（CMS_TEST_FS_ROOT）の中に置く
+  lines.push("", "[media]", `root = ${tomlString(join(process.env["CMS_TEST_FS_ROOT"] ?? tmpdir(), "media"))}`);
   const session: string[] = [];
   if (config.sessionLifetimeSeconds !== undefined) session.push(`absolute_lifetime_seconds = ${config.sessionLifetimeSeconds}`);
   if (config.reauthWindowSeconds !== undefined) session.push(`reauth_window_seconds = ${config.reauthWindowSeconds}`);
