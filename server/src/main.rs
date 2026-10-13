@@ -685,6 +685,7 @@ async fn prepare_database(config: &Config) -> Result<(sqlx::PgPool, sqlx::PgPool
         tracing::info!("applied migrations: {applied:?}");
     }
     migrate::apply_grants(&migration_pool, &app_role).await?;
+    cms_server::workspace_db::upgrade_all(&migration_pool).await?;
     Ok((app_pool, migration_pool, app_role))
 }
 

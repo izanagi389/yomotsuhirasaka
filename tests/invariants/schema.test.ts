@@ -98,9 +98,9 @@ inv("inv_sch_02", "破壊的なスキーマ変更（フィールドの削除、�
   }
 
   // 対照: 追加は通る。明示的に指定すれば破壊的な変更も通る
-  expectSuccess(await deploy(cloneTemplate(name, (t) => postType(t).fields.push({ name: "addedField", type: "text" }))), "フィールドの追加");
+  expectSuccess(await deploy(cloneTemplate(name, (t) => postType(t).fields.push({ name: "added_field", type: "text" }))), "フィールドの追加");
   expectSuccess(
-    await deploy(cloneTemplate(name, (t) => { postType(t).fields.push({ name: "addedField", type: "text" }); removeField(t, "subtitle"); }), { allowDestructive: true }),
+    await deploy(cloneTemplate(name, (t) => { postType(t).fields.push({ name: "added_field", type: "text" }); removeField(t, "subtitle"); }), { allowDestructive: true }),
     "明示的に指定したフィールドの削除",
   );
 });
@@ -124,7 +124,7 @@ inv("inv_sch_03", "登録済みのPersisted Queryを壊すスキーマ変更は�
 
 // --- INV-SCH-04, 05, 07: 一方のワークスペースだけ移行に失敗する状況を作る ---
 //
-// v1: subtitle は任意。v2: subtitle を必須にし、フィールド extraFieldV2 を足す。
+// v1: subtitle は任意。v2: subtitle を必須にし、フィールド extra_field_v2 を足す。
 // 失敗する側（P）には subtitle が空の記事があり、成功する側（Q）の記事はすべて subtitle を持つ。
 
 interface MigrationScene {
@@ -133,7 +133,7 @@ interface MigrationScene {
 }
 
 let scene: Promise<MigrationScene> | null = null;
-const NEW_FIELD = "extraFieldV2";
+const NEW_FIELD = "extra_field_v2";
 
 function migrationScene(): Promise<MigrationScene> {
   scene ??= (async () => {

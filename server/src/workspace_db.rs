@@ -8,7 +8,7 @@
 //! DBのロールが防ぐのは「切り替え忘れ」などの不具合で、SQLインジェクションではない（13-security.md）。
 
 use anyhow::{Context, Result, bail};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::db::Ident;
@@ -75,7 +75,65 @@ pub async fn provision(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    let mut conn = migration.acquire().await?;
+    upgrade_base(&mut conn, &db).await?;
     Ok(db)
+}
+
+/// ワークスペースのスキーマの土台のテーブルの移行（版, SQL）。版の昇順に並べる。
+/// SQLは、search_path をそのワークスペースのスキーマにした中で実行する。
+pub const BASE_MIGRATIONS: &[(i32, &str)] =
+    &[(1, include_str!("../migrations/workspace/0001_entries.sql"))];
+
+/// 1つのワークスペースの土台のテーブルを、最新の版にそろえる。移行・ロールの作成用の接続で呼ぶ。
+pub async fn upgrade_base(conn: &mut PgConnection, db: &WorkspaceDb) -> Result<()> {
+    let schema = &db.schema;
+    for &(version, sql) in BASE_MIGRATIONS {
+        let mut tx = sqlx::Connection::begin(&mut *conn).await?;
+        let current: i32 =
+            sqlx::query_scalar("SELECT base_version FROM cms.workspaces WHERE id = $1 FOR UPDATE")
+                .bind(db.workspace_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if current >= version {
+            continue;
+        }
+        sqlx::query(crate::sql!("SET LOCAL search_path TO {schema}"))
+            .execute(&mut *tx)
+            .await?;
+        sqlx::raw_sql(sql)
+            .execute(&mut *tx)
+            .await
+            .with_context(|| {
+                format!(
+                    "workspace {} base migration {version} failed",
+                    db.workspace_id
+                )
+            })?;
+        sqlx::query("UPDATE cms.workspaces SET base_version = $2 WHERE id = $1")
+            .bind(db.workspace_id)
+            .bind(version)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+    }
+    Ok(())
+}
+
+/// すべてのワークスペースの土台のテーブルをそろえる（サーバーの起動時）。
+pub async fn upgrade_all(migration: &PgPool) -> Result<()> {
+    let latest = BASE_MIGRATIONS.last().map_or(0, |m| m.0);
+    let mut conn = migration.acquire().await?;
+    let ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM cms.workspaces WHERE base_version < $1 ORDER BY created_at",
+    )
+    .bind(latest)
+    .fetch_all(&mut *conn)
+    .await?;
+    for id in ids {
+        upgrade_base(&mut conn, &WorkspaceDb::names_for(id)).await?;
+    }
+    Ok(())
 }
 
 /// ワークスペースのDBの名前を、共通のスキーマから引く（普段用のロールで呼ぶ）。

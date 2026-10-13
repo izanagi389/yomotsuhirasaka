@@ -47,17 +47,33 @@ pub struct WorkspaceInfo {
     created_at: String,
     /// 自分のロール（所属していないサーバー管理者は null）。
     role: Option<String>,
+    /// 適用済みのテンプレートの版（まだなければ null）。
+    schema_version: Option<i32>,
+    /// none: まだ適用していない、ok: 最新、pending: 移行待ち（Q53）
+    schema_state: String,
 }
 
-type WorkspaceRow = (Uuid, String, String, String, Option<String>);
+type WorkspaceRow = (
+    Uuid,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<i32>,
+    String,
+);
 
-fn workspace_info((id, name, template, created_at, role): WorkspaceRow) -> WorkspaceInfo {
+fn workspace_info(
+    (id, name, template, created_at, role, schema_version, schema_state): WorkspaceRow,
+) -> WorkspaceInfo {
     WorkspaceInfo {
         id,
         name,
         template,
         created_at,
         role,
+        schema_version,
+        schema_state,
     }
 }
 
@@ -66,7 +82,8 @@ pub async fn list_workspaces(
     AuthSession(current): AuthSession,
 ) -> Result<Json<Vec<WorkspaceInfo>>, ApiError> {
     let rows: Vec<WorkspaceRow> = sqlx::query_as(crate::sql!(
-        "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role
+        "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role,
+                w.schema_version, w.schema_state
          FROM cms.workspaces w
          LEFT JOIN cms.memberships m ON m.workspace_id = w.id AND m.user_id = $1
          WHERE (m.user_id IS NOT NULL OR $2)
@@ -90,7 +107,8 @@ async fn fetch_workspace(
     id: Uuid,
 ) -> Result<WorkspaceInfo, ApiError> {
     let row: WorkspaceRow = sqlx::query_as(crate::sql!(
-        "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role
+        "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role,
+                w.schema_version, w.schema_state
          FROM cms.workspaces w
          LEFT JOIN cms.memberships m ON m.workspace_id = w.id AND m.user_id = $2
          WHERE w.id = $1"
@@ -153,6 +171,15 @@ pub async fn create_workspace(
     }
     let id = Uuid::new_v4();
     workspace_db::provision(&state.migration, &state.app_role, id, name, template).await?;
+    // テンプレートがデプロイ済みなら、その最新の版を適用する
+    crate::schema::deploy::apply_latest_to_new_workspace(
+        &state.migration,
+        &state.pool,
+        id,
+        template,
+        current.user_id,
+    )
+    .await?;
     audit::record(
         &state.pool,
         Some(id),
