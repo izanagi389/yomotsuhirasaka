@@ -62,7 +62,15 @@ jobs:
               with:
                   node-version: 22
                   cache: npm
-                  cache-dependency-path: tests/invariants/package-lock.json
+                  cache-dependency-path: |
+                      tests/invariants/package-lock.json
+                      cli/package-lock.json
+            # 取り込みのCLI（約束のテストが dist/index.js を実行する）。単体テストもここで流す
+            - name: Build and test the CLI
+              working-directory: cli
+              run: |
+                  npm ci --ignore-scripts
+                  npm test
             - name: Install test dependencies
               working-directory: tests/invariants
               run: npm ci --ignore-scripts

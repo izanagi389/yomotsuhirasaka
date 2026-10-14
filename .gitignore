@@ -2,3 +2,4 @@
 __MACOSX/
 /target/
 node_modules/
+/cli/dist/

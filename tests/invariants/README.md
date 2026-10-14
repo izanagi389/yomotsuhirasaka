@@ -124,6 +124,7 @@ inv("inv_ten_06", "サーバー管理者以外は、ワークスペースを作�
 - `headers.test.ts` の公開ポートの確認には、`docker` コマンド（`docker compose config`）を使う。
 - 自己署名の証明書を使う場合は、`NODE_EXTRA_CA_CERTS` でCAの証明書を渡す。
 - `scripts/test-env/setup.sh` が、ハーネスの環境変数（例外として許す宛先 `127.0.0.1`、許さない内部のアドレス `127.0.0.2`、DNSのポート `5354`、TLSのCAと証明書）も書き出す。
+- 取り込みのテストは、ビルド済みの取り込みのCLI（`cli/dist/index.js`。`cd cli && npm ci && npm run build`）を実行する。別の場所なら `CMS_TEST_CLI_BIN` で指定する。
 - `inv.test` の名前解決は、`scripts/test-env/harness-dns.sh`（root）で、`127.0.0.1:53` の dnsmasq からテストのDNSサーバーへ回す。CMSはOSの名前解決をそのまま使う。
 
 ## 実行

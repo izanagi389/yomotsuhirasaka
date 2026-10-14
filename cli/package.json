@@ -1,0 +1,27 @@
+{
+  "name": "@new-cms/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CMSのCLI（既存のブログからの取り込みなど）",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "cms": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
+  },
+  "dependencies": {
+    "markdown-it": "15.0.2",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "typescript": "7.0.2"
+  }
+}
