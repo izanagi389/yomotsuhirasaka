@@ -4,3 +4,5 @@ cli/dist/
 deploy/data/
 deploy/.env
 .git/
+admin/.nuxt/
+admin/.output/

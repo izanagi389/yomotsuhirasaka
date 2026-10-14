@@ -65,12 +65,22 @@ jobs:
                   cache-dependency-path: |
                       tests/invariants/package-lock.json
                       cli/package-lock.json
+                      admin/package-lock.json
             # 取り込みのCLI（約束のテストが dist/index.js を実行する）。単体テストもここで流す
             - name: Build and test the CLI
               working-directory: cli
               run: |
                   npm ci --ignore-scripts
                   npm test
+            # 管理画面（サーバーが /admin/ で配信する。INV-HDR-01 などが応答を確かめる）。v-html の禁止は eslint で検査する
+            - name: Lint, type check and build the admin UI
+              working-directory: admin
+              run: |
+                  npm ci --ignore-scripts
+                  npx nuxt prepare
+                  npm run lint
+                  npm run typecheck
+                  npm run generate
             - name: Install test dependencies
               working-directory: tests/invariants
               run: npm ci --ignore-scripts
@@ -119,6 +129,8 @@ jobs:
                     sleep 2
                   done
                   test "$code" = 401
+                  # 管理画面がイメージから配信され、CSP が付いている
+                  curl -sfD - -o /dev/null http://127.0.0.1:8080/admin/ | grep -qi "^content-security-policy: default-src 'self'"
                   # DBのポートはホストに開いていない
                   if (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then echo "PostgreSQL is reachable from the host" >&2; exit 1; fi
                   # 拡張が入っている

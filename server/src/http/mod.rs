@@ -13,6 +13,7 @@ pub mod admin_resets;
 pub mod admin_templates;
 pub mod admin_tokens;
 pub mod admin_translations;
+pub mod admin_ui;
 pub mod admin_webhooks;
 pub mod admin_workspaces;
 pub mod delivery;
@@ -63,6 +64,8 @@ pub struct Inner {
     pub passkeys: Option<webauthn_rs::prelude::Webauthn>,
     /// 外部へのHTTPの送信の共通の仕組み（作れなければ起動時の検査で止める。作れないまま動いた場合は送らない）。
     pub egress: Option<crate::egress::Egress>,
+    /// 管理画面（設定したときだけ。読み込めなければ起動時の検査で止める）。
+    pub admin_ui: Option<admin_ui::AdminUi>,
 }
 
 impl Deref for AppState {
@@ -102,7 +105,13 @@ impl AppState {
         let egress = crate::egress::Egress::from_config(&config.egress)
             .inspect_err(|e| tracing::error!("outbound HTTP is not available: {e:#}"))
             .ok();
+        let admin_ui = config.admin.dist_dir.as_deref().and_then(|dir| {
+            admin_ui::AdminUi::load(dir, config.media.public_base_url.as_deref())
+                .inspect_err(|e| tracing::error!("admin UI is not available: {e:#}"))
+                .ok()
+        });
         Self(Arc::new(Inner {
+            admin_ui,
             egress,
             pool,
             migration,
@@ -406,6 +415,9 @@ pub fn router(state: AppState) -> Router {
         .route("/ws/{ws}/graphql", get(delivery::get).post(delivery::post))
         .route("/ws/{ws}/graphql/queries", post(delivery::register))
         .nest("/api/admin", admin)
+        .route("/admin", get(admin_ui::root_redirect))
+        .route("/admin/", get(admin_ui::index))
+        .route("/admin/{*rel}", get(admin_ui::serve))
         .fallback(not_found)
         .with_state(state)
         .layer(axum::middleware::from_fn(reject_credentials_in_url))

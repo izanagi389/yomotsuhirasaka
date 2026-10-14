@@ -38,7 +38,8 @@ docker compose run --rm --no-deps -T --user "$(id -u):$(id -g)" cms init \
   --database-url "postgres://cms_app@db:5432/cms" \
   --migration-database-url "postgres://cms_migrate@db:5432/cms" \
   --listen "0.0.0.0:8080" \
-  --media-root /data/media
+  --media-root /data/media \
+  --admin-dist-dir /usr/share/cms-admin
 
 # 設定ファイルから、生成されたDBのパスワードを読む（[database] と [migration_database] の password）
 password_of() {
