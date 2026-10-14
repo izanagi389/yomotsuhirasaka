@@ -48,9 +48,9 @@ pub struct InviteRequest {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// 招待の応答。相手が既存の利用者かどうかで変わらないよう、送られた値（メールアドレス）も返さない（INV-TEN-04）。
 pub struct InviteResponse {
     id: Uuid,
-    email: String,
     role: String,
     expires_at: String,
     /// "email": メールで送った / "link": 応答のリンクを管理者が本人に渡す（SMTPの設定がないとき）。
@@ -161,7 +161,6 @@ pub async fn invite(
         StatusCode::CREATED,
         Json(InviteResponse {
             id: created.id,
-            email,
             role: role.as_str().to_owned(),
             expires_at: created.expires_at,
             delivery: if mailed { "email" } else { "link" },
