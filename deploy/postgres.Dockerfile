@@ -11,11 +11,11 @@ ARG PG_BIGM_COMMIT=735dceba0ecdd8ac1aaaaa207226a7102b6bbd71
 RUN set -eux; \
     apt-get update -q; \
     apt-get install -y --no-install-recommends postgresql-16-pgvector; \
-    apt-get install -y --no-install-recommends git ca-certificates build-essential postgresql-server-dev-16; \
+    apt-get install -y --no-install-recommends git ca-certificates build-essential postgresql-server-dev-16 libicu-dev; \
     git clone --filter=blob:none https://github.com/pgbigm/pg_bigm.git /tmp/pg_bigm; \
     git -C /tmp/pg_bigm checkout --detach "$PG_BIGM_COMMIT"; \
     make -C /tmp/pg_bigm USE_PGXS=1; \
     make -C /tmp/pg_bigm USE_PGXS=1 install; \
     rm -rf /tmp/pg_bigm; \
-    apt-get purge -y --auto-remove git build-essential postgresql-server-dev-16; \
+    apt-get purge -y --auto-remove git build-essential postgresql-server-dev-16 libicu-dev; \
     rm -rf /var/lib/apt/lists/*
