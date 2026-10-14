@@ -66,6 +66,11 @@ jobs:
             - name: Install test dependencies
               working-directory: tests/invariants
               run: npm ci --ignore-scripts
+            # inv.test のゾーンだけを、テストの実行環境のDNSサーバーに回す（Webhookなどの外部への送信の確認。INV-WH-*）
+            - name: Route inv.test to the test DNS server
+              run: |
+                  sudo apt-get install -y --no-install-recommends dnsmasq-base >/dev/null
+                  sudo scripts/test-env/harness-dns.sh 5354
             - name: Prepare databases and config
               run: |
                   sudo apt-get install -y --no-install-recommends postgresql-client >/dev/null

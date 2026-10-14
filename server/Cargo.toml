@@ -52,6 +52,8 @@ http-body-util = "0.1.5"
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 webpki-roots = "1.0.9"
+# Webhookの署名（HMAC-SHA256。13-security.md「Webhookの署名」）。sqlx が既に使っている版
+hmac = "0.13.0"
 
 [dev-dependencies]
 # テストで、ブラウザと認証器の代わりにパスキーを作って使う

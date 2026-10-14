@@ -69,6 +69,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "workspace_limits",
         include_str!("../migrations/0014_workspace_limits.sql"),
     ),
+    (
+        15,
+        "webhooks",
+        include_str!("../migrations/0015_webhooks.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -101,6 +106,9 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("template_versions", "SELECT"),
     // サーバー管理者が上限を変える
     ("workspace_limits", "SELECT, INSERT, UPDATE"),
+    // 管理者が削除する（送信の記録も一緒に消える）
+    ("webhooks", "SELECT, INSERT, UPDATE, DELETE"),
+    ("webhook_deliveries", "SELECT, INSERT, UPDATE"),
 ];
 
 /// 移行の排他に使う、アドバイザリーロックのキー（任意の固定値）。

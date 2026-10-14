@@ -30,7 +30,8 @@ export function validServerConfigFromEnv(): ServerConfig {
     databaseUrl: requiredEnv("CMS_TEST_SERVER_DB_URL"),
     migrationDatabaseUrl: requiredEnv("CMS_TEST_SERVER_MIGRATION_DB_URL"),
     publicUrl: requiredEnv("CMS_TEST_PUBLIC_URL"),
-    internalDestinationExceptions: [],
+    // テストの実行環境（受信サーバー・擬似IdPなど）を、外部への送信の例外として許す（README「テストの実行環境」）
+    internalDestinationExceptions: process.env["CMS_TEST_HARNESS_ALLOWED_IP"] ? [process.env["CMS_TEST_HARNESS_ALLOWED_IP"]] : [],
     // 舞台に多要素認証のない所属者（編集者など）を作るため、全員への必須を無効にする（Q197）
     mfaRequiredForEveryone: false,
   };
@@ -50,10 +51,7 @@ const tomlString = (s: string): string => JSON.stringify(s); // TOMLの基本文
 /** まだサーバーが対応していない設定。指定されたら、黙って無視せずに失敗させる。 */
 function unsupported(config: ServerConfig): string[] {
   const out: string[] = [];
-  if (config.internalDestinationExceptions.length > 0) out.push("internalDestinationExceptions");
-  for (const key of ["egressProxy", "breachedPasswordApi"] as const) {
-    if (config[key] !== undefined && config[key] !== null) out.push(key);
-  }
+  if (config.breachedPasswordApi !== undefined && config.breachedPasswordApi !== null) out.push("breachedPasswordApi");
   return out;
 }
 
@@ -99,6 +97,15 @@ export function renderConfig(config: ServerConfig, listen: string): string {
     const r = config.loginHistoryRetention;
     lines.push("", "[login_history]", `retention_seconds = ${r.retentionSeconds}`, `sweep_interval_seconds = ${r.sweepIntervalSeconds}`);
   }
+  // 外部への送信（server/src/config.rs の EgressConfig）。テストの実行環境のTLSの証明書のCAを信頼する
+  const egress: string[] = [];
+  if (config.internalDestinationExceptions.length > 0) {
+    egress.push(`internal_destination_exceptions = [${config.internalDestinationExceptions.map(tomlString).join(", ")}]`);
+  }
+  const harnessCa = process.env["CMS_TEST_HARNESS_TLS_CA"];
+  if (harnessCa) egress.push(`extra_ca_files = [${tomlString(harnessCa)}]`);
+  if (egress.length > 0 || config.egressProxy) lines.push("", "[egress]", ...egress);
+  if (config.egressProxy) lines.push("", "[egress.proxy]", `url = ${tomlString(config.egressProxy.url)}`);
   lines.push("");
   return lines.join("\n");
 }

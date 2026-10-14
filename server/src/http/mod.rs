@@ -11,6 +11,7 @@ pub mod admin_resets;
 pub mod admin_templates;
 pub mod admin_tokens;
 pub mod admin_translations;
+pub mod admin_webhooks;
 pub mod admin_workspaces;
 pub mod delivery;
 pub mod error;
@@ -346,6 +347,26 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/api-keys/{id}",
             delete(admin_api_keys::revoke),
+        )
+        .route(
+            "/workspaces/{ws}/webhooks",
+            get(admin_webhooks::list).post(admin_webhooks::create),
+        )
+        .route(
+            "/workspaces/{ws}/webhooks/{id}",
+            delete(admin_webhooks::delete),
+        )
+        .route(
+            "/workspaces/{ws}/webhooks/{id}/test",
+            post(admin_webhooks::test),
+        )
+        .route(
+            "/workspaces/{ws}/webhooks/{id}/rotate-secret",
+            post(admin_webhooks::rotate_secret),
+        )
+        .route(
+            "/workspaces/{ws}/webhooks/{id}/deliveries",
+            get(admin_webhooks::deliveries),
         )
         .route(
             "/workspaces/{ws}/media",

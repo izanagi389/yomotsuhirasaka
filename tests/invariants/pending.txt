@@ -42,11 +42,7 @@ inv_loc_05
 
 
 
-inv_wh_01
-inv_wh_02
-inv_wh_03
 inv_wh_04
-inv_wh_05
 inv_wh_06
 inv_wh_07
 

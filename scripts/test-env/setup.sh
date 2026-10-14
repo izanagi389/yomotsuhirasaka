@@ -6,7 +6,11 @@
 # - PG16 に、普段用のロール cms_app と、移行・ロールの作成用のロール cms_migrate（CREATEROLE）と、DB cms を作る
 # - cms-server init で、設定ファイルと暗号化の鍵を作り、生成されたパスワードをロールに設定する
 # - PG15 にも同じロールとDBを作る（起動を拒否されることの確認用）
+# - テストの実行環境（ハーネス）のTLSの証明書（CAと、*.inv.test・127.0.0.1 の証明書）を作る
 # - テストに渡す環境変数を <出力先>/test.env に書き出す
+#
+# Webhookなどの外部への送信のテスト（INV-WH-*）には、`inv.test` のゾーンの名前解決をテストのDNSサーバーに
+# 回す設定も要る（scripts/test-env/harness-dns.sh、root で実行）。
 set -euo pipefail
 
 PG16_URL="$1"
@@ -75,6 +79,35 @@ create_roles "$PG16_URL" "$APP_PW" "$MIG_PW"
   # CMSが書くファイル（メディアなど）の置き場所。テストは、この下に想定外のファイルができていないかを調べる
   echo "export CMS_TEST_FS_ROOT='$OUT/fs'"
 } > "$OUT/test.env"
+
+# テストの実行環境（ハーネス）。CMSと同じホストで待ち受ける（tests/invariants/README.md「テストの実行環境」）
+# - 例外として許す宛先: 127.0.0.1（ホスト名もIPアドレスで渡す）
+# - 例外にない内部のアドレス: 127.0.0.2（ループバックの別のアドレス。Linuxでは追加の設定なしで待ち受けられる）
+# - TLS: テスト用のCAと、*.inv.test・127.0.0.1 の証明書。CMSは [egress] extra_ca_files でこのCAを信頼する
+HARNESS_DNS_PORT="${CMS_TEST_HARNESS_DNS_PORT:-5354}"
+TLS_DIR="$OUT/harness-tls"
+rm -rf "$TLS_DIR"
+mkdir -p "$TLS_DIR"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 \
+  -subj "/CN=cms invariant tests CA" \
+  -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" \
+  -keyout "$TLS_DIR/ca.key" -out "$TLS_DIR/ca.pem" 2>/dev/null
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+  -subj "/CN=harness.inv.test" -keyout "$TLS_DIR/harness.key" -out "$TLS_DIR/harness.csr" 2>/dev/null
+printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:*.inv.test,DNS:localhost,IP:127.0.0.1\n' > "$TLS_DIR/harness.ext"
+openssl x509 -req -in "$TLS_DIR/harness.csr" -CA "$TLS_DIR/ca.pem" -CAkey "$TLS_DIR/ca.key" -CAcreateserial \
+  -days 30 -extfile "$TLS_DIR/harness.ext" -out "$TLS_DIR/harness.pem" 2>/dev/null
+chmod 600 "$TLS_DIR"/*.key
+{
+  echo "export CMS_TEST_HARNESS_ALLOWED_HOST='127.0.0.1'"
+  echo "export CMS_TEST_HARNESS_ALLOWED_IP='127.0.0.1'"
+  echo "export CMS_TEST_HARNESS_BLOCKED_HOST='127.0.0.2'"
+  echo "export CMS_TEST_HARNESS_DNS_PORT='$HARNESS_DNS_PORT'"
+  echo "export CMS_TEST_HARNESS_TLS_CERT='$TLS_DIR/harness.pem'"
+  echo "export CMS_TEST_HARNESS_TLS_KEY='$TLS_DIR/harness.key'"
+  # CMSの設定の [egress] extra_ca_files に入れる（ドライバーの server-process.ts）
+  echo "export CMS_TEST_HARNESS_TLS_CA='$TLS_DIR/ca.pem'"
+} >> "$OUT/test.env"
 
 if [ -n "$PG15_URL" ]; then
   HP15="$(host_port "$PG15_URL")"

@@ -24,5 +24,6 @@ pub mod resets;
 pub mod schema;
 pub mod startup;
 pub mod timefmt;
+pub mod webhooks;
 pub mod worker;
 pub mod workspace_db;
