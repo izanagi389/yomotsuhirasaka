@@ -20,7 +20,9 @@ import { listMail } from "./smtp-sink.js";
 import { ident, withClient } from "./db.js";
 import { env } from "./env.js";
 import { randomUUID } from "node:crypto";
-import { copyFileSync, mkdtempSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BASE_TEMPLATE } from "./template.js";
@@ -579,13 +581,18 @@ export const driver = {
   },
 
   /** Markdownの取り込みCLI（Node.js）を実行する。 */
-  runImport(_cmsUrl: string, _options: ImportOptions): Promise<CliResult> {
-    return todo("runImport");
+  runImport(cmsUrl: string, options: ImportOptions): Promise<CliResult> {
+    return runImportCli(cmsUrl, options);
   },
 
-  /** 取り込みCLIが書き出したリダイレクト設定を読む。 */
-  readRedirectFile(_path: string): Promise<{ from: string; to: string }[]> {
-    return todo("readRedirectFile");
+  /** 取り込みCLIが書き出したリダイレクト設定を読む（Nuxt の routeRules。cli/src/import/run.ts）。 */
+  async readRedirectFile(path: string): Promise<{ from: string; to: string }[]> {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { routeRules?: Record<string, { redirect?: { to?: unknown } }> };
+    if (typeof parsed.routeRules !== "object" || parsed.routeRules === null) throw new Error(`リダイレクト設定に routeRules がない: ${path}`);
+    return Object.entries(parsed.routeRules).map(([from, rule]) => {
+      if (typeof rule.redirect?.to !== "string") throw new Error(`リダイレクト設定の ${from} に redirect.to がない: ${path}`);
+      return { from, to: rule.redirect.to };
+    });
   },
 
   /** 公式のDocker Composeファイルのパス。 */
@@ -751,6 +758,41 @@ async function createIsolatedInstance(): Promise<IsolatedInstance> {
     return { config, serverAdmin: { ...creds, userId } };
   } finally {
     await started.stop();
+  }
+}
+
+/**
+ * 取り込みのCLI（cli/、ビルド済みの dist/index.js）を実行する。CMS_TEST_CLI_BIN で別の場所を指定できる。
+ * 取り込みの設定はJSONのファイルに書いて渡し、トークンは環境変数 CMS_TOKEN で渡す（cli/src/index.ts）。
+ */
+async function runImportCli(cmsUrl: string, options: ImportOptions, timeoutMs = 120_000): Promise<CliResult> {
+  const bin = process.env["CMS_TEST_CLI_BIN"] ?? fileURLToPath(new URL("../../../cli/dist/index.js", import.meta.url));
+  const dir = mkdtempSync(join(tmpdir(), "cms-import-config-"));
+  const configPath = join(dir, "import.json");
+  const config: Record<string, unknown> = { originalUrlKey: options.originalUrlKey, componentMap: options.componentMap ?? {} };
+  if (options.translationKey) config["translationKey"] = options.translationKey;
+  if (options.translationOf) config["translationOf"] = options.translationOf;
+  writeFileSync(configPath, JSON.stringify(config));
+  try {
+    const args = [bin, "import", options.sourceDir, "--url", cmsUrl, "--workspace", options.workspaceId, "--config", configPath, "--redirects", options.redirectOutput];
+    const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CMS_TOKEN: options.token } });
+    let output = "";
+    child.stdout.on("data", (c: Buffer) => (output += c.toString("utf8")));
+    child.stderr.on("data", (c: Buffer) => (output += c.toString("utf8")));
+    const exitCode = await new Promise<number>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error(`取り込みのCLIが ${timeoutMs}ms 以内に終わらなかった:\n${output}`));
+      }, timeoutMs);
+      child.on("error", reject);
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        resolve(code ?? -1);
+      });
+    });
+    return { exitCode, output };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 

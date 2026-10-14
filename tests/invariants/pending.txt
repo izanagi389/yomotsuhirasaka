@@ -33,7 +33,6 @@ inv_key_03
 
 inv_pub_04
 
-inv_loc_05
 
 
 
@@ -43,7 +42,6 @@ inv_loc_05
 
 inv_wh_04
 
-inv_med_04
 
 inv_perm_01
 
@@ -51,6 +49,3 @@ inv_perm_01
 inv_aud_01
 inv_aud_02
 
-inv_imp_01
-inv_imp_02
-inv_imp_03
