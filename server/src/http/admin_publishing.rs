@@ -3,6 +3,7 @@
 //! | メソッド | パス | 内容 |
 //! |---|---|---|
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/publish | 公開する（`{revision, correction?}`） |
+//! | GET | /api/admin/workspaces/{ws}/entries/{id}/publish-check | 公開の確認画面の情報（変わったセクション、代替テキストのない画像など） |
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/unpublish | 非公開にする |
 //! | DELETE | /api/admin/workspaces/{ws}/entries/{id} | 削除する |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/publish-settings | 公開設定のスイッチ |
@@ -18,6 +19,8 @@
 //! - 訂正としての公開は、誰が行っても監査ログに残す（11-permissions-and-audit.md）。それ以外は、所属していないサーバー管理者が
 //!   行ったときに残す（Q122）。
 //! - 版の本文の抹消は、管理者とサーバー管理者だけで、再認証を求め、必ず監査ログに残す（Q134）。現在公開中の版は抹消できない。
+//! - 公開の確認（publish-check）は、公開と同じ判定（Rustの sections.rs）を書き込まずに行う。変わったセクションは、訂正として
+//!   公開したときに版に記録するものと同じ（Q68）。読むだけなので、下書きを読める人なら使える。
 //! - 版とURLの変更履歴を読むのは、下書きと同じく所属者全員とサーバー管理者。
 //! - 公開設定のスイッチ（Q184）を変えられるのは、公開できる人（管理者・編集者とサーバー管理者）。M1では保存と
 //!   変更のWebhookだけで、効果はM2以降。読むのは所属者全員とサーバー管理者。
@@ -35,7 +38,9 @@ use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Access, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
-use crate::content::publishing::{self, Published, Refused, UrlChange, VersionDetail, VersionInfo};
+use crate::content::publishing::{
+    self, PublishCheck, Published, Refused, UrlChange, VersionDetail, VersionInfo,
+};
 use crate::content::settings::{self, PublishSettings};
 use crate::webhooks::{self, EntryEvent, EntryRef};
 use crate::workspace_db;
@@ -244,6 +249,23 @@ pub async fn delete(
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn publish_check(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+) -> Result<Json<PublishCheck>, ApiError> {
+    let (ws, id) = (parse(&ws)?, parse(&id)?);
+    reader(&state, &current, ws).await?;
+    let applied = readable(&state, ws).await?;
+    let db = db(&state, ws).await?;
+    let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let out = publishing::check_before_publish(&mut tx, &applied.manifest, id)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    Ok(Json(out))
 }
 
 pub async fn versions(

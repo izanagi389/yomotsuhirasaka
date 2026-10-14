@@ -249,6 +249,10 @@ pub fn router(state: AppState) -> Router {
             post(admin_publishing::publish),
         )
         .route(
+            "/workspaces/{ws}/entries/{id}/publish-check",
+            get(admin_publishing::publish_check),
+        )
+        .route(
             "/workspaces/{ws}/entries/{id}/unpublish",
             post(admin_publishing::unpublish),
         )
