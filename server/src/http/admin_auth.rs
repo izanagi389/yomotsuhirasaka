@@ -124,6 +124,22 @@ async fn settle(
     Ok(matched)
 }
 
+/// 新しいパスワードが漏えいの一覧に載っていれば断る（照会を有効にしたときだけ。Q170）。
+/// 照会先に届かないときは通す（INV-AUTH-22）。
+pub(super) async fn reject_breached(state: &AppState, new_password: &str) -> Result<(), ApiError> {
+    let Some(config) = &state.config.auth.breached_passwords else {
+        return Ok(());
+    };
+    match crate::auth::breached::check(state.egress.as_ref(), config, new_password).await {
+        crate::auth::breached::Verdict::Breached => Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "breached_password",
+            "This password appears in known data breaches. Choose a different one.",
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// パスワードを照合する。成功なら利用者の記録を返す。
 /// 照合は待ち時間中や利用者がいないときも必ず行う（応答時間の差を小さくする。Q189）。
 async fn check_password(
@@ -493,6 +509,7 @@ pub async fn change_password(
             weakness.message(),
         ));
     }
+    reject_breached(&state, &req.new_password).await?;
     let record = users::find_by_id_for_login(&state.pool, current.user_id).await?;
     if check_password(&state, record, req.current_password)
         .await?

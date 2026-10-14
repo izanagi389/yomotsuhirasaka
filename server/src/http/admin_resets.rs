@@ -161,6 +161,7 @@ pub async fn complete_password_reset(
             weakness.message(),
         ));
     }
+    super::admin_auth::reject_breached(&state, &req.new_password).await?;
     let hash = password::hash(req.new_password).await?;
 
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;

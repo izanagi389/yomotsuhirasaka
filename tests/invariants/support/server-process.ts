@@ -49,10 +49,8 @@ function splitPassword(url: string, fallback: string): { url: string; password: 
 const tomlString = (s: string): string => JSON.stringify(s); // TOMLの基本文字列は、JSONの文字列と同じエスケープで書ける
 
 /** まだサーバーが対応していない設定。指定されたら、黙って無視せずに失敗させる。 */
-function unsupported(config: ServerConfig): string[] {
-  const out: string[] = [];
-  if (config.breachedPasswordApi !== undefined && config.breachedPasswordApi !== null) out.push("breachedPasswordApi");
-  return out;
+function unsupported(_config: ServerConfig): string[] {
+  return [];
 }
 
 export function renderConfig(config: ServerConfig, listen: string): string {
@@ -84,7 +82,11 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (config.oneTimeTokenLifetimeSeconds !== undefined) session.push(`one_time_token_lifetime_seconds = ${config.oneTimeTokenLifetimeSeconds}`);
   if (session.length > 0) lines.push("", "[session]", ...session);
   // undefined ならサーバーの既定（有効）に任せる
-  if (config.mfaRequiredForEveryone !== undefined) lines.push("", "[auth]", `mfa_required_for_everyone = ${config.mfaRequiredForEveryone}`);
+  const auth: string[] = [];
+  if (config.mfaRequiredForEveryone !== undefined) auth.push(`mfa_required_for_everyone = ${config.mfaRequiredForEveryone}`);
+  if (auth.length > 0 || config.breachedPasswordApi) lines.push("", "[auth]", ...auth);
+  // 漏えいしたパスワードの照会（server/src/config.rs の BreachedPasswordsConfig）
+  if (config.breachedPasswordApi) lines.push("", "[auth.breached_passwords]", `base_url = ${tomlString(config.breachedPasswordApi.baseUrl)}`);
   // 配信API: キーごとの上限は、用途（ビルド用・サーバー配信用）の両方に同じ値を使う
   const delivery: string[] = [];
   if (config.rateLimits?.deliveryPerKey !== undefined) {

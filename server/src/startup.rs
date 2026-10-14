@@ -189,6 +189,13 @@ pub fn check_config(config: &Config) -> Report {
             "`login_history.geoip_database` is not usable: {e:#}"
         )));
     }
+    if let Some(b) = &config.auth.breached_passwords
+        && !url::Url::parse(&b.base_url).is_ok_and(|u| matches!(u.scheme(), "https" | "http"))
+    {
+        report.problems.push(Problem::fatal(
+            "`auth.breached_passwords.base_url` must be an http(s) URL",
+        ));
+    }
     if let Err(e) = crate::egress::Egress::from_config(&config.egress) {
         report.problems.push(Problem::fatal(format!("{e:#}")));
     }
