@@ -37,6 +37,8 @@ pub struct Current {
     pub locale: Option<crate::locale::Locale>,
     /// 最後の本人確認（ログインか再認証）から、再認証が有効な時間内か。個人トークンでは常に false。
     pub reauth_fresh: bool,
+    /// 再認証が有効な残りの秒数（有効でなければ0）。管理画面が、重い操作の前に再認証を求めるかを決めるのに使う。
+    pub reauth_seconds_left: i64,
     /// 個人トークンで認証したときの、トークンの範囲（Cookieのセッションなら None）。
     pub grant: Option<TokenGrant>,
     csrf_hash: Vec<u8>,
@@ -79,6 +81,7 @@ impl Current {
             mfa_enabled,
             locale,
             reauth_fresh: false,
+            reauth_seconds_left: 0,
             grant: Some(grant),
             csrf_hash: Vec::new(),
         }
@@ -134,7 +137,7 @@ pub async fn resolve_mfa_pending(pool: &PgPool, presented: &str) -> Result<Optio
     .await?)
 }
 
-/// (id, user_id, email, is_server_admin, mfa_enabled, locale, csrf_hash, reauth_fresh, stale)
+/// (id, user_id, email, is_server_admin, mfa_enabled, locale, csrf_hash, reauth_fresh, stale, reauth_seconds_left)
 type ResolvedRow = (
     Uuid,
     Uuid,
@@ -145,6 +148,7 @@ type ResolvedRow = (
     Vec<u8>,
     bool,
     bool,
+    i64,
 );
 
 /// Cookieで受け取ったセッションIDを照合する。無効なら None。
@@ -156,7 +160,8 @@ pub async fn resolve(
     let row: Option<ResolvedRow> = sqlx::query_as(crate::sql!(
         "SELECT s.id, s.user_id, u.email, u.is_server_admin, {}, u.locale, s.csrf_hash,
                 s.authenticated_at > now() - make_interval(secs => $3),
-                s.last_seen_at < now() - make_interval(secs => $4)
+                s.last_seen_at < now() - make_interval(secs => $4),
+                GREATEST(0, floor(extract(epoch FROM s.authenticated_at + make_interval(secs => $3) - now())))::bigint
          FROM cms.sessions s JOIN cms.users u ON u.id = s.user_id
          WHERE s.token_hash = $1
            AND NOT s.mfa_pending
@@ -182,6 +187,7 @@ pub async fn resolve(
         csrf_hash,
         reauth_fresh,
         stale,
+        reauth_seconds_left,
     )) = row
     else {
         return Ok(None);
@@ -200,6 +206,7 @@ pub async fn resolve(
         mfa_enabled,
         locale: locale.and_then(|l| l.parse().ok()),
         reauth_fresh,
+        reauth_seconds_left: if reauth_fresh { reauth_seconds_left } else { 0 },
         grant: None,
         csrf_hash,
     }))

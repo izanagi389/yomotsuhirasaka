@@ -5,7 +5,7 @@
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/publish | 公開する（`{revision, correction?}`） |
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/unpublish | 非公開にする |
 //! | DELETE | /api/admin/workspaces/{ws}/entries/{id} | 削除する |
-//! | GET | /api/admin/workspaces/{ws}/entries/{id}/versions | 版の一覧 |
+//! | GET | /api/admin/workspaces/{ws}/entries/{id}/versions | 版の一覧（古い順） |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/versions/{vid} | 版（抹消した版は本文なし） |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/url-history | 公開URLの変更履歴 |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/versions/{vid}/erase-candidates | 抹消と一緒に削除できるメディアと、他のロケールの記事 |

@@ -61,6 +61,8 @@ struct Me {
     locale: Option<Locale>,
     /// 実際にメールに使う言語（未設定ならインスタンスの既定の言語）。
     effective_locale: Locale,
+    /// 再認証が有効な残りの秒数（0なら、重い操作の前に再認証が要る）。
+    reauth_seconds_left: i64,
 }
 
 impl Me {
@@ -73,6 +75,7 @@ impl Me {
             mfa_setup_required: mfa_setup_pending(state, c),
             locale: c.locale,
             effective_locale: c.locale.unwrap_or(state.config.default_locale),
+            reauth_seconds_left: c.reauth_seconds_left,
         }
     }
 }

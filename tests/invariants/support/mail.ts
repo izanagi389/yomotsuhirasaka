@@ -24,10 +24,22 @@ export async function newMailWithin(to: string, seen: Set<string>, waitMs: numbe
   return (await driver.mail.list(to)).filter((m) => !seen.has(m.id));
 }
 
-/** 新しく届いたリセット・招待のメールからトークンを取り出す。 */
-export async function waitForToken(to: string, seen: Set<string>, kind: "reset" | "invite"): Promise<string> {
-  const message = await waitForNewMail(to, seen);
-  const token = driver.mail.tokenFrom(message, kind);
-  if (!token) throw new Error(`${to} 宛てのメールに${kind === "reset" ? "リセット" : "招待"}のトークンがない`);
-  return token;
+/**
+ * 新しく届いたリセット・招待のメールからトークンを取り出す。
+ * 同じ宛先には、ログインの通知など別のメールも非同期に届くので、トークンを含む新しいメールが届くまで待つ。
+ */
+export async function waitForToken(to: string, seen: Set<string>, kind: "reset" | "invite", timeoutMs = 20_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const fresh = (await driver.mail.list(to)).filter((m) => !seen.has(m.id));
+    for (const m of fresh.reverse()) {
+      const token = driver.mail.tokenFrom(m, kind);
+      if (token) return token;
+    }
+    if (Date.now() > deadline) {
+      const what = kind === "reset" ? "リセット" : "招待";
+      throw new Error(fresh.length > 0 ? `${to} 宛てのメールに${what}のトークンがない` : `${to} 宛てのメールが ${timeoutMs}ms 以内に届かなかった`);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
 }

@@ -164,17 +164,17 @@ async fn publishing_versions_and_url_history() {
         assert_eq!(audit_count(&server, ws, "entry.published_as_correction").await, 1, "corrections are always audited");
         assert_eq!(audit_count(&server, ws, "entry.published").await, 0, "members' ordinary publishing is not audited");
 
-        // 版の履歴: 新しい順。公開中の版と訂正の印、影響したセクション
+        // 版の履歴: 古い順。公開中の版と訂正の印、影響したセクション
         let versions = parse(&get(&server, &format!("{path}/versions"), &viewer).await);
         let versions = versions.as_array().unwrap();
-        assert_eq!(versions.iter().map(|v| v["number"].as_i64().unwrap()).collect::<Vec<_>>(), [4, 3, 2, 1]);
-        assert_eq!(versions.iter().map(|v| v["current"].as_bool().unwrap()).collect::<Vec<_>>(), [true, false, false, false]);
-        assert_eq!(versions.iter().map(|v| v["isCorrection"].as_bool().unwrap()).collect::<Vec<_>>(), [true, false, false, false]);
-        assert_eq!(versions[0]["affectedAnchors"], json!(["sec-a", "sec-b"]));
-        assert_eq!(versions[0]["affectsLead"], false);
-        assert_eq!(versions[0]["anchors"], json!(["sec-b"]));
-        assert_eq!(versions[3]["anchors"], json!(["sec-a", "sec-b"]));
-        assert_eq!(versions[3]["affectedAnchors"], Value::Null);
+        assert_eq!(versions.iter().map(|v| v["number"].as_i64().unwrap()).collect::<Vec<_>>(), [1, 2, 3, 4]);
+        assert_eq!(versions.iter().map(|v| v["current"].as_bool().unwrap()).collect::<Vec<_>>(), [false, false, false, true]);
+        assert_eq!(versions.iter().map(|v| v["isCorrection"].as_bool().unwrap()).collect::<Vec<_>>(), [false, false, false, true]);
+        assert_eq!(versions[3]["affectedAnchors"], json!(["sec-a", "sec-b"]));
+        assert_eq!(versions[3]["affectsLead"], false);
+        assert_eq!(versions[3]["anchors"], json!(["sec-b"]));
+        assert_eq!(versions[0]["anchors"], json!(["sec-a", "sec-b"]));
+        assert_eq!(versions[0]["affectedAnchors"], Value::Null);
         assert!(versions.iter().all(|v| v["erased"] == false));
         // 版の中身は、公開した時点のまま
         let first = parse(&get(&server, &format!("{path}/versions/{v1_id}"), &viewer).await);

@@ -16,6 +16,7 @@ import type { TiptapDoc, TiptapNode } from "./body.js";
 import type { TemplateSpec } from "./template.js";
 import { SECRET_SETTING_NAMES, rotateEncryptionKeyWithCli, runServerCli, startServerProcess, validServerConfigFromEnv } from "./server-process.js";
 import { connectAdmin } from "./admin-client.js";
+import { listMail } from "./smtp-sink.js";
 
 export class NotImplementedError extends Error {
   constructor(what: string) {
@@ -453,6 +454,11 @@ export interface ServerConfig {
   oneTimeTokenLifetimeSeconds?: number;
   /** 回数制限（1分あたり）。 */
   rateLimits?: { deliveryPerKey?: number; deliveryPerWorkspace?: number };
+  /**
+   * 接続元のIPアドレスごとのログインの試行の上限（1分あたり）。undefined ならサーバーの既定。
+   * テストの舞台のCMSでは、接続元を名乗らないログイン（舞台の準備など）が同じアドレスに集まるので大きくする。
+   */
+  loginAttemptsPerIpPerMinute?: number;
   /** 共有キャッシュを許すか（Q125）。 */
   sharedCache?: boolean;
   /** 出口のプロキシ（Q128）。 */
@@ -603,7 +609,12 @@ export const driver = {
 
   /** テスト環境のメールの受け口（SMTPの受け手）。 */
   mail: {
-    list: (_to: string): Promise<MailMessage[]> => todo("mail.list"),
+    // テスト環境の準備（support/global-setup.ts）が起動したSMTPの受け手のメールを読む
+    list: async (to: string): Promise<MailMessage[]> => {
+      const dir = process.env["CMS_TEST_MAIL_DIR"];
+      if (!dir) return todo("mail.list（CMS_TEST_MAIL_DIR がない）");
+      return listMail(dir, to);
+    },
     /** リセット・招待のメールから、トークンを取り出す。 */
     tokenFrom: (message: MailMessage, kind: "reset" | "invite"): string | null => {
       // リンクの形は server/src/invitations.rs と server/src/resets.rs の link() に合わせる

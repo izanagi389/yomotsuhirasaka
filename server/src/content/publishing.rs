@@ -354,14 +354,14 @@ fn info(r: VersionRow) -> VersionInfo {
     }
 }
 
-/// 版の一覧（新しい順）。記事がなければ None。
+/// 版の一覧（古い順）。記事がなければ None。
 pub async fn versions(conn: &mut PgConnection, entry_id: Uuid) -> Result<Option<Vec<VersionInfo>>> {
     if !exists(conn, entry_id).await? {
         return Ok(None);
     }
     let rows: Vec<VersionRow> = sqlx::query_as(crate::sql!(
         "SELECT {VERSION_COLUMNS} FROM versions v JOIN entries e ON e.id = v.entry_id
-         WHERE v.entry_id = $1 ORDER BY v.number DESC"
+         WHERE v.entry_id = $1 ORDER BY v.number"
     ))
     .bind(entry_id)
     .fetch_all(conn)
