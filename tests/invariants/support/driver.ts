@@ -17,6 +17,8 @@ import type { TemplateSpec } from "./template.js";
 import { SECRET_SETTING_NAMES, rotateEncryptionKeyWithCli, runServerCli, startServerProcess, validServerConfigFromEnv } from "./server-process.js";
 import { connectAdmin } from "./admin-client.js";
 import { listMail } from "./smtp-sink.js";
+import { withClient } from "./db.js";
+import { env } from "./env.js";
 
 export class NotImplementedError extends Error {
   constructor(what: string) {
@@ -625,10 +627,23 @@ export const driver = {
     },
   },
 
+  // ワークスペースのスキーマとロールの名前は、CMSが共通のスキーマ（cms.workspaces）に登録した値を読む
   db: {
-    workspaceSchema: (_workspaceId: string): Promise<string> => todo("db.workspaceSchema"),
-    workspaceRole: (_workspaceId: string): Promise<string> => todo("db.workspaceRole"),
-    sharedSchemas: (): Promise<string[]> => todo("db.sharedSchemas"),
-    auditLogTables: (): Promise<string[]> => todo("db.auditLogTables"),
+    workspaceSchema: async (workspaceId: string): Promise<string> => (await registeredDbNames(workspaceId)).schema,
+    workspaceRole: async (workspaceId: string): Promise<string> => (await registeredDbNames(workspaceId)).role,
+    // 共通のスキーマ（server/src/migrate.rs の SHARED_SCHEMA）
+    sharedSchemas: async (): Promise<string[]> => ["cms"],
+    // 監査ログのテーブル（server/migrations/0001_init.sql）
+    auditLogTables: async (): Promise<string[]> => ["cms.audit_log"],
   } satisfies DbLayout,
 };
+
+/** CMSが登録したワークスペースのDBの名前（スキーマとロール）。 */
+async function registeredDbNames(workspaceId: string): Promise<{ schema: string; role: string }> {
+  return withClient(env.dbSuperuserUrl, async (c) => {
+    const r = await c.query<{ db_schema: string; db_role: string }>("SELECT db_schema, db_role FROM cms.workspaces WHERE id = $1", [workspaceId]);
+    const row = r.rows[0];
+    if (!row) throw new Error(`ワークスペース ${workspaceId} がDBに登録されていない`);
+    return { schema: row.db_schema, role: row.db_role };
+  });
+}

@@ -13,6 +13,7 @@ import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
 import { totp } from "./totp.js";
 import { toManifest } from "./manifest.js";
+import { runServerCli, validServerConfigFromEnv } from "./server-process.js";
 import { BASE_TEMPLATE, cloneTemplate, postType, type TemplateSpec } from "./template.js";
 
 /** セッションのCookieの名前以外の、管理APIの細部。 */
@@ -733,6 +734,29 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         member.totpSecret = await implemented.enrollTotp(session, member);
       }
       return member;
+    },
+    // サーバー上のCLI（create-server-admin）で作る。パスワードはCLIが作って一度だけ表示する
+    async createServerAdmin(options: { mfa: boolean }): Promise<Member> {
+      const email = `inv-root-${randomUUID().slice(0, 12)}@inv.test`;
+      const created = await runServerCli(validServerConfigFromEnv(), ["create-server-admin", "--email", email]);
+      const password = created.output.match(/Password \(shown only once\): (\S+)/)?.[1];
+      if (created.exitCode !== 0 || !password) throw new Error(`サーバー管理者を作れない:\n${created.output}`);
+      const adminSession = await loginPasswordOnly({ email, password });
+      const me = ensure("サーバー管理者の情報の取得", await meRaw(session(adminSession)));
+      const { id } = JSON.parse(me.text) as { id?: unknown };
+      if (typeof id !== "string") throw new SetupError("サーバー管理者の情報の読み取り", me);
+      const member: Member = { email, password, userId: id };
+      if (options.mfa) member.totpSecret = await implemented.enrollTotp(adminSession, member);
+      return member;
+    },
+    corsProbeRaw(kind: "adminApi" | "deliveryApi", method: "GET" | "OPTIONS", origin: string, workspaceId: string): Promise<HttpResponse> {
+      const path = kind === "adminApi" ? `${ADMIN}/me` : `/ws/${workspaceId}/graphql`;
+      const headers: Record<string, string> = { Origin: origin };
+      if (method === "OPTIONS") {
+        headers["Access-Control-Request-Method"] = "POST";
+        headers["Access-Control-Request-Headers"] = "authorization, content-type";
+      }
+      return request(method, path, { extras: { headers } });
     },
     async addExistingMember(adminSession: Session, workspaceId: string, member: Member, role: WorkspaceRole): Promise<void> {
       const token = await inviteAndGetToken(adminSession, workspaceId, member.email, role);
