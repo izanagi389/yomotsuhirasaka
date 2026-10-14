@@ -500,6 +500,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     reauthenticate,
     reauthenticateRaw,
+    nextTotpCode,
     meRaw,
     createEntryRaw: (auth: Auth, workspaceId: string, input: EntryInput) => createEntryRaw(auth, workspaceId, input),
     async createEntry(s: Session, workspaceId: string, input: EntryInput): Promise<{ id: string }> {

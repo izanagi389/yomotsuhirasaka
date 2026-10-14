@@ -303,6 +303,11 @@ export interface CmsClient {
   reauthenticate(session: Session, creds: Credentials): Promise<void>;
   /** 指定した方法だけで再認証を試み、応答をそのまま返す。 */
   reauthenticateRaw(session: Session, method: { password?: string; totpCode?: string }): Promise<HttpResponse>;
+  /**
+   * まだ使っていない時間の区切りのTOTPのコード（サーバーは同じ区切りのコードを二度受け付けない）。
+   * ログインや再認証で使った区切りは使わず、なければ次の区切りまで待つ。
+   */
+  nextTotpCode(secret: string): Promise<string>;
   meRaw(auth: Auth, extras?: RequestExtras): Promise<HttpResponse>;
   me(session: Session): Promise<{ userId: string; email: string }>;
   changePassword(session: Session, creds: Credentials, newPassword: string): Promise<void>;
