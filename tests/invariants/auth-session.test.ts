@@ -7,7 +7,6 @@ import { expect } from "vitest";
 import { inv } from "./support/inv.js";
 import { asSession, driver, type CmsClient, type StartedServer } from "./support/driver.js";
 import { expectRejected, expectSuccess } from "./support/assert.js";
-import { totp } from "./support/totp.js";
 import { isSuccess } from "./support/http.js";
 import { cloneTemplate } from "./support/template.js";
 import { disposableTarget, lazyWorld, sleep } from "./support/world.js";
@@ -89,7 +88,7 @@ inv("inv_auth_13", "多要素認証を設定した利用者は、パスワード
     expectRejected(await createApiKey.call(asSession(session), target), "パスワードだけで再認証を試みた後のAPIキーの発行");
 
     // 対照: 多要素認証のコードなら通る
-    expectSuccess(await cms.reauthenticateRaw(session, { totpCode: totp(w.a.admin.totpSecret!) }), "多要素認証での再認証");
+    expectSuccess(await cms.reauthenticateRaw(session, { totpCode: await cms.nextTotpCode(w.a.admin.totpSecret!) }), "多要素認証での再認証");
     expectSuccess(await createApiKey.call(asSession(session), target), "多要素認証で再認証した後のAPIキーの発行");
   });
 }, 180_000);
