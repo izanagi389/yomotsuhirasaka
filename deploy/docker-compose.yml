@@ -1,0 +1,59 @@
+# 公式の Docker Compose（12-dev-environment.md、13-security.md「安全な初期設定」）。使い方は deploy/README.md。
+#
+# - PostgreSQL はコンテナの内部のネットワークだけにつなぎ、ホストにポートを開けない（INV-CFG-02）。
+# - CMS はホストの 127.0.0.1:8080 だけで待ち受ける。HTTPS は、前に置くリバースプロキシ（Caddy・nginx など）で行う。
+# - 秘密の値と暗号化の鍵は、初期化のスクリプト（deploy/init.sh）が ./data に作る。このファイルには書かない。
+
+name: cms
+
+services:
+  cms:
+    build:
+      context: ..
+      dockerfile: deploy/server.Dockerfile
+    image: new-cms/server:local
+    user: "${CMS_UID:-10001}:${CMS_GID:-10001}"
+    command: ["serve", "--config", "/data/config.toml"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data/cms:/data
+    networks:
+      - internal
+      - outside
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    build:
+      context: .
+      dockerfile: postgres.Dockerfile
+    image: new-cms/postgres:16-local
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/cms-init/postgres-password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 初回の起動のときだけ使う（ロールとDBと拡張の作成）
+      - ./data/db-init:/docker-entrypoint-initdb.d:ro
+      - ./data/postgres-password:/run/cms-init/postgres-password:ro
+    networks:
+      - internal
+    healthcheck:
+      # TCPで確かめる（初期化の途中の一時的なサーバーは、ソケットでしか待ち受けない）
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d cms"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+networks:
+  # DB との通信だけに使う（外に出られない）
+  internal:
+    internal: true
+  # CMS が外部（Webhook・HIBP・OIDC など）に送るためのネットワーク
+  outside: {}
+
+volumes:
+  pgdata: {}
