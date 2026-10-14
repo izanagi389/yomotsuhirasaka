@@ -236,14 +236,32 @@ pub struct AuthConfig {
     /// 全員に多要素認証を必須にする（Q197。既定で有効）。
     /// 有効なとき、多要素認証のない利用者は、その設定に必要な操作しかできない。
     pub mfa_required_for_everyone: bool,
+    /// 漏えいしたパスワードの照会（Q170）。なければ照会しない（既定）。
+    pub breached_passwords: Option<BreachedPasswordsConfig>,
 }
 
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
             mfa_required_for_everyone: true,
+            breached_passwords: None,
         }
     }
+}
+
+/// 漏えいしたパスワードの照会先（Have I Been Pwned の range API と同じ形）。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BreachedPasswordsConfig {
+    /// 照会先（例: `https://api.pwnedpasswords.com`）。`<base_url>/range/<SHA-1の先頭5文字>` を引く。
+    pub base_url: String,
+    /// 照会を待つ上限（秒）。超えたら照会せずに登録を通す。
+    #[serde(default = "default_breached_timeout")]
+    pub timeout_seconds: u32,
+}
+
+fn default_breached_timeout() -> u32 {
+    3
 }
 
 /// SMTPの接続の守り方。

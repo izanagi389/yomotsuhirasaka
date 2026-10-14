@@ -31,6 +31,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         default_locale: cms_server::locale::Locale::En,
         auth: AuthConfig {
             mfa_required_for_everyone: false,
+            breached_passwords: None,
         },
         smtp: None,
         login_history: Default::default(),

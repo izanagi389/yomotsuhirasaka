@@ -54,6 +54,8 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 webpki-roots = "1.0.9"
 # Webhookの署名（HMAC-SHA256。13-security.md「Webhookの署名」）。sqlx が既に使っている版
 hmac = "0.13.0"
+# 漏えいしたパスワードの照会（HIBP の range API はパスワードの SHA-1 の先頭5文字で引く。Q170）。sqlx が既に使っている版
+sha1 = "0.11.0"
 
 [dev-dependencies]
 # テストで、ブラウザと認証器の代わりにパスキーを作って使う
