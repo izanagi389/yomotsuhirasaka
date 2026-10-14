@@ -7,13 +7,8 @@
 
 # --- M1: テストは書き終えている（実装待ち） ---
 
-inv_auth_01
-inv_auth_03
 inv_auth_05
-inv_auth_07
 inv_auth_22
-inv_auth_23
-inv_auth_25
 inv_auth_19
 
 inv_hdr_01
@@ -21,17 +16,8 @@ inv_hdr_01
 inv_cfg_02
 
 
-inv_ten_02
 inv_ten_04
 
-inv_api_02
-
-
-inv_key_01
-inv_key_03
-
-
-inv_pub_04
 
 
 
@@ -40,12 +26,12 @@ inv_pub_04
 
 
 
-inv_wh_04
 
 
-inv_perm_01
 
 
-inv_aud_01
-inv_aud_02
+
+
+
+
 

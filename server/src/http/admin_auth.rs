@@ -559,6 +559,43 @@ pub async fn login_history(
     ))
 }
 
+/// 本人の外部のアカウント（OIDC）のひも付け。IdPの利用者の識別子（sub）は返さない。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Identity {
+    id: Uuid,
+    issuer: String,
+    linked_at: String,
+    last_login_at: Option<String>,
+}
+
+pub async fn list_identities(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+) -> Result<Json<Vec<Identity>>, ApiError> {
+    require_cookie_session(&current)?;
+    let rows: Vec<(Uuid, String, String, Option<String>)> = sqlx::query_as(
+        r#"SELECT id, issuer,
+                  to_char(linked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                  to_char(last_login_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+           FROM cms.external_identities WHERE user_id = $1 ORDER BY linked_at"#,
+    )
+    .bind(current.user_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(anyhow::Error::from)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(id, issuer, linked_at, last_login_at)| Identity {
+                id,
+                issuer,
+                linked_at,
+                last_login_at,
+            })
+            .collect(),
+    ))
+}
+
 fn passkeys_unavailable() -> ApiError {
     ApiError::new(
         StatusCode::SERVICE_UNAVAILABLE,

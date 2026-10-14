@@ -375,6 +375,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("updateMe", true, "self", (auth, _t, extras) => request("PATCH", `${ADMIN}/me`, { auth, extras, body: { locale: "en" } })),
     op("listMySessions", false, "self", (auth, _t, extras) => request("GET", `${ADMIN}/me/sessions`, { auth, extras })),
     op("getMyLoginHistory", false, "self", (auth, _t, extras) => loginHistoryRaw(auth, extras)),
+    op("listMyIdentities", false, "self", (auth, _t, extras) => request("GET", `${ADMIN}/me/identities`, { auth, extras })),
     op("deploySchema", true, "instance", (auth, _t, extras) => deployTemplateRaw(auth, OPERATION_TEMPLATE, {}, extras)),
     op("getSchemaInfo", false, "workspace", (auth, t, extras) => schemaInfoRaw(auth, t.workspaceId, extras)),
     op("listEntries", false, "workspace", (auth, t, extras) => request("GET", entriesPath(t.workspaceId), { auth, extras })),
