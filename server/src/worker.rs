@@ -7,6 +7,7 @@ use anyhow::Result;
 use crate::http::AppState;
 use crate::jobs::{self, Outcome};
 use crate::mail;
+use crate::webhooks;
 
 /// キューが空のときに、次に見るまで待つ時間。
 const IDLE_WAIT: Duration = Duration::from_secs(1);
@@ -21,6 +22,19 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
         (Some(payload), mail::JOB_KIND) => {
             mail::deliver(state.config.smtp.as_ref(), &state.issuer, payload).await
         }
+        (Some(payload), webhooks::JOB_KIND) => webhooks::deliver(
+            &state.pool,
+            &state.keys,
+            state.egress.as_ref(),
+            payload,
+            job.attempts,
+            job.max_attempts,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!(job_id = %job.id, "webhook delivery: {e:#}");
+            Outcome::Retry("internal_error")
+        }),
         (Some(_), _) => Outcome::Fail("unknown_job_kind"),
     };
     if !matches!(outcome, Outcome::Done) {

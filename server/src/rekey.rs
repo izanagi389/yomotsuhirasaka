@@ -7,7 +7,8 @@
 //!
 //! 暗号化して保存している値（増やしたら、ここにも足す）:
 //! - `cms.users.totp_secret_enc`, `cms.users.totp_pending_secret_enc`（TOTPの秘密）
-//! - `cms.jobs.payload_enc`（ジョブの中身。メールの宛先や本文）
+//! - `cms.jobs.payload_enc`（ジョブの中身。メールの宛先や本文、Webhookの送信）
+//! - `cms.webhooks.secret_enc`, `cms.webhooks.previous_secret_enc`（Webhookの署名用の秘密）
 
 use std::collections::BTreeMap;
 
@@ -38,6 +39,10 @@ pub async fn versions_in_use(pool: &PgPool) -> Result<BTreeMap<u32, u64>> {
              SELECT substring(totp_pending_secret_enc FROM 1 FOR 4) FROM cms.users WHERE totp_pending_secret_enc IS NOT NULL
              UNION ALL
              SELECT substring(payload_enc FROM 1 FOR 4) FROM cms.jobs WHERE payload_enc IS NOT NULL
+             UNION ALL
+             SELECT substring(secret_enc FROM 1 FOR 4) FROM cms.webhooks
+             UNION ALL
+             SELECT substring(previous_secret_enc FROM 1 FOR 4) FROM cms.webhooks WHERE previous_secret_enc IS NOT NULL
          ) s GROUP BY v",
     )
     .fetch_all(pool)
@@ -60,7 +65,56 @@ pub async fn reencrypt_all(pool: &PgPool, keys: &KeyRing) -> Result<Outcome> {
         reencrypt_users(pool, keys, &active, column, &mut outcome).await?;
     }
     reencrypt_jobs(pool, keys, &active, &mut outcome).await?;
+    for column in ["secret_enc", "previous_secret_enc"] {
+        reencrypt_webhooks(pool, keys, &active, column, &mut outcome).await?;
+    }
     Ok(outcome)
+}
+
+async fn reencrypt_webhooks(
+    pool: &PgPool,
+    keys: &KeyRing,
+    active: &[u8],
+    column: &'static str,
+    outcome: &mut Outcome,
+) -> Result<()> {
+    // 列の名前は上の固定の名前だけ。識別子は決められた関数（Ident）を通して埋め込む
+    let column = crate::db::Ident::new(column)?;
+    let ids: Vec<Uuid> = sqlx::query_scalar(crate::sql!(
+        "SELECT id FROM cms.webhooks WHERE {column} IS NOT NULL AND substring({column} FROM 1 FOR 4) <> $1"
+    ))
+    .bind(active)
+    .fetch_all(pool)
+    .await?;
+    for chunk in ids.chunks(BATCH) {
+        let mut tx = pool.begin().await?;
+        let rows: Vec<(Uuid, Vec<u8>)> = sqlx::query_as(crate::sql!(
+            "SELECT id, {column} FROM cms.webhooks
+             WHERE id = ANY($1) AND {column} IS NOT NULL AND substring({column} FROM 1 FOR 4) <> $2
+             FOR UPDATE"
+        ))
+        .bind(chunk)
+        .bind(active)
+        .fetch_all(&mut *tx)
+        .await?;
+        for (id, sealed) in rows {
+            let aad = crate::webhooks::secret_aad(id);
+            let Ok(plain) = keys.decrypt(&sealed, &aad) else {
+                outcome.failed += 1;
+                continue;
+            };
+            sqlx::query(crate::sql!(
+                "UPDATE cms.webhooks SET {column} = $2 WHERE id = $1"
+            ))
+            .bind(id)
+            .bind(keys.encrypt(&plain, &aad)?)
+            .execute(&mut *tx)
+            .await?;
+            outcome.reencrypted += 1;
+        }
+        tx.commit().await?;
+    }
+    Ok(())
 }
 
 async fn reencrypt_users(

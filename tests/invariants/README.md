@@ -115,6 +115,7 @@ inv("inv_ten_06", "サーバー管理者以外は、ワークスペースを作�
 | `CMS_TEST_HARNESS_BLOCKED_HOST` | テストの実行環境のもう1つのIPアドレス。例外に入れない（内部向けのアドレスとして拒否されるべき宛先） |
 | `CMS_TEST_HARNESS_DNS_PORT` | テストの実行環境のDNSサーバーのUDPのポート。CMSは `inv.test` のゾーンをこのDNSサーバーに問い合わせるようにする（他の名前は通常どおり） |
 | `CMS_TEST_HARNESS_TLS_CERT` ・`_KEY` | `*.inv.test` に有効な証明書と鍵。CMSはこの証明書のCAを信頼する |
+| `CMS_TEST_HARNESS_TLS_CA` | 上の証明書のCA。ドライバーが、CMSの設定の `[egress] extra_ca_files` に入れる |
 | `CMS_TEST_OIDC_PORT` ・`_ISSUER` ・`_CLIENT_ID` ・`_CLIENT_SECRET` | 擬似IdP。CMSにはこの発行者をOIDCの接続先として設定する |
 | `CMS_TEST_OIDC_JIT_DOMAIN` | JIT（自動作成）を有効にするドメイン |
 
@@ -122,6 +123,8 @@ inv("inv_ten_06", "サーバー管理者以外は、ワークスペースを作�
 - メールはSMTPの受け手（Mailpitなど）で受け、ドライバーの `mail` で読む。
 - `headers.test.ts` の公開ポートの確認には、`docker` コマンド（`docker compose config`）を使う。
 - 自己署名の証明書を使う場合は、`NODE_EXTRA_CA_CERTS` でCAの証明書を渡す。
+- `scripts/test-env/setup.sh` が、ハーネスの環境変数（例外として許す宛先 `127.0.0.1`、許さない内部のアドレス `127.0.0.2`、DNSのポート `5354`、TLSのCAと証明書）も書き出す。
+- `inv.test` の名前解決は、`scripts/test-env/harness-dns.sh`（root）で、`127.0.0.1:53` の dnsmasq からテストのDNSサーバーへ回す。CMSはOSの名前解決をそのまま使う。
 
 ## 実行
 

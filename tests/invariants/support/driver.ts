@@ -17,8 +17,13 @@ import type { TemplateSpec } from "./template.js";
 import { SECRET_SETTING_NAMES, rotateEncryptionKeyWithCli, runServerCli, startServerProcess, validServerConfigFromEnv } from "./server-process.js";
 import { connectAdmin } from "./admin-client.js";
 import { listMail } from "./smtp-sink.js";
-import { withClient } from "./db.js";
+import { ident, withClient } from "./db.js";
 import { env } from "./env.js";
+import { randomUUID } from "node:crypto";
+import { copyFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { BASE_TEMPLATE } from "./template.js";
 
 export class NotImplementedError extends Error {
   constructor(what: string) {
@@ -560,7 +565,7 @@ export const driver = {
 
   /** 新しいDBで初期化（`cms-server init`）し、サーバー管理者を作る。 */
   createIsolatedInstance(): Promise<IsolatedInstance> {
-    return todo("createIsolatedInstance");
+    return createIsolatedInstance();
   },
 
   /** 緊急停止: すべてのセッションと個人トークンを失効させる（サーバー上のCLI）。 */
@@ -605,10 +610,52 @@ export const driver = {
   },
 
   /** Webhookの読み取り。 */
+  // 種類の名前・本文・署名の書式は server/src/webhooks.rs に合わせる
   webhook: {
-    eventTypes: (): Record<WebhookEventKind, string> => todo("webhook.eventTypes"),
-    parse: (_body: string): ParsedWebhook => todo("webhook.parse"),
-    signing: (_headers: Record<string, string>, _body: string): WebhookSigning => todo("webhook.signing"),
+    eventTypes: (): Record<WebhookEventKind, string> => ({
+      published: "entry.published",
+      updated: "entry.updated",
+      unpublished: "entry.unpublished",
+      deleted: "entry.deleted",
+      corrected: "entry.corrected",
+      erased: "entry.version_erased",
+      settingsChanged: "entry.settings_changed",
+      urlChanged: "entry.url_changed",
+    }),
+    parse: (body: string): ParsedWebhook => {
+      const v = JSON.parse(body) as { type?: unknown; workspaceId?: unknown; entryId?: unknown };
+      if (typeof v.type !== "string" || typeof v.workspaceId !== "string" || typeof v.entryId !== "string") {
+        throw new Error(`記事のイベントのWebhookの本文ではない: ${body.slice(0, 200)}`);
+      }
+      return { type: v.type, workspaceId: v.workspaceId, entryId: v.entryId };
+    },
+    // ヘッダー: `Webhook-Signature: t=<UNIX秒>,id=<イベントID>,v1=<16進>[,v1=<16進>]`。署名の対象は `<t>.<id>.<本文>`
+    signing: (headers: Record<string, string>, body: string): WebhookSigning => {
+      const raw = headers["webhook-signature"];
+      if (raw === undefined) throw new Error("Webhookに署名のヘッダー（webhook-signature）がない");
+      const parts = raw.split(",").map((p) => {
+        const at = p.indexOf("=");
+        return at < 0 ? [p.trim(), ""] : [p.slice(0, at).trim(), p.slice(at + 1).trim()];
+      });
+      const one = (key: string): string => {
+        const found = parts.filter(([k]) => k === key);
+        if (found.length !== 1) throw new Error(`署名のヘッダーの ${key} が1つではない: ${raw}`);
+        return found[0]![1]!;
+      };
+      const t = one("t");
+      if (!/^[0-9]+$/.test(t)) throw new Error(`署名のヘッダーの t が数ではない: ${raw}`);
+      const eventId = one("id");
+      return {
+        timestamp: Number(t),
+        eventId,
+        signingInput: `${t}.${eventId}.${body}`,
+        signatures: parts.filter(([k]) => k === "v1").map(([, v]) => v!),
+        algorithm: "hmac-sha256",
+        encoding: "hex",
+        // HMACの鍵は、秘密の文字列（whsec_...）のバイト列そのもの
+        keyBytes: (secret: string) => Buffer.from(secret, "utf8"),
+      };
+    },
   },
 
   /** 監査ログの操作の種類の名前。 */
@@ -642,6 +689,57 @@ export const driver = {
     auditLogTables: async (): Promise<string[]> => ["cms.audit_log"],
   } satisfies DbLayout,
 };
+
+/**
+ * 他のテストと共有しない、新しいインスタンス。テスト環境と同じロールで新しいDBを作り、
+ * サーバーを一度起動して移行し、サーバー管理者（多要素認証あり）を作り、BASE_TEMPLATE をデプロイする。
+ * 暗号化の鍵のファイルは写しを使う（鍵の入れ替えのテストが、テスト環境の鍵を変えないように）。
+ */
+async function createIsolatedInstance(): Promise<IsolatedInstance> {
+  const base = validServerConfigFromEnv();
+  const dbName = `cms_iso_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const roleOf = (url: string) => decodeURIComponent(new URL(url).username);
+  await withClient(env.dbSuperuserUrl, async (c) => {
+    await c.query(`CREATE DATABASE ${ident(dbName)} OWNER ${ident(roleOf(base.migrationDatabaseUrl))}`);
+    await c.query(`GRANT CONNECT ON DATABASE ${ident(dbName)} TO ${ident(roleOf(base.databaseUrl))}`);
+  });
+  const withDb = (url: string) => {
+    const u = new URL(url);
+    u.pathname = `/${dbName}`;
+    return u.toString();
+  };
+  const keyDir = mkdtempSync(join(tmpdir(), "cms-iso-key-"));
+  const keyFile = join(keyDir, "encryption.key");
+  if (base.encryptionKeyFile === null) throw new Error("テスト環境の暗号化の鍵のファイルがない");
+  copyFileSync(base.encryptionKeyFile, keyFile);
+  const config: ServerConfig = {
+    ...base,
+    databaseUrl: withDb(base.databaseUrl),
+    migrationDatabaseUrl: withDb(base.migrationDatabaseUrl),
+    encryptionKeyFile: keyFile,
+  };
+
+  const started = await driver.startServer(config);
+  try {
+    if (started.outcome !== "ready" || !started.client) throw new Error(`新しいインスタンスのサーバーが起動しない:\n${started.output}`);
+    const cms = started.client;
+    const email = `inv-iso-root-${randomUUID().slice(0, 8)}@inv.test`;
+    const created = await runServerCli(config, ["create-server-admin", "--email", email]);
+    const password = created.output.match(/Password \(shown only once\): (\S+)/)?.[1];
+    if (created.exitCode !== 0 || !password) throw new Error(`新しいインスタンスのサーバー管理者を作れない:\n${created.output}`);
+    const first = await cms.loginPasswordOnly({ email, password });
+    const totpSecret = await cms.enrollTotp(first, { email, password });
+    const creds = { email, password, totpSecret };
+    const session = await cms.login(creds);
+    const { userId } = await cms.me(session);
+    const token = await cms.deployToken(session, creds);
+    const res = await cms.deployTemplateRaw(asBearer(token), BASE_TEMPLATE);
+    if (res.status < 200 || res.status >= 300) throw new Error(`新しいインスタンスに BASE_TEMPLATE をデプロイできない（${res.status}）: ${res.text}`);
+    return { config, serverAdmin: { ...creds, userId } };
+  } finally {
+    await started.stop();
+  }
+}
 
 /** CMSが登録したワークスペースのDBの名前（スキーマとロール）。 */
 async function registeredDbNames(workspaceId: string): Promise<{ schema: string; role: string }> {

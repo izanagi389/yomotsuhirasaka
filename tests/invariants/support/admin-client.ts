@@ -323,6 +323,23 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const registerQueryRaw = (workspaceIdInUrl: string, apiKey: string | null, spec: QuerySpec): Promise<HttpResponse> =>
     request("POST", `/ws/${workspaceIdInUrl}/graphql/queries`, { auth: deliveryAuth(apiKey), body: { query: queryText(spec) } });
 
+  // --- Webhook ---
+  const webhooksPath = (workspaceId: string) => `${ADMIN}/workspaces/${workspaceId}/webhooks`;
+  const createWebhookRaw = (auth: Auth, workspaceId: string, url: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", webhooksPath(workspaceId), { auth, extras, body: { url } });
+  const testWebhookRaw = (auth: Auth, workspaceId: string, webhookId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", `${webhooksPath(workspaceId)}/${webhookId}/test`, { auth, extras });
+  /** 同じ認証で送信先の一覧を読み、最初のもののIDを返す（読めない・ないときは存在しないID）。 */
+  const firstWebhookId = async (auth: Auth, workspaceId: string, extras?: RequestExtras): Promise<string> => {
+    const list = await request("GET", webhooksPath(workspaceId), { auth, extras });
+    return (isSuccess(list) ? (JSON.parse(list.text) as { id: string }[])[0]?.id : undefined) ?? randomUUID();
+  };
+  // 操作の一覧で登録する送信先。テストの実行環境の宛先（例外として許可済み）の、何も待ち受けていないポート（9: discard）にする。
+  // テストの実行環境の宛先がなければ、名前解決できない宛先にする（登録は断られる）
+  const OPERATION_WEBHOOK_URL = process.env["CMS_TEST_HARNESS_ALLOWED_HOST"]
+    ? `http://${process.env["CMS_TEST_HARNESS_ALLOWED_HOST"]}:9/inv-operation`
+    : "https://inv-operation.invalid/";
+
   // 操作の一覧で使うテンプレート（何度デプロイしても同じ内容なので、版は増えない）
   const OPERATION_TEMPLATE = cloneTemplate("inv-operations");
   const loginHistoryRaw = (auth: Auth, extras?: RequestExtras): Promise<HttpResponse> =>
@@ -458,6 +475,19 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("revokeApiKey", true, "workspace", (auth, t, extras) =>
       request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/api-keys/${t.apiKeyId}`, { auth, extras }),
     ),
+    op("listWebhooks", false, "workspace", (auth, t, extras) => request("GET", webhooksPath(t.workspaceId), { auth, extras })),
+    op("createWebhook", true, "workspace", (auth, t, extras) => createWebhookRaw(auth, t.workspaceId, OPERATION_WEBHOOK_URL, extras)),
+    op("testWebhook", true, "workspace", async (auth, t, extras) =>
+      testWebhookRaw(auth, t.workspaceId, await firstWebhookId(auth, t.workspaceId, extras), extras),
+    ),
+    op("listWebhookDeliveries", false, "workspace", async (auth, t, extras) =>
+      request("GET", `${webhooksPath(t.workspaceId)}/${await firstWebhookId(auth, t.workspaceId, extras)}/deliveries`, { auth, extras }),
+    ),
+    op("rotateWebhookSecret", true, "workspace", async (auth, t, extras) =>
+      request("POST", `${webhooksPath(t.workspaceId)}/${await firstWebhookId(auth, t.workspaceId, extras)}/rotate-secret`, { auth, extras }),
+    ),
+    // 対象は存在しない送信先（舞台の送信先を壊さないため）
+    op("deleteWebhook", true, "workspace", (auth, t, extras) => request("DELETE", `${webhooksPath(t.workspaceId)}/${randomUUID()}`, { auth, extras })),
     op("removeMember", true, "workspace", (auth, t, extras) =>
       request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/members/${t.userId}`, { auth, extras }),
     ),
@@ -764,6 +794,13 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       const session = await login(member);
       ensure("既存の利用者による招待の承諾", await acceptInviteRaw(token, { session }));
     },
+    async createWebhook(s: Session, workspaceId: string, url: string): Promise<{ id: string; secret: string }> {
+      const res = ensure("Webhookの登録", await createWebhookRaw(session(s), workspaceId, url));
+      const { id, secret } = JSON.parse(res.text) as { id?: unknown; secret?: unknown };
+      if (typeof id !== "string" || typeof secret !== "string") throw new SetupError("Webhookの登録の応答の読み取り", res);
+      return { id, secret };
+    },
+    testWebhookRaw: (s: Session, workspaceId: string, webhookId: string) => testWebhookRaw(session(s), workspaceId, webhookId),
     async enrollTotp(s: Session, creds: Credentials): Promise<string> {
       await reauthenticate(s, creds);
       const setup = ensure("TOTPの設定の開始", await request("POST", `${ADMIN}/me/mfa/totp`, { auth: session(s) }));

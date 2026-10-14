@@ -51,6 +51,9 @@ pub struct Published {
     pub is_correction: bool,
     /// URLが変わったときの変更前のURL。
     pub previous_url: Option<String>,
+    /// この公開の前から公開中だったか（Webhookのイベントの種類を決める。応答には含めない）。
+    #[serde(skip)]
+    pub was_published: bool,
 }
 
 /// 記事の行をロックして読む（削除済みは None）。(リビジョン番号, 公開中の版, 前に公開したURL)
@@ -124,7 +127,7 @@ pub async fn publish(
     correction: bool,
     published_by: Uuid,
 ) -> Result<Result<Published, Refused>> {
-    let Some((revision, _current, previous_url)) = lock(conn, entry_id).await? else {
+    let Some((revision, current, previous_url)) = lock(conn, entry_id).await? else {
         return Ok(Err(Refused::NotFound));
     };
     if revision != expected_revision {
@@ -233,6 +236,7 @@ pub async fn publish(
         url,
         is_correction: correction,
         previous_url,
+        was_published: current.is_some(),
     }))
 }
 

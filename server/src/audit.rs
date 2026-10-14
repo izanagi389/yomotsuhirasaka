@@ -50,6 +50,9 @@ pub mod action {
     pub const MEDIA_UPLOADED: &str = "media.uploaded";
     pub const MEDIA_DELETED: &str = "media.deleted";
     pub const WORKSPACE_LIMITS_CHANGED: &str = "workspace.limits_changed";
+    pub const WEBHOOK_CREATED: &str = "webhook.created";
+    pub const WEBHOOK_DELETED: &str = "webhook.deleted";
+    pub const WEBHOOK_SECRET_ROTATED: &str = "webhook.secret_rotated";
 }
 
 /// 1件を記録する。`workspace_id` が None ならインスタンス全体の記録。

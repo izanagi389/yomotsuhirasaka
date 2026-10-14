@@ -32,6 +32,7 @@ use crate::access::{self, Access, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
 use crate::content::publishing::{self, Published, Refused, UrlChange, VersionDetail, VersionInfo};
+use crate::webhooks::{self, EntryEvent, EntryRef};
 use crate::workspace_db;
 
 async fn publisher(state: &AppState, current: &Current, ws: Uuid) -> Result<Access, ApiError> {
@@ -77,6 +78,35 @@ fn is_url_conflict(e: &anyhow::Error) -> bool {
     e.downcast_ref::<sqlx::Error>()
         .and_then(|e| e.as_database_error())
         .is_some_and(|d| d.constraint() == Some("entries_published_url"))
+}
+
+/// 記事のイベントのWebhookを送る（操作を確定した後に呼ぶ。Q146、INV-WH-06）。
+/// 送信の準備に失敗しても、確定した操作は取り消せないので、記録して成功を返す。
+async fn notify_webhooks(
+    state: &AppState,
+    ws: Uuid,
+    events: &[EntryEvent],
+    entry: Option<EntryRef>,
+) {
+    let Some(entry) = entry else { return };
+    if let Err(e) = webhooks::emit(&state.pool, &state.keys, ws, events, &entry).await {
+        tracing::error!(workspace_id = %ws, entry_id = %entry.id, "cannot queue webhooks: {e:#}");
+    }
+}
+
+/// 公開のイベント: 公開・更新・訂正のどれか1つと、URLが変わったときは URLの変更。
+fn publish_events(p: &Published) -> Vec<EntryEvent> {
+    let mut events = vec![if p.is_correction {
+        EntryEvent::Corrected
+    } else if p.was_published {
+        EntryEvent::Updated
+    } else {
+        EntryEvent::Published
+    }];
+    if p.previous_url.is_some() {
+        events.push(EntryEvent::UrlChanged);
+    }
+    events
 }
 
 async fn audit_if(
@@ -131,6 +161,7 @@ pub async fn publish(
         Err(e) if is_url_conflict(&e) => return Err(url_taken()),
         Err(e) => return Err(e.into()),
     };
+    let entry = webhooks::entry_ref(&mut tx, id).await?;
     match tx.commit().await {
         Ok(()) => {}
         Err(e) => {
@@ -147,6 +178,7 @@ pub async fn publish(
     } else {
         action::ENTRY_PUBLISHED
     };
+    notify_webhooks(&state, ws, &publish_events(&published), entry).await;
     audit_if(&state, req.correction, &access, &current, ws, act, id).await?;
     Ok(Json(published))
 }
@@ -160,10 +192,14 @@ pub async fn unpublish(
     let access = publisher(&state, &current, ws).await?;
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
-    publishing::unpublish(&mut tx, id)
+    let was_published = publishing::unpublish(&mut tx, id)
         .await?
         .ok_or_else(ApiError::not_found)?;
+    let entry = webhooks::entry_ref(&mut tx, id).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
+    if was_published {
+        notify_webhooks(&state, ws, &[EntryEvent::Unpublished], entry).await;
+    }
     audit_if(
         &state,
         false,
@@ -189,7 +225,9 @@ pub async fn delete(
     if !publishing::delete(&mut tx, id).await? {
         return Err(ApiError::not_found());
     }
+    let entry = webhooks::entry_ref(&mut tx, id).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
+    notify_webhooks(&state, ws, &[EntryEvent::Deleted], entry).await;
     audit_if(
         &state,
         false,
@@ -319,7 +357,9 @@ pub async fn erase(
             ));
         }
     };
+    let entry = webhooks::entry_ref(&mut tx, id).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
+    notify_webhooks(&state, ws, &[EntryEvent::VersionErased], entry).await;
     for file in &erased.deleted_files {
         crate::media::store::remove_file(&state.config.media.root, ws, file).await?;
     }
