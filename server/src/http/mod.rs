@@ -4,6 +4,7 @@ pub mod admin_api_keys;
 pub mod admin_audit;
 pub mod admin_auth;
 pub mod admin_entries;
+pub mod admin_import;
 pub mod admin_invitations;
 pub mod admin_media;
 pub mod admin_mfa;
@@ -354,6 +355,12 @@ pub fn router(state: AppState) -> Router {
             delete(admin_api_keys::revoke),
         )
         .route("/audit-log", get(admin_audit::instance))
+        .route(
+            "/workspaces/{ws}/imports",
+            // まとめて送るので、本文の上限を大きくする（画像は別にアップロードする）
+            post(admin_import::import)
+                .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024)),
+        )
         .route("/workspaces/{ws}/audit-log", get(admin_audit::workspace))
         .route(
             "/workspaces/{ws}/webhooks",

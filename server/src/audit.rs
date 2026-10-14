@@ -47,6 +47,8 @@ pub mod action {
     pub const ENTRY_UNPUBLISHED: &str = "entry.unpublished";
     pub const ENTRY_DELETED: &str = "entry.deleted";
     pub const ENTRY_SETTINGS_CHANGED: &str = "entry.settings_changed";
+    /// 既存のブログからの取り込み（対象は取り込んだ記事）。
+    pub const ENTRIES_IMPORTED: &str = "entry.imported";
     /// 版の本文の抹消（重い操作として、誰が行っても記録する。対象は記事・版・削除したメディア）。
     pub const VERSION_ERASED: &str = "version.erased";
     pub const MEDIA_UPLOADED: &str = "media.uploaded";

@@ -395,6 +395,15 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("deleteEntry", true, "workspace", (auth, t, extras) => deleteEntryRaw(auth, t.workspaceId, randomUUID(), extras)),
     op("getPublishSettings", false, "workspace", (auth, t, extras) => getPublishSettingsRaw(auth, t.workspaceId, t.entryId, extras)),
     op("changePublishSettings", true, "workspace", (auth, t, extras) => togglePublishSettingsRaw(auth, t.workspaceId, t.entryId, extras)),
+    // 取り込み（server/src/http/admin_import.rs）。新しいスラッグの記事を1件だけ取り込む
+    op("importEntries", true, "workspace", (auth, t, extras) => {
+      const slug = `inv-op-import-${randomUUID().slice(0, 8)}`;
+      return request("POST", `${ADMIN}/workspaces/${t.workspaceId}/imports`, {
+        auth,
+        extras,
+        body: { entries: [{ key: "op.md", locale: DEFAULT_LOCALE, originalUrl: `https://old.inv.test/${slug}`, fields: { title: "inv-op", slug } }] },
+      });
+    }),
     op("listEntryVersions", false, "workspace", (auth, t, extras) => versionsRaw(auth, t.workspaceId, t.entryId, extras)),
     // 同じ認証で版の一覧を読み、最新の版を読む（読めなければ、存在しない版を読む）
     op("getEntryVersion", false, "workspace", async (auth, t, extras) => {
