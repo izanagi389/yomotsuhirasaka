@@ -30,6 +30,10 @@ random_pw() { python3 -c 'import secrets; print(secrets.token_urlsafe(24))'; }
 # ロールとDBを作り直す。パスワードは標準入力で渡し、コマンドの引数に載せない。
 create_roles() {
   local url="$1" app_pw="$2" mig_pw="$3"
+  # 前の実行で driver.createIsolatedInstance が作ったDB（cms_iso_*）も消す（ロールを作り直せるように）
+  local isolated
+  isolated="$(psql "$url" -At -c "SELECT datname FROM pg_database WHERE datname LIKE 'cms\_iso\_%'")"
+  for db in $isolated; do psql "$url" -v ON_ERROR_STOP=1 -q -c "DROP DATABASE \"$db\"" ; done
   psql "$url" -v ON_ERROR_STOP=1 -q <<SQL
 DROP DATABASE IF EXISTS cms;
 DROP ROLE IF EXISTS cms_app;

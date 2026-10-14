@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, Auth, CmsClient, Credentials, Draft, EntryInput, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -334,6 +334,11 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const registerQueryRaw = (workspaceIdInUrl: string, apiKey: string | null, spec: QuerySpec): Promise<HttpResponse> =>
     request("POST", `/ws/${workspaceIdInUrl}/graphql/queries`, { auth: deliveryAuth(apiKey), body: { query: queryText(spec) } });
 
+  // --- 監査ログ（server/src/http/admin_audit.rs） ---
+  const auditPath = (workspaceId: string | null) => (workspaceId === null ? `${ADMIN}/audit-log` : `${ADMIN}/workspaces/${workspaceId}/audit-log`);
+  const auditPageRaw = (auth: Auth, workspaceId: string | null, before?: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", auditPath(workspaceId), { auth, extras: { ...extras, query: { ...(extras?.query ?? {}), limit: "500", ...(before ? { before } : {}) } } });
+
   // --- Webhook ---
   const webhooksPath = (workspaceId: string) => `${ADMIN}/workspaces/${workspaceId}/webhooks`;
   const createWebhookRaw = (auth: Auth, workspaceId: string, url: string, extras?: RequestExtras): Promise<HttpResponse> =>
@@ -488,6 +493,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("revokeApiKey", true, "workspace", (auth, t, extras) =>
       request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/api-keys/${t.apiKeyId}`, { auth, extras }),
     ),
+    op("listAuditLog", false, "workspace", (auth, t, extras) => auditPageRaw(auth, t.workspaceId, undefined, extras)),
+    op("listInstanceAuditLog", false, "instance", (auth, _t, extras) => auditPageRaw(auth, null, undefined, extras)),
     op("listWebhooks", false, "workspace", (auth, t, extras) => request("GET", webhooksPath(t.workspaceId), { auth, extras })),
     op("createWebhook", true, "workspace", (auth, t, extras) => createWebhookRaw(auth, t.workspaceId, OPERATION_WEBHOOK_URL, extras)),
     op("testWebhook", true, "workspace", async (auth, t, extras) =>
@@ -809,6 +816,32 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       const token = await inviteAndGetToken(adminSession, workspaceId, member.email, role);
       const session = await login(member);
       ensure("既存の利用者による招待の承諾", await acceptInviteRaw(token, { session }));
+    },
+    // 新しい順に、続きがなくなるまでページをたどってすべて読む
+    async readAuditLog(s: Session, workspaceId: string | null): Promise<AuditEntry[]> {
+      const out: AuditEntry[] = [];
+      let before: string | undefined;
+      for (;;) {
+        const res = ensure("監査ログの読み取り", await auditPageRaw(session(s), workspaceId, before));
+        const page = JSON.parse(res.text) as { entries?: unknown; nextBefore?: unknown };
+        if (!Array.isArray(page.entries)) throw new SetupError("監査ログの応答の読み取り", res);
+        for (const raw of page.entries as Record<string, unknown>[]) {
+          const { id, action, actorUserId, targetIds } = raw;
+          if (
+            typeof id !== "string" ||
+            typeof action !== "string" ||
+            !(typeof actorUserId === "string" || actorUserId === null) ||
+            !Array.isArray(targetIds) ||
+            !targetIds.every((t) => typeof t === "string")
+          ) {
+            throw new SetupError("監査ログの記録の読み取り", res);
+          }
+          out.push({ id, action, actorUserId, targetIds: targetIds as string[], raw });
+        }
+        if (page.nextBefore === null || page.nextBefore === undefined) return out;
+        if (typeof page.nextBefore !== "string") throw new SetupError("監査ログの続きの読み取り", res);
+        before = page.nextBefore;
+      }
     },
     async createWebhook(s: Session, workspaceId: string, url: string): Promise<{ id: string; secret: string }> {
       const res = ensure("Webhookの登録", await createWebhookRaw(session(s), workspaceId, url));

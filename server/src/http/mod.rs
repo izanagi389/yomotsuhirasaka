@@ -1,6 +1,7 @@
 //! HTTPの受け付け: ルーティング、共通の応答ヘッダー、アプリの状態。
 
 pub mod admin_api_keys;
+pub mod admin_audit;
 pub mod admin_auth;
 pub mod admin_entries;
 pub mod admin_invitations;
@@ -352,6 +353,8 @@ pub fn router(state: AppState) -> Router {
             "/workspaces/{ws}/api-keys/{id}",
             delete(admin_api_keys::revoke),
         )
+        .route("/audit-log", get(admin_audit::instance))
+        .route("/workspaces/{ws}/audit-log", get(admin_audit::workspace))
         .route(
             "/workspaces/{ws}/webhooks",
             get(admin_webhooks::list).post(admin_webhooks::create),
