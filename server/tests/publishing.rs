@@ -239,3 +239,171 @@ async fn publishing_versions_and_url_history() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn publish_check_reports_what_publishing_would_record() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        assert_eq!(
+            deploy(&server, &token, "blog", &blog_manifest(), "")
+                .await
+                .status,
+            200
+        );
+        let ws = workspace_with_template(&server, &root, "A", "blog").await;
+        create_user(&server.pool, "editor@example.test", false).await;
+        add_member(&server, ws, "editor@example.test", "editor").await;
+        let editor = login(&server, "editor@example.test", PASSWORD).await;
+        let outsider = {
+            create_user(&server.pool, "other@example.test", false).await;
+            login(&server, "other@example.test", PASSWORD).await
+        };
+        let entries = format!("/api/admin/workspaces/{ws}/entries");
+
+        // 公開前: 必須の欠け、代替テキストのない画像、URLなし、比べる版なし
+        let body = doc(vec![
+            para("導入"),
+            image(json!({"mediaId": Uuid::new_v4().to_string()})),
+        ]);
+        let create =
+            json!({"contentType": "post", "fields": {"title": "記事", "body": body}}).to_string();
+        let id = parse(&send(&server, "POST", &entries, &editor, Some(&create)).await)["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let entry = format!("{entries}/{id}");
+        let check_path = format!("{entry}/publish-check");
+        assert_eq!(get(&server, &check_path, &outsider).await.status, 404);
+        let c = parse(&get(&server, &check_path, &editor).await);
+        assert_eq!(c["revision"], revision(&server, &entry, &editor).await);
+        assert_eq!(c["problems"], json!(["fields.slug: required to publish"]));
+        assert_eq!(c["imagesMissingAlt"], json!(["fields.body.content[1]"]));
+        assert!(c["url"].is_null());
+        assert_eq!(
+            (c["published"].as_bool(), c["canCorrect"].as_bool()),
+            (Some(false), Some(false))
+        );
+        assert!(c["sections"].is_null());
+
+        // 公開する
+        let body = doc(vec![
+            para("導入"),
+            heading("価格", "price"),
+            para("月額 1000 円"),
+            heading("説明", "about"),
+            para("良い"),
+        ]);
+        let rev = revision(&server, &entry, &editor).await;
+        let save = json!({"revision": rev, "fields": {"slug": "first", "body": body}}).to_string();
+        assert_eq!(
+            send(
+                &server,
+                "PUT",
+                &format!("{entry}/draft"),
+                &editor,
+                Some(&save)
+            )
+            .await
+            .status,
+            200
+        );
+        let c = parse(&get(&server, &check_path, &editor).await);
+        assert_eq!(c["problems"], json!([]));
+        assert_eq!(c["url"], format!("{URL_BASE}/first"));
+        let publish = json!({"revision": c["revision"]}).to_string();
+        assert_eq!(
+            send(
+                &server,
+                "POST",
+                &format!("{entry}/publish"),
+                &editor,
+                Some(&publish)
+            )
+            .await
+            .status,
+            200
+        );
+
+        // 下書きを直す: 価格の数値が変わる（ヒントあり）、説明は文だけ、新しいセクション、スラッグの変更
+        let body = doc(vec![
+            para("導入"),
+            heading("価格", "price"),
+            para("月額 1200 円"),
+            heading("説明", "about"),
+            para("とても良い"),
+            heading("追記", "added"),
+            para("追加"),
+        ]);
+        let rev = revision(&server, &entry, &editor).await;
+        let save =
+            json!({"revision": rev, "fields": {"slug": "renamed", "body": body}}).to_string();
+        assert_eq!(
+            send(
+                &server,
+                "PUT",
+                &format!("{entry}/draft"),
+                &editor,
+                Some(&save)
+            )
+            .await
+            .status,
+            200
+        );
+        let c = parse(&get(&server, &check_path, &editor).await);
+        assert_eq!(
+            (c["published"].as_bool(), c["canCorrect"].as_bool()),
+            (Some(true), Some(true))
+        );
+        assert_eq!(c["comparedWith"], 1);
+        assert_eq!(c["url"], format!("{URL_BASE}/renamed"));
+        assert_eq!(c["previousUrl"], format!("{URL_BASE}/first"));
+        assert_eq!(c["urlTaken"], false);
+        let sections: Vec<(String, String, bool)> = c["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                (
+                    s["anchor"].as_str().unwrap().to_owned(),
+                    s["kind"].as_str().unwrap().to_owned(),
+                    s["numbersOrLinksChanged"].as_bool().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            sections,
+            [
+                ("price".into(), "changed".into(), true),
+                ("about".into(), "changed".into(), false),
+                ("added".into(), "added".into(), false)
+            ]
+        );
+        assert_eq!(c["sections"][0]["title"], "価格");
+
+        // 訂正として公開すると、確認画面と同じセクションが版に記録される
+        let publish = json!({"revision": c["revision"], "correction": true}).to_string();
+        let res = send(
+            &server,
+            "POST",
+            &format!("{entry}/publish"),
+            &editor,
+            Some(&publish),
+        )
+        .await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        let versions = parse(&get(&server, &format!("{entry}/versions"), &editor).await);
+        let mut recorded: Vec<String> = versions[1]["affectedAnchors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_owned())
+            .collect();
+        recorded.sort();
+        let mut shown: Vec<String> = sections.into_iter().map(|(a, _, _)| a).collect();
+        shown.sort();
+        assert_eq!(recorded, shown);
+        assert_eq!(versions[1]["affectsLead"], false);
+    })
+    .await;
+}

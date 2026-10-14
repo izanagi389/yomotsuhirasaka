@@ -70,19 +70,17 @@ async fn lock(
     .await?)
 }
 
-fn rich_texts<'a>(ct: &ContentType, values: &'a Map<String, Value>) -> Vec<&'a Value> {
-    ct.fields
-        .iter()
-        .filter(|f| f.kind == FieldType::Richtext)
-        .filter_map(|f| values.get(&f.name))
-        .filter(|v| v.is_object())
+fn rich_texts<'a>(ct: &'a ContentType, values: &'a Map<String, Value>) -> Vec<&'a Value> {
+    rich_text_fields(ct, values)
+        .into_iter()
+        .map(|(_, v)| v)
         .collect()
 }
 
-/// 下書きが公開できる状態か確かめる（いまのスキーマでの検査、必須、代替テキスト）。
-fn check(manifest: &Manifest, ct: &ContentType, draft: &Draft) -> Result<(), Refused> {
+/// 下書きをいまのスキーマで検査した問題（スキーマに合わない、または公開に必須のフィールドが空）。
+fn problems(manifest: &Manifest, ct: &ContentType, draft: &Draft) -> Vec<String> {
     if let Err(problems) = fields::convert_all(manifest, ct, &draft.fields) {
-        return Err(Refused::Invalid(problems));
+        return problems;
     }
     let mut problems = Vec::new();
     for f in &ct.fields {
@@ -97,9 +95,11 @@ fn check(manifest: &Manifest, ct: &ContentType, draft: &Draft) -> Result<(), Ref
             problems.push(format!("fields.{}: required to publish", f.name));
         }
     }
-    if !problems.is_empty() {
-        return Err(Refused::Invalid(problems));
-    }
+    problems
+}
+
+/// 代替テキストも「装飾画像」の印もない画像の場所（`fields.<名前>.content[..]`）。
+fn missing_alt(ct: &ContentType, draft: &Draft) -> Vec<String> {
     let mut missing = Vec::new();
     for f in ct.fields.iter().filter(|f| f.kind == FieldType::Richtext) {
         if let Some(doc) = draft.fields.get(&f.name).filter(|v| v.is_object()) {
@@ -110,10 +110,170 @@ fn check(manifest: &Manifest, ct: &ContentType, draft: &Draft) -> Result<(), Ref
             );
         }
     }
+    missing
+}
+
+/// 下書きが公開できる状態か確かめる（いまのスキーマでの検査、必須、代替テキスト）。
+fn check(manifest: &Manifest, ct: &ContentType, draft: &Draft) -> Result<(), Refused> {
+    let problems = problems(manifest, ct, draft);
+    if !problems.is_empty() {
+        return Err(Refused::Invalid(problems));
+    }
+    let missing = missing_alt(ct, draft);
     if !missing.is_empty() {
         return Err(Refused::AltTextMissing(missing));
     }
     Ok(())
+}
+
+/// 公開URL（スラッグのフィールドが空なら None）。
+fn url_of(ct: &ContentType, draft: &Draft) -> Option<String> {
+    let slug = ct
+        .fields
+        .iter()
+        .find(|f| f.kind == FieldType::Slug)
+        .and_then(|f| draft.fields.get(&f.name))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())?;
+    Some(public_url(&ct.url_template, &draft.locale, slug))
+}
+
+/// いちばん新しい版の番号と、本文（抹消していれば None）。
+async fn latest_version(
+    conn: &mut PgConnection,
+    entry_id: Uuid,
+) -> Result<Option<(i32, Option<Value>)>> {
+    let latest: Option<(i32, Option<String>)> = sqlx::query_as(
+        "SELECT number, fields::text FROM versions WHERE entry_id = $1 ORDER BY number DESC LIMIT 1",
+    )
+    .bind(entry_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(match latest {
+        Some((n, Some(text))) => Some((n, Some(serde_json::from_str(&text)?))),
+        Some((n, None)) => Some((n, None)),
+        None => None,
+    })
+}
+
+async fn url_taken(conn: &mut PgConnection, url: &str, entry_id: Uuid) -> Result<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM entries WHERE url = $1 AND published_version_id IS NOT NULL AND id <> $2)",
+    )
+    .bind(url)
+    .bind(entry_id)
+    .fetch_one(conn)
+    .await?)
+}
+
+/// 本文のフィールドの名前と値（フィールドの順。値が本文でないものは除く）。
+fn rich_text_fields<'a>(
+    ct: &'a ContentType,
+    values: &'a Map<String, Value>,
+) -> Vec<(&'a str, &'a Value)> {
+    ct.fields
+        .iter()
+        .filter(|f| f.kind == FieldType::Richtext)
+        .filter_map(|f| values.get(&f.name).map(|v| (f.name.as_str(), v)))
+        .filter(|(_, v)| v.is_object())
+        .collect()
+}
+
+/// 公開の確認画面の1行（変わったセクション）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckedSection {
+    /// 導入のときの本文のフィールドの名前。
+    pub field: Option<String>,
+    #[serde(flatten)]
+    pub change: sections::SectionChange,
+}
+
+/// 公開の確認画面に出す情報（何も書き換えない。Q68, Q75）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishCheck {
+    /// 検査した下書きのリビジョン番号（公開のときにそのまま送る）。
+    pub revision: i64,
+    /// いま公開中か。
+    pub published: bool,
+    /// 訂正として公開できるか（前に一度でも公開したか）。
+    pub can_correct: bool,
+    /// 公開を止める問題（スキーマに合わない、必須のフィールドが空）。
+    pub problems: Vec<String>,
+    /// 代替テキストも「装飾画像」の印もない画像の場所。
+    pub images_missing_alt: Vec<String>,
+    /// 公開したときのURL（スラッグが空なら None）。
+    pub url: Option<String>,
+    /// URLが変わるときの、いまのURL。
+    pub previous_url: Option<String>,
+    /// 公開中の別の記事が同じURLを使っているか。
+    pub url_taken: bool,
+    /// 比べた版の番号（いちばん新しい版）。
+    pub compared_with: Option<i32>,
+    /// 前の版から変わったセクション。前の版がない、または本文を抹消していれば None。
+    pub sections: Option<Vec<CheckedSection>>,
+}
+
+/// 公開の前の確認（公開と同じ判定を、書き込まずに行う）。記事がなければ None。
+pub async fn check_before_publish(
+    conn: &mut PgConnection,
+    manifest: &Manifest,
+    entry_id: Uuid,
+) -> Result<Option<PublishCheck>> {
+    let row: Option<(i64, Option<Uuid>, Option<String>)> = sqlx::query_as(
+        "SELECT draft_revision, published_version_id, url FROM entries WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(entry_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((revision, current, previous_url)) = row else {
+        return Ok(None);
+    };
+    let Some(draft) = entries::draft(conn, manifest, entry_id).await? else {
+        return Ok(None);
+    };
+    let Some(ct) = manifest.content_type(&draft.content_type) else {
+        return Ok(None);
+    };
+    let latest = latest_version(conn, entry_id).await?;
+    let url = url_of(ct, &draft);
+    let url_taken = match &url {
+        Some(u) => url_taken(conn, u, entry_id).await?,
+        None => false,
+    };
+    let sections = match &latest {
+        Some((_, Some(Value::Object(before)))) => {
+            let before = rich_text_fields(ct, before);
+            let after = rich_text_fields(ct, &draft.fields);
+            let before_docs: Vec<&Value> = before.iter().map(|(_, v)| *v).collect();
+            let after_docs: Vec<&Value> = after.iter().map(|(_, v)| *v).collect();
+            Some(
+                sections::compare(&before_docs, &after_docs)
+                    .into_iter()
+                    .map(|change| CheckedSection {
+                        field: change.lead_of.and_then(|i| {
+                            after.get(i).or(before.get(i)).map(|(n, _)| (*n).to_owned())
+                        }),
+                        change,
+                    })
+                    .collect(),
+            )
+        }
+        _ => None,
+    };
+    Ok(Some(PublishCheck {
+        revision,
+        published: current.is_some(),
+        can_correct: latest.is_some(),
+        problems: problems(manifest, ct, &draft),
+        images_missing_alt: missing_alt(ct, &draft),
+        previous_url: previous_url.filter(|p| url.as_ref().is_some_and(|u| u != p)),
+        url,
+        url_taken,
+        compared_with: latest.as_ref().map(|(n, _)| *n),
+        sections,
+    }))
 }
 
 /// 下書きを公開する。
@@ -133,17 +293,7 @@ pub async fn publish(
     if revision != expected_revision {
         return Ok(Err(Refused::RevisionConflict));
     }
-    let latest: Option<(i32, Option<String>)> = sqlx::query_as(
-        "SELECT number, fields::text FROM versions WHERE entry_id = $1 ORDER BY number DESC LIMIT 1",
-    )
-    .bind(entry_id)
-    .fetch_optional(&mut *conn)
-    .await?;
-    let latest: Option<(i32, Option<Value>)> = match latest {
-        Some((n, Some(text))) => Some((n, Some(serde_json::from_str(&text)?))),
-        Some((n, None)) => Some((n, None)),
-        None => None,
-    };
+    let latest = latest_version(conn, entry_id).await?;
     if correction && latest.is_none() {
         return Ok(Err(Refused::NothingToCorrect));
     }
@@ -156,22 +306,9 @@ pub async fn publish(
     if let Err(r) = check(manifest, ct, &draft) {
         return Ok(Err(r));
     }
-    let slug = ct
-        .fields
-        .iter()
-        .find(|f| f.kind == FieldType::Slug)
-        .and_then(|f| draft.fields.get(&f.name))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let url = public_url(&ct.url_template, &draft.locale, slug);
-    let taken: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM entries WHERE url = $1 AND published_version_id IS NOT NULL AND id <> $2)",
-    )
-    .bind(&url)
-    .bind(entry_id)
-    .fetch_one(&mut *conn)
-    .await?;
-    if taken {
+    // スラッグは公開に必須なので、check を通っていれば空でない
+    let url = url_of(ct, &draft).unwrap_or_default();
+    if url_taken(conn, &url, entry_id).await? {
         return Ok(Err(Refused::UrlTaken));
     }
 
