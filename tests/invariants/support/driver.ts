@@ -659,7 +659,20 @@ export const driver = {
   },
 
   /** 監査ログの操作の種類の名前。 */
-  auditActions: (): Record<AuditActionKind, string> => todo("auditActions"),
+  // 名前は server/src/audit.rs の action に合わせる
+  auditActions: (): Record<AuditActionKind, string> => ({
+    login: "auth.login",
+    roleChanged: "member.role_changed",
+    apiKeyIssued: "api_key.issued",
+    apiKeyRevoked: "api_key.revoked",
+    personalTokenIssued: "personal_token.issued",
+    personalTokenRevoked: "personal_token.revoked",
+    correctionPublished: "entry.published_as_correction",
+    versionErased: "version.erased",
+    passwordResetIssued: "password_reset.issued",
+    mfaResetIssued: "mfa_reset.issued",
+    schemaDeployed: "template.deployed",
+  }),
 
   /** テスト環境のメールの受け口（SMTPの受け手）。 */
   mail: {

@@ -319,6 +319,18 @@ async fn issue_reset(
         Kind::Mfa => action::MFA_RESET_ISSUED,
     };
     audit::record(&mut *tx, workspace, Some(current.user_id), what, &[target]).await?;
+    // サーバー管理者がインスタンスの操作として発行したときも、対象が所属するワークスペースの監査ログに残す（Q122、INV-AUD-05）
+    if workspace.is_none() {
+        let member_of: Vec<Uuid> =
+            sqlx::query_scalar("SELECT workspace_id FROM cms.memberships WHERE user_id = $1")
+                .bind(target)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(anyhow::Error::from)?;
+        for ws in member_of {
+            audit::record(&mut *tx, Some(ws), Some(current.user_id), what, &[target]).await?;
+        }
+    }
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok((
         StatusCode::CREATED,

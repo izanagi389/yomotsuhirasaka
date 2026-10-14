@@ -3,7 +3,8 @@
 //! 記録するのは、操作の種類・操作した人・対象のIDだけ。記事の本文や質問文などの内容は書かない（INV-AUD-01）。
 
 use anyhow::Result;
-use sqlx::PgExecutor;
+use serde::Serialize;
+use sqlx::{PgExecutor, PgPool};
 use uuid::Uuid;
 
 /// 操作の種類。名前は外部への書き出し（M2）でもそのまま使うので、変えない。
@@ -78,4 +79,77 @@ pub async fn record<'e>(
     .execute(executor)
     .await?;
     Ok(())
+}
+
+/// 読む範囲（11-permissions-and-audit.md「閲覧の範囲」）。
+#[derive(Debug, Clone, Copy)]
+pub enum Scope {
+    /// 1つのワークスペースの記録（そのワークスペースの管理者とサーバー管理者が読む）。
+    Workspace(Uuid),
+    /// インスタンス全体の記録（サーバー管理者だけが読む）。
+    Instance,
+}
+
+/// 読み出した1件。記録した値だけを返す（内容は記録していない。INV-AUD-01）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Entry {
+    pub id: Uuid,
+    pub workspace_id: Option<Uuid>,
+    pub actor_user_id: Option<Uuid>,
+    pub action: String,
+    pub target_ids: Vec<String>,
+    pub created_at: String,
+}
+
+type Row = (
+    Uuid,
+    Option<Uuid>,
+    Option<Uuid>,
+    String,
+    Vec<String>,
+    String,
+);
+
+/// 新しい順に読む。`before` を渡すと、その記録より古いものから読む（同じ範囲の記録のIDに限る）。
+/// 範囲の外の `before` は、範囲の中に無いのと同じに扱う（何も返さない）。
+pub async fn list(
+    pool: &PgPool,
+    scope: Scope,
+    before: Option<Uuid>,
+    limit: i64,
+) -> Result<Vec<Entry>> {
+    let workspace = match scope {
+        Scope::Workspace(ws) => Some(ws),
+        Scope::Instance => None,
+    };
+    let rows: Vec<Row> = sqlx::query_as(
+        r#"SELECT a.id, a.workspace_id, a.actor_user_id, a.action, a.target_ids,
+                  to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+           FROM cms.audit_log a
+           WHERE a.workspace_id IS NOT DISTINCT FROM $1
+             AND ($2::uuid IS NULL OR (a.created_at, a.id) < (
+                   SELECT b.created_at, b.id FROM cms.audit_log b
+                   WHERE b.id = $2 AND b.workspace_id IS NOT DISTINCT FROM $1))
+           ORDER BY a.created_at DESC, a.id DESC
+           LIMIT $3"#,
+    )
+    .bind(workspace)
+    .bind(before)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(id, workspace_id, actor_user_id, action, target_ids, created_at)| Entry {
+                id,
+                workspace_id,
+                actor_user_id,
+                action,
+                target_ids,
+                created_at,
+            },
+        )
+        .collect())
 }
