@@ -250,6 +250,10 @@ pub fn router(state: AppState) -> Router {
             post(admin_publishing::unpublish),
         )
         .route(
+            "/workspaces/{ws}/entries/{id}/publish-settings",
+            get(admin_publishing::get_settings).patch(admin_publishing::change_settings),
+        )
+        .route(
             "/workspaces/{ws}/entries/{id}/versions",
             get(admin_publishing::versions),
         )

@@ -5,6 +5,8 @@
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/publish | 公開する（`{revision, correction?}`） |
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/unpublish | 非公開にする |
 //! | DELETE | /api/admin/workspaces/{ws}/entries/{id} | 削除する |
+//! | GET | /api/admin/workspaces/{ws}/entries/{id}/publish-settings | 公開設定のスイッチ |
+//! | PATCH | /api/admin/workspaces/{ws}/entries/{id}/publish-settings | 公開設定のスイッチを変える（送った項目だけ） |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/versions | 版の一覧（古い順） |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/versions/{vid} | 版（抹消した版は本文なし） |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/url-history | 公開URLの変更履歴 |
@@ -17,6 +19,8 @@
 //!   行ったときに残す（Q122）。
 //! - 版の本文の抹消は、管理者とサーバー管理者だけで、再認証を求め、必ず監査ログに残す（Q134）。現在公開中の版は抹消できない。
 //! - 版とURLの変更履歴を読むのは、下書きと同じく所属者全員とサーバー管理者。
+//! - 公開設定のスイッチ（Q184）を変えられるのは、公開できる人（管理者・編集者とサーバー管理者）。M1では保存と
+//!   変更のWebhookだけで、効果はM2以降。読むのは所属者全員とサーバー管理者。
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -32,6 +36,7 @@ use crate::access::{self, Access, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
 use crate::content::publishing::{self, Published, Refused, UrlChange, VersionDetail, VersionInfo};
+use crate::content::settings::{self, PublishSettings};
 use crate::webhooks::{self, EntryEvent, EntryRef};
 use crate::workspace_db;
 
@@ -374,4 +379,56 @@ pub async fn erase(
     )
     .await?;
     Ok(Json(erased))
+}
+
+pub async fn get_settings(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+) -> Result<Json<PublishSettings>, ApiError> {
+    let (ws, id) = (parse(&ws)?, parse(&id)?);
+    reader(&state, &current, ws).await?;
+    let db = db(&state, ws).await?;
+    let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let out = settings::get(&mut tx, id)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    Ok(Json(out))
+}
+
+pub async fn change_settings(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+    JsonBody(req): JsonBody<settings::Change>,
+) -> Result<Json<PublishSettings>, ApiError> {
+    let (ws, id) = (parse(&ws)?, parse(&id)?);
+    let access = publisher(&state, &current, ws).await?;
+    if req.is_empty() {
+        return Err(ApiError::bad_request(
+            "Send at least one of `useForChatbot`, `includeInAiMaterials` and `optOutOfAiTraining`.",
+        ));
+    }
+    let db = db(&state, ws).await?;
+    let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let (after, changed) = settings::change(&mut tx, id, req)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let entry = webhooks::entry_ref(&mut tx, id).await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    if changed {
+        notify_webhooks(&state, ws, &[EntryEvent::SettingsChanged], entry).await;
+        audit_if(
+            &state,
+            false,
+            &access,
+            &current,
+            ws,
+            action::ENTRY_SETTINGS_CHANGED,
+            id,
+        )
+        .await?;
+    }
+    Ok(Json(after))
 }
