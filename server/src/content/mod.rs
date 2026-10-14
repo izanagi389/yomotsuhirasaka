@@ -6,6 +6,7 @@ pub mod erase;
 pub mod fields;
 pub mod publishing;
 pub mod sections;
+pub mod settings;
 pub mod translations;
 
 use anyhow::{Context, Result};

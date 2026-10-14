@@ -191,3 +191,56 @@ async fn webhooks_are_signed_and_carry_no_content() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn publish_settings_are_saved_and_announced() {
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.egress.internal_destination_exceptions = vec!["127.0.0.1".to_owned()];
+        let server = start(cfg).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        assert_eq!(deploy(&server, &token, "blog", &blog_manifest(), "").await.status, 200);
+        let ws = workspace_with_template(&server, &root, "A", "blog").await;
+        for (email, role) in [("editor@example.test", "editor"), ("author@example.test", "author")] {
+            create_user(&server.pool, email, false).await;
+            add_member(&server, ws, email, role).await;
+        }
+        let editor = login(&server, "editor@example.test", PASSWORD).await;
+        let author = login(&server, "author@example.test", PASSWORD).await;
+        let (port, seen) = receiver().await;
+        let hooks = format!("/api/admin/workspaces/{ws}/webhooks");
+        let res = send(&server, "POST", &hooks, &root, Some(&json!({"url": format!("http://127.0.0.1:{port}/s")}).to_string())).await;
+        assert_eq!(res.status, 201, "{}", res.body);
+
+        let entries = format!("/api/admin/workspaces/{ws}/entries");
+        let create = json!({"contentType": "post", "fields": {"title": "t", "slug": "s"}}).to_string();
+        let id = send(&server, "POST", &entries, &editor, Some(&create)).await.json_str("id").unwrap();
+        let path = format!("{entries}/{id}/publish-settings");
+
+        // 既定値。読むのは所属者全員
+        let res = get(&server, &path, &author).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        assert_eq!(parse(&res), json!({"useForChatbot": true, "includeInAiMaterials": true, "optOutOfAiTraining": false}));
+        // 変えられるのは公開できる人（執筆者はできない）
+        let change = json!({"includeInAiMaterials": false, "optOutOfAiTraining": true}).to_string();
+        assert_eq!(send(&server, "PATCH", &path, &author, Some(&change)).await.status, 403);
+        assert_eq!(send(&server, "PATCH", &path, &editor, Some("{}")).await.status, 400);
+        assert_eq!(send(&server, "PATCH", &path, &editor, Some("{\"unknown\":true}")).await.status, 400);
+        let res = send(&server, "PATCH", &path, &editor, Some(&change)).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        assert_eq!(parse(&res), json!({"useForChatbot": true, "includeInAiMaterials": false, "optOutOfAiTraining": true}));
+        assert_eq!(parse(&get(&server, &path, &editor).await)["optOutOfAiTraining"], true);
+        // 同じ値をもう一度送っても、イベントは増えない
+        assert_eq!(send(&server, "PATCH", &path, &editor, Some(&change)).await.status, 200);
+        while worker::run_once(&server.state).await.unwrap() {}
+        let got = seen.lock().unwrap().clone();
+        assert_eq!(got.len(), 1, "{got:?}");
+        let (_, payload) = split(&got[0]);
+        let v: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(v["type"], "entry.settings_changed");
+        assert_eq!(v["entryId"], id);
+        // 公開していない記事の公開URLは送らない
+        assert!(v.get("url").is_none(), "{v}");
+    })
+    .await;
+}

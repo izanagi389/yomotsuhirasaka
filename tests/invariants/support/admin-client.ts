@@ -269,6 +269,17 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const urlHistoryRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("GET", `${entriesPath(workspaceId)}/${entryId}/url-history`, { auth, extras });
 
+  // --- 公開設定のスイッチ（server/src/content/settings.rs） ---
+  const settingsPath = (workspaceId: string, entryId: string) => `${entriesPath(workspaceId)}/${entryId}/publish-settings`;
+  const getPublishSettingsRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", settingsPath(workspaceId, entryId), { auth, extras });
+  /** 同じ認証で今の値を読み、「外部AI向けの素材に含める」を反対にする（読めなければ、今の値を含める側と仮定する）。 */
+  const togglePublishSettingsRaw = async (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> => {
+    const current = await getPublishSettingsRaw(auth, workspaceId, entryId, extras);
+    const include = isSuccess(current) ? (JSON.parse(current.text) as { includeInAiMaterials?: unknown }).includeInAiMaterials !== false : true;
+    return request("PATCH", settingsPath(workspaceId, entryId), { auth, extras, body: { includeInAiMaterials: !include } });
+  };
+
   // --- 版の本文の抹消 ---
   const eraseCandidatesRaw = (auth: Auth, workspaceId: string, entryId: string, versionId: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("GET", `${entriesPath(workspaceId)}/${entryId}/versions/${versionId}/erase-candidates`, { auth, extras });
@@ -377,6 +388,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("unpublishEntry", true, "workspace", (auth, t, extras) => unpublishRaw(auth, t.workspaceId, t.entryId, extras)),
     // 対象は存在しない記事（舞台の記事を壊さないため）
     op("deleteEntry", true, "workspace", (auth, t, extras) => deleteEntryRaw(auth, t.workspaceId, randomUUID(), extras)),
+    op("getPublishSettings", false, "workspace", (auth, t, extras) => getPublishSettingsRaw(auth, t.workspaceId, t.entryId, extras)),
+    op("changePublishSettings", true, "workspace", (auth, t, extras) => togglePublishSettingsRaw(auth, t.workspaceId, t.entryId, extras)),
     op("listEntryVersions", false, "workspace", (auth, t, extras) => versionsRaw(auth, t.workspaceId, t.entryId, extras)),
     // 同じ認証で版の一覧を読み、最新の版を読む（読めなければ、存在しない版を読む）
     op("getEntryVersion", false, "workspace", async (auth, t, extras) => {
@@ -562,6 +575,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     async deleteEntry(s: Session, workspaceId: string, entryId: string): Promise<void> {
       ensure("記事の削除", await deleteEntryRaw(session(s), workspaceId, entryId));
+    },
+    async changePublishSettings(s: Session, workspaceId: string, entryId: string): Promise<void> {
+      ensure("公開設定の変更", await togglePublishSettingsRaw(session(s), workspaceId, entryId));
     },
     async listVersions(s: Session, workspaceId: string, entryId: string): Promise<VersionInfo[]> {
       const res = ensure("版の一覧", await versionsRaw(session(s), workspaceId, entryId));
