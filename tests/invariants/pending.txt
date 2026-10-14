@@ -8,100 +8,39 @@
 # --- M1: テストは書き終えている（実装待ち） ---
 
 inv_auth_01
-inv_auth_02
 inv_auth_03
-inv_auth_04
 inv_auth_05
-inv_auth_06
 inv_auth_07
-inv_auth_08
-inv_auth_09
-inv_auth_10
-inv_auth_21
 inv_auth_22
 inv_auth_23
-inv_auth_24
 inv_auth_25
-inv_auth_11
-inv_auth_12
 inv_auth_13
-inv_auth_14
-inv_auth_15
-inv_auth_16
-inv_auth_17
-inv_auth_18
 inv_auth_19
-inv_auth_20
 
 inv_hdr_01
-inv_hdr_02
 
 inv_cfg_02
-inv_cfg_03
 
-inv_logs_01
 
-inv_ten_01
 inv_ten_02
-inv_ten_03
 inv_ten_04
-inv_ten_05
-inv_ten_06
 
-inv_api_01
 inv_api_02
 
-inv_db_01
-inv_db_02
-inv_db_03
-inv_db_04
 
 inv_key_01
 inv_key_03
-inv_key_04
 
-inv_gql_01
-inv_gql_02
-inv_gql_03
-inv_gql_04
-inv_gql_05
-inv_gql_06
-inv_gql_07
-inv_gql_08
 
-inv_pub_01
-inv_pub_02
-inv_pub_03
 inv_pub_04
-inv_pub_05
-inv_pub_06
 
-inv_loc_01
-inv_loc_03
-inv_loc_04
 inv_loc_05
 
-inv_edit_01
 
-inv_anc_01
-inv_anc_02
 
-inv_val_01
-inv_val_02
-inv_val_03
-inv_val_04
 
-inv_url_01
 
-inv_cor_01
 
-inv_sch_01
-inv_sch_02
-inv_sch_03
-inv_sch_04
-inv_sch_05
-inv_sch_06
-inv_sch_07
 
 inv_wh_01
 inv_wh_02
@@ -111,22 +50,14 @@ inv_wh_05
 inv_wh_06
 inv_wh_07
 
-inv_med_01
-inv_med_02
-inv_med_03
 inv_med_04
-inv_med_05
-inv_med_06
 
 inv_perm_01
 
-inv_img_01
 
 inv_aud_01
 inv_aud_02
 inv_aud_04
-inv_aud_06
-inv_aud_07
 inv_aud_05
 
 inv_imp_01

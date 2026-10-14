@@ -20,6 +20,7 @@ mkdir -p "$OUT/fs"
 rm -f "$OUT/config.toml" "$OUT/encryption.key" "$OUT/test.env"
 
 host_port() { python3 -c 'import sys,urllib.parse as u; p=u.urlsplit(sys.argv[1]); print(f"{p.hostname}:{p.port or 5432}")' "$1"; }
+with_database() { python3 -c 'import sys,urllib.parse as u; p=u.urlsplit(sys.argv[1]); print(u.urlunsplit(p._replace(path="/"+sys.argv[2])))' "$1" "$2"; }
 random_pw() { python3 -c 'import secrets; print(secrets.token_urlsafe(24))'; }
 
 # ロールとDBを作り直す。パスワードは標準入力で渡し、コマンドの引数に載せない。
@@ -68,7 +69,8 @@ create_roles "$PG16_URL" "$APP_PW" "$MIG_PW"
   echo "export CMS_TEST_SERVER_MIGRATION_DB_URL='postgres://cms_migrate@${HP16}/cms'"
   echo "export CMS_TEST_SERVER_MIGRATION_DB_PASSWORD='$MIG_PW'"
   echo "export CMS_TEST_PUBLIC_URL='https://cms.inv.test'"
-  echo "export CMS_TEST_DB_SUPERUSER_URL='${PG16_URL}'"
+  # スーパーユーザーの接続先は、CMSのDB（cms）にする（テーブルの一覧や権限を調べるため）
+  echo "export CMS_TEST_DB_SUPERUSER_URL='$(with_database "$PG16_URL" cms)'"
   echo "export CMS_TEST_DB_APP_URL='postgres://cms_app:${APP_PW}@${HP16}/cms'"
   # CMSが書くファイル（メディアなど）の置き場所。テストは、この下に想定外のファイルができていないかを調べる
   echo "export CMS_TEST_FS_ROOT='$OUT/fs'"

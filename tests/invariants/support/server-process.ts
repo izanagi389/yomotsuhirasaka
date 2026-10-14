@@ -74,6 +74,10 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (config.encryptionKeyFile !== null) lines.push(`encryption_key_file = ${tomlString(config.encryptionKeyFile)}`);
   lines.push("", "[database]", `url = ${tomlString(db.url)}`, `password = ${tomlString(db.password)}`);
   lines.push("", "[migration_database]", `url = ${tomlString(migration.url)}`, `password = ${tomlString(migration.password)}`);
+  if (config.loginAttemptsPerIpPerMinute !== undefined) lines.push("", "[limits]", `login_attempts_per_ip_per_minute = ${config.loginAttemptsPerIpPerMinute}`);
+  // メールの送信: テスト環境の準備が起動したSMTPの受け手（ループバックなので暗号化なし）
+  const smtpPort = process.env["CMS_TEST_SMTP_PORT"];
+  if (smtpPort) lines.push("", "[smtp]", `host = "127.0.0.1"`, `port = ${Number(smtpPort)}`, `security = "none"`, `from = "CMS <cms@inv.test>"`);
   // メディアの保存先: テストが調べるファイルシステムの範囲（CMS_TEST_FS_ROOT）の中に置く
   lines.push("", "[media]", `root = ${tomlString(join(process.env["CMS_TEST_FS_ROOT"] ?? tmpdir(), "media"))}`);
   const session: string[] = [];

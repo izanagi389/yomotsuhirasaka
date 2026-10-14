@@ -9,5 +9,7 @@ export default defineConfig({
     fileParallelism: false,
     testTimeout: 60_000,
     hookTimeout: 120_000,
+    // 舞台のCMSが渡されていなければ、テスト環境の設定で起動する（support/global-setup.ts）
+    globalSetup: ["./support/global-setup.ts"],
   },
 });

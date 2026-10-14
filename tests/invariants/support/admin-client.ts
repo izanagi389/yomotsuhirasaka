@@ -3,13 +3,17 @@
 //
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AdminOperation, ApiKeyScope, Auth, CmsClient, Credentials, Draft, EntryInput, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
 import { totp } from "./totp.js";
 import { toManifest } from "./manifest.js";
+import { runServerCli, validServerConfigFromEnv } from "./server-process.js";
 import { BASE_TEMPLATE, cloneTemplate, postType, type TemplateSpec } from "./template.js";
 
 /** セッションのCookieの名前以外の、管理APIの細部。 */
@@ -92,13 +96,26 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
    * 秘密ごとに使った区切りを覚え、前後1区切りの中でまだ使っていないものを使う（なければ次の区切りまで待つ）。
    */
   const usedSteps = new Map<string, number>();
+  // 同じ時間の区切りのコードは一度しか使えない（サーバーが再利用を拒む）。テストのファイルごとに別のプロセスになるので、
+  // 使った区切りはプロセスの外（一時ディレクトリのファイル）にも記録し、プロセスをまたいで同じコードを使わないようにする。
+  const stepFile = (secret: string) => join(tmpdir(), `cms-inv-totp-${createHash("sha256").update(secret).digest("hex").slice(0, 16)}`);
+  const lastUsedStep = (secret: string): number => {
+    let fromFile = -Infinity;
+    try {
+      fromFile = Number(readFileSync(stepFile(secret), "utf8")) || -Infinity;
+    } catch {
+      // まだ記録がない
+    }
+    return Math.max(usedSteps.get(secret) ?? -Infinity, fromFile);
+  };
   async function nextTotpCode(secret: string): Promise<string> {
     for (;;) {
       const current = Math.floor(Date.now() / 30_000);
-      const last = usedSteps.get(secret) ?? -Infinity;
+      const last = lastUsedStep(secret);
       const step = [current - 1, current, current + 1].find((s) => s > last);
       if (step !== undefined) {
         usedSteps.set(secret, step);
+        writeFileSync(stepFile(secret), String(step), { mode: 0o600 });
         return totp(secret, new Date(step * 30_000));
       }
       await new Promise((r) => setTimeout(r, (current + 1) * 30_000 - Date.now() + 50));
@@ -167,7 +184,14 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     return request("POST", `${ADMIN}/session/reauth`, { auth: session(s), body: method });
   }
 
+  /** 再認証がまだ十分に有効なら、改めて行わない（多要素認証のコードは30秒に1つしか使えないため）。 */
+  const REAUTH_MARGIN_SECONDS = 120;
   async function reauthenticate(s: Session, creds: Credentials): Promise<void> {
+    const me = await meRaw(session(s));
+    if (isSuccess(me)) {
+      const { reauthSecondsLeft } = JSON.parse(me.text) as { reauthSecondsLeft?: unknown };
+      if (typeof reauthSecondsLeft === "number" && reauthSecondsLeft >= REAUTH_MARGIN_SECONDS) return;
+    }
     const method = creds.totpSecret ? { totpCode: await nextTotpCode(creds.totpSecret) } : { password: creds.password };
     ensure("再認証", await reauthenticateRaw(s, method));
   }
@@ -710,6 +734,29 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         member.totpSecret = await implemented.enrollTotp(session, member);
       }
       return member;
+    },
+    // サーバー上のCLI（create-server-admin）で作る。パスワードはCLIが作って一度だけ表示する
+    async createServerAdmin(options: { mfa: boolean }): Promise<Member> {
+      const email = `inv-root-${randomUUID().slice(0, 12)}@inv.test`;
+      const created = await runServerCli(validServerConfigFromEnv(), ["create-server-admin", "--email", email]);
+      const password = created.output.match(/Password \(shown only once\): (\S+)/)?.[1];
+      if (created.exitCode !== 0 || !password) throw new Error(`サーバー管理者を作れない:\n${created.output}`);
+      const adminSession = await loginPasswordOnly({ email, password });
+      const me = ensure("サーバー管理者の情報の取得", await meRaw(session(adminSession)));
+      const { id } = JSON.parse(me.text) as { id?: unknown };
+      if (typeof id !== "string") throw new SetupError("サーバー管理者の情報の読み取り", me);
+      const member: Member = { email, password, userId: id };
+      if (options.mfa) member.totpSecret = await implemented.enrollTotp(adminSession, member);
+      return member;
+    },
+    corsProbeRaw(kind: "adminApi" | "deliveryApi", method: "GET" | "OPTIONS", origin: string, workspaceId: string): Promise<HttpResponse> {
+      const path = kind === "adminApi" ? `${ADMIN}/me` : `/ws/${workspaceId}/graphql`;
+      const headers: Record<string, string> = { Origin: origin };
+      if (method === "OPTIONS") {
+        headers["Access-Control-Request-Method"] = "POST";
+        headers["Access-Control-Request-Headers"] = "authorization, content-type";
+      }
+      return request(method, path, { extras: { headers } });
     },
     async addExistingMember(adminSession: Session, workspaceId: string, member: Member, role: WorkspaceRole): Promise<void> {
       const token = await inviteAndGetToken(adminSession, workspaceId, member.email, role);

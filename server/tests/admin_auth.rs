@@ -565,3 +565,32 @@ async fn locale_can_be_set_and_reset() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn me_reports_remaining_reauth_time() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        create_user(&server.pool, "user@example.test", false).await;
+        let s = login(&server, "user@example.test", PASSWORD).await;
+        let left: i64 = get(&server, "/api/admin/me", &s)
+            .await
+            .body
+            .split("\"reauthSecondsLeft\":")
+            .nth(1)
+            .unwrap()
+            .split(['}', ','])
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(left > 500 && left <= 600, "{left}");
+        expire_reauth(&server.pool, "user@example.test").await;
+        assert!(
+            get(&server, "/api/admin/me", &s)
+                .await
+                .body
+                .contains("\"reauthSecondsLeft\":0")
+        );
+    })
+    .await;
+}
