@@ -597,7 +597,7 @@ export const driver = {
 
   /** 公式のDocker Composeファイルのパス。 */
   officialComposeFile(): string {
-    return todo("officialComposeFile");
+    return fileURLToPath(new URL("../../../deploy/docker-compose.yml", import.meta.url));
   },
 
   /** 本文のCMS固有のノード。 */

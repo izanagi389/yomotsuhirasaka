@@ -94,3 +94,33 @@ jobs:
               run: |
                   . "$RUNNER_TEMP/cms-test/test.env"
                   npm test
+
+    # 公式の Docker Compose（deploy/）で、初期化・起動ができ、DBのポートが外に開いていないことを確かめる
+    compose:
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - name: Initialize
+              working-directory: deploy
+              run: ./init.sh https://cms.example.test
+            - name: Start
+              working-directory: deploy
+              run: docker compose up -d --wait --wait-timeout 600
+            - name: Smoke test
+              working-directory: deploy
+              run: |
+                  for i in $(seq 1 60); do
+                    code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/admin/me || true)"
+                    [ "$code" = 401 ] && break
+                    sleep 2
+                  done
+                  test "$code" = 401
+                  # DBのポートはホストに開いていない
+                  if (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then echo "PostgreSQL is reachable from the host" >&2; exit 1; fi
+                  # 拡張が入っている
+                  docker compose exec -T db psql -U postgres -d cms -Atc "SELECT string_agg(extname, ',' ORDER BY extname) FROM pg_extension" | grep -q 'pg_bigm.*vector'
+                  docker compose exec -T cms cms-server create-server-admin --config /data/config.toml --email ci@example.test
+            - name: Logs
+              if: failure()
+              working-directory: deploy
+              run: docker compose logs
