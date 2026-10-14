@@ -43,6 +43,15 @@ url = "2.5"
 # 配信API（GraphQL）。テンプレートの版ごとに、動的スキーマ機能でスキーマを組み立てる（02-schema-and-delivery-api.md、Q55, Q130）
 async-graphql = { version = "=7.2.1", default-features = false, features = ["dynamic-schema"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+# 外部へのHTTPの送信の共通の仕組み（13-security.md「外部への送信」、Q112, Q128）。
+# 検査したIPアドレスに自分で接続し、その上でHTTP/1.1を送る（リダイレクトはたどらない）。
+# いずれも axum・sqlx・lettre が既に使っている版。暗号の実装は ring（lettre と同じ）
+hyper = { version = "1.12.0", features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+http-body-util = "0.1.5"
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
+webpki-roots = "1.0.9"
 
 [dev-dependencies]
 # テストで、ブラウザと認証器の代わりにパスキーを作って使う

@@ -58,6 +58,8 @@ pub struct Inner {
     pub delivery_limiter: crate::delivery::limiter::Limiter,
     /// パスキーの照合の設定（公開URLから作る。作れなければ起動時の検査で止める）。
     pub passkeys: Option<webauthn_rs::prelude::Webauthn>,
+    /// 外部へのHTTPの送信の共通の仕組み（作れなければ起動時の検査で止める。作れないまま動いた場合は送らない）。
+    pub egress: Option<crate::egress::Egress>,
 }
 
 impl Deref for AppState {
@@ -94,7 +96,11 @@ impl AppState {
         let passkeys = crate::auth::passkeys::relying_party(&config.public_url, &issuer)
             .inspect_err(|e| tracing::error!("passkeys are not available: {e:#}"))
             .ok();
+        let egress = crate::egress::Egress::from_config(&config.egress)
+            .inspect_err(|e| tracing::error!("outbound HTTP is not available: {e:#}"))
+            .ok();
         Self(Arc::new(Inner {
+            egress,
             pool,
             migration,
             app_role,
