@@ -189,6 +189,21 @@ pub fn check_config(config: &Config) -> Report {
             "`login_history.geoip_database` is not usable: {e:#}"
         )));
     }
+    if let Err(e) = crate::egress::Egress::from_config(&config.egress) {
+        report.problems.push(Problem::fatal(format!("{e:#}")));
+    }
+    if config
+        .egress
+        .proxy
+        .as_ref()
+        .is_some_and(|p| p.connect_by == crate::config::ProxyConnectBy::Hostname)
+    {
+        // 検査の後に名前解決の結果が変わる攻撃を防げるかが、プロキシ次第になる（Q128）
+        tracing::warn!(
+            "`egress.proxy.connect_by = \"hostname\"`: the proxy resolves destinations itself; \
+             protection against DNS rebinding now depends on the proxy"
+        );
+    }
     match &config.encryption_key_file {
         None => report
             .problems

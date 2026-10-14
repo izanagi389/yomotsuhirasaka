@@ -57,6 +57,60 @@ pub struct Config {
     /// 配信API（13-security.md「GraphQL」）。
     #[serde(default)]
     pub delivery: DeliveryConfig,
+    /// 外部へのHTTPの送信（13-security.md「外部への送信」）。
+    #[serde(default)]
+    pub egress: EgressConfig,
+}
+
+/// 外部へのHTTPの送信の共通の仕組みの設定（Q95, Q112, Q128, Q139）。
+/// プロキシの環境変数（`HTTP_PROXY` など）は読まない。出口のプロキシは、ここで明示したときだけ使う。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct EgressConfig {
+    /// 例外として送信を許す内部の宛先（ホスト名かIPアドレス）。例外の宛先には、HTTP（HTTPSでない）での送信も許す（Q139）。
+    pub internal_destination_exceptions: Vec<String>,
+    /// 標準の一覧（Mozilla）に加えて信頼する、CAの証明書（PEM）のファイル。社内のCAなど。
+    pub extra_ca_files: Vec<PathBuf>,
+    /// 接続（名前解決したアドレスへのTCPの接続とTLSの確立）の上限の時間（秒）。
+    pub connect_timeout_seconds: u32,
+    /// 1回の送信全体の上限の時間（秒）。
+    pub request_timeout_seconds: u32,
+    /// 出口のプロキシ（Q128）。
+    pub proxy: Option<EgressProxyConfig>,
+}
+
+impl Default for EgressConfig {
+    fn default() -> Self {
+        Self {
+            internal_destination_exceptions: Vec::new(),
+            extra_ca_files: Vec::new(),
+            connect_timeout_seconds: 10,
+            request_timeout_seconds: 30,
+            proxy: None,
+        }
+    }
+}
+
+/// 出口のプロキシ（Q128）。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EgressProxyConfig {
+    /// プロキシのURL（`http://host:port`）。認証情報は書かない（暗号化して保存する方式は未対応）。
+    pub url: String,
+    /// 中継の依頼（CONNECT）の宛先の指定の仕方。既定は、CMSが検査したIPアドレス。
+    #[serde(default)]
+    pub connect_by: ProxyConnectBy,
+}
+
+/// 中継の依頼の宛先。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProxyConnectBy {
+    /// CMSが名前解決して検査したIPアドレスで依頼する（検査したアドレスへの固定を保つ）。
+    #[default]
+    Ip,
+    /// ホスト名で依頼する（ホスト名でしか中継を許さないプロキシ向け）。検査の後に名前解決の結果が変わる攻撃を防げるかは、プロキシ次第になる。
+    Hostname,
 }
 
 /// 配信APIの上限と、キャッシュの扱い。
@@ -293,6 +347,13 @@ impl Config {
             && config.media.root.is_relative()
         {
             config.media.root = dir.join(&config.media.root);
+        }
+        if let Some(dir) = path.parent() {
+            for ca in &mut config.egress.extra_ca_files {
+                if ca.is_relative() {
+                    *ca = dir.join(&*ca);
+                }
+            }
         }
         Ok(config)
     }

@@ -8,6 +8,7 @@ pub mod config;
 pub mod content;
 pub mod db;
 pub mod delivery;
+pub mod egress;
 pub mod emergency;
 pub mod geoip;
 pub mod http;

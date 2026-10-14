@@ -265,6 +265,7 @@ fn init(
         login_history: config::LoginHistoryConfig::default(),
         media: config::MediaConfig::at(media_root),
         delivery: config::DeliveryConfig::default(),
+        egress: config::EgressConfig::default(),
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,
