@@ -9,6 +9,7 @@ COPY package.json package-lock.json ./
 COPY admin/package.json admin/
 COPY cli/package.json cli/
 COPY packages/editor-schema/package.json packages/editor-schema/
+COPY packages/nuxt/package.json packages/nuxt/
 RUN npm ci --ignore-scripts
 COPY packages ./packages
 RUN npm run build -w @new-cms/editor-schema

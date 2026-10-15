@@ -6,7 +6,8 @@
   "workspaces": [
     "admin",
     "cli",
-    "packages/editor-schema"
+    "packages/editor-schema",
+    "packages/nuxt"
   ],
   "overrides": {
     "esbuild": "0.28.2"

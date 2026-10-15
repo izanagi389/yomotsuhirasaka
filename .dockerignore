@@ -7,3 +7,6 @@ deploy/.env
 admin/.nuxt/
 admin/.output/
 packages/editor-schema/dist/
+packages/nuxt/dist/
+packages/nuxt/playground/.nuxt/
+packages/nuxt/playground/.output/

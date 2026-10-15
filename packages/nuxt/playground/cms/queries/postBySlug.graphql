@@ -1,0 +1,8 @@
+query ($slug: String!, $locale: String!) {
+  postBySlug(slug: $slug, locale: $locale) {
+    id
+    title
+    url
+    body
+  }
+}
