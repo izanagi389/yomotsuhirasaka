@@ -1,0 +1,127 @@
+{
+  "app": {
+    "name": "CMS",
+    "language": "Language"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "remove": "Remove",
+    "home": "Home"
+  },
+  "auth": {
+    "loginTitle": "Sign in",
+    "loginDescription": "Sign in with your email address and password.",
+    "mfaDescription": "Enter your multi-factor authentication code.",
+    "email": "Email",
+    "password": "Password",
+    "newPassword": "New password",
+    "login": "Sign in",
+    "logout": "Sign out",
+    "verify": "Verify",
+    "totpCode": "Authenticator app code (6 digits)",
+    "recoveryCode": "Recovery code",
+    "useRecoveryCode": "Use a recovery code",
+    "useTotp": "Use the authenticator app",
+    "usePasskey": "Use a passkey",
+    "forgotPassword": "Forgot your password?",
+    "backToLogin": "Back to sign in",
+    "passwordRules": "Use at least 12 characters. Repeated characters, sequences, keyboard rows, and your email address or the site name are not allowed."
+  },
+  "reauth": {
+    "title": "Confirm it's you",
+    "description": "Confirm your identity again before this operation.",
+    "confirm": "Confirm"
+  },
+  "reset": {
+    "requestTitle": "Reset your password",
+    "requestDescription": "We will email a reset link to your registered address.",
+    "requestSent": "If the address is registered, we sent an email. Use the link in it to reset your password.",
+    "send": "Send",
+    "passwordTitle": "New password",
+    "passwordDone": "Your password was changed. Sign in with the new password.",
+    "mfaTitle": "Remove multi-factor authentication",
+    "mfaDescription": "This removes multi-factor authentication. Then sign in with your password and set it up again.",
+    "mfaConfirm": "Remove",
+    "mfaDone": "Multi-factor authentication was removed. Sign in and set it up again."
+  },
+  "invite": {
+    "title": "Workspace invitation",
+    "asMember": "Accept the invitation as {email}.",
+    "asNew": "Choose a password to create your account.",
+    "accept": "Accept",
+    "done": "You accepted the invitation."
+  },
+  "workspaces": {
+    "title": "Workspaces",
+    "empty": "You don't belong to any workspace.",
+    "schema": {
+      "none": "No schema",
+      "ok": "Up to date",
+      "pending": "Migration pending"
+    }
+  },
+  "roles": {
+    "admin": "Admin",
+    "editor": "Editor",
+    "author": "Author",
+    "viewer": "Viewer",
+    "serverAdmin": "Server admin"
+  },
+  "security": {
+    "title": "Account security",
+    "requiredTitle": "Set up multi-factor authentication",
+    "requiredDescription": "This CMS requires multi-factor authentication for everyone. Other operations are unavailable until you set it up.",
+    "mfaEnabled": "Multi-factor authentication is set up.",
+    "totpTitle": "Authenticator app",
+    "totpDescription": "Use a 6-digit code from an authenticator app each time you sign in.",
+    "totpBegin": "Start setup",
+    "totpManual": "Enter this key in your authenticator app.",
+    "totpOpenApp": "Open in an authenticator app on this device",
+    "totpConfirm": "Verify the code and finish",
+    "passkeysTitle": "Passkeys",
+    "passkeysDescription": "Sign in with your device's biometrics or a security key.",
+    "passkeyName": "Name (e.g. Work laptop)",
+    "passkeyAdd": "Add a passkey",
+    "recoveryTitle": "Recovery codes",
+    "recoveryDescription": "Generating new codes makes the old ones stop working.",
+    "recoveryRegenerate": "Generate new recovery codes",
+    "recoveryCodesTitle": "Recovery codes",
+    "recoveryCodesDescription": "Shown only on this screen. Store them somewhere safe. Each can be used once.",
+    "passwordTitle": "Change password",
+    "currentPassword": "Current password",
+    "passwordChanged": "Your password was changed. You were signed out on other devices."
+  },
+  "errors": {
+    "generic": "The request could not be completed ({status}).",
+    "network": "Cannot reach the server.",
+    "invalid_credentials": "The email or password is incorrect.",
+    "invalid_mfa_code": "The code is incorrect.",
+    "invalid_passkey": "The passkey could not be verified.",
+    "invalid_current_password": "The current password is incorrect.",
+    "rate_limited": "Too many attempts. Wait a while and try again.",
+    "csrf_failed": "This screen cannot perform the operation. Please sign in again.",
+    "session_required": "Please sign in again.",
+    "weak_password": "This password cannot be used. Check the rules.",
+    "breached_password": "This password appears in known data breaches. Choose a different one.",
+    "invalid_token": "The link is invalid or has expired.",
+    "reauth_required": "Please confirm your identity.",
+    "reauth_failed": "Your identity could not be confirmed.",
+    "mfa_required": "This operation requires multi-factor authentication.",
+    "mfa_setup_required": "Set up multi-factor authentication first.",
+    "forbidden": "You do not have permission for this operation.",
+    "not_found": "Not found.",
+    "unauthenticated": "Please sign in.",
+    "account_exists": "An account with this email already exists. Sign in, then accept the invitation.",
+    "already_member": "You already belong to this workspace.",
+    "passkeys_unavailable": "Passkeys are not available on this server.",
+    "no_passkeys": "No passkeys are registered.",
+    "passkey_cancelled": "The passkey operation was cancelled.",
+    "passkey_already_registered": "This passkey is already registered.",
+    "too_many_passkeys": "You cannot add more passkeys.",
+    "mfa_already_enabled": "The authenticator app is already set up.",
+    "mfa_not_enabled": "Multi-factor authentication is not set up.",
+    "invalid_request": "Check your input.",
+    "internal_error": "Something went wrong on the server."
+  }
+}

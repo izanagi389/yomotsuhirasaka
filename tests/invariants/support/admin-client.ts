@@ -813,6 +813,10 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       if (options.mfa) member.totpSecret = await implemented.enrollTotp(adminSession, member);
       return member;
     },
+    // 管理画面は /admin/ の下（server/src/http/admin_ui.rs）
+    adminUiRaw(path: string): Promise<HttpResponse> {
+      return request("GET", `/admin${path.startsWith("/") ? path : `/${path}`}`);
+    },
     corsProbeRaw(kind: "adminApi" | "deliveryApi", method: "GET" | "OPTIONS", origin: string, workspaceId: string): Promise<HttpResponse> {
       const path = kind === "adminApi" ? `${ADMIN}/me` : `/ws/${workspaceId}/graphql`;
       const headers: Record<string, string> = { Origin: origin };

@@ -52,6 +52,9 @@ enum Command {
         /// Directory to store media files in.
         #[arg(long, default_value = "/var/lib/cms/media")]
         media_root: PathBuf,
+        /// Directory of the built admin UI (`nuxt generate` output) to serve at /admin/.
+        #[arg(long)]
+        admin_dist_dir: Option<PathBuf>,
     },
     /// Check the configuration and start serving.
     Serve {
@@ -162,15 +165,19 @@ fn main() -> ExitCode {
             migration_database_url,
             listen,
             media_root,
+            admin_dist_dir,
         } => {
             match init(
                 &config,
                 &key_file,
-                public_url,
-                database_url,
-                migration_database_url,
-                listen,
-                media_root,
+                InitOptions {
+                    public_url,
+                    database_url,
+                    migration_database_url,
+                    listen,
+                    media_root,
+                    admin_dist_dir,
+                },
             ) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
@@ -229,15 +236,25 @@ fn create_new_private(path: &Path, contents: &str) -> Result<()> {
     Ok(())
 }
 
-fn init(
-    config_path: &Path,
-    key_path: &Path,
+/// `init` で設定ファイルに書く値。
+struct InitOptions {
     public_url: String,
     database_url: String,
     migration_database_url: String,
     listen: String,
     media_root: PathBuf,
-) -> Result<()> {
+    admin_dist_dir: Option<PathBuf>,
+}
+
+fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()> {
+    let InitOptions {
+        public_url,
+        database_url,
+        migration_database_url,
+        listen,
+        media_root,
+        admin_dist_dir,
+    } = options;
     if config_path.exists() || key_path.exists() {
         bail!("refusing to overwrite an existing config or key file");
     }
@@ -266,6 +283,9 @@ fn init(
         media: config::MediaConfig::at(media_root),
         delivery: config::DeliveryConfig::default(),
         egress: config::EgressConfig::default(),
+        admin: config::AdminConfig {
+            dist_dir: admin_dist_dir,
+        },
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,

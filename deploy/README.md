@@ -12,6 +12,7 @@ docker compose exec cms cms-server create-server-admin --config /data/config.tom
 - **PostgreSQL はホストにポートを開けません。** CMS とだけ、内部のネットワークでつながります。
 - **CMS はホストの `127.0.0.1:8080` だけで待ち受けます。** HTTPS は、前に置くリバースプロキシ（Caddy・nginx など）で行ってください。本番の設定では、公開URLが `https://` でないと起動しません。
   - リバースプロキシから見た接続元を正しく扱うため、プロキシのアドレス（コンテナから見たもの。例: Docker のブリッジのゲートウェイ）を `./data/cms/config.toml` の `trusted_proxies` に書いてください。
+- 管理画面は `https://<公開URL>/admin/` です。イメージの中のファイル（`/usr/share/cms-admin`）を、CMS のサーバーが配信します（設定の `[admin] dist_dir`）。
 - 秘密の値（DBのパスワード）に初期値はありません。`init.sh` が `cms-server init` で生成します。
 - **暗号化の鍵（`./data/cms/encryption.key`）は、DBのバックアップとは別の場所に保管してください。** 鍵がないとサーバーは起動せず、保存した秘密の値も読めなくなります。
 - `./data/db-init/10-cms.sql` には、初回の起動でロールを作るためのDBのパスワードが入っています。初回の起動の後は消してかまいません。

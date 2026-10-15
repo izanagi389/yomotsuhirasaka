@@ -60,6 +60,17 @@ pub struct Config {
     /// 外部へのHTTPの送信（13-security.md「外部への送信」）。
     #[serde(default)]
     pub egress: EgressConfig,
+    /// 管理画面（Nuxt の SPA）の配信。
+    #[serde(default)]
+    pub admin: AdminConfig,
+}
+
+/// 管理画面の配信。
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct AdminConfig {
+    /// `nuxt generate` の出力（`admin/.output/public`）。なければ管理画面を配信しない（管理APIは使える）。
+    pub dist_dir: Option<PathBuf>,
 }
 
 /// 外部へのHTTPの送信の共通の仕組みの設定（Q95, Q112, Q128, Q139）。
@@ -365,6 +376,11 @@ impl Config {
             && config.media.root.is_relative()
         {
             config.media.root = dir.join(&config.media.root);
+        }
+        if let (Some(dir), Some(ui)) = (path.parent(), config.admin.dist_dir.as_mut())
+            && ui.is_relative()
+        {
+            *ui = dir.join(&*ui);
         }
         if let Some(dir) = path.parent() {
             for ca in &mut config.egress.extra_ca_files {

@@ -80,6 +80,8 @@ create_roles "$PG16_URL" "$APP_PW" "$MIG_PW"
   # スーパーユーザーの接続先は、CMSのDB（cms）にする（テーブルの一覧や権限を調べるため）
   echo "export CMS_TEST_DB_SUPERUSER_URL='$(with_database "$PG16_URL" cms)'"
   echo "export CMS_TEST_DB_APP_URL='postgres://cms_app:${APP_PW}@${HP16}/cms'"
+  # 管理画面（ビルドした SPA。cd admin && npm ci && npm run generate）
+  echo "export CMS_TEST_ADMIN_DIST='$(pwd)/admin/.output/public'"
   # CMSが書くファイル（メディアなど）の置き場所。テストは、この下に想定外のファイルができていないかを調べる
   echo "export CMS_TEST_FS_ROOT='$OUT/fs'"
 } > "$OUT/test.env"

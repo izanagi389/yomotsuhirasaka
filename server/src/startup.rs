@@ -196,6 +196,14 @@ pub fn check_config(config: &Config) -> Report {
             "`auth.breached_passwords.base_url` must be an http(s) URL",
         ));
     }
+    if let Some(dir) = &config.admin.dist_dir
+        && let Err(e) =
+            crate::http::admin_ui::AdminUi::load(dir, config.media.public_base_url.as_deref())
+    {
+        report.problems.push(Problem::fatal(format!(
+            "`admin.dist_dir` is not usable: {e:#}"
+        )));
+    }
     if let Err(e) = crate::egress::Egress::from_config(&config.egress) {
         report.problems.push(Problem::fatal(format!("{e:#}")));
     }

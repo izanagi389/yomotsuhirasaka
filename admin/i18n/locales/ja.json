@@ -1,0 +1,127 @@
+{
+  "app": {
+    "name": "CMS",
+    "language": "言語"
+  },
+  "common": {
+    "cancel": "キャンセル",
+    "save": "保存",
+    "remove": "削除",
+    "home": "トップへ"
+  },
+  "auth": {
+    "loginTitle": "ログイン",
+    "loginDescription": "メールアドレスとパスワードでログインします。",
+    "mfaDescription": "多要素認証のコードを入力してください。",
+    "email": "メールアドレス",
+    "password": "パスワード",
+    "newPassword": "新しいパスワード",
+    "login": "ログイン",
+    "logout": "ログアウト",
+    "verify": "確認",
+    "totpCode": "認証アプリのコード（6桁）",
+    "recoveryCode": "復旧コード",
+    "useRecoveryCode": "復旧コードを使う",
+    "useTotp": "認証アプリのコードを使う",
+    "usePasskey": "パスキーを使う",
+    "forgotPassword": "パスワードを忘れた場合",
+    "backToLogin": "ログインの画面へ",
+    "passwordRules": "12文字以上にしてください。同じ文字の繰り返し、連続した文字や数字、キーボードの並び、メールアドレスやサイト名を含むものは使えません。"
+  },
+  "reauth": {
+    "title": "本人の確認",
+    "description": "この操作の前に、もう一度本人であることを確認します。",
+    "confirm": "確認"
+  },
+  "reset": {
+    "requestTitle": "パスワードの再設定",
+    "requestDescription": "登録したメールアドレスに、再設定のリンクを送ります。",
+    "requestSent": "登録されていれば、メールを送りました。届いたリンクから再設定してください。",
+    "send": "送る",
+    "passwordTitle": "新しいパスワード",
+    "passwordDone": "パスワードを変更しました。新しいパスワードでログインしてください。",
+    "mfaTitle": "多要素認証の解除",
+    "mfaDescription": "多要素認証を解除します。解除の後、パスワードでログインして設定し直してください。",
+    "mfaConfirm": "解除する",
+    "mfaDone": "多要素認証を解除しました。ログインして設定し直してください。"
+  },
+  "invite": {
+    "title": "ワークスペースへの招待",
+    "asMember": "{email} として招待を承諾します。",
+    "asNew": "パスワードを決めて、アカウントを作ります。",
+    "accept": "承諾する",
+    "done": "招待を承諾しました。"
+  },
+  "workspaces": {
+    "title": "ワークスペース",
+    "empty": "所属しているワークスペースはありません。",
+    "schema": {
+      "none": "スキーマ未適用",
+      "ok": "最新",
+      "pending": "移行待ち"
+    }
+  },
+  "roles": {
+    "admin": "管理者",
+    "editor": "編集者",
+    "author": "執筆者",
+    "viewer": "閲覧者",
+    "serverAdmin": "サーバー管理者"
+  },
+  "security": {
+    "title": "アカウントの安全",
+    "requiredTitle": "多要素認証を設定してください",
+    "requiredDescription": "このCMSでは、全員に多要素認証が必要です。設定が済むまで、ほかの操作はできません。",
+    "mfaEnabled": "多要素認証は設定済みです。",
+    "totpTitle": "認証アプリ",
+    "totpDescription": "認証アプリ（Google Authenticator など）で、ログインのたびに6桁のコードを使います。",
+    "totpBegin": "設定を始める",
+    "totpManual": "認証アプリに、次の鍵を入力してください。",
+    "totpOpenApp": "このデバイスの認証アプリで開く",
+    "totpConfirm": "コードを確認して設定する",
+    "passkeysTitle": "パスキー",
+    "passkeysDescription": "端末の生体認証やセキュリティキーでログインできます。",
+    "passkeyName": "名前（例: 仕事のノートPC）",
+    "passkeyAdd": "パスキーを登録",
+    "recoveryTitle": "復旧コード",
+    "recoveryDescription": "作り直すと、これまでの復旧コードは使えなくなります。",
+    "recoveryRegenerate": "復旧コードを作り直す",
+    "recoveryCodesTitle": "復旧コード",
+    "recoveryCodesDescription": "この画面でだけ表示します。安全な場所に保管してください。それぞれ一度だけ使えます。",
+    "passwordTitle": "パスワードの変更",
+    "currentPassword": "今のパスワード",
+    "passwordChanged": "パスワードを変更しました。ほかの端末のログインは終了しました。"
+  },
+  "errors": {
+    "generic": "処理できませんでした（{status}）。",
+    "network": "サーバーにつながりません。",
+    "invalid_credentials": "メールアドレスかパスワードが違います。",
+    "invalid_mfa_code": "コードが違います。",
+    "invalid_passkey": "パスキーを確認できませんでした。",
+    "invalid_current_password": "今のパスワードが違います。",
+    "rate_limited": "試行が多すぎます。しばらく待ってからやり直してください。",
+    "csrf_failed": "この画面からは操作できません。ログインし直してください。",
+    "session_required": "ログインし直してください。",
+    "weak_password": "このパスワードは使えません。条件を確かめてください。",
+    "breached_password": "このパスワードは、過去に漏えいしたパスワードの一覧に載っています。別のものを選んでください。",
+    "invalid_token": "リンクが正しくないか、期限が切れています。",
+    "reauth_required": "本人の確認が必要です。",
+    "reauth_failed": "本人を確認できませんでした。",
+    "mfa_required": "この操作には多要素認証の設定が必要です。",
+    "mfa_setup_required": "先に多要素認証を設定してください。",
+    "forbidden": "この操作の権限がありません。",
+    "not_found": "見つかりません。",
+    "unauthenticated": "ログインしてください。",
+    "account_exists": "このメールアドレスのアカウントは、すでにあります。ログインしてから承諾してください。",
+    "already_member": "すでに所属しています。",
+    "passkeys_unavailable": "このサーバーではパスキーを使えません。",
+    "no_passkeys": "登録されたパスキーがありません。",
+    "passkey_cancelled": "パスキーの操作が取り消されました。",
+    "passkey_already_registered": "このパスキーは登録済みです。",
+    "too_many_passkeys": "これ以上パスキーを登録できません。",
+    "mfa_already_enabled": "認証アプリは設定済みです。",
+    "mfa_not_enabled": "多要素認証が設定されていません。",
+    "invalid_request": "入力を確かめてください。",
+    "internal_error": "サーバーで問題が起きました。"
+  }
+}

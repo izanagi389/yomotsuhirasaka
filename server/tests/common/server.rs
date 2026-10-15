@@ -40,6 +40,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         ),
         delivery: Default::default(),
         egress: Default::default(),
+        admin: Default::default(),
     }
 }
 
