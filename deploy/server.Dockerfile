@@ -3,10 +3,15 @@
 
 # 管理画面（Nuxt の SPA）。静的なファイルにしてサーバーのイメージに入れる。本番で Node.js は動かさない
 FROM node:22-trixie-slim AS admin
-WORKDIR /src/admin
-COPY admin/package.json admin/package-lock.json ./
+WORKDIR /src
+# ルートの npm workspaces（管理画面と、共有パッケージ）
+COPY package.json package-lock.json ./
+COPY admin/package.json admin/
+COPY packages/editor-schema/package.json packages/editor-schema/
 RUN npm ci --ignore-scripts
-COPY admin ./
+COPY packages ./packages
+COPY admin ./admin
+WORKDIR /src/admin
 RUN npx nuxt prepare && npm run generate
 
 FROM rust:1.97-slim-trixie AS build

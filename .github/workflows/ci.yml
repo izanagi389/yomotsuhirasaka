@@ -65,18 +65,24 @@ jobs:
                   cache-dependency-path: |
                       tests/invariants/package-lock.json
                       cli/package-lock.json
-                      admin/package-lock.json
+                      package-lock.json
             # 取り込みのCLI（約束のテストが dist/index.js を実行する）。単体テストもここで流す
             - name: Build and test the CLI
               working-directory: cli
               run: |
                   npm ci --ignore-scripts
                   npm test
-            # 管理画面（サーバーが /admin/ で配信する。INV-HDR-01 などが応答を確かめる）。v-html の禁止は eslint で検査する
+            # 管理画面と、管理画面・CLIが共有するパッケージ（ルートの npm workspaces）。
+            # 管理画面はサーバーが /admin/ で配信する（INV-HDR-01 などが応答を確かめる）。v-html の禁止は eslint で検査する
+            - name: Install the admin UI and shared packages
+              run: npm ci --ignore-scripts
+            - name: Test the shared editor schema
+              run: |
+                  npm run typecheck -w @new-cms/editor-schema
+                  npm test -w @new-cms/editor-schema
             - name: Lint, type check and build the admin UI
               working-directory: admin
               run: |
-                  npm ci --ignore-scripts
                   npx nuxt prepare
                   npm run lint
                   npm run typecheck

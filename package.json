@@ -1,0 +1,13 @@
+{
+  "name": "new-cms",
+  "private": true,
+  "description": "npm workspaces: the admin UI and the packages it shares with the CLI",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "admin",
+    "packages/editor-schema"
+  ],
+  "overrides": {
+    "esbuild": "0.28.2"
+  }
+}
