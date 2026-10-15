@@ -10,6 +10,12 @@ export interface Me {
   locale: "ja" | "en" | null;
   effectiveLocale: "ja" | "en";
   reauthSecondsLeft: number;
+  /** 外部のOIDC/SSOでログインしたセッションか。 */
+  sso: boolean;
+  /** 管理操作の前に、CMS側のパスキーの登録が要るか（SSOの管理者。Q131）。 */
+  passkeyRequired: boolean;
+  /** IdPでの再ログインで再認証できるか（SSOの、管理者でない人）。 */
+  idpReauthAllowed: boolean;
 }
 
 export function useAuth() {

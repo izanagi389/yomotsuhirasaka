@@ -11,6 +11,19 @@ const { t } = useI18n();
 const api = useApi();
 const { refresh } = useAuth();
 const route = useRoute();
+const sso = useSso();
+onMounted(() => sso.load());
+
+async function startSso() {
+  busy.value = true;
+  error.value = null;
+  try {
+    await sso.start("/session/oidc/start", {}, next());
+  } catch (e) {
+    error.value = e;
+    busy.value = false;
+  }
+}
 
 const step = ref<"password" | "mfa">("password");
 const email = ref("");
@@ -99,6 +112,12 @@ async function submitPasskey() {
         </div>
         <Button type="submit" :disabled="busy">{{ t("auth.login") }}</Button>
         <NuxtLink to="/forgot-password" class="text-center text-sm text-muted-foreground hover:underline">{{ t("auth.forgotPassword") }}</NuxtLink>
+        <template v-if="sso.info.value?.enabled">
+          <div class="text-center text-xs text-muted-foreground">{{ t("sso.or") }}</div>
+          <Button type="button" variant="outline" :disabled="busy" @click="startSso">
+            {{ t("sso.loginWith", { name: sso.info.value.displayName }) }}
+          </Button>
+        </template>
       </form>
       <form v-else class="grid gap-4" @submit.prevent="submitCode">
         <FormError :error="error" />
