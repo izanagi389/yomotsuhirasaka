@@ -14,7 +14,7 @@ export default defineNuxtConfig({
       meta: [{ name: "robots", content: "noindex, nofollow" }],
     },
   },
-  css: ["~/assets/css/main.css"],
+  css: ["~/assets/css/main.css", "~/assets/css/editor.css"],
   // shadcn-vue の部品（components/ui）は、使う画面で明示して読み込む（自動の読み込みから外す）
   components: [{ path: "~/components", ignore: ["ui/**"] }],
   vite: {

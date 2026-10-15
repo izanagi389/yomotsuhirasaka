@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 入り口: 所属しているワークスペースの一覧（サーバー管理者はすべて）。記事の画面は次の段階で足す。
+// 入り口: 所属しているワークスペースの一覧（サーバー管理者はすべて）。選ぶと記事の一覧へ。
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface Workspace {
@@ -21,15 +21,17 @@ const { data: workspaces, error } = await useAsyncData("workspaces", () => api.g
     <FormError :error="error" />
     <p v-if="workspaces && workspaces.length === 0" class="text-muted-foreground">{{ t("workspaces.empty") }}</p>
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <Card v-for="w in workspaces ?? []" :key="w.id">
-        <CardHeader>
-          <CardTitle>{{ w.name }}</CardTitle>
-          <CardDescription>
-            {{ w.role ? t(`roles.${w.role}`) : t("roles.serverAdmin") }} ·
-            {{ t(`workspaces.schema.${w.schemaState}`) }}
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <NuxtLink v-for="w in workspaces ?? []" :key="w.id" :to="`/w/${w.id}`" class="rounded-xl focus-visible:outline-2 focus-visible:outline-ring">
+        <Card class="h-full transition-colors hover:bg-muted/40">
+          <CardHeader>
+            <CardTitle>{{ w.name }}</CardTitle>
+            <CardDescription>
+              {{ w.role ? t(`roles.${w.role}`) : t("roles.serverAdmin") }} ·
+              {{ t(`workspaces.schema.${w.schemaState}`) }}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </NuxtLink>
     </div>
   </div>
 </template>

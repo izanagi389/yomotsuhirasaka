@@ -5,6 +5,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 const props = defineProps<{ error: unknown }>();
 const { t, te } = useI18n();
 
+// 入力の問題は、どこが悪いかをサーバーの文（英語）でそのまま添える
+const DETAILED = new Set(["invalid_entry"]);
+const detail = computed(() => (props.error instanceof ApiError && DETAILED.has(props.error.code) ? props.error.message : null));
+
 const message = computed(() => {
   const e = props.error;
   if (!e) return null;
@@ -19,6 +23,9 @@ const message = computed(() => {
 
 <template>
   <Alert v-if="message" variant="destructive" role="alert">
-    <AlertDescription>{{ message }}</AlertDescription>
+    <AlertDescription>
+      {{ message }}
+      <span v-if="detail" class="mt-1 block break-words text-xs opacity-80">{{ detail }}</span>
+    </AlertDescription>
   </Alert>
 </template>
