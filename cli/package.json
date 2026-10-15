@@ -2,7 +2,7 @@
   "name": "@new-cms/cli",
   "version": "0.1.0",
   "private": true,
-  "description": "CMSのCLI（既存のブログからの取り込みなど）",
+  "description": "CMSのCLI（スキーマのデプロイ、既存のブログからの取り込み）",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -17,6 +17,10 @@
     "test": "npm run build && node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
+    "@new-cms/editor-schema": "0.1.0",
+    "@tiptap/core": "3.32.0",
+    "@tiptap/pm": "3.32.0",
+    "@tiptap/starter-kit": "3.32.0",
     "markdown-it": "15.0.2",
     "yaml": "2.9.1"
   },

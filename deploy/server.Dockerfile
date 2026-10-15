@@ -7,9 +7,11 @@ WORKDIR /src
 # ルートの npm workspaces（管理画面と、共有パッケージ）
 COPY package.json package-lock.json ./
 COPY admin/package.json admin/
+COPY cli/package.json cli/
 COPY packages/editor-schema/package.json packages/editor-schema/
 RUN npm ci --ignore-scripts
 COPY packages ./packages
+RUN npm run build -w @new-cms/editor-schema
 COPY admin ./admin
 WORKDIR /src/admin
 RUN npx nuxt prepare && npm run generate

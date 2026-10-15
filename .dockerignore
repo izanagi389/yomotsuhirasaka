@@ -6,3 +6,4 @@ deploy/.env
 .git/
 admin/.nuxt/
 admin/.output/
+packages/editor-schema/dist/

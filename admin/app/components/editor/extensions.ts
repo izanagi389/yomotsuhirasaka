@@ -1,6 +1,8 @@
 // 管理画面のエディタの拡張機能。スキーマは共有パッケージ（@new-cms/editor-schema）のもので、ここでは画面の描き方だけを足す。
 import { CmsEmbed, CmsImage, standardExtensions } from "@new-cms/editor-schema";
 import { VueNodeViewRenderer } from "@tiptap/vue-3";
+// StarterKit のコマンド（toggleBold など）の型を読み込む（共有パッケージの型定義には含まれないため）
+import type {} from "@tiptap/starter-kit";
 
 import EmbedView from "./EmbedView.vue";
 import ImageView from "./ImageView.vue";

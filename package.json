@@ -1,10 +1,11 @@
 {
   "name": "new-cms",
   "private": true,
-  "description": "npm workspaces: the admin UI and the packages it shares with the CLI",
+  "description": "npm workspaces: the admin UI, the CLI and the packages they share",
   "license": "Apache-2.0",
   "workspaces": [
     "admin",
+    "cli",
     "packages/editor-schema"
   ],
   "overrides": {
