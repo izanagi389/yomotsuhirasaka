@@ -59,6 +59,8 @@ pub(super) struct Me {
     sso: bool,
     /// 管理操作の前に、CMS側のパスキーの登録が必要か（SSOでログインした管理者で、パスキーがない。Q131）。
     passkey_required: bool,
+    /// IdPでの再ログインで再認証できるか（SSOでログインした、管理者でない人。管理者はパスキーだけ）。
+    idp_reauth_allowed: bool,
     /// 他の操作の前に、多要素認証の設定が必要か（全員への必須が有効で、まだ設定していない。Q197）。
     mfa_setup_required: bool,
     /// 本人が設定した言語（未設定なら null）。
@@ -78,6 +80,7 @@ impl Me {
             mfa_enabled: c.mfa_enabled,
             sso: c.sso,
             passkey_required: c.sso && c.admin_anywhere && !c.has_passkey,
+            idp_reauth_allowed: c.sso && !c.admin_anywhere,
             mfa_setup_required: mfa_setup_pending(state, c),
             locale: c.locale,
             effective_locale: c.locale.unwrap_or(state.config.default_locale),

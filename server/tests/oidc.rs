@@ -302,6 +302,7 @@ async fn jit_requires_verified_email_and_matching_domain() {
             "{}",
             me.body
         );
+        assert!(me.body.contains("\"idpReauthAllowed\":true"), "{}", me.body);
         let s2 = complete(
             &server,
             &run_flow(&server, &idp, LOGIN, "{}", &[], claims).await,
@@ -524,6 +525,11 @@ async fn sso_admins_need_a_passkey_for_admin_operations() {
         .await;
         let me = get(&server, "/api/admin/me", &sso).await;
         assert!(me.body.contains("\"passkeyRequired\":true"), "{}", me.body);
+        assert!(
+            me.body.contains("\"idpReauthAllowed\":false"),
+            "{}",
+            me.body
+        );
         let res = send(
             &server,
             "POST",
