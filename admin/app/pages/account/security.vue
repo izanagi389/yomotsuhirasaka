@@ -111,6 +111,7 @@ onMounted(loadPasskeys);
 <template>
   <div class="grid max-w-2xl gap-6">
     <h1 class="text-2xl font-semibold">{{ t("security.title") }}</h1>
+    <AccountNav />
     <Alert v-if="me?.mfaSetupRequired">
       <AlertTitle>{{ t("security.requiredTitle") }}</AlertTitle>
       <AlertDescription>{{ t("security.requiredDescription") }}</AlertDescription>
