@@ -34,6 +34,8 @@ export default defineNuxtConfig({
   },
   // 手元の開発では、管理APIを Rust のサーバーに中継する（`nuxt dev`）
   nitro: {
+    // ビルドのときに .gz と .br も作る（Rust のサーバーが、ブラウザが対応していればそちらを返す）
+    compressPublicAssets: { gzip: true, brotli: true },
     devProxy: {
       "/api": { target: "http://127.0.0.1:8080/api", changeOrigin: false },
     },
