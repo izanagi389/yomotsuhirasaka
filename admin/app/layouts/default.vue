@@ -33,6 +33,7 @@ async function changeLocale(code: "ja" | "en") {
             <option v-for="l in locales" :key="l.code" :value="l.code">{{ l.name }}</option>
           </select>
           <template v-if="me">
+            <NuxtLink v-if="me.isServerAdmin && !me.mfaSetupRequired" to="/server" class="text-sm text-muted-foreground hover:text-foreground">{{ t("server.title") }}</NuxtLink>
             <NuxtLink to="/account/security" class="text-sm text-muted-foreground hover:text-foreground">{{ me.email }}</NuxtLink>
             <Button variant="outline" size="sm" @click="logout">{{ t("auth.logout") }}</Button>
           </template>

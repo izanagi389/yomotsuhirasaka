@@ -61,7 +61,11 @@
       "ok": "Up to date",
       "pending": "Migration pending"
     },
-    "open": "Open"
+    "open": "Open",
+    "new": "New workspace",
+    "newDescription": "Enter the template name (lowercase letters, digits and hyphens). Leave it empty for default.",
+    "name": "Name",
+    "template": "Template"
   },
   "roles": {
     "admin": "Admin",
@@ -531,5 +535,58 @@
       }
     },
     "you": "You"
+  },
+  "server": {
+    "title": "Server administration",
+    "users": "Users",
+    "disabled": "Disabled",
+    "cliOnly": "Server administrators are recovered with the server CLI"
+  },
+  "account": {
+    "nav": {
+      "label": "Account",
+      "security": "Security",
+      "sessions": "Sessions and history",
+      "tokens": "Personal tokens"
+    },
+    "sessions": {
+      "title": "Active sessions",
+      "help": "End any session you do not recognize, and consider changing your password.",
+      "current": "This window",
+      "started": "Started: {at}",
+      "lastSeen": "Last activity: {at}",
+      "revoke": "End"
+    },
+    "history": {
+      "title": "Sign-in history",
+      "none": "No records.",
+      "at": "Time",
+      "browser": "Browser",
+      "ip": "IP address",
+      "country": "Country",
+      "newDevice": "New device"
+    },
+    "identities": {
+      "title": "Linked external accounts",
+      "none": "No linked external accounts.",
+      "linked": "Linked: {at}"
+    },
+    "tokens": {
+      "help": "Tokens for the CLI (import, deploy and so on). A token can only do what both its scopes and your current role allow.",
+      "days": "Valid for (days, up to 365)",
+      "workspaces": "Workspaces it can use",
+      "create": "Issue",
+      "created": "Personal token \"{name}\"",
+      "none": "No active tokens.",
+      "noWorkspaces": "No workspaces",
+      "scope": {
+        "read": "Read",
+        "write": "Write",
+        "deploy": "Deploy"
+      },
+      "revokeTitle": "Revoke the token",
+      "revokeDescription": "Revokes \"{name}\". CLIs using this token will stop working.",
+      "noMemberships": "You are not a member of any workspace. A token used only for deploying can be issued without choosing a workspace."
+    }
   }
 }
