@@ -1,0 +1,71 @@
+// CMSの公式Nuxtモジュール（M1の最小限: 配信APIからの取得と、本文の描画）。
+//
+// nuxt.config.ts:
+//   modules: ["@new-cms/nuxt"],
+//   cms: { url: "https://cms.example.com", workspaceId: "<ワークスペースID>" },
+// 環境変数:
+//   CMS_REGISTER_KEY   ビルドのときだけ。クエリの登録用（register の範囲のキー）
+//   NUXT_CMS_READ_KEY  サイトのサーバーの実行時。読むためのキー（read の範囲）。非公開の設定（runtimeConfig.cms.readKey）に入る
+//
+// - キーは、ブラウザに渡る設定（runtimeConfig.public）やバンドルに入れない。公開の設定にキーがあれば、ビルドを止める
+// - 画面からは useCmsQuery で取る。取るのはサイトのサーバー（`<routePrefix>/<名前>`）で、そこから配信APIを呼ぶ
+// - 本文は <CmsBody :doc="..."> で描く
+
+import { resolve } from "node:path";
+
+import { addComponent, addImports, addServerHandler, createResolver, defineNuxtModule, useLogger } from "nuxt/kit";
+
+import { RegisterError, checkUrl, readQueries, registerQueries } from "./register.ts";
+
+export interface ModuleOptions {
+  /** CMSのURL。 */
+  url: string;
+  /** ワークスペースのID。 */
+  workspaceId: string;
+  /** クエリのファイルを置くフォルダ（サイトのルートからの相対パス）。 */
+  queriesDir: string;
+  /** サイトのサーバーの、クエリを取るルートの接頭辞。 */
+  routePrefix: string;
+}
+
+/** CMSのAPIキー（`cms_key_`）か個人トークン（`cms_pat_`）らしい文字列を含むか。 */
+export function containsSecret(value: unknown): boolean {
+  if (typeof value === "string") return /^cms_(key|pat)_/.test(value);
+  if (Array.isArray(value)) return value.some(containsSecret);
+  if (value && typeof value === "object") return Object.values(value).some(containsSecret);
+  return false;
+}
+
+export default defineNuxtModule<ModuleOptions>({
+  meta: { name: "@new-cms/nuxt", configKey: "cms" },
+  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q" },
+  async setup(options, nuxt) {
+    const logger = useLogger("cms");
+    const resolver = createResolver(import.meta.url);
+
+    // キーが公開の設定に入っていないか（ブラウザに渡ってしまう）
+    if (containsSecret(nuxt.options.runtimeConfig.public)) {
+      throw new RegisterError("a CMS key or token is in runtimeConfig.public, which is sent to browsers. Use NUXT_CMS_READ_KEY (private) instead.");
+    }
+
+    const url = options.url ? checkUrl(options.url) : "";
+    nuxt.options.runtimeConfig.cms = { url, workspaceId: options.workspaceId, readKey: "" };
+    nuxt.options.runtimeConfig.public.cms = { routePrefix: options.routePrefix };
+
+    // クエリの登録（nuxt prepare では行わない）
+    const queries = readQueries(resolve(nuxt.options.rootDir, options.queriesDir));
+    let ids: Record<string, string> = {};
+    if (Object.keys(queries).length > 0 && !nuxt.options._prepare) {
+      const registerKey = process.env["CMS_REGISTER_KEY"];
+      if (!url || !options.workspaceId) throw new RegisterError("set cms.url and cms.workspaceId in nuxt.config");
+      if (!registerKey) throw new RegisterError("set CMS_REGISTER_KEY (an API key with the register scope) to register the queries in " + options.queriesDir);
+      ids = await registerQueries({ url, workspaceId: options.workspaceId, registerKey }, queries);
+      logger.info(`registered ${Object.keys(ids).length} CMS quer${Object.keys(ids).length === 1 ? "y" : "ies"}`);
+    }
+    nuxt.options.nitro.virtual = { ...nuxt.options.nitro.virtual, "#cms/queries": () => `export default ${JSON.stringify(ids)};` };
+
+    addServerHandler({ route: `${options.routePrefix}/:name`, method: "get", handler: resolver.resolve("./runtime/server/query.js") });
+    addImports({ name: "useCmsQuery", from: resolver.resolve("./runtime/composables.js") });
+    addComponent({ name: "CmsBody", filePath: resolver.resolve("./runtime/body.js") });
+  },
+});

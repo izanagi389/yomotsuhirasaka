@@ -1,0 +1,32 @@
+{
+  "name": "@new-cms/nuxt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CMSの公式Nuxtモジュール（M1: 配信APIからの取得と、本文の描画）",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/module.d.ts",
+      "default": "./dist/module.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "h3": "^1.15.0",
+    "nitropack": "^2.13.0",
+    "nuxt": "^4.6.1",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}

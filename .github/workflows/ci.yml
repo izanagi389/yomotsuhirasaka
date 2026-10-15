@@ -73,6 +73,11 @@ jobs:
                   npm run typecheck -w @new-cms/editor-schema
                   npm test -w @new-cms/editor-schema
                   npm run build -w @new-cms/editor-schema
+            - name: Build and test the Nuxt module
+              run: |
+                  npm run typecheck -w @new-cms/nuxt
+                  npm test -w @new-cms/nuxt
+                  npm run build -w @new-cms/nuxt
             # CLI（約束のテストが dist/index.js を実行する）。単体テストもここで流す
             - name: Build and test the CLI
               run: npm test -w @new-cms/cli
