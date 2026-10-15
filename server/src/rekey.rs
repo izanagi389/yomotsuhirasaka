@@ -9,6 +9,9 @@
 //! - `cms.users.totp_secret_enc`, `cms.users.totp_pending_secret_enc`（TOTPの秘密）
 //! - `cms.jobs.payload_enc`（ジョブの中身。メールの宛先や本文、Webhookの送信）
 //! - `cms.webhooks.secret_enc`, `cms.webhooks.previous_secret_enc`（Webhookの署名用の秘密）
+//!
+//! 暗号化し直さないもの: `cms.oidc_logins.pkce_verifier`（SSOのログインの途中の値。10分で失効する）。
+//! 古い版の鍵を外した時点で途中だったSSOのログインは、やり直しになる。
 
 use std::collections::BTreeMap;
 

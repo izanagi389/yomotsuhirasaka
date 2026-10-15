@@ -117,7 +117,7 @@ pub async fn confirm_totp(
     session::revoke_others(&state.pool, current.user_id, current.id).await?;
     notify(&state, &state.pool, &current, Event::MfaEnabled).await?;
     // 今コードを確かめたので、このセッションは本人確認を済ませたものとする
-    session::mark_reauthenticated(&state.pool, current.id).await?;
+    session::mark_reauthenticated(&state.pool, current.id, session::Method::Totp).await?;
     Ok(Json(RecoveryCodes {
         recovery_codes: codes,
     }))
@@ -193,14 +193,14 @@ pub async fn list_passkeys(
     Ok(Json(passkeys::list(&state.pool, current.user_id).await?))
 }
 
-/// パスキーの登録を始める。再認証が必要。
+/// パスキーの登録を始める。再認証が必要（パスキーのないSSOの管理者は、IdPでのログインの直後でもよい。Q131）。
 pub async fn begin_passkey(
     State(state): State<AppState>,
     AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
     JsonBody(req): JsonBody<BeginPasskey>,
 ) -> Result<Json<webauthn_rs::prelude::CreationChallengeResponse>, ApiError> {
     require_cookie_session(&current)?;
-    if !current.reauth_fresh {
+    if !current.may_enroll_passkey() {
         return Err(ApiError::reauth_required());
     }
     let name = req.name.trim();
@@ -254,7 +254,7 @@ pub async fn confirm_passkey(
     JsonBody(req): JsonBody<ConfirmPasskey>,
 ) -> Result<(StatusCode, Json<PasskeyAdded>), ApiError> {
     require_cookie_session(&current)?;
-    if !current.reauth_fresh {
+    if !current.may_enroll_passkey() {
         return Err(ApiError::reauth_required());
     }
     let rp = state.passkeys.as_ref().ok_or_else(passkeys_unavailable)?;
@@ -293,7 +293,7 @@ pub async fn confirm_passkey(
     session::revoke_others(&state.pool, current.user_id, current.id).await?;
     notify(&state, &state.pool, &current, Event::PasskeyAdded).await?;
     // 今パスキーで本人を確かめたので、このセッションは本人確認を済ませたものとする
-    session::mark_reauthenticated(&state.pool, current.id).await?;
+    session::mark_reauthenticated(&state.pool, current.id, session::Method::Passkey).await?;
     Ok((
         StatusCode::CREATED,
         Json(PasskeyAdded {

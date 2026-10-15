@@ -8,6 +8,7 @@ pub mod admin_import;
 pub mod admin_invitations;
 pub mod admin_media;
 pub mod admin_mfa;
+pub mod admin_oidc;
 pub mod admin_publishing;
 pub mod admin_resets;
 pub mod admin_templates;
@@ -66,6 +67,8 @@ pub struct Inner {
     pub egress: Option<crate::egress::Egress>,
     /// 管理画面（設定したときだけ。読み込めなければ起動時の検査で止める）。
     pub admin_ui: Option<admin_ui::AdminUi>,
+    /// 外部のOIDC/SSO（設定したときだけ）。
+    pub oidc: Option<Arc<crate::auth::oidc::Oidc>>,
 }
 
 impl Deref for AppState {
@@ -110,7 +113,13 @@ impl AppState {
                 .inspect_err(|e| tracing::error!("admin UI is not available: {e:#}"))
                 .ok()
         });
+        let oidc = config
+            .auth
+            .oidc
+            .clone()
+            .map(|c| Arc::new(crate::auth::oidc::Oidc::new(c, &config.public_url)));
         Self(Arc::new(Inner {
+            oidc,
             admin_ui,
             egress,
             pool,
@@ -209,6 +218,12 @@ pub fn router(state: AppState) -> Router {
             post(admin_auth::begin_login_passkey),
         )
         .route("/session/reauth", post(admin_auth::reauth))
+        .route("/session/reauth/oidc", post(admin_oidc::start_reauth))
+        .route("/session/oidc", get(admin_oidc::info))
+        .route("/session/oidc/start", post(admin_oidc::start_login))
+        .route("/session/oidc/callback", get(admin_oidc::callback))
+        .route("/session/oidc/complete", post(admin_oidc::complete))
+        .route("/me/identities/oidc/start", post(admin_oidc::start_link))
         .route(
             "/session/reauth/passkey",
             post(admin_auth::begin_reauth_passkey),

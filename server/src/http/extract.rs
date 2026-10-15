@@ -111,8 +111,9 @@ pub fn require_cookie_session(current: &session::Current) -> Result<(), ApiError
 }
 
 /// 多要素認証の設定を済ませるまで、他の操作をさせないか。
+/// SSOでログインした利用者は、多要素認証をIdPに任せる（管理者のパスキーは、管理操作のときに求める。Q131）。
 pub fn mfa_setup_pending(state: &AppState, current: &session::Current) -> bool {
-    state.config.auth.mfa_required_for_everyone && !current.mfa_enabled
+    state.config.auth.mfa_required_for_everyone && !current.sso && !current.mfa_enabled
 }
 
 impl FromRequestParts<AppState> for AuthSession {

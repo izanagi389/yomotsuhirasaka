@@ -87,6 +87,18 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (auth.length > 0 || config.breachedPasswordApi) lines.push("", "[auth]", ...auth);
   // 漏えいしたパスワードの照会（server/src/config.rs の BreachedPasswordsConfig）
   if (config.breachedPasswordApi) lines.push("", "[auth.breached_passwords]", `base_url = ${tomlString(config.breachedPasswordApi.baseUrl)}`);
+  // 外部のOIDC/SSO: 擬似IdP（support/oidc-idp.ts）を接続先にする（scripts/test-env/setup.sh が CMS_TEST_OIDC_* に書く）
+  const oidcIssuer = process.env["CMS_TEST_OIDC_ISSUER"];
+  if (oidcIssuer) {
+    lines.push(
+      "",
+      "[auth.oidc]",
+      `issuer = ${tomlString(oidcIssuer)}`,
+      `client_id = ${tomlString(requiredEnv("CMS_TEST_OIDC_CLIENT_ID"))}`,
+      `client_secret = ${tomlString(requiredEnv("CMS_TEST_OIDC_CLIENT_SECRET"))}`,
+      `jit_domains = [${tomlString(requiredEnv("CMS_TEST_OIDC_JIT_DOMAIN"))}]`,
+    );
+  }
   // 配信API: キーごとの上限は、用途（ビルド用・サーバー配信用）の両方に同じ値を使う
   const delivery: string[] = [];
   if (config.rateLimits?.deliveryPerKey !== undefined) {

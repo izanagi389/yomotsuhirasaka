@@ -50,11 +50,15 @@ struct LoginResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Me {
+pub(super) struct Me {
     id: Uuid,
     email: String,
     is_server_admin: bool,
     mfa_enabled: bool,
+    /// 外部のOIDC/SSOでログインしたセッションか。
+    sso: bool,
+    /// 管理操作の前に、CMS側のパスキーの登録が必要か（SSOでログインした管理者で、パスキーがない。Q131）。
+    passkey_required: bool,
     /// 他の操作の前に、多要素認証の設定が必要か（全員への必須が有効で、まだ設定していない。Q197）。
     mfa_setup_required: bool,
     /// 本人が設定した言語（未設定なら null）。
@@ -66,12 +70,14 @@ struct Me {
 }
 
 impl Me {
-    fn new(state: &AppState, c: &session::Current) -> Self {
+    pub(super) fn new(state: &AppState, c: &session::Current) -> Self {
         Self {
             id: c.user_id,
             email: c.email.clone(),
             is_server_admin: c.is_server_admin,
             mfa_enabled: c.mfa_enabled,
+            sso: c.sso,
+            passkey_required: c.sso && c.admin_anywhere && !c.has_passkey,
             mfa_setup_required: mfa_setup_pending(state, c),
             locale: c.locale,
             effective_locale: c.locale.unwrap_or(state.config.default_locale),
@@ -213,15 +219,27 @@ fn device_cookie(value: &str) -> HeaderValue {
     .expect("device id is URL-safe base64")
 }
 
-/// ログインを完了させ、本番のセッションを発行して応答を作る。
+/// 発行したセッションと、端末のCookieの値。
+pub(super) struct Established {
+    pub issued: session::Issued,
+    pub current: session::Current,
+    pub device_token: String,
+}
+
+/// 本番のセッションを発行し、ログインを記録する（パスワードでもSSOでも共通）。
 /// 端末と国の判定、ログインの履歴を記録し、新しい端末や国の変化なら本人に知らせる（13-security.md「本人への通知」）。
-async fn complete_login(
+pub(super) async fn establish(
     state: &AppState,
     user_id: Uuid,
     ip: std::net::IpAddr,
     headers: &HeaderMap,
-) -> Result<Response, ApiError> {
-    let issued = session::issue(&state.pool, user_id, &state.config.session).await?;
+    sso: bool,
+) -> Result<Established, ApiError> {
+    let issued = if sso {
+        session::issue_sso(&state.pool, user_id, &state.config.session).await?
+    } else {
+        session::issue(&state.pool, user_id, &state.config.session).await?
+    };
     audit::record(&state.pool, None, Some(user_id), audit::action::LOGIN, &[]).await?;
     let user_agent = headers
         .get(header::USER_AGENT)
@@ -257,21 +275,41 @@ async fn complete_login(
         );
         crate::mail::enqueue(&state.pool, &state.keys, state.config.smtp.as_ref(), &mail).await?;
     }
-    let mut res = Json(LoginResponse {
-        mfa_required: false,
-        csrf_token: Some(issued.csrf_token),
-        user: Some(Me::new(state, &current)),
+    Ok(Established {
+        issued,
+        current,
+        device_token: recorded.device_token,
     })
-    .into_response();
+}
+
+/// セッションのCookieと端末のCookieを、応答に付ける。
+pub(super) fn set_login_cookies(state: &AppState, res: &mut Response, established: &Established) {
     res.headers_mut().append(
         header::SET_COOKIE,
         session_cookie(
-            &issued.token,
+            &established.issued.token,
             state.config.session.absolute_lifetime_seconds,
         ),
     );
     res.headers_mut()
-        .append(header::SET_COOKIE, device_cookie(&recorded.device_token));
+        .append(header::SET_COOKIE, device_cookie(&established.device_token));
+}
+
+/// パスワードでのログインを完了させ、本番のセッションを発行して応答を作る。
+async fn complete_login(
+    state: &AppState,
+    user_id: Uuid,
+    ip: std::net::IpAddr,
+    headers: &HeaderMap,
+) -> Result<Response, ApiError> {
+    let established = establish(state, user_id, ip, headers, false).await?;
+    let mut res = Json(LoginResponse {
+        mfa_required: false,
+        csrf_token: Some(established.issued.csrf_token.clone()),
+        user: Some(Me::new(state, &established.current)),
+    })
+    .into_response();
+    set_login_cookies(state, &mut res, &established);
     Ok(res)
 }
 
@@ -437,6 +475,7 @@ fn reauth_failed() -> ApiError {
 }
 
 /// 再認証。多要素認証を設定した人は多要素認証のコードでだけ、設定していない人はパスワードで行う（Q108）。
+/// SSOでログインしたセッションでは、ここではパスキーだけを受け付ける（IdPでの再ログインは `/session/reauth/oidc`）。
 pub async fn reauth(
     State(state): State<AppState>,
     AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
@@ -454,6 +493,23 @@ pub async fn reauth(
             "Send exactly one of `password`, `totpCode`, `recoveryCode` or `passkey`.",
         ));
     }
+    // SSOでログインしたセッションは、IdPでの再ログインかパスキーで再認証する（Q108, Q131）
+    if current.sso && req.passkey.is_none() {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "reauth_method_not_allowed",
+            "This session signed in with SSO. Confirm your identity with a passkey or by signing in to the identity provider again.",
+        ));
+    }
+    let method = if req.password.is_some() {
+        session::Method::Password
+    } else if req.totp_code.is_some() {
+        session::Method::Totp
+    } else if req.recovery_code.is_some() {
+        session::Method::Recovery
+    } else {
+        session::Method::Passkey
+    };
     let record = users::find_by_id_for_login(&state.pool, current.user_id)
         .await?
         .ok_or_else(ApiError::unauthenticated)?;
@@ -479,7 +535,7 @@ pub async fn reauth(
     if !ok {
         return Err(reauth_failed());
     }
-    session::mark_reauthenticated(&state.pool, current.id).await?;
+    session::mark_reauthenticated(&state.pool, current.id, method).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

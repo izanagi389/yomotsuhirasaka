@@ -32,6 +32,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         auth: AuthConfig {
             mfa_required_for_everyone: false,
             breached_passwords: None,
+            oidc: None,
         },
         smtp: None,
         login_history: Default::default(),
