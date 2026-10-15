@@ -5,13 +5,14 @@
 //! - CSP は `script-src 'self'` と、`index.html` の中のインラインのスクリプトのハッシュだけを許す。
 //!   `unsafe-inline` と `unsafe-eval` は使わない。ハッシュは起動時に `index.html` から計算する。
 //! - 利用者が指定したパスでも、`dist_dir` の外のファイルは返さない（実体のパスで比べる）。
+//! - ビルドのときに作った圧縮済みのファイル（`.br`・`.gz`）があり、ブラウザが対応していれば、そちらを返す。
 
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use axum::body::Body;
 use axum::extract::{Path as UrlPath, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use base64::Engine as _;
 use sha2::{Digest as _, Sha256};
@@ -138,6 +139,28 @@ fn content_type(path: &Path) -> &'static str {
     }
 }
 
+/// 圧縮済みのファイルの拡張子と、`Content-Encoding` の値（優先する順）。
+const ENCODINGS: [(&str, &str); 2] = [("br", "br"), ("gz", "gzip")];
+
+/// `Accept-Encoding` が、その符号化を受け付けるか（`q=0` は受け付けない）。
+fn accepts(headers: &HeaderMap, encoding: &str) -> bool {
+    headers
+        .get_all(header::ACCEPT_ENCODING)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .any(|item| {
+            let mut parts = item.split(';').map(str::trim);
+            let name = parts.next().unwrap_or_default();
+            let refused = parts.any(|p| {
+                p.strip_prefix("q=")
+                    .and_then(|q| q.parse::<f32>().ok())
+                    .is_some_and(|q| q <= 0.0)
+            });
+            name.eq_ignore_ascii_case(encoding) && !refused
+        })
+}
+
 /// `/admin` → `/admin/`。
 pub async fn root_redirect() -> Redirect {
     Redirect::permanent("/admin/")
@@ -150,21 +173,37 @@ pub async fn index(State(state): State<AppState>) -> Result<Response, ApiError> 
 
 pub async fn serve(
     State(state): State<AppState>,
+    headers: HeaderMap,
     UrlPath(rel): UrlPath<String>,
 ) -> Result<Response, ApiError> {
     let ui = state.admin_ui.as_ref().ok_or_else(ApiError::not_found)?;
     if let Some(path) = ui.file(&rel)
         && !path.ends_with("index.html")
     {
-        let bytes = tokio::fs::read(&path)
+        // 圧縮済みのファイルがあれば、そちらを返す（中身の種類は元のファイルのもの）
+        let compressed = ENCODINGS.iter().find_map(|(ext, encoding)| {
+            if !accepts(&headers, encoding) {
+                return None;
+            }
+            ui.file(&format!("{rel}.{ext}")).map(|p| (p, *encoding))
+        });
+        let (read_from, encoding) = match compressed {
+            Some((p, e)) => (p, Some(e)),
+            None => (path.clone(), None),
+        };
+        let bytes = tokio::fs::read(&read_from)
             .await
-            .with_context(|| format!("cannot read {}", path.display()))?;
+            .with_context(|| format!("cannot read {}", read_from.display()))?;
         let mut res = (
             [(header::CONTENT_TYPE, content_type(&path))],
             Body::from(bytes),
         )
             .into_response();
         let h = res.headers_mut();
+        if let Some(e) = encoding {
+            h.insert(header::CONTENT_ENCODING, HeaderValue::from_static(e));
+        }
+        h.insert(header::VARY, HeaderValue::from_static("Accept-Encoding"));
         // ビルドのたびに名前が変わるファイル（_nuxt/ の下）は長く持たせる。それ以外は毎回確かめさせる
         let cache = if rel.starts_with("_nuxt/") {
             "public, max-age=31536000, immutable"
@@ -205,6 +244,22 @@ mod tests {
         // 期待値: echo -n 'window.__NUXT__={};' | openssl dgst -sha256 -binary | base64
         let d = Sha256::digest(b"window.__NUXT__={};");
         assert!(csp.contains(&base64::engine::general_purpose::STANDARD.encode(d)));
+    }
+
+    #[test]
+    fn accept_encoding() {
+        let h = |v: &str| {
+            let mut m = HeaderMap::new();
+            m.insert(header::ACCEPT_ENCODING, HeaderValue::from_str(v).unwrap());
+            m
+        };
+        assert!(accepts(&h("gzip, deflate, br, zstd"), "br"));
+        assert!(accepts(&h("gzip, deflate, br, zstd"), "gzip"));
+        assert!(accepts(&h("GZIP;q=0.5"), "gzip"));
+        assert!(!accepts(&h("gzip"), "br"));
+        assert!(!accepts(&h("br;q=0, gzip"), "br"));
+        assert!(!accepts(&h("brotli"), "br"));
+        assert!(!accepts(&HeaderMap::new(), "gzip"));
     }
 
     #[test]
