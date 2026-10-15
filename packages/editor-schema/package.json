@@ -1,0 +1,27 @@
+{
+  "name": "@new-cms/editor-schema",
+  "version": "0.1.0",
+  "private": true,
+  "description": "本文のノードの定義（Tiptapの拡張機能）。管理画面のエディタと、マニフェストを作るCLIが使う（Q57）",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@tiptap/core": "3.32.0",
+    "@tiptap/pm": "3.32.0",
+    "@tiptap/starter-kit": "3.32.0"
+  },
+  "devDependencies": {
+    "@tiptap/core": "3.32.0",
+    "@tiptap/pm": "3.32.0",
+    "@tiptap/starter-kit": "3.32.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}
