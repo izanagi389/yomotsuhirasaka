@@ -11,6 +11,14 @@
 - 見出しのアンカーID（`HeadingAnchors`）: 仮のIDを振る。最終的にはサーバーが保存時に決める（Q28, Q136）
 - 画像（`image`: `mediaId`・`alt`・`decorative`）と埋め込み（`embed`: `src`）
 
+## ビルド
+
+管理画面とCLIは、ビルドした `dist/` を使います（CLIは Node でそのまま動かすため）。
+
+```sh
+npm run build -w @new-cms/editor-schema
+```
+
 ## テスト
 
 ```sh
