@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "new-cms template",
+  "description": "テンプレートのファイル（templates/<テンプレート名>/template.json）。本文のノードとマークは書かない（CLIが、管理画面と同じTiptapの拡張機能から書き出す）。",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "このファイルのJSON Schemaの場所（エディタが使う。CMSは読まない）。",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "locales": {
+      "description": "コンテンツのロケール（例: `ja`, `en`）。",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "defaultLocale": {
+      "description": "既定のロケール（`locales` のどれか）。",
+      "type": "string"
+    },
+    "body": {
+      "$ref": "#/$defs/TemplateBody"
+    },
+    "contentTypes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ContentType"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "locales",
+    "defaultLocale",
+    "contentTypes"
+  ],
+  "$defs": {
+    "TemplateBody": {
+      "description": "テンプレートのファイルの本文の設定（ノードとマークはCLIが書き出す）。",
+      "type": "object",
+      "properties": {
+        "embedProviders": {
+          "description": "埋め込みを許す提供元のホスト名（例: `www.youtube.com`）。https のURLだけを受け付ける（Q97）。",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "ContentType": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "コンテンツタイプの名前（英小文字で始まる英小文字・数字・`_`）。DBとGraphQLの名前の元になる。",
+          "type": "string"
+        },
+        "urlTemplate": {
+          "description": "ロケールごとの公開URLのテンプレート。使える差し込みは `{locale}` と `{slug}`（Q82）。",
+          "type": "string"
+        },
+        "listLimit": {
+          "description": "一覧のフィールドで1回に取得できる件数の上限。",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Field"
+          }
+        },
+        "description": {
+          "description": "編集者向けの説明（管理画面に表示する。Q51）。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "devNote": {
+          "description": "開発者向けのメモ。どのAPIにも出さない（Q51、INV-SCH-01）。",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "urlTemplate",
+        "listLimit",
+        "fields"
+      ]
+    },
+    "Field": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "フィールドの名前（英小文字で始まる英小文字・数字・`_`）。DBとGraphQLの名前の元になる。",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/FieldType"
+        },
+        "required": {
+          "description": "公開に必須か（スラッグは常に必須）。",
+          "type": "boolean",
+          "default": false
+        },
+        "referenceTo": {
+          "description": "参照フィールドの参照先のコンテンツタイプ。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "multiple": {
+          "description": "複数の値を持つか（参照フィールドだけ）。",
+          "type": "boolean",
+          "default": false
+        },
+        "description": {
+          "description": "編集者向けの説明（Q51）。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "devNote": {
+          "description": "開発者向けのメモ。どのAPIにも出さない（Q51、INV-SCH-01）。",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type"
+      ]
+    },
+    "FieldType": {
+      "description": "フィールドの型（M1）。",
+      "oneOf": [
+        {
+          "description": "1行の文字列。",
+          "type": "string",
+          "const": "text"
+        },
+        {
+          "description": "URLに使う文字列（英小文字・数字・ハイフン）。",
+          "type": "string",
+          "const": "slug"
+        },
+        {
+          "description": "本文（Tiptapの構造化JSON）。",
+          "type": "string",
+          "const": "richtext"
+        },
+        {
+          "description": "他の記事への参照（翻訳グループを指す。Q157）。",
+          "type": "string",
+          "const": "reference"
+        }
+      ]
+    }
+  }
+}
