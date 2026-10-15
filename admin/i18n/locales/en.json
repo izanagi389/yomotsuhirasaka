@@ -7,7 +7,8 @@
     "cancel": "Cancel",
     "save": "Save",
     "remove": "Remove",
-    "home": "Home"
+    "home": "Home",
+    "close": "Close"
   },
   "auth": {
     "loginTitle": "Sign in",
@@ -137,7 +138,9 @@
     "image_too_large": "The image has too many pixels.",
     "file_too_large": "The file is too large.",
     "media_quota_exceeded": "This would exceed the workspace's media storage limit.",
-    "image_processing_timeout": "Processing the image took too long."
+    "image_processing_timeout": "Processing the image took too long.",
+    "version_is_published": "The published version cannot be erased.",
+    "media_in_use": "This media is used by entries."
   },
   "editor": {
     "toolbar": "Formatting",
@@ -253,5 +256,86 @@
     "confirmCorrection": "Publish as correction",
     "done": "Published: {url}",
     "doneCorrection": "Published as a correction: {url}"
+  },
+  "entryTabs": {
+    "content": "Content",
+    "translations": "Translations",
+    "versions": "Versions",
+    "settings": "Publish settings",
+    "urls": "URL history"
+  },
+  "translations": {
+    "source": "Source entry",
+    "noSource": "No source entry (this is the source, or there is none).",
+    "reflected": "The version at the time of creation is reflected",
+    "reflectedNone": "The source was not published when this was created",
+    "members": "Entries in the same translation group",
+    "thisEntry": "This entry",
+    "open": "Open",
+    "create": "Create a translation",
+    "createHelp": "Copies this entry's draft into a new entry in another locale.",
+    "createFor": "Create {locale} translation"
+  },
+  "settings": {
+    "note": "These switches are saved and changes are announced by webhook. Their effect on the chatbot and on materials for external AI comes in a later version.",
+    "changedFromDefault": "Changed from the default",
+    "showDefaults": "Show settings left at their defaults ({n})",
+    "hideDefaults": "Hide settings left at their defaults",
+    "useForChatbot": {
+      "label": "Use for the chatbot",
+      "help": "Use this entry as a source for the visitor chatbot's answers."
+    },
+    "includeInAiMaterials": {
+      "label": "Include in materials for external AI",
+      "help": "Include this entry in materials for external AI, such as the Markdown version and llms.txt."
+    },
+    "optOutOfAiTraining": {
+      "label": "Opt out of AI training",
+      "help": "Mark the external materials so that they are not used for AI training."
+    }
+  },
+  "urlHistory": {
+    "empty": "The public URL has not changed."
+  },
+  "versions": {
+    "empty": "No version has been published yet.",
+    "number": "Version {n}",
+    "current": "Published",
+    "correction": "Correction",
+    "erased": "Erased",
+    "view": "View",
+    "close": "Close",
+    "erase": "Erase body",
+    "unknownNodes": "This version contains elements the admin editor cannot display ({names}). Showing the text only.",
+    "eraseTitle": "Erase the body of version {n}",
+    "eraseDescription": "Keeps the version's number, dates and other records, and removes only the body from every API. This cannot be undone.",
+    "eraseCurrent": "The published version cannot be erased. Publish a fixed version (as a correction), or unpublish the entry, and then erase it.",
+    "eraseBackups": "The erased content remains in database backups taken before the erasure.",
+    "eraseMedia": "Media that can be deleted with it",
+    "eraseMediaHelp": "Media used in this version and not used by any version or draft of any entry (translations included). Anyone with the URL can see media, so they are selected by default.",
+    "eraseOtherLocales": "Entries in other locales",
+    "eraseOtherLocalesHelp": "Entries in the same translation group may still contain the same content in translation. Erase it in each entry if needed.",
+    "eraseConfirm": "Erase"
+  },
+  "media": {
+    "title": "Media",
+    "upload": "Upload",
+    "empty": "No media yet.",
+    "usage": "Usage: {used} / {quota}",
+    "size": "{w}×{h} · {bytes}",
+    "usedBy": "Used by",
+    "notUsed": "Not used by any entry.",
+    "inDraft": "Draft",
+    "inVersions": "Version {versions}",
+    "delete": "Delete",
+    "deleteTitle": "Delete this media",
+    "deleteDescription": "Deletes the file. This cannot be undone.",
+    "inUse": "This media is used by entries. Their images will no longer be shown. Delete it anyway?",
+    "deleteAnyway": "Delete anyway",
+    "details": "Details"
+  },
+  "nav": {
+    "entries": "Entries",
+    "media": "Media"
   }
 }
