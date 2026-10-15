@@ -140,7 +140,14 @@
     "media_quota_exceeded": "ワークスペースのメディアの容量の上限を超えます。",
     "image_processing_timeout": "画像の処理に時間がかかりすぎました。",
     "version_is_published": "公開中の版は抹消できません。",
-    "media_in_use": "このメディアは記事で使われています。"
+    "media_in_use": "このメディアは記事で使われています。",
+    "last_admin": "ワークスペースには、少なくとも1人の管理者が必要です。",
+    "smtp_required": "メールの送信（SMTP）が設定されていないため、招待できるのはサーバー管理者だけです。",
+    "too_many_webhooks": "これ以上 Webhook を登録できません。",
+    "destination_not_allowed": "この送信先には送れません。",
+    "server_admin_target": "サーバー管理者は、サーバーのCLIでだけ復旧できます。",
+    "outside_scope": "この人は、あなたが管理していないワークスペースにも所属しています。サーバー管理者に依頼してください。",
+    "deploy_scope_forbidden": "デプロイの権限のトークンを発行できるのは、サーバー管理者だけです。"
   },
   "editor": {
     "toolbar": "本文の書式",
@@ -336,6 +343,193 @@
   },
   "nav": {
     "entries": "記事",
-    "media": "メディア"
+    "media": "メディア",
+    "admin": "管理"
+  },
+  "adminTabs": {
+    "members": "所属者",
+    "invitations": "招待",
+    "apiKeys": "配信APIのキー",
+    "webhooks": "Webhook",
+    "audit": "監査ログ"
+  },
+  "secretOnce": {
+    "warning": "この値は今だけ表示します。閉じると二度と表示できないので、安全な場所に保管してください。",
+    "copy": "コピー",
+    "dismiss": "保管したので閉じる"
+  },
+  "members": {
+    "role": "ロール",
+    "roleOf": "{email} のロール",
+    "canViewMembers": "所属者の一覧を見られる",
+    "canViewMembersOf": "{email} が所属者の一覧を見られる",
+    "joinedAt": "所属した日時",
+    "noMfa": "多要素認証なし",
+    "actionsFor": "{email} の操作",
+    "issuePasswordReset": "パスワードのリセットを発行",
+    "issueMfaReset": "多要素認証のリセットを発行",
+    "remove": "所属から外す",
+    "removeTitle": "所属から外します",
+    "removeDescription": "{email} をこのワークスペースから外します。その人の記事や版は残ります。",
+    "passwordResetSent": "{email} に、パスワードの再設定のメールを送りました。",
+    "mfaResetSent": "{email} に、多要素認証の解除のメールを送りました。",
+    "passwordResetLink": "{email} のパスワードの再設定のリンク（本人に渡してください）",
+    "mfaResetLink": "{email} の多要素認証の解除のリンク（本人に渡してください）"
+  },
+  "invitations": {
+    "send": "招待する",
+    "sent": "{email} に招待のメールを送りました。",
+    "link": "{email} への招待のリンク（本人に渡してください）",
+    "pending": "承諾待ちの招待",
+    "none": "承諾待ちの招待はありません。",
+    "expires": "期限: {at}",
+    "revoke": "取り消す",
+    "revokeTitle": "招待を取り消します",
+    "revokeDescription": "{email} への招待を取り消します。送ったリンクは使えなくなります。"
+  },
+  "apiKeys": {
+    "name": "名前",
+    "purpose": "用途",
+    "purposes": {
+      "build": "ビルド用",
+      "server": "サーバー用"
+    },
+    "expires": "期限（任意）",
+    "scopes": "権限",
+    "scope": {
+      "read": "読む",
+      "register": "クエリの登録"
+    },
+    "create": "発行する",
+    "created": "APIキー「{name}」",
+    "none": "有効なキーはありません。",
+    "expiresAt": "期限: {at}",
+    "noExpiry": "期限なし",
+    "lastUsed": "最後の利用: {at}",
+    "neverUsed": "未使用",
+    "revoke": "失効させる",
+    "revokeTitle": "APIキーを失効させます",
+    "revokeDescription": "「{name}」を失効させます。このキーを使っているサイトは、配信APIを読めなくなります。"
+  },
+  "webhooks": {
+    "url": "送信先のURL",
+    "create": "登録する",
+    "help": "https のURLで、公開のアドレスに解決されるものだけを登録できます。記事の公開・更新などを、署名を付けて送ります。",
+    "created": "{url} の署名の秘密",
+    "rotated": "{url} の新しい署名の秘密（古い秘密でも {until} まで署名します）",
+    "none": "登録されたWebhookはありません。",
+    "previousSecret": "古い秘密でも {until} まで署名",
+    "test": "テスト送信",
+    "deliveries": "送信の記録",
+    "rotate": "秘密を入れ替える",
+    "delete": "削除",
+    "reload": "読み直す",
+    "noDeliveries": "送信の記録はありません。",
+    "attempts": "{n}回",
+    "state": {
+      "pending": "送信待ち",
+      "delivered": "成功",
+      "failed": "失敗"
+    },
+    "error": {
+      "invalid_url": "URLが正しくありません",
+      "scheme_not_allowed": "https 以外の送信先",
+      "internal_destination": "内部向けの送信先",
+      "dns_failed": "名前解決に失敗",
+      "connect_failed": "接続に失敗",
+      "proxy_failed": "プロキシの接続に失敗",
+      "tls_failed": "TLSの確認に失敗",
+      "timeout": "時間切れ",
+      "http_failed": "HTTPの通信に失敗",
+      "response_too_large": "応答が大きすぎる",
+      "http_status": "成功以外の状態コード"
+    },
+    "deleteTitle": "Webhookを削除します",
+    "deleteDescription": "{url} への送信をやめます。"
+  },
+  "audit": {
+    "note": "操作の種類・操作した人・対象・時刻だけを記録しています（内容は記録していません）。",
+    "at": "日時",
+    "action": "操作",
+    "actor": "操作した人",
+    "targets": "対象",
+    "system": "システム",
+    "none": "記録はありません。",
+    "more": "さらに読む",
+    "actions": {
+      "api_key": {
+        "issued": "APIキーを発行",
+        "revoked": "APIキーを失効",
+        "rotated": "APIキーを一斉に入れ替え"
+      },
+      "auth": {
+        "login": "ログイン"
+      },
+      "emergency": {
+        "sessions_revoked": "全セッションを一斉に失効"
+      },
+      "encryption_key": {
+        "added": "暗号化の鍵を追加",
+        "removed": "暗号化の鍵を削除",
+        "secrets_reencrypted": "秘密の値を暗号化し直し"
+      },
+      "entry": {
+        "created": "記事を作成",
+        "deleted": "記事を削除",
+        "draft_saved": "下書きを保存",
+        "imported": "記事を取り込み",
+        "published": "記事を公開",
+        "published_as_correction": "訂正として公開",
+        "settings_changed": "公開設定を変更",
+        "unpublished": "記事を非公開"
+      },
+      "invitation": {
+        "revoked": "招待を取り消し"
+      },
+      "media": {
+        "deleted": "メディアを削除",
+        "uploaded": "メディアをアップロード"
+      },
+      "member": {
+        "invited": "招待",
+        "joined": "所属",
+        "permission_changed": "閲覧の権限を変更",
+        "removed": "所属から外す",
+        "role_changed": "ロールを変更"
+      },
+      "mfa_reset": {
+        "completed": "多要素認証のリセットを完了",
+        "issued": "多要素認証のリセットを発行"
+      },
+      "password_reset": {
+        "completed": "パスワードのリセットを完了",
+        "issued": "パスワードのリセットを発行",
+        "requested": "パスワードのリセットを要求"
+      },
+      "personal_token": {
+        "issued": "個人トークンを発行",
+        "revoked": "個人トークンを失効"
+      },
+      "schema": {
+        "migrated": "スキーマを移行",
+        "migration_failed": "スキーマの移行に失敗"
+      },
+      "template": {
+        "deployed": "テンプレートをデプロイ"
+      },
+      "version": {
+        "erased": "版の本文を抹消"
+      },
+      "webhook": {
+        "created": "Webhookを登録",
+        "deleted": "Webhookを削除",
+        "secret_rotated": "Webhookの秘密を入れ替え"
+      },
+      "workspace": {
+        "created": "ワークスペースを作成",
+        "limits_changed": "容量の上限を変更"
+      }
+    },
+    "you": "あなた"
   }
 }

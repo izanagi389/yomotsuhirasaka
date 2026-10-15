@@ -6,7 +6,7 @@ const props = defineProps<{ error: unknown }>();
 const { t, te } = useI18n();
 
 // 入力の問題は、どこが悪いかをサーバーの文（英語）でそのまま添える
-const DETAILED = new Set(["invalid_entry"]);
+const DETAILED = new Set(["invalid_entry", "destination_not_allowed"]);
 const detail = computed(() => (props.error instanceof ApiError && DETAILED.has(props.error.code) ? props.error.message : null));
 
 const message = computed(() => {

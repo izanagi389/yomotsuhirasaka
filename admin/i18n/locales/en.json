@@ -140,7 +140,14 @@
     "media_quota_exceeded": "This would exceed the workspace's media storage limit.",
     "image_processing_timeout": "Processing the image took too long.",
     "version_is_published": "The published version cannot be erased.",
-    "media_in_use": "This media is used by entries."
+    "media_in_use": "This media is used by entries.",
+    "last_admin": "A workspace must keep at least one administrator.",
+    "smtp_required": "Email (SMTP) is not configured, so only server administrators can invite.",
+    "too_many_webhooks": "No more webhooks can be added.",
+    "destination_not_allowed": "This destination cannot receive webhooks.",
+    "server_admin_target": "Server administrators can only be recovered with the server CLI.",
+    "outside_scope": "This person also belongs to a workspace you do not administer. Ask a server administrator.",
+    "deploy_scope_forbidden": "Only server administrators can issue tokens with the deploy scope."
   },
   "editor": {
     "toolbar": "Formatting",
@@ -336,6 +343,193 @@
   },
   "nav": {
     "entries": "Entries",
-    "media": "Media"
+    "media": "Media",
+    "admin": "Admin"
+  },
+  "adminTabs": {
+    "members": "Members",
+    "invitations": "Invitations",
+    "apiKeys": "Delivery API keys",
+    "webhooks": "Webhooks",
+    "audit": "Audit log"
+  },
+  "secretOnce": {
+    "warning": "This value is shown only now. Once closed it cannot be shown again, so store it somewhere safe.",
+    "copy": "Copy",
+    "dismiss": "I stored it — close"
+  },
+  "members": {
+    "role": "Role",
+    "roleOf": "Role of {email}",
+    "canViewMembers": "Can view members",
+    "canViewMembersOf": "{email} can view members",
+    "joinedAt": "Joined",
+    "noMfa": "No MFA",
+    "actionsFor": "Actions for {email}",
+    "issuePasswordReset": "Issue a password reset",
+    "issueMfaReset": "Issue an MFA reset",
+    "remove": "Remove",
+    "removeTitle": "Remove from the workspace",
+    "removeDescription": "Removes {email} from this workspace. Their entries and versions are kept.",
+    "passwordResetSent": "A password reset email was sent to {email}.",
+    "mfaResetSent": "An MFA reset email was sent to {email}.",
+    "passwordResetLink": "Password reset link for {email} (give it to them)",
+    "mfaResetLink": "MFA reset link for {email} (give it to them)"
+  },
+  "invitations": {
+    "send": "Invite",
+    "sent": "An invitation email was sent to {email}.",
+    "link": "Invitation link for {email} (give it to them)",
+    "pending": "Pending invitations",
+    "none": "No pending invitations.",
+    "expires": "Expires: {at}",
+    "revoke": "Revoke",
+    "revokeTitle": "Revoke the invitation",
+    "revokeDescription": "Revokes the invitation to {email}. The link sent will no longer work."
+  },
+  "apiKeys": {
+    "name": "Name",
+    "purpose": "Purpose",
+    "purposes": {
+      "build": "Build",
+      "server": "Server"
+    },
+    "expires": "Expiry (optional)",
+    "scopes": "Scopes",
+    "scope": {
+      "read": "Read",
+      "register": "Register queries"
+    },
+    "create": "Issue",
+    "created": "API key \"{name}\"",
+    "none": "No active keys.",
+    "expiresAt": "Expires: {at}",
+    "noExpiry": "No expiry",
+    "lastUsed": "Last used: {at}",
+    "neverUsed": "Never used",
+    "revoke": "Revoke",
+    "revokeTitle": "Revoke the API key",
+    "revokeDescription": "Revokes \"{name}\". Sites using this key will no longer be able to read the delivery API."
+  },
+  "webhooks": {
+    "url": "Destination URL",
+    "create": "Add",
+    "help": "Only https URLs that resolve to public addresses can be added. Entry events such as publishing and updates are sent with a signature.",
+    "created": "Signing secret for {url}",
+    "rotated": "New signing secret for {url} (the old one also signs until {until})",
+    "none": "No webhooks yet.",
+    "previousSecret": "Old secret also signs until {until}",
+    "test": "Send test",
+    "deliveries": "Deliveries",
+    "rotate": "Rotate secret",
+    "delete": "Delete",
+    "reload": "Reload",
+    "noDeliveries": "No deliveries yet.",
+    "attempts": "{n} attempt(s)",
+    "state": {
+      "pending": "Pending",
+      "delivered": "Delivered",
+      "failed": "Failed"
+    },
+    "error": {
+      "invalid_url": "Invalid URL",
+      "scheme_not_allowed": "Not an https destination",
+      "internal_destination": "Internal destination",
+      "dns_failed": "DNS lookup failed",
+      "connect_failed": "Connection failed",
+      "proxy_failed": "Proxy connection failed",
+      "tls_failed": "TLS verification failed",
+      "timeout": "Timed out",
+      "http_failed": "HTTP exchange failed",
+      "response_too_large": "Response too large",
+      "http_status": "Non-success status code"
+    },
+    "deleteTitle": "Delete the webhook",
+    "deleteDescription": "Stops sending to {url}."
+  },
+  "audit": {
+    "note": "Only the kind of operation, who did it, the targets and the time are recorded (no content).",
+    "at": "Time",
+    "action": "Operation",
+    "actor": "By",
+    "targets": "Targets",
+    "system": "System",
+    "none": "No records.",
+    "more": "Load more",
+    "actions": {
+      "api_key": {
+        "issued": "API key issued",
+        "revoked": "API key revoked",
+        "rotated": "API keys rotated"
+      },
+      "auth": {
+        "login": "Signed in"
+      },
+      "emergency": {
+        "sessions_revoked": "All sessions revoked"
+      },
+      "encryption_key": {
+        "added": "Encryption key added",
+        "removed": "Encryption key removed",
+        "secrets_reencrypted": "Secrets re-encrypted"
+      },
+      "entry": {
+        "created": "Entry created",
+        "deleted": "Entry deleted",
+        "draft_saved": "Draft saved",
+        "imported": "Entries imported",
+        "published": "Entry published",
+        "published_as_correction": "Published as correction",
+        "settings_changed": "Publish settings changed",
+        "unpublished": "Entry unpublished"
+      },
+      "invitation": {
+        "revoked": "Invitation revoked"
+      },
+      "media": {
+        "deleted": "Media deleted",
+        "uploaded": "Media uploaded"
+      },
+      "member": {
+        "invited": "Invited",
+        "joined": "Joined",
+        "permission_changed": "Viewing permission changed",
+        "removed": "Member removed",
+        "role_changed": "Role changed"
+      },
+      "mfa_reset": {
+        "completed": "MFA reset completed",
+        "issued": "MFA reset issued"
+      },
+      "password_reset": {
+        "completed": "Password reset completed",
+        "issued": "Password reset issued",
+        "requested": "Password reset requested"
+      },
+      "personal_token": {
+        "issued": "Personal token issued",
+        "revoked": "Personal token revoked"
+      },
+      "schema": {
+        "migrated": "Schema migrated",
+        "migration_failed": "Schema migration failed"
+      },
+      "template": {
+        "deployed": "Template deployed"
+      },
+      "version": {
+        "erased": "Version body erased"
+      },
+      "webhook": {
+        "created": "Webhook created",
+        "deleted": "Webhook deleted",
+        "secret_rotated": "Webhook secret rotated"
+      },
+      "workspace": {
+        "created": "Workspace created",
+        "limits_changed": "Storage limit changed"
+      }
+    },
+    "you": "You"
   }
 }

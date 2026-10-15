@@ -55,7 +55,7 @@ async function create() {
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" />
+    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" />
     <div v-if="manifest && canEdit(workspace) && schema?.state === 'ok'" class="flex">
       <Button class="ml-auto" @click="openCreate">
         <Plus class="size-4" />{{ t("entries.new") }}
