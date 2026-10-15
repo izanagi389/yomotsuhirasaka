@@ -158,3 +158,113 @@ async fn deployments_that_break_registered_queries_are_refused() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn dry_run_reports_without_changing_anything() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        let dry = ",\"dryRun\":true";
+
+        // まだ版がないテンプレート: 何も書かない
+        let res = deploy(&server, &token, "blog", &blog_manifest(), dry).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        let c: Value = serde_json::from_str(&res.body).unwrap();
+        assert_eq!(c["dryRun"], true);
+        assert!(c["currentVersion"].is_null());
+        assert_eq!(c["problems"], json!([]));
+        let versions = || async {
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM cms.template_versions")
+                .fetch_one(&server.pool)
+                .await
+                .unwrap()
+        };
+        assert_eq!(versions().await, 0);
+
+        assert_eq!(
+            deploy(&server, &token, "blog", &blog_manifest(), "")
+                .await
+                .status,
+            200
+        );
+        let ws = workspace_with_template(&server, &root, "A", "blog").await;
+        let key = api_key(&server, &root, ws).await;
+        let uses_subtitle = register(
+            &server,
+            ws,
+            &key,
+            "{ postList(locale: \"ja\") { id subtitle } }",
+        )
+        .await;
+
+        // 同じ内容
+        let c: Value = serde_json::from_str(
+            &deploy(&server, &token, "blog", &blog_manifest(), dry)
+                .await
+                .body,
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                c["unchanged"].as_bool(),
+                c["currentVersion"].as_i64(),
+                c["workspaces"].as_i64()
+            ),
+            (Some(true), Some(1), Some(1))
+        );
+
+        // 破壊的な変更と、壊れるクエリ: 指定がなくても、すべて報告する。何も書かない
+        let res = deploy(&server, &token, "blog", &without(&["subtitle"]), dry).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        let c: Value = serde_json::from_str(&res.body).unwrap();
+        assert_eq!(
+            c["destructive"],
+            json!(["field `post.subtitle` is removed"])
+        );
+        assert_eq!(c["brokenQueries"][0]["queryId"], uses_subtitle.as_str());
+        assert_eq!(c["brokenQueries"][0]["workspaceId"], ws.to_string());
+        assert_eq!(versions().await, 1);
+        assert!(run(&server, ws, &key, &uses_subtitle).await["errors"].is_null());
+
+        // マニフェストの問題は 422 ではなく、結果の中に返す
+        let mut bad: Value = serde_json::from_str(&blog_manifest()).unwrap();
+        bad["defaultLocale"] = json!("fr");
+        let c: Value = serde_json::from_str(
+            &deploy(&server, &token, "blog", &bad.to_string(), dry)
+                .await
+                .body,
+        )
+        .unwrap();
+        assert!(
+            c["problems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p.as_str().unwrap().starts_with("defaultLocale")),
+            "{c}"
+        );
+
+        // 試行も、デプロイの範囲のトークンが要る
+        let res = request(
+            &server,
+            "POST",
+            "/api/admin/templates/blog/deploy",
+            &[
+                ("Cookie", &root.cookie_header()),
+                ("X-CSRF-Token", &root.csrf),
+            ],
+            Some(&format!("{{\"manifest\":{}{dry}}}", blog_manifest())),
+        )
+        .await;
+        assert_eq!(res.status, 401, "{}", res.body);
+        // 監査ログには、試行を記録しない（デプロイの1回だけ）
+        let deployed: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM cms.audit_log WHERE action = 'template.deployed'",
+        )
+        .fetch_one(&server.pool)
+        .await
+        .unwrap();
+        assert_eq!(deployed, 1);
+    })
+    .await;
+}

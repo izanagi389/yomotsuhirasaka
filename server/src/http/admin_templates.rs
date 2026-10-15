@@ -2,7 +2,7 @@
 //!
 //! | メソッド | パス | 内容 |
 //! |---|---|---|
-//! | POST | /api/admin/templates/{name}/deploy | テンプレートをデプロイする（デプロイの範囲の個人トークンだけ） |
+//! | POST | /api/admin/templates/{name}/deploy | テンプレートをデプロイする（デプロイの範囲の個人トークンだけ）。`dryRun` なら検査だけ |
 //! | GET | /api/admin/workspaces/{ws}/schema | ワークスペースに適用済みのスキーマ（`devNote` は除く） |
 //!
 //! デプロイはサーバー管理者だけが、デプロイの範囲を持つ個人トークンで行う（13-security.md「デプロイ」、Q102）。
@@ -73,6 +73,17 @@ pub struct DeployRequest {
     /// 登録済みのクエリを壊す変更を許す（Q54）。
     #[serde(default)]
     allow_broken_queries: bool,
+    /// 試行: デプロイと同じ検査だけを行い、何も書き込まない（CLIがデプロイの前に結果を見せるため）。
+    #[serde(default)]
+    dry_run: bool,
+}
+
+/// デプロイの応答（試行なら検査の結果、そうでなければデプロイの結果）。
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum DeployResponse {
+    Applied(Outcome),
+    Checked(deploy::Check),
 }
 
 /// 応答に載せる問題の数の上限。
@@ -87,11 +98,23 @@ pub async fn deploy_template(
     DeployToken(current): DeployToken,
     Path(name): Path<String>,
     JsonBody(req): JsonBody<DeployRequest>,
-) -> Result<Json<Outcome>, ApiError> {
+) -> Result<Json<DeployResponse>, ApiError> {
     if !valid_template_name(&name) {
         return Err(ApiError::bad_request(
             "The template name must be 1 to 64 characters of a-z, 0-9 and -.",
         ));
+    }
+    let queries = deploy::QueryCheck {
+        allow_broken: req.allow_broken_queries,
+        limits: crate::delivery::schema::QueryLimits {
+            depth: state.config.delivery.max_depth,
+            complexity: state.config.delivery.max_complexity,
+        },
+        unused_days: state.config.delivery.query_check_unused_days,
+    };
+    if req.dry_run {
+        let checked = deploy::check(&state.migration, &name, &req.manifest, queries).await?;
+        return Ok(Json(DeployResponse::Checked(checked)));
     }
     match deploy::deploy(
         &state.migration,
@@ -99,19 +122,12 @@ pub async fn deploy_template(
         &name,
         req.manifest,
         req.allow_destructive,
-        deploy::QueryCheck {
-            allow_broken: req.allow_broken_queries,
-            limits: crate::delivery::schema::QueryLimits {
-                depth: state.config.delivery.max_depth,
-                complexity: state.config.delivery.max_complexity,
-            },
-            unused_days: state.config.delivery.query_check_unused_days,
-        },
+        queries,
         current.user_id,
     )
     .await?
     {
-        Ok(outcome) => Ok(Json(outcome)),
+        Ok(outcome) => Ok(Json(DeployResponse::Applied(outcome))),
         Err(Rejected::Invalid(problems)) => Err(ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "invalid_manifest",

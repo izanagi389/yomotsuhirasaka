@@ -7,6 +7,9 @@
 //!    移行待ちのワークスペースは、次のデプロイのときに最新の版への移行をやり直す。
 //!
 //! デプロイとワークスペースの作成だけが、移行・ロールの作成用の接続を使う（Q173, Q179）。
+//!
+//! `check` は、デプロイと同じ検査（1・2と登録済みのクエリの検証）を、何も書き込まずに行う（CLIがデプロイの前に結果を見せるため）。
+//! 判定のコードはデプロイと同じものを使う。
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -106,6 +109,66 @@ async fn latest_version(
 }
 
 /// テンプレートをデプロイする。`app` は監査ログの記録に使う。
+/// デプロイの試行の結果（何も書き込まない）。明示的な指定の有無にかかわらず、見つかった問題をすべて返す。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Check {
+    /// 試行であることの印（応答でデプロイの結果と見分けるため。常に true）。
+    pub dry_run: bool,
+    /// マニフェストの問題（あれば、ほかの検査はしない）。
+    pub problems: Vec<String>,
+    /// 破壊的な変更の説明。
+    pub destructive: Vec<String>,
+    /// 新しいスキーマで壊れる登録済みのクエリ。
+    pub broken_queries: Vec<BrokenQuery>,
+    /// 最新の版と同じ内容か。
+    pub unchanged: bool,
+    /// いまの最新の版（まだなければ null）。
+    pub current_version: Option<i32>,
+    /// このテンプレートを使うワークスペースの数。
+    pub workspaces: usize,
+}
+
+/// デプロイと同じ検査を、書き込まずに行う。
+pub async fn check(
+    migration: &PgPool,
+    template: &str,
+    manifest: &Manifest,
+    queries: QueryCheck,
+) -> Result<Check> {
+    let mut out = Check {
+        dry_run: true,
+        problems: validate(manifest),
+        destructive: Vec::new(),
+        broken_queries: Vec::new(),
+        unchanged: false,
+        current_version: None,
+        workspaces: 0,
+    };
+    let mut conn = migration.acquire().await?;
+    let latest = latest_version(&mut conn, template).await?;
+    out.current_version = latest.as_ref().map(|(v, _)| *v);
+    out.workspaces = usize::try_from(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM cms.workspaces WHERE template = $1")
+            .bind(template)
+            .fetch_one(&mut *conn)
+            .await?,
+    )
+    .unwrap_or_default();
+    if !out.problems.is_empty() {
+        return Ok(out);
+    }
+    out.unchanged = latest.as_ref().is_some_and(|(_, m)| m == manifest);
+    out.destructive = breaking_changes(latest.as_ref().map(|(_, m)| m), manifest)
+        .iter()
+        .map(Breaking::describe)
+        .collect();
+    if !out.unchanged {
+        out.broken_queries = broken_queries(&mut conn, template, manifest, queries).await?;
+    }
+    Ok(out)
+}
+
 pub async fn deploy(
     migration: &PgPool,
     app: &PgPool,
