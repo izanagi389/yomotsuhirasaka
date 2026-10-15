@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// コンテンツタイプ名・フィールド名の最大の長さ（DBの識別子の上限63に、接頭辞を足しても収まる長さ）。
@@ -20,7 +21,7 @@ const MAX_TEXT_CHARS: usize = 2000;
 pub const MAX_LIST_LIMIT: u32 = 1000;
 
 /// フィールドの型（M1）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FieldType {
     /// 1行の文字列。
@@ -33,12 +34,14 @@ pub enum FieldType {
     Reference,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Field {
+    /// フィールドの名前（英小文字で始まる英小文字・数字・`_`）。DBとGraphQLの名前の元になる。
     pub name: String,
     #[serde(rename = "type")]
     pub kind: FieldType,
+    /// 公開に必須か（スラッグは常に必須）。
     #[serde(default)]
     pub required: bool,
     /// 参照フィールドの参照先のコンテンツタイプ。
@@ -55,23 +58,26 @@ pub struct Field {
     pub dev_note: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContentType {
+    /// コンテンツタイプの名前（英小文字で始まる英小文字・数字・`_`）。DBとGraphQLの名前の元になる。
     pub name: String,
     /// ロケールごとの公開URLのテンプレート。使える差し込みは `{locale}` と `{slug}`（Q82）。
     pub url_template: String,
     /// 一覧のフィールドで1回に取得できる件数の上限。
     pub list_limit: u32,
     pub fields: Vec<Field>,
+    /// 編集者向けの説明（管理画面に表示する。Q51）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// 開発者向けのメモ。どのAPIにも出さない（Q51、INV-SCH-01）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dev_note: Option<String>,
 }
 
 /// 本文のノードの定義（Tiptapの拡張機能から、CLIが取り出したもの。Q57, Q142）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BodyNode {
     pub name: String,
@@ -86,7 +92,7 @@ pub struct BodyNode {
     pub marks: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BodyMark {
     pub name: String,
@@ -94,7 +100,7 @@ pub struct BodyMark {
     pub attrs: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Body {
     pub nodes: Vec<BodyNode>,
@@ -106,13 +112,51 @@ pub struct Body {
 }
 
 /// テンプレートのマニフェスト。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Manifest {
+    /// コンテンツのロケール（例: `ja`, `en`）。
     pub locales: Vec<String>,
+    /// 既定のロケール（`locales` のどれか）。
     pub default_locale: String,
     pub body: Body,
     pub content_types: Vec<ContentType>,
+}
+
+/// テンプレートのファイル（`templates/<テンプレート名>/template.json`）の形。開発者が書くのはこちら。
+/// 本文のノードとマークは、CLIが管理画面と同じTiptapの拡張機能から書き出してマニフェストにする（Q57）ので、ここには書かない。
+/// それ以外はマニフェストと同じ（テストで確かめる）。エディタの補完と検証に使うJSON Schemaを、この型から作る（Q50）。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(
+    title = "new-cms template",
+    description = "テンプレートのファイル（templates/<テンプレート名>/template.json）。本文のノードとマークは書かない（CLIが、管理画面と同じTiptapの拡張機能から書き出す）。"
+)]
+pub struct TemplateFile {
+    /// このファイルのJSON Schemaの場所（エディタが使う。CMSは読まない）。
+    #[serde(rename = "$schema", default)]
+    pub schema: Option<String>,
+    /// コンテンツのロケール（例: `ja`, `en`）。
+    pub locales: Vec<String>,
+    /// 既定のロケール（`locales` のどれか）。
+    pub default_locale: String,
+    #[serde(default)]
+    pub body: TemplateBody,
+    pub content_types: Vec<ContentType>,
+}
+
+/// テンプレートのファイルの本文の設定（ノードとマークはCLIが書き出す）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TemplateBody {
+    /// 埋め込みを許す提供元のホスト名（例: `www.youtube.com`）。https のURLだけを受け付ける（Q97）。
+    #[serde(default)]
+    pub embed_providers: Vec<String>,
+}
+
+/// テンプレートのファイルのJSON Schema（`cli/schema/template.schema.json` に置き、テストで最新か確かめる）。
+pub fn template_json_schema() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(TemplateFile)).expect("JSON Schema serializes")
 }
 
 impl Manifest {
@@ -567,5 +611,63 @@ pub(crate) mod tests {
         let mut v = serde_json::to_value(sample()).unwrap();
         v["contentTypes"][0]["fields"][0]["sql"] = "x".into();
         assert!(serde_json::from_value::<Manifest>(v).is_err());
+    }
+
+    /// `cli/schema/template.schema.json` が、この型から作ったものと同じか。
+    /// 変えたときは `CMS_UPDATE_TEMPLATE_SCHEMA=1 cargo test -p cms-server template_json_schema` で書き直す。
+    #[test]
+    fn template_json_schema_is_up_to_date() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../cli/schema/template.schema.json");
+        let generated = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&template_json_schema()).unwrap()
+        );
+        if std::env::var_os("CMS_UPDATE_TEMPLATE_SCHEMA").is_some() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &generated).unwrap();
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            committed == generated,
+            "{} is out of date. Run: CMS_UPDATE_TEMPLATE_SCHEMA=1 cargo test -p cms-server template_json_schema",
+            path.display()
+        );
+    }
+
+    /// テンプレートのファイルは、本文のノードとマークを除けば、マニフェストと同じ項目を持つ。
+    #[test]
+    fn template_file_matches_the_manifest() {
+        let props = |v: serde_json::Value| -> BTreeSet<String> {
+            v["properties"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect()
+        };
+        let manifest = serde_json::to_value(schemars::schema_for!(Manifest)).unwrap();
+        let template = template_json_schema();
+        let mut expected = props(manifest.clone());
+        expected.insert("$schema".to_owned());
+        assert_eq!(props(template.clone()), expected);
+        let body = |root: &serde_json::Value, name: &str| -> BTreeSet<String> {
+            root["$defs"][name]["properties"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect()
+        };
+        let mut manifest_body = body(&manifest, "Body");
+        manifest_body.remove("nodes");
+        manifest_body.remove("marks");
+        assert_eq!(body(&template, "TemplateBody"), manifest_body);
+        // コンテンツタイプとフィールドは、同じ型を使っている
+        assert_eq!(
+            template["$defs"]["ContentType"],
+            manifest["$defs"]["ContentType"]
+        );
+        assert_eq!(template["$defs"]["Field"], manifest["$defs"]["Field"]);
     }
 }
