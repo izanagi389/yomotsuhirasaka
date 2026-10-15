@@ -70,7 +70,7 @@ async function remove(force: boolean) {
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" />
+    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" />
     <div class="flex flex-wrap items-center gap-3 text-sm">
       <span v-if="limits" class="text-muted-foreground">
         {{ t("media.usage", { used: formatBytes(limits.mediaBytesUsed), quota: formatBytes(limits.mediaBytes) }) }}
