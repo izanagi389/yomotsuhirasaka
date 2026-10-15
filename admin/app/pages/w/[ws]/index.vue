@@ -55,12 +55,9 @@ async function create() {
 
 <template>
   <div class="grid gap-6">
-    <div class="flex flex-wrap items-center gap-3">
-      <div>
-        <NuxtLink to="/" class="text-sm text-muted-foreground hover:text-foreground">{{ t("workspaces.title") }}</NuxtLink>
-        <h1 class="text-2xl font-semibold">{{ workspace?.name }}</h1>
-      </div>
-      <Button v-if="manifest && canEdit(workspace) && schema?.state === 'ok'" class="ml-auto" @click="openCreate">
+    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" />
+    <div v-if="manifest && canEdit(workspace) && schema?.state === 'ok'" class="flex">
+      <Button class="ml-auto" @click="openCreate">
         <Plus class="size-4" />{{ t("entries.new") }}
       </Button>
     </div>

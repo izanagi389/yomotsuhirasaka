@@ -9,8 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import EntryField from "~/components/entry/EntryField.vue";
 import PublishDialog from "~/components/entry/PublishDialog.vue";
+import SettingsPanel from "~/components/entry/SettingsPanel.vue";
+import TranslationsPanel from "~/components/entry/TranslationsPanel.vue";
+import UrlHistoryPanel from "~/components/entry/UrlHistoryPanel.vue";
+import VersionsPanel from "~/components/entry/VersionsPanel.vue";
 import type { Draft, EntrySummary, FieldValue, Published } from "~/utils/content";
 
 const route = useRoute();
@@ -54,6 +59,11 @@ async function reload() {
 const statusText = computed(() => t(`entries.save.${autosave.status.value}`));
 const title = computed(() => (draft.value ? entryTitle(contentType.value, values) : null));
 
+// タブ（内容のタブは、エディタの状態を保つため、ほかのタブを開いている間も残しておく）
+const tab = ref("content");
+// 公開・非公開の後に、版とURLの履歴を読み直すための番号
+const published = ref(0);
+
 // 公開
 const publishOpen = ref(false);
 const asCorrection = ref(false);
@@ -64,6 +74,7 @@ function openPublish(correction: boolean) {
 }
 async function onPublished(result: Published) {
   lastPublished.value = result;
+  published.value++;
   await refreshDraft();
 }
 
@@ -78,6 +89,7 @@ async function runConfirmed() {
     if (confirm.value === "unpublish") {
       await api.post(`${base}/unpublish`);
       lastPublished.value = null;
+      published.value++;
       await refreshDraft();
     } else if (confirm.value === "delete") {
       await api.del(base);
@@ -147,21 +159,50 @@ onBeforeRouteLeave(async () => {
         {{ lastPublished.isCorrection ? t("publish.doneCorrection", { url: lastPublished.url }) : t("publish.done", { url: lastPublished.url }) }}
       </p>
 
-      <form class="grid gap-6" @submit.prevent>
-        <EntryField
-          v-for="f in contentType.fields"
-          :key="`${f.name}:${generation}`"
-          :field="f"
-          :model-value="values[f.name]"
-          :manifest="manifest"
-          :workspace-id="ws"
-          :locale="draft.locale"
-          :editable="editable"
-          :entries="entries ?? []"
-          @update:model-value="change(f.name, $event)"
-        />
-      </form>
-      <p class="text-xs text-muted-foreground">{{ t("entries.updated", { at: formatDateTime(draft.updatedAt, locale) }) }}</p>
+      <Tabs v-model="tab">
+        <TabsList>
+          <TabsTrigger value="content">{{ t("entryTabs.content") }}</TabsTrigger>
+          <TabsTrigger value="translations">{{ t("entryTabs.translations") }}</TabsTrigger>
+          <TabsTrigger value="versions">{{ t("entryTabs.versions") }}</TabsTrigger>
+          <TabsTrigger value="settings">{{ t("entryTabs.settings") }}</TabsTrigger>
+          <TabsTrigger value="urls">{{ t("entryTabs.urls") }}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="content" force-mount class="mt-4 grid gap-6 data-[state=inactive]:hidden">
+          <form class="grid gap-6" @submit.prevent>
+            <EntryField
+              v-for="f in contentType.fields"
+              :key="`${f.name}:${generation}`"
+              :field="f"
+              :model-value="values[f.name]"
+              :manifest="manifest"
+              :workspace-id="ws"
+              :locale="draft.locale"
+              :editable="editable"
+              :entries="entries ?? []"
+              @update:model-value="change(f.name, $event)"
+            />
+          </form>
+          <p class="text-xs text-muted-foreground">{{ t("entries.updated", { at: formatDateTime(draft.updatedAt, locale) }) }}</p>
+        </TabsContent>
+        <TabsContent value="translations" class="mt-4">
+          <TranslationsPanel
+            :workspace-id="ws"
+            :entry-id="id"
+            :locales="manifest.locales"
+            :can-create="editable"
+            :flush="autosave.flush"
+          />
+        </TabsContent>
+        <TabsContent value="versions" class="mt-4">
+          <VersionsPanel :key="published" :workspace-id="ws" :entry-id="id" :content-type="contentType" :can-erase="canErase(workspace)" />
+        </TabsContent>
+        <TabsContent value="settings" class="mt-4">
+          <SettingsPanel :workspace-id="ws" :entry-id="id" :editable="canPublish(workspace)" />
+        </TabsContent>
+        <TabsContent value="urls" class="mt-4">
+          <UrlHistoryPanel :key="published" :workspace-id="ws" :entry-id="id" />
+        </TabsContent>
+      </Tabs>
 
       <PublishDialog
         v-model:open="publishOpen"

@@ -7,7 +7,8 @@
     "cancel": "キャンセル",
     "save": "保存",
     "remove": "削除",
-    "home": "トップへ"
+    "home": "トップへ",
+    "close": "閉じる"
   },
   "auth": {
     "loginTitle": "ログイン",
@@ -137,7 +138,9 @@
     "image_too_large": "画像の画素数が大きすぎます。",
     "file_too_large": "ファイルが大きすぎます。",
     "media_quota_exceeded": "ワークスペースのメディアの容量の上限を超えます。",
-    "image_processing_timeout": "画像の処理に時間がかかりすぎました。"
+    "image_processing_timeout": "画像の処理に時間がかかりすぎました。",
+    "version_is_published": "公開中の版は抹消できません。",
+    "media_in_use": "このメディアは記事で使われています。"
   },
   "editor": {
     "toolbar": "本文の書式",
@@ -253,5 +256,86 @@
     "confirmCorrection": "訂正として公開する",
     "done": "公開しました: {url}",
     "doneCorrection": "訂正として公開しました: {url}"
+  },
+  "entryTabs": {
+    "content": "内容",
+    "translations": "翻訳",
+    "versions": "版",
+    "settings": "公開設定",
+    "urls": "URLの履歴"
+  },
+  "translations": {
+    "source": "元の記事",
+    "noSource": "元の記事はありません（この記事が元、または元なし）。",
+    "reflected": "作成した時点の版を反映済み",
+    "reflectedNone": "作成した時点で元の記事は未公開",
+    "members": "同じ翻訳グループの記事",
+    "thisEntry": "この記事",
+    "open": "開く",
+    "create": "翻訳を作る",
+    "createHelp": "この記事の下書きを複製して、別のロケールの記事を作ります。",
+    "createFor": "{locale} の翻訳を作る"
+  },
+  "settings": {
+    "note": "これらのスイッチは保存され、変更は Webhook で知らされます。チャットボットや外部AI向けの素材への効果は、今後のバージョンで加わります。",
+    "changedFromDefault": "初期値から変更しています",
+    "showDefaults": "初期値のままの設定を表示（{n}件）",
+    "hideDefaults": "初期値のままの設定を隠す",
+    "useForChatbot": {
+      "label": "チャットボットに使う",
+      "help": "この記事を、訪問者向けのチャットボットの回答の根拠に使います。"
+    },
+    "includeInAiMaterials": {
+      "label": "外部AI向けの素材に含める",
+      "help": "Markdown版や llms.txt などの、外部AI向けの素材に含めます。"
+    },
+    "optOutOfAiTraining": {
+      "label": "学習への利用を拒否する",
+      "help": "AIの学習に使わないよう、外部向けの素材に意思表示を付けます。"
+    }
+  },
+  "urlHistory": {
+    "empty": "公開URLはまだ変わっていません。"
+  },
+  "versions": {
+    "empty": "まだ公開した版はありません。",
+    "number": "第{n}版",
+    "current": "公開中",
+    "correction": "訂正",
+    "erased": "抹消済み",
+    "view": "中身を見る",
+    "close": "閉じる",
+    "erase": "本文を抹消",
+    "unknownNodes": "この版には、管理画面のエディタが表示できない要素（{names}）があります。文字だけを表示します。",
+    "eraseTitle": "第{n}版の本文を抹消します",
+    "eraseDescription": "版の番号や日時などの記録は残し、本文だけをすべてのAPIから消します。元に戻せません。",
+    "eraseCurrent": "公開中の版は抹消できません。問題の箇所を直した版を（訂正として）公開するか、記事を非公開にしてから抹消してください。",
+    "eraseBackups": "抹消した内容は、抹消より前に取ったデータベースのバックアップには残ります。",
+    "eraseMedia": "一緒に削除できるメディア",
+    "eraseMediaHelp": "この版で使っていて、ほかのどの記事（翻訳を含む）の版や下書きでも使っていないメディアです。メディアはURLを知っていれば見られるため、既定で選んであります。",
+    "eraseOtherLocales": "ほかのロケールの記事",
+    "eraseOtherLocalesHelp": "同じ翻訳グループの記事に、同じ内容が翻訳されて残っているかもしれません。必要なら、それぞれの記事で抹消してください。",
+    "eraseConfirm": "抹消する"
+  },
+  "media": {
+    "title": "メディア",
+    "upload": "アップロード",
+    "empty": "メディアはまだありません。",
+    "usage": "使用量: {used} / {quota}",
+    "size": "{w}×{h}・{bytes}",
+    "usedBy": "使っている記事",
+    "notUsed": "どの記事でも使っていません。",
+    "inDraft": "下書き",
+    "inVersions": "第{versions}版",
+    "delete": "削除",
+    "deleteTitle": "メディアを削除します",
+    "deleteDescription": "ファイルを削除します。元に戻せません。",
+    "inUse": "このメディアは記事で使われています。削除すると、それらの記事の画像は表示されなくなります。それでも削除しますか？",
+    "deleteAnyway": "それでも削除する",
+    "details": "詳細"
+  },
+  "nav": {
+    "entries": "記事",
+    "media": "メディア"
   }
 }

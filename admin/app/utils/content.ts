@@ -125,3 +125,83 @@ export function canPublish(w: WorkspaceInfo | null | undefined): boolean {
 export function canEdit(w: WorkspaceInfo | null | undefined): boolean {
   return !!w && w.role !== "viewer";
 }
+
+/** GET .../entries/{id}/translation */
+export interface TranslationInfo {
+  groupId: string;
+  locale: string;
+  sourceEntryId: string | null;
+  sourceLocale: string | null;
+  reflectedSourceVersionId: string | null;
+  members: { entryId: string; locale: string; published: boolean }[];
+}
+
+export interface VersionInfo {
+  id: string;
+  number: number;
+  schemaVersion: number;
+  publishedBy: string | null;
+  publishedAt: string;
+  url: string | null;
+  current: boolean;
+  isCorrection: boolean;
+  affectedAnchors: string[] | null;
+  affectsLead: boolean | null;
+  anchors: string[];
+  erased: boolean;
+  erasedAt: string | null;
+}
+
+export interface VersionDetail extends VersionInfo {
+  /** 抹消した版は null。 */
+  fields: Record<string, FieldValue> | null;
+}
+
+/** GET .../versions/{vid}/erase-candidates */
+export interface EraseCandidates {
+  media: string[];
+  otherLocales: { entryId: string; locale: string }[];
+}
+
+export interface PublishSettings {
+  useForChatbot: boolean;
+  includeInAiMaterials: boolean;
+  optOutOfAiTraining: boolean;
+}
+
+/** 公開設定のスイッチの既定値（server/src/content/settings.rs）。 */
+export const DEFAULT_PUBLISH_SETTINGS: PublishSettings = {
+  useForChatbot: true,
+  includeInAiMaterials: true,
+  optOutOfAiTraining: false,
+};
+
+export interface UrlChange {
+  from: string;
+  to: string;
+  versionId: string | null;
+  changedAt: string;
+}
+
+export interface MediaDetail extends MediaInfo {
+  createdAt: string;
+  usage: { entryId: string; locale: string; inDraft: boolean; versions: number[] }[];
+}
+
+export interface Limits {
+  mediaBytes: number;
+  mediaBytesUsed: number;
+}
+
+/** 版の本文の抹消ができるか（管理者とサーバー管理者。Q134）。 */
+export function canErase(w: WorkspaceInfo | null | undefined): boolean {
+  return !!w && (w.role === null || w.role === "admin");
+}
+
+/** バイト数を読みやすく。 */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
