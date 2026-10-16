@@ -9,6 +9,19 @@ export const DEVNOTE_MARKER = "DEVNOTE-MARKER-7f3a91";
 
 export type FieldType = "text" | "slug" | "richtext" | "reference";
 
+/**
+ * 組み込みJSで動く関数（URL生成関数・フックなど）が、権限として宣言できるホスト関数（04-hooks.md、Q11）。
+ * - readContent: 同じワークスペースのコンテンツを読む
+ */
+export type ScriptPermission = "readContent";
+
+/** 組み込みJSで動く関数。source は support/scripts.ts の部品で組み立てる。 */
+export interface ScriptSpec {
+  source: string;
+  /** 権限として宣言するホスト関数。宣言していないものは呼べない（INV-HOOK-02）。 */
+  permissions: ScriptPermission[];
+}
+
 export interface FieldSpec {
   name: string;
   type: FieldType;
@@ -25,6 +38,8 @@ export interface ContentTypeSpec {
   fields: FieldSpec[];
   /** ロケールごとの公開URLのテンプレート。`{locale}` と `{slug}` を使える。 */
   urlTemplate: string;
+  /** URL生成関数（M2、Q38）。あればテンプレートの代わりに使う。 */
+  urlFunction?: ScriptSpec;
   /** 一覧のフィールドで1回に取得できる件数の上限。 */
   listLimit: number;
   description?: string;

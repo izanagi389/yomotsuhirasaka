@@ -3,7 +3,7 @@
 // 本番ではCLIが、テンプレートのJSONとTiptapの拡張機能から同じ形を作る。ここでは、Tiptapの標準の拡張機能
 // （StarterKit と Link）と、CMSの画像（image）・埋め込み（embed）の定義を、名前から引いて書き出す。
 
-import type { TemplateSpec } from "./template.js";
+import type { ScriptPermission, ScriptSpec, TemplateSpec } from "./template.js";
 
 interface NodeDef {
   children: string[];
@@ -39,6 +39,14 @@ const MARK_ATTRS: Record<string, string[]> = {
   link: ["href", "target", "rel"],
 };
 
+// ホスト関数の権限の名前（server/src/script/ のホスト関数の宣言に合わせる）
+const PERMISSION_NAMES: Record<ScriptPermission, string> = {
+  readContent: "content.read",
+};
+
+// 本番ではCLIがTSをJSに変換して、ソースのままマニフェストに入れる（バイトコードは受け取らない）
+const toScript = (s: ScriptSpec) => ({ source: s.source, permissions: s.permissions.map((p) => PERMISSION_NAMES[p]) });
+
 export function toManifest(t: TemplateSpec): unknown {
   const present = new Set(t.bodyNodes);
   return {
@@ -60,6 +68,7 @@ export function toManifest(t: TemplateSpec): unknown {
     contentTypes: t.contentTypes.map((ct) => ({
       name: ct.name,
       urlTemplate: ct.urlTemplate,
+      urlFunction: ct.urlFunction ? toScript(ct.urlFunction) : undefined,
       listLimit: ct.listLimit,
       description: ct.description,
       devNote: ct.devNote,

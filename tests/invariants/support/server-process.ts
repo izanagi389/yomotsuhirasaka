@@ -120,6 +120,9 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (harnessCa) egress.push(`extra_ca_files = [${tomlString(harnessCa)}]`);
   if (egress.length > 0 || config.egressProxy) lines.push("", "[egress]", ...egress);
   if (config.egressProxy) lines.push("", "[egress.proxy]", `url = ${tomlString(config.egressProxy.url)}`);
+  if (config.scriptLimits) {
+    lines.push("", "[scripts]", `memory_limit_bytes = ${config.scriptLimits.memoryBytes}`, `time_limit_ms = ${config.scriptLimits.timeMs}`);
+  }
   // 管理画面: ビルドした SPA（admin/.output/public。scripts/test-env/setup.sh が CMS_TEST_ADMIN_DIST に書く）
   const adminDist = process.env["CMS_TEST_ADMIN_DIST"];
   if (adminDist) lines.push("", "[admin]", `dist_dir = ${tomlString(adminDist)}`);
