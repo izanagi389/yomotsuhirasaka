@@ -351,8 +351,11 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const LIST = `${SINGLE}List`;
   const DEFAULT_LOCALE = BASE_TEMPLATE.defaultLocale;
   const selection = (fields?: string[]): string => (fields ? ["id", ...fields.filter((f) => f !== "id")] : ["id", "title", "slug"]).join(" ");
-  const INCLUDES: Record<"body" | "alternates" | "related", string> = {
+  // 変換した本文: 本文のフィールド <名前> に対して <名前>Html と <名前>Markdown（server/src/delivery/schema.rs）
+  const INCLUDES: Record<"body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related", string> = {
     body: "body",
+    bodyHtml: "bodyHtml",
+    bodyMarkdown: "bodyMarkdown",
     alternates: "alternates { id locale url }",
     related: "related { id title slug }",
   };

@@ -59,6 +59,32 @@ export interface ContentTypeSpec {
   devNote?: string;
 }
 
+/** カスタムノードの属性の型。 */
+export type CustomAttrType = "string" | "number" | "boolean";
+
+/**
+ * カスタムノード（M2、Q36, Q37）。テンプレートに宣言的に書き、Tiptapの拡張機能は宣言から作る。
+ * 変換関数のソースは support/scripts.ts の部品で組み立てる。
+ */
+export interface CustomNodeSpec {
+  /** ノードの名前（英字で始まる英数字）。 */
+  name: string;
+  /** インライン（段落の子）か。既定はブロック（doc の子）。 */
+  inline?: boolean;
+  attrs: { name: string; type: CustomAttrType }[];
+  /** 子として許すノード。なければ子を持たない。 */
+  children?: string[];
+  /** Markdownへの変換関数（必須。ないものはデプロイが拒否される: INV-NODE-01）。 */
+  toMarkdown?: string;
+  /** HTMLへの変換関数（任意。出力は無害化される: INV-CNV-01）。 */
+  toHtml?: string;
+  /**
+   * カスタムノードの宣言を通さず、マニフェストの本文のノード（bodyNodes と同じところ）に直接書く。
+   * そこには変換関数を書く場所がない。CLIを通さない手書きのマニフェストを想定した確認に使う。
+   */
+  asPlainBodyNode?: boolean;
+}
+
 export interface TemplateSpec {
   name: string;
   locales: string[];
@@ -72,6 +98,8 @@ export interface TemplateSpec {
   bodyMarks: string[];
   /** 埋め込みを許す提供元のホスト名。 */
   embedProviders: string[];
+  /** カスタムノード（M2）。 */
+  customNodes?: CustomNodeSpec[];
 }
 
 export const BASE_TEMPLATE: TemplateSpec = {

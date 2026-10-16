@@ -189,3 +189,28 @@ export default function after(input) {
 }
 `;
 }
+
+// ---------------------------------------------------------------------------
+// カスタムノードの変換関数（受け取るのはノードのJSON（Tiptap）と ctx。返すのは文字列）
+// ---------------------------------------------------------------------------
+
+/** Markdownへの変換関数: 属性 label をそのまま返す。 */
+export function customToMarkdown(): string {
+  return `
+export default function toMarkdown(node, ctx) {
+  return String((node.attrs && node.attrs.label) || "");
+}
+`;
+}
+
+/**
+ * HTMLへの変換関数: html の後に、属性 label をエスケープせずに続ける。
+ * 関数の書き手の誤りや悪意があっても、変換器の出力が無害化されることを確かめるため。
+ */
+export function customToHtml(html: string): string {
+  return `
+export default function toHtml(node, ctx) {
+  return ${lit(html)} + String((node.attrs && node.attrs.label) || "");
+}
+`;
+}
