@@ -39,9 +39,10 @@ use crate::access::{self, Access, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
 use crate::content::publishing::{
-    self, PublishCheck, Published, Refused, UrlChange, VersionDetail, VersionInfo,
+    self, PublishCheck, Published, Refused, UrlChange, Urls, VersionDetail, VersionInfo,
 };
 use crate::content::settings::{self, PublishSettings};
+use crate::script::Host;
 use crate::webhooks::{self, EntryEvent, EntryRef};
 use crate::workspace_db;
 
@@ -71,6 +72,15 @@ fn refused(r: Refused) -> ApiError {
             StatusCode::CONFLICT,
             "nothing_to_correct",
             "This entry has never been published, so it cannot be published as a correction.",
+        ),
+        // 関数の例外の文は記事の内容を含みうるので、種類だけを返す（原則7）
+        Refused::UrlFunctionFailed(f) => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "url_function_failed",
+            format!(
+                "The public URL could not be made because {}. Ask the developer of the template to fix the URL function.",
+                f.describe()
+            ),
         ),
     }
 }
@@ -155,9 +165,14 @@ pub async fn publish(
     let applied = writable(&state, ws).await?;
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let urls = Urls {
+        engine: &state.scripts,
+        host: Host::new(state.pool.clone(), db.clone()),
+    };
     let result = publishing::publish(
         &mut tx,
         &applied.manifest,
+        &urls,
         applied.version,
         id,
         req.revision,
@@ -261,7 +276,11 @@ pub async fn publish_check(
     let applied = readable(&state, ws).await?;
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
-    let out = publishing::check_before_publish(&mut tx, &applied.manifest, id)
+    let urls = Urls {
+        engine: &state.scripts,
+        host: Host::new(state.pool.clone(), db.clone()),
+    };
+    let out = publishing::check_before_publish(&mut tx, &applied.manifest, &urls, id)
         .await?
         .ok_or_else(ApiError::not_found)?;
     tx.commit().await.map_err(anyhow::Error::from)?;

@@ -22,6 +22,7 @@ pub mod migrate;
 pub mod rekey;
 pub mod resets;
 pub mod schema;
+pub mod script;
 pub mod startup;
 pub mod timefmt;
 pub mod webhooks;

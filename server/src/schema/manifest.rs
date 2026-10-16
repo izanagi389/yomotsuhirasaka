@@ -65,6 +65,10 @@ pub struct ContentType {
     pub name: String,
     /// ロケールごとの公開URLのテンプレート。使える差し込みは `{locale}` と `{slug}`（Q82）。
     pub url_template: String,
+    /// URL生成関数（M2、Q38）。あれば、テンプレートの代わりにこれで公開URLを作る。
+    /// 受け取るのは公開する記事（`{id, contentType, locale, slug, fields}`）、返すのは http(s) の絶対URL。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url_function: Option<crate::script::Script>,
     /// 一覧のフィールドで1回に取得できる件数の上限。
     pub list_limit: u32,
     pub fields: Vec<Field>,
@@ -273,6 +277,35 @@ fn check_text(problems: &mut Vec<String>, path: &str, value: &Option<String>) {
     }
 }
 
+/// 関数の形の検査（読み込めるかは、デプロイのときに組み込みJSで確かめる）。
+fn script_problems(path: &str, s: &crate::script::Script) -> Vec<String> {
+    let mut problems = Vec::new();
+    if s.source.trim().is_empty() || s.source.len() > crate::script::MAX_SOURCE_BYTES {
+        problems.push(format!(
+            "{path}.source: must be 1 to {} bytes",
+            crate::script::MAX_SOURCE_BYTES
+        ));
+    }
+    let unique: BTreeSet<_> = s.permissions.iter().collect();
+    if unique.len() != s.permissions.len() {
+        problems.push(format!("{path}.permissions: duplicated"));
+    }
+    problems
+}
+
+/// マニフェストに含まれる関数（場所, 関数）。
+pub fn scripts(m: &Manifest) -> Vec<(String, &crate::script::Script)> {
+    m.content_types
+        .iter()
+        .enumerate()
+        .filter_map(|(i, ct)| {
+            ct.url_function
+                .as_ref()
+                .map(|f| (format!("contentTypes[{i}].urlFunction"), f))
+        })
+        .collect()
+}
+
 /// マニフェストを検査し、問題の一覧を返す（空なら正しい）。メッセージには場所と理由だけを書く。
 pub fn validate(m: &Manifest) -> Vec<String> {
     let mut problems = Vec::new();
@@ -391,6 +424,9 @@ pub fn validate(m: &Manifest) -> Vec<String> {
             problems.push(format!(
                 "{path}.urlTemplate: must be an http(s) URL using only {{locale}} and {{slug}}, and include {{slug}}"
             ));
+        }
+        if let Some(f) = &ct.url_function {
+            problems.extend(script_problems(&format!("{path}.urlFunction"), f));
         }
         if !(1..=MAX_LIST_LIMIT).contains(&ct.list_limit) {
             problems.push(format!("{path}.listLimit: must be 1 to {MAX_LIST_LIMIT}"));

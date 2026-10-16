@@ -28,6 +28,7 @@
 | `logs.test.ts` | ログ（LOGS-01） |
 | `startup.test.ts` | 起動時の検査（KEY-02, CFG-01） |
 | `db-roles.test.ts` | DBの権限（DB-01〜04, CFG-03） |
+| `hooks.test.ts` | 組み込みJS（HOOK-02〜04） |
 | `meta.test.ts` | 約束の一覧・テスト・`pending.txt` の整合。CMSなしで動く |
 
 | 部品（`support/`） | 役割 |
@@ -38,6 +39,7 @@
 | `world.ts` | テストの舞台（ワークスペースA・B、利用者、公開記事、APIキー）を作る |
 | `operations.ts` | 管理APIの操作の一覧と、必ずある操作の名前と向き先 |
 | `template.ts` | テスト用のテンプレート（スキーマ）の定義 |
+| `scripts.ts` | 組み込みJSで動かす関数（URL生成関数など）のソース。ホスト関数の呼び方などの実装の細部を閉じ込める |
 | `body.ts` | 本文（TiptapのJSON）の組み立て |
 | `assert.ts` ・`compare.ts` | 共通の確認（拒否・漏れ・区別できない応答） |
 | `net.ts` | 受信サーバー（Webhookの受け手など） |

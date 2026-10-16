@@ -144,6 +144,7 @@
     "alt_text_missing": "代替テキストのない画像があるため、公開できません。",
     "url_taken": "このURLは、公開中の別の記事が使っています。",
     "nothing_to_correct": "一度も公開していない記事は、訂正として公開できません。",
+    "url_function_failed": "テンプレートのURL生成関数に問題があり、公開URLを作れませんでした。テンプレートの開発者に直してもらってください。",
     "schema_migration_pending": "スキーマの移行待ちのため、編集と公開を止めています。",
     "schema_not_deployed": "このワークスペースには、まだスキーマが適用されていません。",
     "unsupported_media_type": "この形式の画像は使えません。",

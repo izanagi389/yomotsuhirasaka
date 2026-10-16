@@ -65,6 +65,8 @@ pub struct Inner {
     pub passkeys: Option<webauthn_rs::prelude::Webauthn>,
     /// 外部へのHTTPの送信の共通の仕組み（作れなければ起動時の検査で止める。作れないまま動いた場合は送らない）。
     pub egress: Option<crate::egress::Egress>,
+    /// 組み込みJSの実行（URL生成関数など。Q89）。
+    pub scripts: crate::script::Engine,
     /// 管理画面（設定したときだけ。読み込めなければ起動時の検査で止める）。
     pub admin_ui: Option<admin_ui::AdminUi>,
     /// 外部のOIDC/SSO（設定したときだけ）。
@@ -118,7 +120,9 @@ impl AppState {
             .oidc
             .clone()
             .map(|c| Arc::new(crate::auth::oidc::Oidc::new(c, &config.public_url)));
+        let scripts = crate::script::Engine::new(config.scripts.limits());
         Self(Arc::new(Inner {
+            scripts,
             oidc,
             admin_ui,
             egress,

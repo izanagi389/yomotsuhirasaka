@@ -59,6 +59,8 @@ webpki-roots = "1.0.9"
 hmac = "0.13.0"
 # 漏えいしたパスワードの照会（HIBP の range API はパスワードの SHA-1 の先頭5文字で引く。Q170）。sqlx が既に使っている版
 sha1 = "0.11.0"
+# 組み込みJS（QuickJS-NG）。allocator / rust-alloc は使わない（メモリの上限が効かなくなる）。loader も使わない（import を解決させない）
+rquickjs = { version = "=0.14.0", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 # テストで、ブラウザと認証器の代わりにパスキーを作って使う
