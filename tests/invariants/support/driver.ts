@@ -486,8 +486,11 @@ export interface ServerConfig {
   mfaRequiredForEveryone?: boolean;
   /** ログインの履歴の保存期間（秒）と、期限切れを消す処理の間隔（秒）。 */
   loginHistoryRetention?: { retentionSeconds: number; sweepIntervalSeconds: number };
-  /** 組み込みJSの1回の実行あたりのメモリと実行時間の上限（Q89）。undefined ならサーバーの既定。 */
-  scriptLimits?: { memoryBytes: number; timeMs: number };
+  /**
+   * 組み込みJSの1回の実行あたりのメモリと実行時間の上限（Q89）。undefined ならサーバーの既定。
+   * timeMs は同期（URL生成関数・同期のフック）、asyncTimeMs は非同期のフック。
+   */
+  scriptLimits?: { memoryBytes: number; timeMs: number; asyncTimeMs: number };
   /** ログの詳しさ。 */
   logLevel?: "error" | "warn" | "info" | "debug" | "trace";
 }

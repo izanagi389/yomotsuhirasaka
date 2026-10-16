@@ -1,8 +1,13 @@
 // ドライバーの一部: 約束のテストで、組み込みJSで動かす関数（URL生成関数など）のソース。
 //
-// ホスト関数の呼び方（`cms.content.get(id)` が `{id, contentType, locale, fields}` か null を返す）・関数の受け取る値
-// （記事の locale と slug）・モジュールの書き方（既定のエクスポート）は、実装の細部としてここに閉じ込める
-// （server/src/script/ に合わせる）。
+// 次の実装の細部は、ここに閉じ込める（server/src/script/ に合わせる）。
+// - モジュールの書き方: 既定のエクスポートが関数本体
+// - ホスト関数: `cms.content.get(id)` は `{id, contentType, locale, fields}` か null、
+//   `cms.http.fetch(url, {method, headers, body})` は `{status, body}` を返す（失敗は例外）
+// - URL生成関数の受け取る値: `{id, contentType, locale, slug, fields}`。返す値: URLの文字列
+// - 同期のフックの受け取る値: `{entry: {id, contentType, locale, fields}}`。
+//   beforeSave は `{fields: {...}}`（直すフィールド）、beforePublish は `{errors: [{field?, message}]}` を返す
+// - 非同期のフックの受け取る値: `{event: {id, type, workspaceId, entryId, locale, versionId, url}, entry}`。返す値は使わない
 // ここに書くのは「関数が何をするか」だけで、合否の判定は書かない。
 
 const lit = (v: unknown): string => JSON.stringify(v);
@@ -64,6 +69,123 @@ export default function url(entry) {
     return ${lit(SITE)} + "/" + entry.locale + "/blog/${RUNAWAY_FINISHED}-" + keep.length + "/" + s;
   }
   return ${lit(SITE)} + "/" + entry.locale + "/blog/ok/" + s;
+}
+`;
+}
+
+// ---------------------------------------------------------------------------
+// フック
+// ---------------------------------------------------------------------------
+
+/** 外部へ送ろうとする共通の部品。使えるものを片端から試し、失敗は捨てる（関数そのものは失敗させない）。 */
+const TRY_SEND = `
+function trySend(url, payload) {
+  const body = JSON.stringify(payload);
+  const attempts = [
+    () => cms.http.fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body }),
+    () => fetch(url, { method: "POST", body }),
+    () => { const x = new XMLHttpRequest(); x.open("POST", url, false); x.send(body); },
+  ];
+  for (const attempt of attempts) {
+    try { attempt(); } catch (_) {}
+  }
+}
+`;
+
+/**
+ * 保存前のフック: urls に送ろうとしてから、subtitle を tag に直す（フックが動いたことの印）。
+ * 送れるかどうかにかかわらず、保存は止めない。
+ */
+export function beforeSaveSending(urls: string[], tag: string): string {
+  return `${TRY_SEND}
+export default function beforeSave(input) {
+  for (const url of ${lit(urls)}) trySend(url, { entryId: input.entry.id });
+  return { fields: { subtitle: ${lit(tag)} } };
+}
+`;
+}
+
+/** 公開前のフック: urls に送ろうとしてから、タイトルが `block-` で始まる記事の公開を止める（フックが動いたことの印）。 */
+export function beforePublishSending(urls: string[]): string {
+  return `${TRY_SEND}
+export default function beforePublish(input) {
+  for (const url of ${lit(urls)}) trySend(url, { entryId: input.entry.id });
+  const title = String(input.entry.fields.title || "");
+  return title.startsWith("block-") ? { errors: [{ field: "title", message: "blocked by the hook" }] } : { errors: [] };
+}
+`;
+}
+
+/** 非同期のフック: urls のそれぞれへ、記事のIDを付けて送る（1つ失敗しても残りを送る）。 */
+export function afterSending(urls: string[]): string {
+  return `${TRY_SEND}
+export default function after(input) {
+  for (const url of ${lit(urls)}) trySend(url, { entryId: input.event.entryId });
+}
+`;
+}
+
+/** 保存前のフック: ids の記事を読み、読めたタイトル（なければ none、例外なら denied）を subtitle に書く。 */
+export function beforeSaveReading(ids: string[]): string {
+  return `
+function titleOf(id) {
+  try {
+    const e = cms.content.get(id);
+    return e && e.fields && typeof e.fields.title === "string" ? e.fields.title : "none";
+  } catch (_) {
+    return "denied";
+  }
+}
+export default function beforeSave(input) {
+  return { fields: { subtitle: ${lit(ids)}.map(titleOf).join("~") } };
+}
+`;
+}
+
+/**
+ * 上限を超える保存前のフック。タイトルが `spin-` で始まる記事では spinMs ミリ秒計算を続け、`bomb-` で始まる記事では
+ * 1MBの文字列を bombMegabytes 個持ち続ける。終われば subtitle を RUNAWAY_FINISHED に直す。それ以外の記事では `ok` に直す。
+ */
+export function runawayBeforeSave(options: { spinMs: number; bombMegabytes: number }): string {
+  return `
+export default function beforeSave(input) {
+  const title = String(input.entry.fields.title || "");
+  if (title.startsWith("spin-")) {
+    const end = Date.now() + ${lit(options.spinMs)};
+    while (Date.now() < end) {}
+    return { fields: { subtitle: ${lit(RUNAWAY_FINISHED)} } };
+  }
+  if (title.startsWith("bomb-")) {
+    const keep = [];
+    for (let i = 0; i < ${lit(options.bombMegabytes)}; i++) keep.push("x".repeat(1 << 20) + i);
+    return { fields: { subtitle: ${lit(RUNAWAY_FINISHED)} + keep.length } };
+  }
+  return { fields: { subtitle: "ok" } };
+}
+`;
+}
+
+/**
+ * 上限を超える公開後のフック。タイトルが `spin-` / `bomb-` で始まる記事では runawayBeforeSave と同じことをしてから、
+ * finishedUrl に送る。それ以外の記事では、すぐに okUrl に送る。
+ */
+export function runawayAfterPublish(options: { spinMs: number; bombMegabytes: number; okUrl: string; finishedUrl: string }): string {
+  return `${TRY_SEND}
+export default function after(input) {
+  const title = String((input.entry && input.entry.fields && input.entry.fields.title) || "");
+  if (title.startsWith("spin-")) {
+    const end = Date.now() + ${lit(options.spinMs)};
+    while (Date.now() < end) {}
+    trySend(${lit(options.finishedUrl)}, { entryId: input.event.entryId });
+    return;
+  }
+  if (title.startsWith("bomb-")) {
+    const keep = [];
+    for (let i = 0; i < ${lit(options.bombMegabytes)}; i++) keep.push("x".repeat(1 << 20) + i);
+    trySend(${lit(options.finishedUrl)}, { entryId: input.event.entryId, kept: keep.length });
+    return;
+  }
+  trySend(${lit(options.okUrl)}, { entryId: input.event.entryId });
 }
 `;
 }
