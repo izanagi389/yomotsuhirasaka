@@ -22,7 +22,8 @@ use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Role};
 use crate::audit::{self, action};
 use crate::content::import::{self, Failed, Imported, Item};
-use crate::content::publishing::Refused;
+use crate::content::publishing::{Refused, Urls};
+use crate::script::Host;
 use crate::webhooks::{self, EntryEvent};
 use crate::workspace_db;
 
@@ -67,9 +68,14 @@ pub async fn import(
 
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let urls = Urls {
+        engine: &state.scripts,
+        host: Host::new(state.pool.clone(), db.clone()),
+    };
     let imported = match import::apply(
         &mut tx,
         manifest,
+        &urls,
         applied.version,
         ct,
         plan,
@@ -97,6 +103,9 @@ pub async fn import(
                     )
                 }
                 Refused::UrlTaken => "another published entry already uses this URL".to_owned(),
+                Refused::UrlFunctionFailed(f) => {
+                    format!("the public URL could not be made because {}", f.describe())
+                }
                 _ => "it cannot be published".to_owned(),
             };
             return Err(invalid(vec![format!(

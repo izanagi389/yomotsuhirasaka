@@ -17,7 +17,7 @@ use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 use super::diff::{Breaking, breaking_changes};
-use super::manifest::{Manifest, validate};
+use super::manifest::{self, Manifest};
 use super::migrate;
 use crate::audit;
 use crate::workspace_db::WorkspaceDb;
@@ -129,8 +129,25 @@ pub struct Check {
     pub workspaces: usize,
 }
 
+/// マニフェストの検査に、関数を組み込みJSで読み込めるかの検査を加えたもの（CLIを通さないデプロイでも行う。Q102）。
+pub async fn validate(engine: &crate::script::Engine, m: &Manifest) -> Vec<String> {
+    let mut problems = manifest::validate(m);
+    if problems.is_empty() {
+        for (path, script) in manifest::scripts(m) {
+            if let Err(f) = engine.check(script).await {
+                problems.push(format!(
+                    "{path}.source: cannot be loaded ({}); it must be an ES module whose default export is a function",
+                    f.describe()
+                ));
+            }
+        }
+    }
+    problems
+}
+
 /// デプロイと同じ検査を、書き込まずに行う。
 pub async fn check(
+    engine: &crate::script::Engine,
     migration: &PgPool,
     template: &str,
     manifest: &Manifest,
@@ -138,7 +155,7 @@ pub async fn check(
 ) -> Result<Check> {
     let mut out = Check {
         dry_run: true,
-        problems: validate(manifest),
+        problems: validate(engine, manifest).await,
         destructive: Vec::new(),
         broken_queries: Vec::new(),
         unchanged: false,
@@ -169,7 +186,9 @@ pub async fn check(
     Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn deploy(
+    engine: &crate::script::Engine,
     migration: &PgPool,
     app: &PgPool,
     template: &str,
@@ -178,7 +197,7 @@ pub async fn deploy(
     queries: QueryCheck,
     actor: Uuid,
 ) -> Result<Result<Outcome, Rejected>> {
-    let problems = validate(&manifest);
+    let problems = validate(engine, &manifest).await;
     if !problems.is_empty() {
         return Ok(Err(Rejected::Invalid(problems)));
     }

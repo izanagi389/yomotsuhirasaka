@@ -63,6 +63,37 @@ pub struct Config {
     /// 管理画面（Nuxt の SPA）の配信。
     #[serde(default)]
     pub admin: AdminConfig,
+    /// 組み込みJS（04-hooks.md、Q89）。
+    #[serde(default)]
+    pub scripts: ScriptsConfig,
+}
+
+/// 組み込みJSの1回の実行あたりの上限（Q89）。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ScriptsConfig {
+    /// メモリの上限（バイト。既定は128MB）。
+    pub memory_limit_bytes: usize,
+    /// 実行時間の上限（ミリ秒。既定は5000）。ホスト関数でDBを待つ時間も含む。
+    pub time_limit_ms: u64,
+}
+
+impl Default for ScriptsConfig {
+    fn default() -> Self {
+        Self {
+            memory_limit_bytes: 128 * 1024 * 1024,
+            time_limit_ms: 5000,
+        }
+    }
+}
+
+impl ScriptsConfig {
+    pub fn limits(&self) -> crate::script::Limits {
+        crate::script::Limits {
+            memory_bytes: self.memory_limit_bytes,
+            time: std::time::Duration::from_millis(self.time_limit_ms),
+        }
+    }
 }
 
 /// 管理画面の配信。

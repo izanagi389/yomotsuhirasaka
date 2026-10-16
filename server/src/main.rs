@@ -286,6 +286,7 @@ fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()>
         admin: config::AdminConfig {
             dist_dir: admin_dist_dir,
         },
+        scripts: config::ScriptsConfig::default(),
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,

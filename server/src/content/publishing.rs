@@ -3,7 +3,9 @@
 //!
 //! - 公開は、下書きをそのまま版として固定する。送られたリビジョン番号が最新でなければ公開しない（見ていない変更を公開しないため）。
 //! - 公開の前に、下書きをいまのスキーマでもう一度検査し、必須のフィールドと画像の代替テキスト（INV-IMG-01）を確かめる。
-//! - 公開URLはテンプレートから公開時に計算して保存する。前に公開したときと変わったら、変更履歴に追記する（Q39, Q40、INV-URL-01）。
+//! - 公開URLは公開時に計算して保存する。前に公開したときと変わったら、変更履歴に追記する（Q39, Q40、INV-URL-01）。
+//!   コンテンツタイプにURL生成関数があればそれを組み込みJSで動かし、なければテンプレートから作る（Q38）。関数が失敗したら
+//!   （例外、上限超え、正しくない値）、間違ったURLを公開して変更履歴に残さないよう、公開しない（原則8）。
 //! - 「訂正として公開」は、前の版から影響したセクションを求めて版に記録する（Q42、INV-COR-01）。前に一度も公開していない記事は訂正にできない。
 //! - 版のメタデータ（番号、日時、URL、アンカーID、訂正の記録）は、本文を抹消しても残す（Q134）。
 
@@ -16,6 +18,13 @@ use uuid::Uuid;
 use super::entries::{self, Draft};
 use super::{fields, sections};
 use crate::schema::manifest::{ContentType, FieldType, Manifest};
+use crate::script::{Engine, Failure, Host};
+
+/// URL生成関数を動かすための組（関数を動かすワークスペース）。
+pub struct Urls<'a> {
+    pub engine: &'a Engine,
+    pub host: Host,
+}
 
 const RFC3339: &str = r#"'YYYY-MM-DD"T"HH24:MI:SS"Z"'"#;
 
@@ -39,6 +48,8 @@ pub enum Refused {
     UrlTaken,
     /// 一度も公開していない記事を訂正として公開しようとした。
     NothingToCorrect,
+    /// URL生成関数が失敗した。
+    UrlFunctionFailed(Failure),
 }
 
 /// 公開の結果。
@@ -127,15 +138,35 @@ fn check(manifest: &Manifest, ct: &ContentType, draft: &Draft) -> Result<(), Ref
 }
 
 /// 公開URL（スラッグのフィールドが空なら None）。
-fn url_of(ct: &ContentType, draft: &Draft) -> Option<String> {
-    let slug = ct
+async fn url_of(
+    urls: &Urls<'_>,
+    ct: &ContentType,
+    draft: &Draft,
+) -> Result<Option<String>, Failure> {
+    let Some(slug) = ct
         .fields
         .iter()
         .find(|f| f.kind == FieldType::Slug)
         .and_then(|f| draft.fields.get(&f.name))
         .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())?;
-    Some(public_url(&ct.url_template, &draft.locale, slug))
+        .filter(|s| !s.is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(function) = &ct.url_function else {
+        return Ok(Some(public_url(&ct.url_template, &draft.locale, slug)));
+    };
+    let input = serde_json::json!({
+        "id": draft.id,
+        "contentType": draft.content_type,
+        "locale": draft.locale,
+        "slug": slug,
+        "fields": draft.fields,
+    });
+    urls.engine
+        .url(function, urls.host.clone(), &input)
+        .await
+        .map(Some)
 }
 
 /// いちばん新しい版の番号と、本文（抹消していれば None）。
@@ -219,6 +250,7 @@ pub struct PublishCheck {
 pub async fn check_before_publish(
     conn: &mut PgConnection,
     manifest: &Manifest,
+    urls: &Urls<'_>,
     entry_id: Uuid,
 ) -> Result<Option<PublishCheck>> {
     let row: Option<(i64, Option<Uuid>, Option<String>)> = sqlx::query_as(
@@ -237,7 +269,14 @@ pub async fn check_before_publish(
         return Ok(None);
     };
     let latest = latest_version(conn, entry_id).await?;
-    let url = url_of(ct, &draft);
+    let mut problems = problems(manifest, ct, &draft);
+    let url = url_of(urls, ct, &draft).await.unwrap_or_else(|f| {
+        problems.push(format!(
+            "url: cannot make the public URL ({})",
+            f.describe()
+        ));
+        None
+    });
     let url_taken = match &url {
         Some(u) => url_taken(conn, u, entry_id).await?,
         None => false,
@@ -266,7 +305,7 @@ pub async fn check_before_publish(
         revision,
         published: current.is_some(),
         can_correct: latest.is_some(),
-        problems: problems(manifest, ct, &draft),
+        problems,
         images_missing_alt: missing_alt(ct, &draft),
         previous_url: previous_url.filter(|p| url.as_ref().is_some_and(|u| u != p)),
         url,
@@ -281,6 +320,7 @@ pub async fn check_before_publish(
 pub async fn publish(
     conn: &mut PgConnection,
     manifest: &Manifest,
+    urls: &Urls<'_>,
     schema_version: i32,
     entry_id: Uuid,
     expected_revision: i64,
@@ -307,7 +347,10 @@ pub async fn publish(
         return Ok(Err(r));
     }
     // スラッグは公開に必須なので、check を通っていれば空でない
-    let url = url_of(ct, &draft).unwrap_or_default();
+    let url = match url_of(urls, ct, &draft).await {
+        Ok(url) => url.unwrap_or_default(),
+        Err(f) => return Ok(Err(Refused::UrlFunctionFailed(f))),
+    };
     if url_taken(conn, &url, entry_id).await? {
         return Ok(Err(Refused::UrlTaken));
     }

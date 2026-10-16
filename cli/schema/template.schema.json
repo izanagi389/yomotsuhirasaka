@@ -66,6 +66,17 @@
           "description": "ロケールごとの公開URLのテンプレート。使える差し込みは `{locale}` と `{slug}`（Q82）。",
           "type": "string"
         },
+        "urlFunction": {
+          "description": "URL生成関数（M2、Q38）。あれば、テンプレートの代わりにこれで公開URLを作る。\n受け取るのは公開する記事（`{id, contentType, locale, slug, fields}`）、返すのは http(s) の絶対URL。",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Script"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "listLimit": {
           "description": "一覧のフィールドで1回に取得できる件数の上限。",
           "type": "integer",
@@ -99,6 +110,38 @@
         "urlTemplate",
         "listLimit",
         "fields"
+      ]
+    },
+    "Script": {
+      "description": "テンプレートに書かれた関数（CLIがTSをJSに変換して入れる。Q49）。",
+      "type": "object",
+      "properties": {
+        "source": {
+          "description": "ESモジュールのJSのソース。既定のエクスポートが関数本体。",
+          "type": "string"
+        },
+        "permissions": {
+          "description": "呼べるホスト関数。ここにないものは呼べない（INV-HOOK-02）。",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Permission"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "source"
+      ]
+    },
+    "Permission": {
+      "description": "関数が権限として宣言できるホスト関数（04-hooks.md「外部へのアクセス」）。",
+      "oneOf": [
+        {
+          "description": "同じワークスペースの公開中の記事を読む（`cms.content.get(id)`）。",
+          "type": "string",
+          "const": "content.read"
+        }
       ]
     },
     "Field": {

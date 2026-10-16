@@ -144,6 +144,7 @@
     "alt_text_missing": "Some images have no alternative text, so the entry cannot be published.",
     "url_taken": "Another published entry already uses this URL.",
     "nothing_to_correct": "An entry that has never been published cannot be published as a correction.",
+    "url_function_failed": "The public URL could not be made because of a problem in the template's URL function. Ask the template developer to fix it.",
     "schema_migration_pending": "Editing and publishing are paused while the schema migration is pending.",
     "schema_not_deployed": "No schema has been applied to this workspace yet.",
     "unsupported_media_type": "This image format is not supported.",

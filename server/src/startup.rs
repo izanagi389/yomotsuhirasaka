@@ -176,6 +176,16 @@ pub fn check_config(config: &Config) -> Report {
                 .push(Problem::fatal(format!("`{name}` must be greater than 0")));
         }
     }
+    if !(1024 * 1024..=4 * 1024 * 1024 * 1024).contains(&config.scripts.memory_limit_bytes) {
+        report.problems.push(Problem::fatal(
+            "`scripts.memory_limit_bytes` must be between 1 MiB and 4 GiB",
+        ));
+    }
+    if !(10..=60_000).contains(&config.scripts.time_limit_ms) {
+        report.problems.push(Problem::fatal(
+            "`scripts.time_limit_ms` must be between 10 and 60000",
+        ));
+    }
     if let Some(smtp) = &config.smtp {
         report.problems.extend(check_smtp(smtp));
     }

@@ -8,9 +8,6 @@
 # --- M2: テスト未作成（各PRでテストを先に書いて承認を受け、実装後に行を消す） ---
 
 inv_hook_01
-inv_hook_02
-inv_hook_03
-inv_hook_04
 inv_hook_05
 
 inv_node_01

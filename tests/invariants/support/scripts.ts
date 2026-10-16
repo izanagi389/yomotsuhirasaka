@@ -1,7 +1,8 @@
 // ドライバーの一部: 約束のテストで、組み込みJSで動かす関数（URL生成関数など）のソース。
 //
-// ホスト関数の呼び方（`cms.content.get`）・関数の受け取る値（記事の locale と slug）・モジュールの書き方
-// （既定のエクスポート）は、実装の細部としてここに閉じ込める（server/src/script/ に合わせる）。
+// ホスト関数の呼び方（`cms.content.get(id)` が `{id, contentType, locale, fields}` か null を返す）・関数の受け取る値
+// （記事の locale と slug）・モジュールの書き方（既定のエクスポート）は、実装の細部としてここに閉じ込める
+// （server/src/script/ に合わせる）。
 // ここに書くのは「関数が何をするか」だけで、合否の判定は書かない。
 
 const lit = (v: unknown): string => JSON.stringify(v);
@@ -24,7 +25,7 @@ const IDS = ${lit(ids)};
 function titleOf(id) {
   try {
     const e = cms.content.get(id);
-    return e && typeof e.title === "string" ? e.title : "none";
+    return e && e.fields && typeof e.fields.title === "string" ? e.fields.title : "none";
   } catch (_) {
     return "denied";
   }

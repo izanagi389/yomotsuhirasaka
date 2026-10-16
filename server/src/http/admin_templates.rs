@@ -113,10 +113,18 @@ pub async fn deploy_template(
         unused_days: state.config.delivery.query_check_unused_days,
     };
     if req.dry_run {
-        let checked = deploy::check(&state.migration, &name, &req.manifest, queries).await?;
+        let checked = deploy::check(
+            &state.scripts,
+            &state.migration,
+            &name,
+            &req.manifest,
+            queries,
+        )
+        .await?;
         return Ok(Json(DeployResponse::Checked(checked)));
     }
     match deploy::deploy(
+        &state.scripts,
         &state.migration,
         &state.pool,
         &name,
