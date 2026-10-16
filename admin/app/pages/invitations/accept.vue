@@ -13,6 +13,18 @@ const token = useLinkToken();
 const password = ref("");
 const done = ref(false);
 const error = ref<unknown>(null);
+const sso = useSso();
+onMounted(() => sso.load());
+
+// SSOで、新しい利用者として承諾する（IdPのメールアドレスが、招待の宛先と同じであること）
+async function acceptWithSso() {
+  error.value = null;
+  try {
+    await sso.start("/session/oidc/start", { invitationToken: token.value }, "/");
+  } catch (e) {
+    error.value = e;
+  }
+}
 
 async function accept() {
   error.value = null;
@@ -42,6 +54,9 @@ async function accept() {
           <p class="text-xs text-muted-foreground">{{ t("auth.passwordRules") }}</p>
         </div>
         <Button type="submit">{{ t("invite.accept") }}</Button>
+        <Button v-if="!me && sso.info.value?.enabled" type="button" variant="outline" @click="acceptWithSso">
+          {{ t("sso.acceptWith", { name: sso.info.value.displayName }) }}
+        </Button>
       </form>
       <NuxtLink :to="me ? '/' : '/login'" class="block text-center text-sm text-muted-foreground hover:underline">
         {{ me ? t("common.home") : t("auth.backToLogin") }}

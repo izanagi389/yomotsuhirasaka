@@ -32,7 +32,10 @@
   "reauth": {
     "title": "Confirm it's you",
     "description": "Confirm your identity again before this operation.",
-    "confirm": "Confirm"
+    "confirm": "Confirm",
+    "ssoDescription": "Confirm with a passkey, or by signing in to the identity provider again. If you use the identity provider, repeat the action after you return.",
+    "ssoAdminDescription": "Administrators who signed in with single sign-on confirm with a passkey.",
+    "withIdp": "Sign in to the identity provider again"
   },
   "reset": {
     "requestTitle": "Reset your password",
@@ -96,7 +99,13 @@
     "recoveryCodesDescription": "Shown only on this screen. Store them somewhere safe. Each can be used once.",
     "passwordTitle": "Change password",
     "currentPassword": "Current password",
-    "passwordChanged": "Your password was changed. You were signed out on other devices."
+    "passwordChanged": "Your password was changed. You were signed out on other devices.",
+    "passkeyRequiredTitle": "Register a passkey",
+    "passkeyRequiredDescription": "Administrators who sign in with single sign-on must register a passkey for this CMS before using admin operations.",
+    "identitiesTitle": "External accounts",
+    "identitiesDescription": "Link your {name} account to sign in with it.",
+    "identityLink": "Link your {name} account",
+    "identityLinkedAt": "Linked {at}"
   },
   "errors": {
     "generic": "The request could not be completed ({status}).",
@@ -151,7 +160,12 @@
     "destination_not_allowed": "This destination cannot receive webhooks.",
     "server_admin_target": "Server administrators can only be recovered with the server CLI.",
     "outside_scope": "This person also belongs to a workspace you do not administer. Ask a server administrator.",
-    "deploy_scope_forbidden": "Only server administrators can issue tokens with the deploy scope."
+    "deploy_scope_forbidden": "Only server administrators can issue tokens with the deploy scope.",
+    "oidc_not_configured": "Single sign-on is not configured on this server.",
+    "oidc_unavailable": "Single sign-on is unavailable because outbound HTTP is not configured correctly.",
+    "idp_unreachable": "The identity provider could not be reached or is not configured correctly.",
+    "reauth_method_not_allowed": "This method cannot be used to confirm your identity.",
+    "csrf_already_issued": "Please sign in again."
   },
   "editor": {
     "toolbar": "Formatting",
@@ -587,6 +601,32 @@
       "revokeTitle": "Revoke the token",
       "revokeDescription": "Revokes \"{name}\". CLIs using this token will stop working.",
       "noMemberships": "You are not a member of any workspace. A token used only for deploying can be issued without choosing a workspace."
+    }
+  },
+  "sso": {
+    "or": "or",
+    "loginWith": "Sign in with {name}",
+    "acceptWith": "Accept with your {name} account",
+    "completeTitle": "Single sign-on",
+    "completing": "Signing you in…",
+    "backToAccount": "Back to your account",
+    "errors": {
+      "generic": "Single sign-on could not be completed. Please try again.",
+      "invalid_state": "The sign-in could not be matched or has expired. Please start again.",
+      "cancelled": "The sign-in was cancelled at the identity provider.",
+      "invalid_request": "The identity provider's response was not valid.",
+      "idp_error": "The identity provider could not be reached or is not configured correctly. Contact your administrator.",
+      "invalid_id_token": "The information from the identity provider could not be verified.",
+      "not_registered": "This account cannot be used here yet. Accept an invitation, or sign in and link the account first.",
+      "email_not_verified": "Your email address is not verified at the identity provider.",
+      "email_mismatch": "The identity provider's email address does not match the invitation.",
+      "account_exists": "An account with this email address already exists. Sign in, accept the invitation, and then link the account.",
+      "already_linked": "This identity provider account is already linked to someone else, or you already linked an account from this provider.",
+      "invitation_invalid": "The invitation is invalid or has expired.",
+      "identity_mismatch": "The identity provider account does not match the signed-in account.",
+      "session_expired": "Your session has expired. Please sign in again.",
+      "oidc_not_configured": "Single sign-on is not configured on this server.",
+      "internal": "Something went wrong on the server."
     }
   }
 }

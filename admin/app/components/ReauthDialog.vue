@@ -9,6 +9,21 @@ const { t } = useI18n();
 const { open, finish } = useReauth();
 const { me, refresh } = useAuth();
 const api = useApi();
+const sso = useSso();
+const route = useRoute();
+
+// IdPでもう一度ログインする（SSOの、管理者でない人）。戻ったら今の画面を開き直すので、操作はやり直してもらう
+async function withIdp() {
+  busy.value = true;
+  error.value = null;
+  try {
+    await sso.load();
+    await sso.start("/session/reauth/oidc", undefined, route.fullPath);
+  } catch (e) {
+    error.value = e;
+    busy.value = false;
+  }
+}
 
 const secret = ref("");
 const useRecovery = ref(false);
@@ -72,7 +87,13 @@ function onOpenChange(v: boolean) {
           <DialogDescription>{{ t("reauth.description") }}</DialogDescription>
         </DialogHeader>
         <FormError :error="error" />
-        <div class="grid gap-2">
+        <!-- SSOのセッション: パスキーか、IdPでのログインのし直し（Q108, Q131） -->
+        <div v-if="me?.sso" class="grid gap-2">
+          <p class="text-sm text-muted-foreground">{{ me.idpReauthAllowed ? t("reauth.ssoDescription") : t("reauth.ssoAdminDescription") }}</p>
+          <Button type="button" :disabled="busy" @click="withPasskey">{{ t("auth.usePasskey") }}</Button>
+          <Button v-if="me.idpReauthAllowed" type="button" variant="outline" :disabled="busy" @click="withIdp">{{ t("reauth.withIdp") }}</Button>
+        </div>
+        <div v-else class="grid gap-2">
           <Label for="reauth-secret">
             {{ !me?.mfaEnabled ? t("auth.password") : useRecovery ? t("auth.recoveryCode") : t("auth.totpCode") }}
           </Label>
@@ -85,7 +106,7 @@ function onOpenChange(v: boolean) {
             required
           />
         </div>
-        <div v-if="me?.mfaEnabled" class="flex flex-wrap gap-2 text-sm">
+        <div v-if="!me?.sso && me?.mfaEnabled" class="flex flex-wrap gap-2 text-sm">
           <Button type="button" variant="link" class="h-auto p-0" @click="useRecovery = !useRecovery">
             {{ useRecovery ? t("auth.useTotp") : t("auth.useRecoveryCode") }}
           </Button>
@@ -93,7 +114,7 @@ function onOpenChange(v: boolean) {
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" @click="finish(false)">{{ t("common.cancel") }}</Button>
-          <Button type="submit" :disabled="busy">{{ t("reauth.confirm") }}</Button>
+          <Button v-if="!me?.sso" type="submit" :disabled="busy">{{ t("reauth.confirm") }}</Button>
         </DialogFooter>
       </form>
     </DialogContent>

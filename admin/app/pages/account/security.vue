@@ -7,6 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+interface Identity {
+  id: string;
+  issuer: string;
+  linkedAt: string;
+  lastLoginAt: string | null;
+}
+
 interface Passkey {
   id: string;
   name: string;
@@ -14,7 +21,7 @@ interface Passkey {
   lastUsedAt: string | null;
 }
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const api = useApi();
 const { me, refresh } = useAuth();
 
@@ -78,6 +85,25 @@ async function removePasskey(id: string) {
   }
 }
 
+// --- 外部のアカウント（OIDC/SSO）のひも付け ---
+const sso = useSso();
+const identities = ref<Identity[]>([]);
+async function loadIdentities() {
+  try {
+    identities.value = await api.get<Identity[]>("/me/identities");
+  } catch (e) {
+    error.value = e;
+  }
+}
+async function linkIdentity() {
+  error.value = null;
+  try {
+    await sso.start("/me/identities/oidc/start", undefined, "/account/security");
+  } catch (e) {
+    error.value = e;
+  }
+}
+
 // --- 復旧コード ---
 async function regenerateCodes() {
   error.value = null;
@@ -105,7 +131,12 @@ async function changePassword() {
   }
 }
 
-onMounted(loadPasskeys);
+onMounted(() => {
+  loadPasskeys();
+  sso.load().then((i) => {
+    if (i.enabled) loadIdentities();
+  });
+});
 </script>
 
 <template>
@@ -115,6 +146,10 @@ onMounted(loadPasskeys);
     <Alert v-if="me?.mfaSetupRequired">
       <AlertTitle>{{ t("security.requiredTitle") }}</AlertTitle>
       <AlertDescription>{{ t("security.requiredDescription") }}</AlertDescription>
+    </Alert>
+    <Alert v-if="me?.passkeyRequired">
+      <AlertTitle>{{ t("security.passkeyRequiredTitle") }}</AlertTitle>
+      <AlertDescription>{{ t("security.passkeyRequiredDescription") }}</AlertDescription>
     </Alert>
     <FormError :error="error" />
 
@@ -130,7 +165,8 @@ onMounted(loadPasskeys);
       </CardContent>
     </Card>
 
-    <Card>
+    <!-- SSOのセッションでは、多要素認証はIdPに任せ、本人の確認はパスキーで行う（Q131）。認証アプリとパスワードは出さない -->
+    <Card v-if="!me?.sso">
       <CardHeader>
         <CardTitle>{{ t("security.totpTitle") }}</CardTitle>
         <CardDescription>{{ me?.mfaEnabled ? t("security.mfaEnabled") : t("security.totpDescription") }}</CardDescription>
@@ -169,6 +205,24 @@ onMounted(loadPasskeys);
       </CardContent>
     </Card>
 
+    <Card v-if="sso.info.value?.enabled">
+      <CardHeader>
+        <CardTitle>{{ t("security.identitiesTitle") }}</CardTitle>
+        <CardDescription>{{ t("security.identitiesDescription", { name: sso.info.value.displayName }) }}</CardDescription>
+      </CardHeader>
+      <CardContent class="grid gap-4">
+        <ul v-if="identities.length > 0" class="grid gap-2 text-sm">
+          <li v-for="i in identities" :key="i.id" class="flex flex-wrap justify-between gap-2">
+            <span class="break-all">{{ i.issuer }}</span>
+            <span class="text-muted-foreground">{{ t("security.identityLinkedAt", { at: formatDateTime(i.linkedAt, locale) }) }}</span>
+          </li>
+        </ul>
+        <Button v-else variant="outline" class="justify-self-start" @click="linkIdentity">
+          {{ t("security.identityLink", { name: sso.info.value.displayName }) }}
+        </Button>
+      </CardContent>
+    </Card>
+
     <Card v-if="me?.mfaEnabled">
       <CardHeader>
         <CardTitle>{{ t("security.recoveryTitle") }}</CardTitle>
@@ -179,7 +233,7 @@ onMounted(loadPasskeys);
       </CardContent>
     </Card>
 
-    <Card>
+    <Card v-if="!me?.sso">
       <CardHeader>
         <CardTitle>{{ t("security.passwordTitle") }}</CardTitle>
         <CardDescription>{{ passwordChanged ? t("security.passwordChanged") : t("auth.passwordRules") }}</CardDescription>

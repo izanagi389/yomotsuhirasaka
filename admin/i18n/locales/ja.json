@@ -32,7 +32,10 @@
   "reauth": {
     "title": "本人の確認",
     "description": "この操作の前に、もう一度本人であることを確認します。",
-    "confirm": "確認"
+    "confirm": "確認",
+    "ssoDescription": "パスキーか、IdPでもう一度ログインして確認します。IdPで確認した場合は、戻った後に操作をやり直してください。",
+    "ssoAdminDescription": "シングルサインオンでログインした管理者は、パスキーで確認します。",
+    "withIdp": "IdPでもう一度ログインする"
   },
   "reset": {
     "requestTitle": "パスワードの再設定",
@@ -96,7 +99,13 @@
     "recoveryCodesDescription": "この画面でだけ表示します。安全な場所に保管してください。それぞれ一度だけ使えます。",
     "passwordTitle": "パスワードの変更",
     "currentPassword": "今のパスワード",
-    "passwordChanged": "パスワードを変更しました。ほかの端末のログインは終了しました。"
+    "passwordChanged": "パスワードを変更しました。ほかの端末のログインは終了しました。",
+    "passkeyRequiredTitle": "パスキーを登録してください",
+    "passkeyRequiredDescription": "シングルサインオンでログインした管理者は、管理の操作の前に、このCMSのパスキーを登録する必要があります。",
+    "identitiesTitle": "外部のアカウント",
+    "identitiesDescription": "{name} のアカウントをひも付けると、そのアカウントでログインできます。",
+    "identityLink": "{name} のアカウントをひも付ける",
+    "identityLinkedAt": "{at} にひも付け"
   },
   "errors": {
     "generic": "処理できませんでした（{status}）。",
@@ -151,7 +160,12 @@
     "destination_not_allowed": "この送信先には送れません。",
     "server_admin_target": "サーバー管理者は、サーバーのCLIでだけ復旧できます。",
     "outside_scope": "この人は、あなたが管理していないワークスペースにも所属しています。サーバー管理者に依頼してください。",
-    "deploy_scope_forbidden": "デプロイの権限のトークンを発行できるのは、サーバー管理者だけです。"
+    "deploy_scope_forbidden": "デプロイの権限のトークンを発行できるのは、サーバー管理者だけです。",
+    "oidc_not_configured": "このサーバーでは、シングルサインオンを使えません。",
+    "oidc_unavailable": "外部への送信の設定に問題があるため、シングルサインオンを使えません。",
+    "idp_unreachable": "IdPにつながらないか、IdPの設定に問題があります。",
+    "reauth_method_not_allowed": "この方法では本人を確認できません。",
+    "csrf_already_issued": "ログインし直してください。"
   },
   "editor": {
     "toolbar": "本文の書式",
@@ -587,6 +601,32 @@
       "revokeTitle": "トークンを失効させます",
       "revokeDescription": "「{name}」を失効させます。このトークンを使っているCLIは使えなくなります。",
       "noMemberships": "所属しているワークスペースはありません。デプロイだけに使うトークンは、ワークスペースを選ばずに発行できます。"
+    }
+  },
+  "sso": {
+    "or": "または",
+    "loginWith": "{name} でログイン",
+    "acceptWith": "{name} のアカウントで承諾",
+    "completeTitle": "シングルサインオン",
+    "completing": "ログインの処理をしています…",
+    "backToAccount": "アカウントの画面へ",
+    "errors": {
+      "generic": "シングルサインオンを完了できませんでした。もう一度やり直してください。",
+      "invalid_state": "ログインの途中の情報が見つからないか、期限が切れています。最初からやり直してください。",
+      "cancelled": "IdPでの操作が取り消されました。",
+      "invalid_request": "IdPからの応答が正しくありません。",
+      "idp_error": "IdPにつながらないか、IdPの設定に問題があります。管理者に連絡してください。",
+      "invalid_id_token": "IdPからの情報を確認できませんでした。",
+      "not_registered": "このアカウントは、まだこのCMSで使えません。招待を受けてから承諾するか、ログインしてからアカウントをひも付けてください。",
+      "email_not_verified": "IdPでメールアドレスが確認されていないため、続けられません。",
+      "email_mismatch": "IdPのメールアドレスが、招待の宛先と違います。",
+      "account_exists": "このメールアドレスのアカウントは、すでにあります。ログインしてから招待を承諾し、アカウントをひも付けてください。",
+      "already_linked": "このIdPのアカウントは、すでに別の利用者にひも付いているか、同じIdPのアカウントをひも付け済みです。",
+      "invitation_invalid": "招待が正しくないか、期限が切れています。",
+      "identity_mismatch": "ログインしているアカウントと、IdPのアカウントが違います。",
+      "session_expired": "ログインの期限が切れました。ログインし直してください。",
+      "oidc_not_configured": "このサーバーでは、シングルサインオンを使えません。",
+      "internal": "サーバーで問題が起きました。"
     }
   }
 }
