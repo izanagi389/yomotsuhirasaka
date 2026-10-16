@@ -186,6 +186,11 @@ pub fn check_config(config: &Config) -> Report {
             "`scripts.time_limit_ms` must be between 10 and 60000",
         ));
     }
+    if !(10..=240_000).contains(&config.scripts.async_time_limit_ms) {
+        report.problems.push(Problem::fatal(
+            "`scripts.async_time_limit_ms` must be between 10 and 240000",
+        ));
+    }
     if let Some(smtp) = &config.smtp {
         report.problems.extend(check_smtp(smtp));
     }

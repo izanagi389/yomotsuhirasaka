@@ -1,12 +1,15 @@
 //! 組み込みJS（04-hooks.md、Q10, Q11, Q12, Q89）。
 //!
-//! テンプレートに書かれ、サーバー管理者がデプロイした関数（M2ではURL生成関数）を、QuickJS-NG（rquickjs）で動かす。
+//! テンプレートに書かれ、サーバー管理者がデプロイした関数（URL生成関数とフック）を、QuickJS-NG（rquickjs）で動かす。
 //!
 //! - **実行ごとに新しいランタイム**を作り、終わったら捨てる。ランタイムはヒープもグローバル変数も別なので、
 //!   他のワークスペースや前の実行の状態は見えない（INV-HOOK-03）。作るのにかかる時間は1ms未満。
 //! - **メモリと実行時間の上限**をランタイムに設定する（Q89、INV-HOOK-04）。時間は割り込みで止める（JSからは捕まえられない）。
 //!   メモリの上限は、rquickjs の `allocator` / `rust-alloc` 機能を使うと効かなくなるので、それらは使わない。
-//! - 実行は tokio の処理を止めないよう、ブロッキング用のスレッドで行う。同時に動かす数にも上限を設ける。
+//! - 実行は tokio の処理を止めないよう、ブロッキング用のスレッドで行う。同時に動かす数にも上限を設ける
+//!   （同期の実行と非同期のフックで別に数え、時間のかかる非同期のフックが保存や公開を待たせないようにする）。
+//! - 同期の実行（URL生成関数、保存前・公開前のフック）と非同期のフックで、実行時間の上限を分ける（Q12）。
+//!   外部への送信（`http.fetch`）は非同期のフックにだけ置く（INV-HOOK-01）。
 //! - **ホスト関数は、権限として宣言したものだけ**をグローバルに置く（INV-HOOK-02）。宣言していないものは存在しない。
 //! - ホスト関数は、関数を動かしているワークスペースのロールに切り替えたトランザクションでだけDBを読む（INV-HOOK-03）。
 //! - 関数のソースはJSのまま受け取り、バイトコードは受け取らない（QuickJS-NGは信頼できないバイトコードを守る対象にしていない）。
@@ -22,7 +25,7 @@ use std::time::{Duration, Instant};
 use rquickjs::{Context, Ctx, Function, Module, Runtime, Value as JsValue};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use tokio::sync::Semaphore;
 
 pub use host::Host;
@@ -31,6 +34,9 @@ pub use host::Host;
 pub const MAX_SOURCE_BYTES: usize = 512 * 1024;
 /// 関数が返すURLの長さの上限。
 const MAX_URL_LEN: usize = 2000;
+/// 公開前のフックが返せる理由の数と、1つの理由の長さの上限。
+const MAX_HOOK_ERRORS: usize = 20;
+const MAX_HOOK_MESSAGE_CHARS: usize = 500;
 /// JSのスタックの上限（バイト）。ブロッキング用のスレッドのスタック（2MB）より十分に小さくする。
 const MAX_STACK_BYTES: usize = 512 * 1024;
 
@@ -42,6 +48,9 @@ pub enum Permission {
     /// 同じワークスペースの公開中の記事を読む（`cms.content.get(id)`）。
     #[serde(rename = "content.read")]
     ContentRead,
+    /// 外部へHTTPで送る（`cms.http.fetch(url, options)`）。非同期のフックだけ。宛先は `allowedHosts` に限る。
+    #[serde(rename = "http.fetch")]
+    HttpFetch,
 }
 
 /// テンプレートに書かれた関数（CLIがTSをJSに変換して入れる。Q49）。
@@ -53,13 +62,20 @@ pub struct Script {
     /// 呼べるホスト関数。ここにないものは呼べない（INV-HOOK-02）。
     #[serde(default)]
     pub permissions: Vec<Permission>,
+    /// `http.fetch` で送ってよいホスト名かIPアドレス。ここにあっても、内部向けのアドレスの遮断などの
+    /// 外部への送信の検査は外れない（13-security.md「外部への送信」、INV-HOOK-05）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_hosts: Vec<String>,
 }
 
 /// 1回の実行の上限（Q89）。
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
     pub memory_bytes: usize,
+    /// 同期の実行（URL生成関数、保存前・公開前のフック）。
     pub time: Duration,
+    /// 非同期のフック。
+    pub async_time: Duration,
 }
 
 /// 実行に失敗した理由（中身は持たない）。
@@ -78,6 +94,17 @@ pub enum Failure {
 }
 
 impl Failure {
+    /// ジョブの失敗の記録や応答に使う種類。
+    pub fn code(self) -> &'static str {
+        match self {
+            Failure::Exception => "hook_exception",
+            Failure::TimeLimit => "hook_time_limit",
+            Failure::MemoryLimit => "hook_memory_limit",
+            Failure::InvalidResult => "hook_invalid_result",
+            Failure::Internal => "hook_internal",
+        }
+    }
+
     /// APIのエラーメッセージに使う説明（英語）。
     pub fn describe(self) -> &'static str {
         match self {
@@ -95,6 +122,14 @@ impl Failure {
 pub struct Engine {
     limits: Limits,
     running: Arc<Semaphore>,
+    running_async: Arc<Semaphore>,
+}
+
+/// 同期か非同期か（上限の時間と、同時に動かす数の数え方が違う）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Sync,
+    Async,
 }
 
 impl Engine {
@@ -103,17 +138,45 @@ impl Engine {
         Self {
             limits,
             running: Arc::new(Semaphore::new(parallel)),
+            running_async: Arc::new(Semaphore::new((parallel / 2).max(1))),
         }
     }
 
     /// URL生成関数を動かし、公開URLを返す（05-urls-and-redirects.md、Q38）。
     /// `input` は公開する記事（`{id, contentType, locale, slug, fields}`）。
     pub async fn url(&self, script: &Script, host: Host, input: &Value) -> Result<String, Failure> {
-        let out = self.call(script, Some(host), input).await?;
+        let out = self.call(Mode::Sync, script, Some(host), input).await?;
         match out {
             Value::String(url) if valid_url(&url) => Ok(url),
             _ => Err(Failure::InvalidResult),
         }
+    }
+
+    /// 保存前のフック。直すフィールド（`{fields: {...}}` の中身）を返す。直さなければ空。
+    pub async fn before_save(
+        &self,
+        script: &Script,
+        host: Host,
+        input: &Value,
+    ) -> Result<Map<String, Value>, Failure> {
+        parse_patch(self.call(Mode::Sync, script, Some(host), input).await?)
+    }
+
+    /// 公開前のフック。公開を止める理由（`{errors: [{field?, message}]}`）を、`field: message` の形で返す。
+    pub async fn before_publish(
+        &self,
+        script: &Script,
+        host: Host,
+        input: &Value,
+    ) -> Result<Vec<String>, Failure> {
+        parse_errors(self.call(Mode::Sync, script, Some(host), input).await?)
+    }
+
+    /// 非同期のフック（保存後・公開後・非公開の後）。返した値は使わない。
+    pub async fn after(&self, script: &Script, host: Host, input: &Value) -> Result<(), Failure> {
+        self.call(Mode::Async, script, Some(host), input)
+            .await
+            .map(|_| ())
     }
 
     /// デプロイの検査: ソースを読み込み、既定のエクスポートが関数であることを確かめる（関数は呼ばない）。
@@ -123,25 +186,43 @@ impl Engine {
             .acquire()
             .await
             .map_err(|_| Failure::Internal)?;
-        let (limits, source) = (self.limits, script.source.clone());
+        let (limits, source) = (self.limits_for(Mode::Sync), script.source.clone());
         tokio::task::spawn_blocking(move || run(limits, &source, &[], None, None))
             .await
             .map_err(|_| Failure::Internal)?
             .map(|_| ())
     }
 
+    /// 実行の上限（`run` には time だけを使わせる）。
+    fn limits_for(&self, mode: Mode) -> Limits {
+        let time = match mode {
+            Mode::Sync => self.limits.time,
+            Mode::Async => self.limits.async_time,
+        };
+        Limits {
+            time,
+            ..self.limits
+        }
+    }
+
     async fn call(
         &self,
+        mode: Mode,
         script: &Script,
         host: Option<Host>,
         input: &Value,
     ) -> Result<Value, Failure> {
-        let _permit = self
-            .running
-            .acquire()
-            .await
-            .map_err(|_| Failure::Internal)?;
-        let limits = self.limits;
+        let semaphore = match mode {
+            Mode::Sync => &self.running,
+            Mode::Async => &self.running_async,
+        };
+        let _permit = semaphore.acquire().await.map_err(|_| Failure::Internal)?;
+        let limits = self.limits_for(mode);
+        // 同期の実行には、外部へ送る手段を渡さない（デプロイの検査に加えた二重の守り。INV-HOOK-01）
+        let host = match mode {
+            Mode::Sync => host.map(Host::without_fetch),
+            Mode::Async => host,
+        };
         let source = script.source.clone();
         let permissions = script.permissions.clone();
         let input = input.to_string();
@@ -153,6 +234,55 @@ impl Engine {
         .await
         .map_err(|_| Failure::Internal)?
     }
+}
+
+/// 保存前のフックの返した値から、直すフィールドを取り出す（`{fields: {...}}`、null、`{}`）。
+fn parse_patch(out: Value) -> Result<Map<String, Value>, Failure> {
+    match out {
+        Value::Null => Ok(Map::new()),
+        Value::Object(mut out) => match out.remove("fields") {
+            None | Some(Value::Null) if out.is_empty() => Ok(Map::new()),
+            Some(Value::Object(fields)) if out.is_empty() => Ok(fields),
+            _ => Err(Failure::InvalidResult),
+        },
+        _ => Err(Failure::InvalidResult),
+    }
+}
+
+/// 公開前のフックの返した値から、公開を止める理由を `field: message` の形で取り出す。
+fn parse_errors(out: Value) -> Result<Vec<String>, Failure> {
+    let errors = match out {
+        Value::Null => return Ok(Vec::new()),
+        Value::Object(mut out) => match out.remove("errors") {
+            None | Some(Value::Null) if out.is_empty() => return Ok(Vec::new()),
+            Some(Value::Array(errors)) if out.is_empty() => errors,
+            _ => return Err(Failure::InvalidResult),
+        },
+        _ => return Err(Failure::InvalidResult),
+    };
+    if errors.len() > MAX_HOOK_ERRORS {
+        return Err(Failure::InvalidResult);
+    }
+    errors
+        .iter()
+        .map(|e| {
+            let field = match e.get("field") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(f)) => Some(f.chars().take(64).collect::<String>()),
+                Some(_) => return Err(Failure::InvalidResult),
+            };
+            let message = e
+                .get("message")
+                .and_then(Value::as_str)
+                .filter(|m| !m.trim().is_empty())
+                .ok_or(Failure::InvalidResult)?;
+            let message: String = message.chars().take(MAX_HOOK_MESSAGE_CHARS).collect();
+            Ok(match field {
+                Some(f) => format!("{f}: {message}"),
+                None => message,
+            })
+        })
+        .collect()
 }
 
 /// 関数が返したURLとして受け付けるか: http(s) の絶対URLで、空白や制御文字を含まず、長すぎない。
@@ -253,6 +383,7 @@ mod tests {
         Engine::new(Limits {
             memory_bytes: memory_mb * 1024 * 1024,
             time: Duration::from_millis(time_ms),
+            async_time: Duration::from_millis(time_ms),
         })
     }
 
@@ -260,11 +391,12 @@ mod tests {
         Script {
             source: source.into(),
             permissions: vec![],
+            allowed_hosts: vec![],
         }
     }
 
     async fn call(e: &Engine, source: &str, input: Value) -> Result<Value, Failure> {
-        e.call(&script(source), None, &input).await
+        e.call(Mode::Sync, &script(source), None, &input).await
     }
 
     #[tokio::test]
@@ -363,6 +495,50 @@ mod tests {
             e.check(&script("syntax error here")).await,
             Err(Failure::Exception)
         );
+    }
+
+    #[test]
+    fn hook_results() {
+        use serde_json::json;
+        assert_eq!(parse_patch(Value::Null), Ok(Map::new()));
+        assert_eq!(parse_patch(json!({})), Ok(Map::new()));
+        assert_eq!(
+            parse_patch(json!({"fields": {"a": 1}})),
+            Ok(json!({"a": 1}).as_object().unwrap().clone())
+        );
+        for bad in [
+            json!({"fields": 1}),
+            json!({"fields": {}, "x": 1}),
+            json!("x"),
+            json!([]),
+        ] {
+            assert_eq!(
+                parse_patch(bad.clone()),
+                Err(Failure::InvalidResult),
+                "{bad}"
+            );
+        }
+        assert_eq!(parse_errors(json!({"errors": []})), Ok(vec![]));
+        assert_eq!(
+            parse_errors(
+                json!({"errors": [{"field": "title", "message": "too long"}, {"message": "no"}]})
+            ),
+            Ok(vec!["title: too long".to_owned(), "no".to_owned()])
+        );
+        for bad in [
+            json!({"errors": [{"field": "title"}]}),
+            json!({"errors": [{"message": " "}]}),
+            json!({"errors": [{"field": 1, "message": "x"}]}),
+            json!({"errors": "x"}),
+            json!({"errors": [], "x": 1}),
+            json!({"errors": vec![json!({"message": "x"}); MAX_HOOK_ERRORS + 1]}),
+        ] {
+            assert_eq!(
+                parse_errors(bad.clone()),
+                Err(Failure::InvalidResult),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

@@ -74,8 +74,10 @@ pub struct Config {
 pub struct ScriptsConfig {
     /// メモリの上限（バイト。既定は128MB）。
     pub memory_limit_bytes: usize,
-    /// 実行時間の上限（ミリ秒。既定は5000）。ホスト関数でDBを待つ時間も含む。
+    /// 同期の実行（URL生成関数、保存前・公開前のフック）の時間の上限（ミリ秒。既定は5000）。ホスト関数で待つ時間も含む。
     pub time_limit_ms: u64,
+    /// 非同期のフック（保存後・公開後・非公開の後）の時間の上限（ミリ秒。既定は30000）。外部への送信を待つ時間も含む。
+    pub async_time_limit_ms: u64,
 }
 
 impl Default for ScriptsConfig {
@@ -83,6 +85,7 @@ impl Default for ScriptsConfig {
         Self {
             memory_limit_bytes: 128 * 1024 * 1024,
             time_limit_ms: 5000,
+            async_time_limit_ms: 30_000,
         }
     }
 }
@@ -92,6 +95,7 @@ impl ScriptsConfig {
         crate::script::Limits {
             memory_bytes: self.memory_limit_bytes,
             time: std::time::Duration::from_millis(self.time_limit_ms),
+            async_time: std::time::Duration::from_millis(self.async_time_limit_ms),
         }
     }
 }

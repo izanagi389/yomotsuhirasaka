@@ -77,6 +77,10 @@
             }
           ]
         },
+        "hooks": {
+          "description": "フック（M2、04-hooks.md）。",
+          "$ref": "#/$defs/Hooks"
+        },
         "listLimit": {
           "description": "一覧のフィールドで1回に取得できる件数の上限。",
           "type": "integer",
@@ -127,6 +131,13 @@
             "$ref": "#/$defs/Permission"
           },
           "default": []
+        },
+        "allowedHosts": {
+          "description": "`http.fetch` で送ってよいホスト名かIPアドレス。ここにあっても、内部向けのアドレスの遮断などの\n外部への送信の検査は外れない（13-security.md「外部への送信」、INV-HOOK-05）。",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false,
@@ -141,8 +152,70 @@
           "description": "同じワークスペースの公開中の記事を読む（`cms.content.get(id)`）。",
           "type": "string",
           "const": "content.read"
+        },
+        {
+          "description": "外部へHTTPで送る（`cms.http.fetch(url, options)`）。非同期のフックだけ。宛先は `allowedHosts` に限る。",
+          "type": "string",
+          "const": "http.fetch"
         }
       ]
+    },
+    "Hooks": {
+      "description": "コンテンツタイプのフック（04-hooks.md、Q12）。種類ごとに1つ。\n\n- 同期（結果を待つ。外部と通信できない）:\n  - `beforeSave`: 下書きの保存の前。受け取るのは `{entry: {id, contentType, locale, fields}}`、返すのは直すフィールド\n    `{fields: {...}}`。保存は止めない（失敗したら直さずに保存し、知らせる）。\n  - `beforePublish`: 公開の前。受け取るのは同じ形、返すのは公開を止める理由 `{errors: [{field?, message}]}`。\n    失敗したときも公開を止める。\n- 非同期（後からジョブで動く。失敗したらやり直す）。受け取るのは `{event, entry}`、返した値は使わない:\n  - `afterSave`: 保存が30秒止まってから、記事ごとに1回（その時点の下書き）。\n  - `afterPublish`: 公開・更新・訂正としての公開の後（公開した版）。\n  - `afterUnpublish`: 非公開・削除の後（entry は null）。",
+      "type": "object",
+      "properties": {
+        "beforeSave": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Script"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "beforePublish": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Script"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "afterSave": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Script"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "afterPublish": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Script"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "afterUnpublish": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Script"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "Field": {
       "type": "object",

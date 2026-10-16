@@ -14,6 +14,8 @@ use crate::keys::KeyRing;
 const LOCK_SECONDS: f64 = 300.0;
 const BASE_BACKOFF_SECONDS: f64 = 30.0;
 const MAX_BACKOFF_SECONDS: f64 = 3600.0;
+/// ワークスペースごとに1つずつ実行するジョブの種類（フック。時間がかかりうるため）。
+pub const ONE_AT_A_TIME_PER_WORKSPACE: &str = crate::content::hooks::JOB_KIND;
 
 pub(crate) fn aad(id: Uuid, kind: &str) -> Vec<u8> {
     format!("cms:job:{kind}:{id}").into_bytes()
@@ -44,6 +46,39 @@ pub async fn enqueue<'e>(
     Ok(id)
 }
 
+/// まとめて1回だけ動かすジョブを積む（`delay_seconds` 後に実行）。まだ取り出されていない同じ `dedupe_key` の
+/// ジョブがあれば、新しく積まずにその実行の時刻だけを延ばす（中身は最初に積んだもの）。
+#[allow(clippy::too_many_arguments)]
+pub async fn enqueue_debounced<'e>(
+    executor: impl PgExecutor<'e>,
+    keys: &KeyRing,
+    workspace_id: Option<Uuid>,
+    kind: &str,
+    payload: &[u8],
+    max_attempts: i32,
+    dedupe_key: &str,
+    delay_seconds: f64,
+) -> Result<()> {
+    let id = Uuid::new_v4();
+    let sealed = keys.encrypt(payload, &aad(id, kind))?;
+    sqlx::query(
+        "INSERT INTO cms.jobs (id, workspace_id, kind, payload_enc, max_attempts, dedupe_key, run_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7))
+         ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND attempts = 0 AND failed_at IS NULL
+         DO UPDATE SET run_at = EXCLUDED.run_at",
+    )
+    .bind(id)
+    .bind(workspace_id)
+    .bind(kind)
+    .bind(sealed)
+    .bind(max_attempts)
+    .bind(dedupe_key)
+    .bind(delay_seconds)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 /// 取り出したジョブ。
 pub struct Claimed {
     pub id: Uuid,
@@ -58,6 +93,7 @@ pub struct Claimed {
 type ClaimRow = (Uuid, Option<Uuid>, String, Option<Vec<u8>>, i32, i32);
 
 /// 実行できるジョブを1つ取り出す（他の取り出し手と重ならない）。
+/// フックのジョブ（[`ONE_AT_A_TIME_PER_WORKSPACE`]）は、同じワークスペースで実行中のものがあれば後に回す（Q120）。
 pub async fn claim(pool: &PgPool, keys: &KeyRing) -> Result<Option<Claimed>> {
     let row: Option<ClaimRow> = sqlx::query_as(
         "UPDATE cms.jobs SET attempts = attempts + 1,
@@ -66,6 +102,10 @@ pub async fn claim(pool: &PgPool, keys: &KeyRing) -> Result<Option<Claimed>> {
              SELECT id FROM cms.jobs
              WHERE failed_at IS NULL AND run_at <= now()
                AND (locked_until IS NULL OR locked_until < now())
+               AND (kind <> $2 OR NOT EXISTS (
+                   SELECT 1 FROM cms.jobs running
+                   WHERE running.kind = $2 AND running.workspace_id = cms.jobs.workspace_id
+                     AND running.locked_until >= now() AND running.failed_at IS NULL))
              ORDER BY run_at
              FOR UPDATE SKIP LOCKED
              LIMIT 1
@@ -73,6 +113,7 @@ pub async fn claim(pool: &PgPool, keys: &KeyRing) -> Result<Option<Claimed>> {
          RETURNING id, workspace_id, kind, payload_enc, attempts, max_attempts",
     )
     .bind(LOCK_SECONDS)
+    .bind(ONE_AT_A_TIME_PER_WORKSPACE)
     .fetch_optional(pool)
     .await?;
     Ok(row.map(

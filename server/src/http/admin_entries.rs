@@ -12,11 +12,13 @@
 //!   サーバー管理者が所属せずに書いたときは、そのワークスペースの監査ログに残す（Q122）。
 //! - 移行待ちのワークスペースでは、作成と保存を受け付けない（INV-SCH-04）。
 //! - 下書きの保存は、送られたリビジョン番号が最新でなければ 409 にし、何も書かない（INV-EDIT-01、Q185）。
+//! - 作成と保存では、保存前のフック（beforeSave）の直しを重ねてから検査して保存する。フックが失敗したら直さずに保存し、
+//!   応答の `hookFailure` で知らせる（`content/hooks.rs`）。保存の後、保存後のフック（afterSave）を積む。
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
@@ -28,8 +30,10 @@ use crate::audit;
 use crate::auth::session::Current;
 use crate::content::entries::{self, Draft, Saved, Summary};
 use crate::content::fields::{self, Column};
+use crate::content::hooks;
 use crate::content::{Applied, applied_schema};
 use crate::schema::manifest::{ContentType, FieldType};
+use crate::script::{Failure, Host};
 use crate::workspace_db;
 
 pub(super) fn parse(id: &str) -> Result<Uuid, ApiError> {
@@ -186,12 +190,22 @@ pub struct CreateEntry {
     fields: Map<String, Value>,
 }
 
+/// 保存した下書き（保存前のフックが失敗したときは、その種類を添える）。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedDraft {
+    #[serde(flatten)]
+    draft: Draft,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hook_failure: Option<&'static str>,
+}
+
 pub async fn create(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
     Path(ws): Path<String>,
     JsonBody(req): JsonBody<CreateEntry>,
-) -> Result<(StatusCode, Json<Draft>), ApiError> {
+) -> Result<(StatusCode, Json<SavedDraft>), ApiError> {
     let ws = parse(&ws)?;
     let access = editor(&state, &current, ws).await?;
     let applied = writable(&state, ws).await?;
@@ -207,9 +221,22 @@ pub async fn create(
             "locale: not a locale of this workspace".to_owned(),
         ]));
     }
-    let columns = fields::convert_all(manifest, ct, &req.fields).map_err(invalid)?;
+    // 送られた値そのものが正しくなければ、フックを動かさずに断る
+    fields::convert_all(manifest, ct, &req.fields).map_err(invalid)?;
     let db = db(&state, ws).await?;
     let id = Uuid::new_v4();
+    let entry = serde_json::json!({ "id": id, "contentType": ct.name, "locale": locale });
+    let (changes, hook_failure) = hooks::before_save(
+        &state.scripts,
+        Host::new(state.pool.clone(), db.clone()),
+        manifest,
+        ct,
+        entry.as_object().cloned().unwrap_or_default(),
+        &Map::new(),
+        req.fields,
+    )
+    .await;
+    let columns = fields::convert_all(manifest, ct, &changes).map_err(invalid)?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     check_against_data(&mut tx, ct, id, &locale, &columns).await??;
     entries::create(
@@ -236,7 +263,14 @@ pub async fn create(
         )
         .await?;
     }
-    Ok((StatusCode::CREATED, Json(draft)))
+    schedule_after_save(&state, ct, ws, id, &locale).await;
+    Ok((
+        StatusCode::CREATED,
+        Json(SavedDraft {
+            draft,
+            hook_failure: hook_failure.map(Failure::code),
+        }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -257,12 +291,19 @@ pub(super) fn revision_conflict() -> ApiError {
     )
 }
 
+/// 保存後のフックを積む。積めなくても保存は確定しているので、記録して続ける。
+async fn schedule_after_save(state: &AppState, ct: &ContentType, ws: Uuid, id: Uuid, locale: &str) {
+    if let Err(e) = hooks::schedule_after_save(&state.pool, &state.keys, ct, ws, id, locale).await {
+        tracing::error!(workspace_id = %ws, entry_id = %id, "cannot queue the afterSave hook: {e:#}");
+    }
+}
+
 pub async fn save_draft(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
     Path((ws, id)): Path<(String, String)>,
     JsonBody(req): JsonBody<SaveDraft>,
-) -> Result<Json<Draft>, ApiError> {
+) -> Result<Json<SavedDraft>, ApiError> {
     let (ws, id) = (parse(&ws)?, parse(&id)?);
     let access = editor(&state, &current, ws).await?;
     let applied = writable(&state, ws).await?;
@@ -275,7 +316,19 @@ pub async fn save_draft(
     let ct = manifest
         .content_type(&before.content_type)
         .ok_or_else(ApiError::not_found)?;
-    let columns = fields::convert_all(manifest, ct, &req.fields).map_err(invalid)?;
+    fields::convert_all(manifest, ct, &req.fields).map_err(invalid)?;
+    let entry = serde_json::json!({ "id": id, "contentType": ct.name, "locale": before.locale });
+    let (changes, hook_failure) = hooks::before_save(
+        &state.scripts,
+        Host::new(state.pool.clone(), db.clone()),
+        manifest,
+        ct,
+        entry.as_object().cloned().unwrap_or_default(),
+        &before.fields,
+        req.fields,
+    )
+    .await;
+    let columns = fields::convert_all(manifest, ct, &changes).map_err(invalid)?;
     check_against_data(&mut tx, ct, id, &before.locale, &columns).await??;
     match entries::save(&mut tx, ct, id, req.revision, &columns).await? {
         Saved::Ok(_) => {}
@@ -295,5 +348,9 @@ pub async fn save_draft(
         )
         .await?;
     }
-    Ok(Json(draft))
+    schedule_after_save(&state, ct, ws, id, &before.locale).await;
+    Ok(Json(SavedDraft {
+        draft,
+        hook_failure: hook_failure.map(Failure::code),
+    }))
 }

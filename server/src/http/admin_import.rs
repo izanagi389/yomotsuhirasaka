@@ -22,7 +22,7 @@ use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Role};
 use crate::audit::{self, action};
 use crate::content::import::{self, Failed, Imported, Item};
-use crate::content::publishing::{Refused, Urls};
+use crate::content::publishing::{Refused, Scripts};
 use crate::script::Host;
 use crate::webhooks::{self, EntryEvent};
 use crate::workspace_db;
@@ -68,14 +68,14 @@ pub async fn import(
 
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
-    let urls = Urls {
+    let scripts = Scripts {
         engine: &state.scripts,
         host: Host::new(state.pool.clone(), db.clone()),
     };
     let imported = match import::apply(
         &mut tx,
         manifest,
-        &urls,
+        &scripts,
         applied.version,
         ct,
         plan,
@@ -105,6 +105,12 @@ pub async fn import(
                 Refused::UrlTaken => "another published entry already uses this URL".to_owned(),
                 Refused::UrlFunctionFailed(f) => {
                     format!("the public URL could not be made because {}", f.describe())
+                }
+                Refused::HookRejected(reasons) => {
+                    format!("the beforePublish hook stopped it: {}", reasons.join("; "))
+                }
+                Refused::HookFailed(f) => {
+                    format!("the beforePublish hook failed because {}", f.describe())
                 }
                 _ => "it cannot be published".to_owned(),
             };
@@ -141,6 +147,18 @@ pub async fn import(
         {
             tracing::error!(workspace_id = %ws, entry_id = %entry.id, "cannot queue webhooks: {e:#}");
         }
+        let version = imported
+            .iter()
+            .find(|i| i.id == entry.id)
+            .map(|i| i.version_id);
+        super::admin_publishing::schedule_hooks(
+            &state,
+            ws,
+            entry.id,
+            EntryEvent::Published,
+            version,
+        )
+        .await;
     }
     Ok((
         StatusCode::CREATED,

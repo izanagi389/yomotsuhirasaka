@@ -42,10 +42,15 @@ const MARK_ATTRS: Record<string, string[]> = {
 // ホスト関数の権限の名前（server/src/script/ のホスト関数の宣言に合わせる）
 const PERMISSION_NAMES: Record<ScriptPermission, string> = {
   readContent: "content.read",
+  fetch: "http.fetch",
 };
 
 // 本番ではCLIがTSをJSに変換して、ソースのままマニフェストに入れる（バイトコードは受け取らない）
-const toScript = (s: ScriptSpec) => ({ source: s.source, permissions: s.permissions.map((p) => PERMISSION_NAMES[p]) });
+const toScript = (s: ScriptSpec) => ({
+  source: s.source,
+  permissions: s.permissions.map((p) => PERMISSION_NAMES[p]),
+  allowedHosts: s.allowedHosts,
+});
 
 export function toManifest(t: TemplateSpec): unknown {
   const present = new Set(t.bodyNodes);
@@ -69,6 +74,7 @@ export function toManifest(t: TemplateSpec): unknown {
       name: ct.name,
       urlTemplate: ct.urlTemplate,
       urlFunction: ct.urlFunction ? toScript(ct.urlFunction) : undefined,
+      hooks: ct.hooks ? Object.fromEntries(Object.entries(ct.hooks).map(([kind, s]) => [kind, toScript(s)])) : undefined,
       listLimit: ct.listLimit,
       description: ct.description,
       devNote: ct.devNote,
