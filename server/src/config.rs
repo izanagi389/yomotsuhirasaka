@@ -249,6 +249,8 @@ pub struct AuthConfig {
     pub mfa_required_for_everyone: bool,
     /// 漏えいしたパスワードの照会（Q170）。なければ照会しない（既定）。
     pub breached_passwords: Option<BreachedPasswordsConfig>,
+    /// 外部のOIDC/SSO（Q103, Q126）。なければSSOは使えない（既定）。
+    pub oidc: Option<OidcConfig>,
 }
 
 impl Default for AuthConfig {
@@ -256,8 +258,45 @@ impl Default for AuthConfig {
         Self {
             mfa_required_for_everyone: true,
             breached_passwords: None,
+            oidc: None,
         }
     }
+}
+
+/// 外部のOIDC/SSOの接続先（13-security.md「OIDC/SSO」）。IdPの設定の取得も、外部への送信の共通の仕組みを通る
+/// （社内のIdPなら、`[egress]` の内部宛先の例外に加える）。
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct OidcConfig {
+    /// IdPの発行者（`iss`）。`<issuer>/.well-known/openid-configuration` から設定を取る。
+    pub issuer: String,
+    pub client_id: String,
+    /// クライアントの秘密（秘密の値）。
+    pub client_secret: String,
+    /// ログインの画面のボタンに出す名前。
+    #[serde(default = "default_oidc_display_name")]
+    pub display_name: String,
+    /// JIT: IDトークンの `email_verified` が真で、メールアドレスのドメインがこれに一致すれば、
+    /// 初回のSSOログインでアカウントを作る。空なら招待制（既定）。
+    #[serde(default)]
+    pub jit_domains: Vec<String>,
+}
+
+/// クライアントの秘密は出さない（設定をログなどに出したときに漏れないように）。
+impl std::fmt::Debug for OidcConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcConfig")
+            .field("issuer", &self.issuer)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"<redacted>")
+            .field("display_name", &self.display_name)
+            .field("jit_domains", &self.jit_domains)
+            .finish()
+    }
+}
+
+fn default_oidc_display_name() -> String {
+    "SSO".to_owned()
 }
 
 /// 漏えいしたパスワードの照会先（Have I Been Pwned の range API と同じ形）。

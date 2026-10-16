@@ -196,6 +196,30 @@ pub fn check_config(config: &Config) -> Report {
             "`auth.breached_passwords.base_url` must be an http(s) URL",
         ));
     }
+    if let Some(oidc) = &config.auth.oidc {
+        report
+            .problems
+            .extend(check_secret("auth.oidc.client_secret", &oidc.client_secret));
+        if !url::Url::parse(&oidc.issuer)
+            .is_ok_and(|u| matches!(u.scheme(), "https" | "http") && u.host().is_some())
+        {
+            report
+                .problems
+                .push(Problem::fatal("`auth.oidc.issuer` must be an http(s) URL"));
+        }
+        if oidc.client_id.trim().is_empty() {
+            report
+                .problems
+                .push(Problem::fatal("`auth.oidc.client_id` is empty"));
+        }
+        for d in &oidc.jit_domains {
+            if d.is_empty() || d.contains('@') || d != &d.to_lowercase() {
+                report.problems.push(Problem::fatal(format!(
+                    "`auth.oidc.jit_domains`: `{d}` must be a lowercase domain name"
+                )));
+            }
+        }
+    }
     if let Some(dir) = &config.admin.dist_dir
         && let Err(e) =
             crate::http::admin_ui::AdminUi::load(dir, config.media.public_base_url.as_deref())

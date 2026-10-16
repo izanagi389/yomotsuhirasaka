@@ -7,11 +7,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, Auth, CmsClient, Credentials, Draft, EntryInput, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, Auth, CmsClient, Credentials, Draft, EntryInput, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
 import { totp } from "./totp.js";
+import { createCredential, getAssertion, type SoftPasskey } from "./webauthn.js";
 import { toManifest } from "./manifest.js";
 import { runServerCli, validServerConfigFromEnv } from "./server-process.js";
 import { BASE_TEMPLATE, cloneTemplate, postType, type TemplateSpec } from "./template.js";
@@ -90,6 +91,46 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   }
 
   const session = (s: Session): Auth => ({ kind: "session", session: s, csrf: "valid" });
+
+  /** パスキーの照合に使うオリジン（CMSの公開URL）。 */
+  const publicOrigin = new URL(validServerConfigFromEnv().publicUrl).origin;
+  /** このドライバーで登録したパスキー（認証器の秘密鍵を含む）。 */
+  const softPasskeys = new Map<string, SoftPasskey>();
+
+  /**
+   * SSOを始めた応答から、IdPの認可のURLへ移動し、IdPが戻す先（CMSの戻り先）へ移動する。戻り先の応答を返す。
+   * IdPが戻す先は公開URLなので、パスと問い合わせだけを、つないでいるサーバーに送る。
+   */
+  async function viaIdp(start: HttpResponse, cookies: Map<string, string>, extras?: RequestExtras): Promise<HttpResponse> {
+    const { authorizationUrl } = JSON.parse(start.text) as { authorizationUrl?: unknown };
+    if (typeof authorizationUrl !== "string") throw new SetupError("SSOの開始の応答の読み取り", start);
+    const idp = await toHttpResponse(await fetch(authorizationUrl, { redirect: "manual" }));
+    const location = idp.headers.get("location");
+    if (idp.status < 300 || idp.status >= 400 || !location) throw new SetupError("擬似IdPの認可", idp);
+    const back = new URL(location);
+    const res = await request("GET", back.pathname + back.search, { cookies, extras });
+    applySetCookies(cookies, res.setCookies);
+    return res;
+  }
+
+  async function loginWithOidcRaw(options: LoginOptions = {}): Promise<{ response: HttpResponse; session: Session }> {
+    const cookies = new Map(options.cookies ?? []);
+    const setCookieHeaders: string[] = [];
+    const result = (response: HttpResponse, csrfToken = "") => ({ response, session: { cookies, csrfToken, setCookieHeaders } });
+    const start = await request("POST", `${ADMIN}/session/oidc/start`, { body: {}, cookies, extras: options.extras });
+    applySetCookies(cookies, start.setCookies);
+    setCookieHeaders.push(...start.setCookies);
+    if (!isSuccess(start)) return result(start);
+    const back = await viaIdp(start, cookies, options.extras);
+    setCookieHeaders.push(...back.setCookies);
+    if (!back.setCookies.some((c) => parseSetCookie(c).name === "__Host-cms_session")) return result(back);
+    // 戻った画面が、CSRFトークンを一度だけ受け取る
+    const done = await request("POST", `${ADMIN}/session/oidc/complete`, { cookies, extras: options.extras });
+    applySetCookies(cookies, done.setCookies);
+    setCookieHeaders.push(...done.setCookies);
+    const parsed = isSuccess(done) ? (JSON.parse(done.text) as { csrfToken?: unknown }) : {};
+    return result(done, typeof parsed.csrfToken === "string" ? parsed.csrfToken : "");
+  }
 
   /**
    * TOTPのコードを作る。サーバーは同じ時間の区切りのコードを二度受け付けないので、
@@ -864,6 +905,37 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       return { id, secret };
     },
     testWebhookRaw: (s: Session, workspaceId: string, webhookId: string) => testWebhookRaw(session(s), workspaceId, webhookId),
+    async enrollPasskey(s: Session, creds: Credentials): Promise<PasskeyHandle> {
+      const begin = () => request("POST", `${ADMIN}/me/mfa/passkeys`, { auth: session(s), body: { name: "inv test key" } });
+      let started = await begin();
+      // パスワードでログインしたセッションなら、再認証してからやり直す（SSOのセッションは、ログインの直後なら登録できる）
+      if (started.status === 403 && started.text.includes("reauth_required")) {
+        await reauthenticate(s, creds);
+        started = await begin();
+      }
+      ensure("パスキーの登録の開始", started);
+      const { credential, passkey } = createCredential(JSON.parse(started.text) as Parameters<typeof createCredential>[0], publicOrigin);
+      ensure("パスキーの登録の確定", await request("POST", `${ADMIN}/me/mfa/passkeys/confirm`, { auth: session(s), body: { credential } }));
+      softPasskeys.set(passkey.credentialId, passkey);
+      return { credentialId: passkey.credentialId };
+    },
+    async reauthenticateWithPasskey(s: Session, handle: PasskeyHandle): Promise<void> {
+      const passkey = softPasskeys.get(handle.credentialId);
+      if (!passkey) throw new Error("このドライバーで登録していないパスキーです");
+      const started = ensure("パスキーでの再認証の開始", await request("POST", `${ADMIN}/session/reauth/passkey`, { auth: session(s) }));
+      const assertion = getAssertion(JSON.parse(started.text) as Parameters<typeof getAssertion>[0], passkey);
+      ensure("パスキーでの再認証", await request("POST", `${ADMIN}/session/reauth`, { auth: session(s), body: { passkey: assertion } }));
+    },
+    loginWithOidcRaw,
+    async linkOidcIdentity(s: Session): Promise<void> {
+      const start = ensure("SSOのひも付けの開始", await request("POST", `${ADMIN}/me/identities/oidc/start`, { auth: session(s) }));
+      // IdPからの戻り（別のサイトからの移動）では、SameSite=Strict のセッションのCookieは送られない
+      const flowCookies = new Map<string, string>();
+      applySetCookies(flowCookies, start.setCookies);
+      const back = await viaIdp(start, flowCookies);
+      const location = back.headers.get("location") ?? "";
+      if (back.status !== 303 || location.includes("error=")) throw new SetupError(`SSOのひも付け（戻り先: ${location}）`, back);
+    },
     async enrollTotp(s: Session, creds: Credentials): Promise<string> {
       await reauthenticate(s, creds);
       const setup = ensure("TOTPの設定の開始", await request("POST", `${ADMIN}/me/mfa/totp`, { auth: session(s) }));

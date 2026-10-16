@@ -20,6 +20,8 @@ argon2 = "0.6.0"
 axum = "0.8.9"
 base64 = "0.23.1"
 clap = { version = "4.6.7", features = ["derive"] }
+jsonwebtoken = { version = "11.1.0", default-features = false, features = ["aws_lc_rs"] }
+oauth2 = { version = "5.0.0", default-features = false }
 rand = "0.10.3"
 sha2 = "0.11.0"
 subtle = "2.6.1"

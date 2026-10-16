@@ -115,6 +115,16 @@ chmod 600 "$TLS_DIR"/*.key
   echo "export CMS_TEST_HARNESS_TLS_CA='$TLS_DIR/ca.pem'"
 } >> "$OUT/test.env"
 
+# 擬似IdP（tests/invariants/support/oidc-idp.ts）。テストが起動し、CMSはこの発行者をOIDCの接続先にする（例外の宛先 127.0.0.1）
+OIDC_PORT="${CMS_TEST_OIDC_PORT:-5380}"
+{
+  echo "export CMS_TEST_OIDC_PORT='$OIDC_PORT'"
+  echo "export CMS_TEST_OIDC_ISSUER='http://127.0.0.1:$OIDC_PORT'"
+  echo "export CMS_TEST_OIDC_CLIENT_ID='cms-inv-tests'"
+  echo "export CMS_TEST_OIDC_CLIENT_SECRET='$(random_pw)'"
+  echo "export CMS_TEST_OIDC_JIT_DOMAIN='jit.inv.test'"
+} >> "$OUT/test.env"
+
 if [ -n "$PG15_URL" ]; then
   HP15="$(host_port "$PG15_URL")"
   APP15="$(random_pw)"

@@ -126,7 +126,7 @@ pub async fn member(
     }))
 }
 
-/// ワークスペースの管理者かサーバー管理者で、多要素認証を設定していれば通す。
+/// ワークスペースの管理者かサーバー管理者で、多要素認証を設定していれば通す（SSOのセッションではCMS側のパスキー。Q131）。
 pub async fn workspace_admin(
     pool: &PgPool,
     current: &Current,
@@ -139,7 +139,7 @@ pub async fn workspace_admin(
     if access.role != Some(Role::Admin) && !acts_as_server_admin(current) {
         return Ok(Err(Denied::Forbidden));
     }
-    if !current.mfa_enabled {
+    if !current.admin_mfa_satisfied() {
         return Ok(Err(Denied::MfaRequired));
     }
     Ok(Ok(access))
@@ -157,7 +157,7 @@ pub async fn member_list_viewer(
         Err(d) => return Ok(Err(d)),
     };
     if access.role == Some(Role::Admin) || acts_as_server_admin(current) {
-        if !current.mfa_enabled {
+        if !current.admin_mfa_satisfied() {
             return Ok(Err(Denied::MfaRequired));
         }
         return Ok(Ok(access));
@@ -199,7 +199,7 @@ pub fn server_admin(current: &Current) -> Result<(), Denied> {
     if !acts_as_server_admin(current) {
         return Err(Denied::Forbidden);
     }
-    if !current.mfa_enabled {
+    if !current.admin_mfa_satisfied() {
         return Err(Denied::MfaRequired);
     }
     Ok(())

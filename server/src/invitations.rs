@@ -95,6 +95,29 @@ pub async fn find_valid<'e>(
     }))
 }
 
+/// IDから、使える招待を引いてロックする（SSOでの承諾。トークンは始めたときに確かめてある）。
+pub async fn find_valid_by_id_for_update(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<Option<Pending>> {
+    let row: Option<(Uuid, Uuid, String, String)> = sqlx::query_as(
+        "SELECT id, workspace_id, email, role FROM cms.invitations
+         WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+         FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(row.and_then(|(id, workspace_id, email, role)| {
+        Some(Pending {
+            id,
+            workspace_id,
+            email,
+            role: role.parse().ok()?,
+        })
+    }))
+}
+
 /// 承諾を記録し、所属させる。既に所属していれば、ロールは変えない。
 pub async fn accept(
     tx: &mut Transaction<'_, Postgres>,

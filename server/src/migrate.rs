@@ -79,6 +79,7 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "external_identities",
         include_str!("../migrations/0016_external_identities.sql"),
     ),
+    (17, "oidc", include_str!("../migrations/0017_oidc.sql")),
 ];
 
 /// 共通のスキーマの名前。
@@ -116,6 +117,8 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("webhook_deliveries", "SELECT, INSERT, UPDATE"),
     // 本人がひも付けを外せるようにする（OIDCとともに）
     ("external_identities", "SELECT, INSERT, UPDATE, DELETE"),
+    // OIDCのログインの途中の状態。使ったら・期限を過ぎたら消す
+    ("oidc_logins", "SELECT, INSERT, DELETE"),
 ];
 
 /// 移行の排他に使う、アドバイザリーロックのキー（任意の固定値）。

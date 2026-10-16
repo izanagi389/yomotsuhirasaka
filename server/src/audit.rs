@@ -10,6 +10,10 @@ use uuid::Uuid;
 /// 操作の種類。名前は外部への書き出し（M2）でもそのまま使うので、変えない。
 pub mod action {
     pub const LOGIN: &str = "auth.login";
+    /// 外部のIdP（OIDC）のアカウントをひも付けた（本人の操作か、招待の承諾）。
+    pub const IDENTITY_LINKED: &str = "auth.identity_linked";
+    /// SSOのログインで、ドメインのルール（JIT）により利用者を作った。
+    pub const USER_PROVISIONED: &str = "auth.user_provisioned";
     pub const WORKSPACE_CREATED: &str = "workspace.created";
     pub const MEMBER_ROLE_CHANGED: &str = "member.role_changed";
     pub const MEMBER_REMOVED: &str = "member.removed";
