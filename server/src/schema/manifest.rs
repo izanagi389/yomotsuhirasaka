@@ -15,6 +15,7 @@ pub const MAX_TEMPLATE_NAME_LEN: usize = 64;
 const MAX_CONTENT_TYPES: usize = 100;
 const MAX_FIELDS: usize = 200;
 const MAX_LOCALES: usize = 50;
+const MAX_ALLOWED_HOSTS: usize = 50;
 const MAX_BODY_NODES: usize = 100;
 const MAX_TEXT_CHARS: usize = 2000;
 /// 一覧のフィールドで1回に取得できる件数の上限の、さらに上限。
@@ -69,6 +70,9 @@ pub struct ContentType {
     /// 受け取るのは公開する記事（`{id, contentType, locale, slug, fields}`）、返すのは http(s) の絶対URL。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url_function: Option<crate::script::Script>,
+    /// フック（M2、04-hooks.md）。
+    #[serde(default, skip_serializing_if = "Hooks::is_empty")]
+    pub hooks: Hooks,
     /// 一覧のフィールドで1回に取得できる件数の上限。
     pub list_limit: u32,
     pub fields: Vec<Field>,
@@ -78,6 +82,52 @@ pub struct ContentType {
     /// 開発者向けのメモ。どのAPIにも出さない（Q51、INV-SCH-01）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dev_note: Option<String>,
+}
+
+/// コンテンツタイプのフック（04-hooks.md、Q12）。種類ごとに1つ。
+///
+/// - 同期（結果を待つ。外部と通信できない）:
+///   - `beforeSave`: 下書きの保存の前。受け取るのは `{entry: {id, contentType, locale, fields}}`、返すのは直すフィールド
+///     `{fields: {...}}`。保存は止めない（失敗したら直さずに保存し、知らせる）。
+///   - `beforePublish`: 公開の前。受け取るのは同じ形、返すのは公開を止める理由 `{errors: [{field?, message}]}`。
+///     失敗したときも公開を止める。
+/// - 非同期（後からジョブで動く。失敗したらやり直す）。受け取るのは `{event, entry}`、返した値は使わない:
+///   - `afterSave`: 保存が30秒止まってから、記事ごとに1回（その時点の下書き）。
+///   - `afterPublish`: 公開・更新・訂正としての公開の後（公開した版）。
+///   - `afterUnpublish`: 非公開・削除の後（entry は null）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Hooks {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_save: Option<crate::script::Script>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_publish: Option<crate::script::Script>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_save: Option<crate::script::Script>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_publish: Option<crate::script::Script>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_unpublish: Option<crate::script::Script>,
+}
+
+impl Hooks {
+    pub fn is_empty(&self) -> bool {
+        self.all().is_empty()
+    }
+
+    /// (名前, 非同期か, 関数)
+    pub fn all(&self) -> Vec<(&'static str, bool, &crate::script::Script)> {
+        [
+            ("beforeSave", false, &self.before_save),
+            ("beforePublish", false, &self.before_publish),
+            ("afterSave", true, &self.after_save),
+            ("afterPublish", true, &self.after_publish),
+            ("afterUnpublish", true, &self.after_unpublish),
+        ]
+        .into_iter()
+        .filter_map(|(name, is_async, s)| s.as_ref().map(|s| (name, is_async, s)))
+        .collect()
+    }
 }
 
 /// 本文のノードの定義（Tiptapの拡張機能から、CLIが取り出したもの。Q57, Q142）。
@@ -278,7 +328,9 @@ fn check_text(problems: &mut Vec<String>, path: &str, value: &Option<String>) {
 }
 
 /// 関数の形の検査（読み込めるかは、デプロイのときに組み込みJSで確かめる）。
-fn script_problems(path: &str, s: &crate::script::Script) -> Vec<String> {
+/// 外部への送信（`http.fetch`）は非同期のフックにだけ許し、宛先の宣言を必須にする（INV-HOOK-01、Q12）。
+fn script_problems(path: &str, s: &crate::script::Script, is_async: bool) -> Vec<String> {
+    use crate::script::Permission;
     let mut problems = Vec::new();
     if s.source.trim().is_empty() || s.source.len() > crate::script::MAX_SOURCE_BYTES {
         problems.push(format!(
@@ -290,20 +342,47 @@ fn script_problems(path: &str, s: &crate::script::Script) -> Vec<String> {
     if unique.len() != s.permissions.len() {
         problems.push(format!("{path}.permissions: duplicated"));
     }
+    let fetches = s.permissions.contains(&Permission::HttpFetch);
+    if fetches && !is_async {
+        problems.push(format!(
+            "{path}.permissions: `http.fetch` is only allowed in asynchronous hooks (afterSave, afterPublish, afterUnpublish)"
+        ));
+    }
+    if fetches && s.allowed_hosts.is_empty() {
+        problems.push(format!(
+            "{path}.allowedHosts: list the hosts that `http.fetch` may send to"
+        ));
+    }
+    if !fetches && !s.allowed_hosts.is_empty() {
+        problems.push(format!(
+            "{path}.allowedHosts: only for functions with the `http.fetch` permission"
+        ));
+    }
+    if s.allowed_hosts.len() > MAX_ALLOWED_HOSTS {
+        problems.push(format!("{path}.allowedHosts: at most {MAX_ALLOWED_HOSTS}"));
+    }
+    for (i, h) in s.allowed_hosts.iter().enumerate() {
+        if !(valid_host(h) || h.parse::<std::net::IpAddr>().is_ok()) {
+            problems.push(format!(
+                "{path}.allowedHosts[{i}]: must be a host name or an IP address"
+            ));
+        }
+    }
     problems
 }
 
 /// マニフェストに含まれる関数（場所, 関数）。
 pub fn scripts(m: &Manifest) -> Vec<(String, &crate::script::Script)> {
-    m.content_types
-        .iter()
-        .enumerate()
-        .filter_map(|(i, ct)| {
-            ct.url_function
-                .as_ref()
-                .map(|f| (format!("contentTypes[{i}].urlFunction"), f))
-        })
-        .collect()
+    let mut out = Vec::new();
+    for (i, ct) in m.content_types.iter().enumerate() {
+        if let Some(f) = &ct.url_function {
+            out.push((format!("contentTypes[{i}].urlFunction"), f));
+        }
+        for (name, _, f) in ct.hooks.all() {
+            out.push((format!("contentTypes[{i}].hooks.{name}"), f));
+        }
+    }
+    out
 }
 
 /// マニフェストを検査し、問題の一覧を返す（空なら正しい）。メッセージには場所と理由だけを書く。
@@ -426,7 +505,14 @@ pub fn validate(m: &Manifest) -> Vec<String> {
             ));
         }
         if let Some(f) = &ct.url_function {
-            problems.extend(script_problems(&format!("{path}.urlFunction"), f));
+            problems.extend(script_problems(&format!("{path}.urlFunction"), f, false));
+        }
+        for (name, is_async, f) in ct.hooks.all() {
+            problems.extend(script_problems(
+                &format!("{path}.hooks.{name}"),
+                f,
+                is_async,
+            ));
         }
         if !(1..=MAX_LIST_LIMIT).contains(&ct.list_limit) {
             problems.push(format!("{path}.listLimit: must be 1 to {MAX_LIST_LIMIT}"));
@@ -632,6 +718,48 @@ pub(crate) mod tests {
                 problems.iter().any(|p| p.contains(needle)),
                 "{needle}: {problems:?}"
             );
+        }
+    }
+
+    #[test]
+    fn fetch_is_only_for_asynchronous_hooks() {
+        let script = |permissions: &str, hosts: &str| -> crate::script::Script {
+            serde_json::from_str(&format!(
+                r#"{{"source": "export default function () {{}}", "permissions": [{permissions}], "allowedHosts": [{hosts}]}}"#
+            ))
+            .unwrap()
+        };
+        let fetch = script(r#""http.fetch""#, r#""api.example.com", "127.0.0.1""#);
+        let mut m = sample();
+        m.content_types[0].hooks.after_publish = Some(fetch.clone());
+        assert_eq!(validate(&m), Vec::<String>::new());
+        for set in [
+            |h: &mut Hooks, s| h.before_save = Some(s),
+            |h: &mut Hooks, s| h.before_publish = Some(s),
+        ] {
+            let mut m = sample();
+            set(&mut m.content_types[0].hooks, fetch.clone());
+            assert!(
+                validate(&m)
+                    .iter()
+                    .any(|p| p.contains("only allowed in asynchronous"))
+            );
+        }
+        let mut m = sample();
+        m.content_types[0].url_function = Some(fetch);
+        assert!(
+            validate(&m)
+                .iter()
+                .any(|p| p.contains("only allowed in asynchronous"))
+        );
+        for (perm, hosts, needle) in [
+            (r#""http.fetch""#, "", "list the hosts"),
+            ("", r#""api.example.com""#, "only for functions"),
+            (r#""http.fetch""#, r#""not a host""#, "host name or an IP"),
+        ] {
+            let mut m = sample();
+            m.content_types[0].hooks.after_save = Some(script(perm, hosts));
+            assert!(validate(&m).iter().any(|p| p.contains(needle)), "{needle}");
         }
     }
 

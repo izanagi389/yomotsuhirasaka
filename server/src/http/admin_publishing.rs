@@ -38,8 +38,9 @@ use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Access, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
+use crate::content::hooks;
 use crate::content::publishing::{
-    self, PublishCheck, Published, Refused, UrlChange, Urls, VersionDetail, VersionInfo,
+    self, PublishCheck, Published, Refused, Scripts, UrlChange, VersionDetail, VersionInfo,
 };
 use crate::content::settings::{self, PublishSettings};
 use crate::script::Host;
@@ -82,6 +83,23 @@ fn refused(r: Refused) -> ApiError {
                 f.describe()
             ),
         ),
+        // 理由の文はテンプレートの開発者が書いたもの（編集者に見せる）
+        Refused::HookRejected(reasons) => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "publish_rejected_by_hook",
+            format!(
+                "The template's beforePublish hook stopped publishing: {}",
+                reasons.join("; ")
+            ),
+        ),
+        Refused::HookFailed(f) => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "hook_failed",
+            format!(
+                "The template's beforePublish hook failed because {}. Ask the developer of the template to fix it.",
+                f.describe()
+            ),
+        ),
     }
 }
 
@@ -111,6 +129,20 @@ async fn notify_webhooks(
     let Some(entry) = entry else { return };
     if let Err(e) = webhooks::emit(&state.pool, &state.keys, ws, events, &entry).await {
         tracing::error!(workspace_id = %ws, entry_id = %entry.id, "cannot queue webhooks: {e:#}");
+    }
+}
+
+/// 公開後・非公開の後のフックを積む（操作を確定した後に呼ぶ）。積めなくても操作は確定しているので、記録して続ける。
+pub(super) async fn schedule_hooks(
+    state: &AppState,
+    ws: Uuid,
+    id: Uuid,
+    event: EntryEvent,
+    version_id: Option<Uuid>,
+) {
+    if let Err(e) = hooks::schedule_after(&state.pool, &state.keys, ws, id, event, version_id).await
+    {
+        tracing::error!(workspace_id = %ws, entry_id = %id, "cannot queue hooks: {e:#}");
     }
 }
 
@@ -165,14 +197,14 @@ pub async fn publish(
     let applied = writable(&state, ws).await?;
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
-    let urls = Urls {
+    let scripts = Scripts {
         engine: &state.scripts,
         host: Host::new(state.pool.clone(), db.clone()),
     };
     let result = publishing::publish(
         &mut tx,
         &applied.manifest,
-        &urls,
+        &scripts,
         applied.version,
         id,
         req.revision,
@@ -203,7 +235,9 @@ pub async fn publish(
     } else {
         action::ENTRY_PUBLISHED
     };
-    notify_webhooks(&state, ws, &publish_events(&published), entry).await;
+    let events = publish_events(&published);
+    notify_webhooks(&state, ws, &events, entry).await;
+    schedule_hooks(&state, ws, id, events[0], Some(published.version_id)).await;
     audit_if(&state, req.correction, &access, &current, ws, act, id).await?;
     Ok(Json(published))
 }
@@ -224,6 +258,7 @@ pub async fn unpublish(
     tx.commit().await.map_err(anyhow::Error::from)?;
     if was_published {
         notify_webhooks(&state, ws, &[EntryEvent::Unpublished], entry).await;
+        schedule_hooks(&state, ws, id, EntryEvent::Unpublished, None).await;
     }
     audit_if(
         &state,
@@ -253,6 +288,7 @@ pub async fn delete(
     let entry = webhooks::entry_ref(&mut tx, id).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     notify_webhooks(&state, ws, &[EntryEvent::Deleted], entry).await;
+    schedule_hooks(&state, ws, id, EntryEvent::Deleted, None).await;
     audit_if(
         &state,
         false,
@@ -276,11 +312,11 @@ pub async fn publish_check(
     let applied = readable(&state, ws).await?;
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
-    let urls = Urls {
+    let scripts = Scripts {
         engine: &state.scripts,
         host: Host::new(state.pool.clone(), db.clone()),
     };
-    let out = publishing::check_before_publish(&mut tx, &applied.manifest, &urls, id)
+    let out = publishing::check_before_publish(&mut tx, &applied.manifest, &scripts, id)
         .await?
         .ok_or_else(ApiError::not_found)?;
     tx.commit().await.map_err(anyhow::Error::from)?;

@@ -1,9 +1,12 @@
-//! ジョブを実行する常駐の処理。サーバーの起動中、キューを見て1つずつ実行する。
+//! ジョブを実行する常駐の処理。サーバーの起動中、キューを見て実行する。
+//! 時間のかかるフックのジョブがメールやWebhookを待たせないよう、複数の取り出し手で並べて動かす
+//! （フックのジョブは、ワークスペースごとに1つずつ。`jobs::claim`）。
 
 use std::time::Duration;
 
 use anyhow::Result;
 
+use crate::content::hooks;
 use crate::http::AppState;
 use crate::jobs::{self, Outcome};
 use crate::mail;
@@ -11,6 +14,8 @@ use crate::webhooks;
 
 /// キューが空のときに、次に見るまで待つ時間。
 const IDLE_WAIT: Duration = Duration::from_secs(1);
+/// 並べて動かす取り出し手の数。
+const WORKERS: usize = 4;
 
 /// ジョブを1つ取り出して実行する。実行したら true。
 pub async fn run_once(state: &AppState) -> Result<bool> {
@@ -35,6 +40,14 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
             tracing::error!(job_id = %job.id, "webhook delivery: {e:#}");
             Outcome::Retry("internal_error")
         }),
+        (Some(payload), hooks::JOB_KIND) => {
+            hooks::run(&state.pool, &state.scripts, state.egress.as_ref(), payload)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(job_id = %job.id, "hook: {e:#}");
+                    Outcome::Retry("internal_error")
+                })
+        }
         (Some(_), _) => Outcome::Fail("unknown_job_kind"),
     };
     if !matches!(outcome, Outcome::Done) {
@@ -50,19 +63,24 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
 }
 
 /// 常駐の処理を始める。
-pub fn spawn(state: AppState) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        loop {
-            match run_once(&state).await {
-                Ok(true) => {}
-                Ok(false) => tokio::time::sleep(IDLE_WAIT).await,
-                Err(e) => {
-                    tracing::error!("job worker: {e:#}");
-                    tokio::time::sleep(IDLE_WAIT).await;
+pub fn spawn(state: AppState) -> Vec<tokio::task::JoinHandle<()>> {
+    (0..WORKERS)
+        .map(|_| {
+            let state = state.clone();
+            tokio::spawn(async move {
+                loop {
+                    match run_once(&state).await {
+                        Ok(true) => {}
+                        Ok(false) => tokio::time::sleep(IDLE_WAIT).await,
+                        Err(e) => {
+                            tracing::error!("job worker: {e:#}");
+                            tokio::time::sleep(IDLE_WAIT).await;
+                        }
+                    }
                 }
-            }
-        }
-    })
+            })
+        })
+        .collect()
 }
 
 /// 保存期間を過ぎたログインの履歴を、設定の間隔で削除する常駐の処理（INV-AUD-07）。

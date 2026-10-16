@@ -58,6 +58,11 @@ export interface EntrySummary {
   fields: Record<string, FieldValue>;
 }
 
+/** 保存した下書き。保存前のフックが失敗したとき（直さずに保存した）は、その種類が付く。 */
+export interface SavedDraft extends Draft {
+  hookFailure?: string;
+}
+
 export interface Draft {
   id: string;
   contentType: string;

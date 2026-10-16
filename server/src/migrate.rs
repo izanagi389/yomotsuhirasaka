@@ -80,6 +80,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         include_str!("../migrations/0016_external_identities.sql"),
     ),
     (17, "oidc", include_str!("../migrations/0017_oidc.sql")),
+    (
+        18,
+        "job_dedupe",
+        include_str!("../migrations/0018_job_dedupe.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。

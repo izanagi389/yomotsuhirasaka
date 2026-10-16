@@ -16,7 +16,7 @@ import SettingsPanel from "~/components/entry/SettingsPanel.vue";
 import TranslationsPanel from "~/components/entry/TranslationsPanel.vue";
 import UrlHistoryPanel from "~/components/entry/UrlHistoryPanel.vue";
 import VersionsPanel from "~/components/entry/VersionsPanel.vue";
-import type { Draft, EntrySummary, FieldValue, Published } from "~/utils/content";
+import type { Draft, EntrySummary, FieldValue, Published, SavedDraft } from "~/utils/content";
 
 const route = useRoute();
 const ws = route.params.ws as string;
@@ -35,10 +35,13 @@ const values = reactive<Record<string, FieldValue>>({ ...(draft.value?.fields ??
 // 読み直したときにエディタを作り直すための番号
 const generation = ref(0);
 
-const autosave = useAutosave(
-  (revision, fields) => api.put<Draft>(`${base}/draft`, { revision, fields }),
-  draft.value?.revision ?? 0,
-);
+// 保存前のフックが失敗したとき（直さずに保存した）の種類。次の保存で消える
+const hookFailure = ref<string | null>(null);
+const autosave = useAutosave(async (revision, fields) => {
+  const saved = await api.put<SavedDraft>(`${base}/draft`, { revision, fields });
+  hookFailure.value = saved.hookFailure ?? null;
+  return saved;
+}, draft.value?.revision ?? 0);
 const editable = computed(() => canEdit(workspace.value) && schema.value?.state === "ok" && autosave.status.value !== "conflict");
 
 function change(name: string, value: FieldValue) {
@@ -125,6 +128,7 @@ onBeforeRouteLeave(async () => {
               {{ draft.publishedVersionId ? t("entries.published") : t("entries.draft") }}
             </Badge>
             <span role="status" aria-live="polite" data-testid="save-status">{{ statusText }}</span>
+            <span v-if="hookFailure" class="text-destructive" data-testid="hook-failure">{{ t("entries.hookFailure") }}</span>
           </div>
         </div>
         <div v-if="canPublish(workspace)" class="flex items-center gap-2">
