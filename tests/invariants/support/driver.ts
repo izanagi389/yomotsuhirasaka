@@ -183,6 +183,13 @@ export interface TranslationInfo {
   reflectedSourceVersionId: string | null;
 }
 
+/** リダイレクト一覧の1件。to は「消えた（410）」のとき null。 */
+export interface RedirectRule {
+  from: string;
+  to: string | null;
+  status: number;
+}
+
 export interface UrlChange {
   from: string;
   to: string;
@@ -200,6 +207,7 @@ export interface UrlChange {
  *   （bodyHtml・bodyMarkdown は、本文のフィールド `body` を変換器でHTML・Markdownにしたもの。M2）
  * - deep: 参照フィールド `related` を depth 段たどる（深さの検査用）
  * - wide: 一覧を aliases 個の別名で並べる（複雑さの検査用）
+ * - redirects: ワークスペースのリダイレクト一覧（M2。読むのは driver.redirects.parse）
  * - text: GraphQLの文をそのまま使う
  */
 export type QuerySpec =
@@ -207,6 +215,7 @@ export type QuerySpec =
   | { kind: "byId"; fields?: string[]; include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related")[] }
   | { kind: "deep"; depth: number }
   | { kind: "wide"; aliases: number }
+  | { kind: "redirects" }
   | { kind: "text"; text: string };
 
 /** 登録済みクエリの参照。 */
@@ -619,6 +628,22 @@ export const driver = {
     anchorIdOf: (headingNode: TiptapNode): string | undefined => {
       const id = headingNode.attrs?.["id"];
       return typeof id === "string" ? id : undefined;
+    },
+  },
+
+  /** リダイレクト一覧（配信APIの redirects）の読み取り。 */
+  redirects: {
+    /** 応答の本文を、{from, to, status} の一覧にする（to は 410 のとき null）。形が違えば例外を投げる。 */
+    parse: (body: string): RedirectRule[] => {
+      const v = JSON.parse(body) as { data?: { redirects?: unknown } };
+      const list = v.data?.redirects;
+      if (!Array.isArray(list)) throw new Error(`リダイレクト一覧の応答ではない: ${body.slice(0, 200)}`);
+      return list.map((r: { from?: unknown; to?: unknown; status?: unknown }) => {
+        if (typeof r.from !== "string" || (r.to !== null && typeof r.to !== "string") || typeof r.status !== "number") {
+          throw new Error(`リダイレクト一覧の項目の形が違う: ${JSON.stringify(r)}`);
+        }
+        return { from: r.from, to: r.to as string | null, status: r.status };
+      });
     },
   },
 

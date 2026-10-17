@@ -370,6 +370,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         return `{ ${LIST}(locale: ${JSON.stringify(DEFAULT_LOCALE)}) { ${"related { ".repeat(spec.depth)}id${" }".repeat(spec.depth)} } }`;
       case "wide":
         return `{ ${Array.from({ length: spec.aliases }, (_, i) => `a${i}: ${LIST}(locale: ${JSON.stringify(DEFAULT_LOCALE)}) { id }`).join(" ")} }`;
+      case "redirects":
+        return "{ redirects { from to status } }";
       case "text":
         return spec.text;
     }
