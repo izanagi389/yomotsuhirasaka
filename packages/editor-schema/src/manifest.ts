@@ -7,6 +7,7 @@
 import { type AnyExtension, type JSONContent, getSchema } from "@tiptap/core";
 import type { NodeType, Schema } from "@tiptap/pm/model";
 
+import type { CustomNodeDecl } from "./custom.ts";
 import { ANCHOR_ATTR } from "./nodes.ts";
 
 /** マニフェストの本文のノードの定義（server/src/schema/manifest.rs の BodyNode）。 */
@@ -28,6 +29,8 @@ export interface ManifestBody {
   nodes: BodyNode[];
   marks?: BodyMark[];
   embedProviders?: string[];
+  /** カスタムノードの宣言（拡張機能は customNodeExtensions で作る）。 */
+  customNodes?: CustomNodeDecl[];
 }
 
 /** 見出しのアンカーIDは、マニフェストの定義によらずサーバーが扱う属性なので、定義には書かない。 */
@@ -53,10 +56,18 @@ function childrenOf(type: NodeType, schema: Schema): string[] {
   return Object.keys(schema.nodes).filter((n) => found.has(n));
 }
 
-/** 拡張機能から、マニフェストの `body` のノードとマークの定義を作る（埋め込みの提供元はテンプレートが決める）。 */
-export function bodyDefinition(extensions: AnyExtension[]): { nodes: Required<BodyNode>[]; marks: Required<BodyMark>[] } {
+/**
+ * 拡張機能から、マニフェストの `body` のノードとマークの定義を作る（埋め込みの提供元はテンプレートが決める）。
+ * カスタムノード（`customNodes` の名前）は、`nodes` には書かない（マニフェストの `customNodes` に宣言がある）。
+ * ほかのノードの子の一覧には入れる（どこに置けるかを、サーバーが本文の検証で使う）。
+ */
+export function bodyDefinition(
+  extensions: AnyExtension[],
+  options: { customNodes?: string[] } = {},
+): { nodes: Required<BodyNode>[]; marks: Required<BodyMark>[] } {
   const schema = getSchema(extensions);
-  const nodes = Object.values(schema.nodes).map((type) => ({
+  const custom = new Set(options.customNodes ?? []);
+  const nodes = Object.values(schema.nodes).filter((type) => !custom.has(type.name)).map((type) => ({
     name: type.name,
     children: childrenOf(type, schema),
     attrs: definedAttrs(type.name, type.spec.attrs),
@@ -93,7 +104,7 @@ export interface Narrowed {
  * 含まれるノードのうちマニフェストにないものを設定で外す。
  */
 export function forManifest(extensions: AnyExtension[], body: ManifestBody): Narrowed {
-  const allowedNodes = new Set(body.nodes.map((n) => n.name));
+  const allowedNodes = new Set([...body.nodes.map((n) => n.name), ...(body.customNodes ?? []).map((c) => c.name)]);
   const allowedMarks = new Set((body.marks ?? []).map((m) => m.name));
   const known = namesOf(extensions);
   const narrowed: AnyExtension[] = [];
@@ -135,7 +146,10 @@ export function unknownTypes(doc: JSONContent, extensions: AnyExtension[]): stri
 
 /** マニフェストにない属性を取り除いた写しを返す（見出しのアンカーIDは残す）。 */
 export function sanitize(doc: JSONContent, body: ManifestBody): JSONContent {
-  const nodeAttrs = new Map(body.nodes.map((n) => [n.name, new Set(n.attrs ?? [])]));
+  const nodeAttrs = new Map([
+    ...body.nodes.map((n): [string, Set<string>] => [n.name, new Set(n.attrs ?? [])]),
+    ...(body.customNodes ?? []).map((c): [string, Set<string>] => [c.name, new Set((c.attrs ?? []).map((a) => a.name))]),
+  ]);
   const markAttrs = new Map((body.marks ?? []).map((m) => [m.name, new Set(m.attrs ?? [])]));
   const pick = (attrs: Record<string, unknown> | undefined, allowed: Set<string> | undefined, extra?: string) => {
     if (!attrs) return undefined;

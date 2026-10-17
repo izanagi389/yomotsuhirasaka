@@ -5,7 +5,7 @@
 
 import { readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { bodyDefinition, standardExtensions } from "@new-cms/editor-schema";
+import { bodyDefinition, customNodeExtensions, standardExtensions, type CustomNodeDecl } from "@new-cms/editor-schema";
 import { checkTemplateFunctions } from "./checks.js";
 import { TemplateError } from "./errors.js";
 import { bundleFunctions } from "./functions.js";
@@ -41,7 +41,16 @@ export function toManifest(template: unknown): Manifest {
   if (nodes !== undefined || marks !== undefined) {
     throw new TemplateError("body.nodes and body.marks are written by the CLI from the editor's extensions; remove them from template.json");
   }
-  const definition = bodyDefinition(standardExtensions());
+  // カスタムノードは宣言から拡張機能を作り、どこに置けるかをほかのノードの子の一覧に書き出す（宣言そのものは customNodes に残す）
+  const customs = Array.isArray(bodyRest["customNodes"]) ? (bodyRest["customNodes"] as CustomNodeDecl[]) : [];
+  let definition: ReturnType<typeof bodyDefinition>;
+  try {
+    definition = bodyDefinition([...standardExtensions(), ...customNodeExtensions(customs)], {
+      customNodes: customs.map((c) => c.name),
+    });
+  } catch (e) {
+    throw new TemplateError(`body.customNodes: ${(e as Error).message}`);
+  }
   return {
     ...(rest as Omit<Manifest, "body">),
     body: { nodes: definition.nodes, marks: definition.marks, embedProviders: bodyRest["embedProviders"] ?? [], ...bodyRest },

@@ -212,6 +212,10 @@
       "label": "埋め込みのURL",
       "notAllowed": "許可された提供元（{providers}）の https のURLではありません。",
       "insert": "挿入する"
+    },
+    "custom": {
+      "menu": "カスタムノードを挿入",
+      "noAttrs": "入力する項目はありません。"
     }
   },
   "entries": {

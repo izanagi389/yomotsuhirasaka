@@ -219,6 +219,9 @@ pub struct CustomAttr {
     pub name: String,
     #[serde(rename = "type")]
     pub kind: AttrType,
+    /// 編集者向けの説明（管理画面の入力欄に出す。Q51）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// カスタムノード。テンプレートに宣言的に書き、Tiptapの拡張機能はこの宣言から作る（`@new-cms/editor-schema`）。
@@ -229,6 +232,9 @@ pub struct CustomAttr {
 #[serde(bound(deserialize = "F: Deserialize<'de>", serialize = "F: Serialize"))]
 pub struct CustomNode<F = crate::script::Script> {
     pub name: String,
+    /// 編集者向けの説明（管理画面のカードに出す。Q51）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// インライン（段落などの子）か。既定はブロック。
     #[serde(default)]
     pub inline: bool,
@@ -614,8 +620,18 @@ pub fn validate(m: &Manifest) -> Vec<String> {
         if c.attrs.len() > MAX_CUSTOM_ATTRS {
             problems.push(format!("{path}.attrs: at most {MAX_CUSTOM_ATTRS}"));
         }
+        check_text(
+            &mut problems,
+            &format!("{path}.description"),
+            &c.description,
+        );
         let mut seen = BTreeSet::new();
         for (j, a) in c.attrs.iter().enumerate() {
+            check_text(
+                &mut problems,
+                &format!("{path}.attrs[{j}].description"),
+                &a.description,
+            );
             if !valid_node_name(&a.name) {
                 problems.push(format!("{path}.attrs[{j}].name: invalid attribute name"));
             }
@@ -993,6 +1009,7 @@ pub(crate) mod tests {
         m.content_types[0].hooks.after_publish = Some(s.clone());
         m.body.custom_nodes.push(CustomNode {
             name: "callout".into(),
+            description: None,
             inline: false,
             attrs: vec![],
             children: vec![],

@@ -1,7 +1,7 @@
 import { type JSONContent, getSchema } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
 
-import { anchorFixes, bodyDefinition, forManifest, sanitize, standardExtensions, unknownTypes } from "../src/index.ts";
+import { anchorFixes, bodyDefinition, customNodeExtensions, forManifest, sanitize, standardExtensions, unknownTypes } from "../src/index.ts";
 import type { ManifestBody } from "../src/index.ts";
 
 /** テストの blog テンプレートと同じ形のマニフェストの本文（標準の一部だけ）。 */
@@ -130,5 +130,39 @@ describe("アンカーIDと保存するJSON", () => {
     expect(clean.content?.[1]?.content?.[0]?.marks).toEqual([{ type: "link", attrs: { href: "https://example.com", target: null, rel: null } }]);
     expect(clean.content?.[2]?.attrs).toEqual({ mediaId: "0e2f0f7e-8f1b-4c3a-9f0e-111111111111", alt: null, decorative: false });
     expect(clean.content?.[1]).not.toHaveProperty("attrs");
+  });
+});
+
+describe("カスタムノード", () => {
+  const decls = [
+    { name: "callout", attrs: [{ name: "label", type: "string" as const }, { name: "level", type: "number" as const }] },
+    { name: "box", children: ["paragraph"] },
+    { name: "badge", inline: true, attrs: [{ name: "on", type: "boolean" as const }] },
+  ];
+  const extensions = [...standardExtensions(), ...customNodeExtensions(decls)];
+
+  it("宣言から拡張機能を作り、ブロックはブロックを置ける所に、インラインは段落などに置ける", () => {
+    const def = bodyDefinition(extensions, { customNodes: decls.map((d) => d.name) });
+    const node = (name: string) => def.nodes.find((n) => n.name === name);
+    // カスタムノードは nodes に書かない
+    expect(def.nodes.some((n) => ["callout", "box", "badge"].includes(n.name))).toBe(false);
+    for (const parent of ["doc", "blockquote", "listItem"]) {
+      expect(node(parent)?.children, parent).toEqual(expect.arrayContaining(["callout", "box"]));
+    }
+    expect(node("paragraph")?.children).toContain("badge");
+    expect(node("doc")?.children).not.toContain("badge");
+    const schema = getSchema(extensions);
+    expect(schema.nodes["callout"]?.spec.atom).toBe(true);
+    expect(schema.nodes["box"]?.spec.atom).toBe(false);
+    expect(schema.nodes["badge"]?.isInline).toBe(true);
+  });
+
+  it("forManifest と sanitize は、宣言にあるカスタムノードと属性を残す", () => {
+    const body: ManifestBody = { ...blogBody, customNodes: decls };
+    const narrowed = forManifest(extensions, body);
+    expect(narrowed.unsupported).toEqual([]);
+    const doc: JSONContent = { type: "doc", content: [{ type: "callout", attrs: { label: "x", level: 1, extra: "y" } }] };
+    expect(sanitize(doc, body).content?.[0]?.attrs).toEqual({ label: "x", level: 1 });
+    expect(unknownTypes(doc, narrowed.extensions)).toEqual([]);
   });
 });
