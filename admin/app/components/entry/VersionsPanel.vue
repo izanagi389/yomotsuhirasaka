@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import ReadOnlyBody from "~/components/editor/ReadOnlyBody.vue";
 import { mediaInfo } from "~/components/editor/media";
+import type { CustomNodeDecl } from "@new-cms/editor-schema";
 import type { ContentType, EraseCandidates, MediaInfo, VersionDetail, VersionInfo } from "~/utils/content";
 
 const props = defineProps<{
@@ -17,6 +18,8 @@ const props = defineProps<{
   entryId: string;
   contentType: ContentType;
   canErase: boolean;
+  /** カスタムノードの宣言（版の本文の表示に使う）。 */
+  customNodes?: CustomNodeDecl[];
 }>();
 const { t, locale } = useI18n();
 const api = useApi();
@@ -117,6 +120,7 @@ const richFields = computed(() => props.contentType.fields.filter((f) => f.type 
           :doc="viewing.fields[f.name] as never"
           :workspace-id="workspaceId"
           :label="f.name"
+          :custom-nodes="customNodes"
         />
       </template>
     </section>

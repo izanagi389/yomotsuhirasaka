@@ -2,14 +2,19 @@
 // 本文の表示だけ（版の中身を見るとき）。エディタが知らない要素があれば、消さずに知らせ、文字だけを表示する。
 import type { JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/vue-3";
-import { unknownTypes } from "@new-cms/editor-schema";
+import { type CustomNodeDecl, unknownTypes } from "@new-cms/editor-schema";
 
 import { editorExtensions } from "./extensions";
 
-const props = defineProps<{ doc: JSONContent; workspaceId: string; label: string }>();
+const props = defineProps<{ doc: JSONContent; workspaceId: string; label: string; customNodes?: CustomNodeDecl[] }>();
 const { t } = useI18n();
 
-const extensions = editorExtensions({ workspaceId: props.workspaceId, embedProviders: [], isEditable: () => false });
+const extensions = editorExtensions({
+  workspaceId: props.workspaceId,
+  embedProviders: [],
+  isEditable: () => false,
+  customNodes: props.customNodes ?? [],
+});
 const unknown = unknownTypes(props.doc, extensions);
 const editor = unknown.length === 0
   ? useEditor({

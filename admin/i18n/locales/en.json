@@ -212,6 +212,10 @@
       "label": "Embed URL",
       "notAllowed": "This is not an https URL from an allowed provider ({providers}).",
       "insert": "Insert"
+    },
+    "custom": {
+      "menu": "Insert a custom node",
+      "noAttrs": "Nothing to fill in."
     }
   },
   "entries": {

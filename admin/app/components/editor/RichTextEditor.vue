@@ -4,6 +4,7 @@
 // - 保存するJSONからは、マニフェストにない属性を取り除く（サーバーは定義にない属性を拒否する）。
 // - Tiptap が差し込む <style> は CSP で使えないので、injectCSS を切り、assets/css/editor.css に置いている。
 import type { JSONContent } from "@tiptap/core";
+import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/vue-3";
 import { type ManifestBody, forManifest, sanitize, unknownTypes } from "@new-cms/editor-schema";
 import {
@@ -20,6 +21,7 @@ import {
   ListOrdered,
   Minus,
   Pilcrow,
+  Puzzle,
   Quote,
   Redo2,
   SquareCode,
@@ -29,6 +31,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { editorExtensions } from "./extensions";
@@ -48,7 +51,12 @@ const api = useApi();
 // 編集できるか（ノードビューにも渡す）
 const editableRef = ref(false);
 const narrowed = forManifest(
-  editorExtensions({ workspaceId: props.workspaceId, embedProviders: props.body.embedProviders ?? [], isEditable: () => editableRef.value }),
+  editorExtensions({
+    workspaceId: props.workspaceId,
+    embedProviders: props.body.embedProviders ?? [],
+    isEditable: () => editableRef.value,
+    customNodes: props.body.customNodes ?? [],
+  }),
   props.body,
 );
 const unknown = props.modelValue ? unknownTypes(props.modelValue, narrowed.extensions) : [];
@@ -179,6 +187,15 @@ async function upload(ev: Event) {
   }
 }
 
+// カスタムノード（テンプレートの宣言）。カーソルの位置に挿入する
+const customNodes = computed(() => (props.body.customNodes ?? []).filter((c) => has("nodes", c.name)));
+function insertCustom(name: string) {
+  // ノード全体が選ばれているとき（画像やカスタムノードを選んだ状態）は、置き換えずに、その後ろに入れる
+  const { selection } = editor.value!.state;
+  if (selection instanceof NodeSelection) chain().insertContentAt(selection.to, { type: name }).run();
+  else chain().insertContent({ type: name }).run();
+}
+
 onBeforeUnmount(() => editor.value?.destroy());
 </script>
 
@@ -208,6 +225,24 @@ onBeforeUnmount(() => editor.value?.destroy());
           >
             <component :is="tool.icon" class="size-4" />
           </Button>
+        </template>
+        <template v-if="customNodes.length > 0">
+          <span class="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <Button type="button" variant="ghost" size="icon" class="size-8" :aria-label="t('editor.custom.menu')" :title="t('editor.custom.menu')" data-testid="insert-custom-node" @mousedown.prevent>
+                <Puzzle class="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem v-for="c in customNodes" :key="c.name" :data-testid="`insert-custom-node-${c.name}`" @select="insertCustom(c.name)">
+                <span class="grid">
+                  <span>{{ c.name }}</span>
+                  <span v-if="c.description" class="text-xs text-muted-foreground">{{ c.description }}</span>
+                </span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </template>
         <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="upload" />
       </div>

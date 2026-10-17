@@ -70,6 +70,13 @@
         "name": {
           "type": "string"
         },
+        "description": {
+          "description": "編集者向けの説明（管理画面のカードに出す。Q51）。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "inline": {
           "description": "インライン（段落などの子）か。既定はブロック。",
           "type": "boolean",
@@ -126,6 +133,13 @@
         },
         "type": {
           "$ref": "#/$defs/AttrType"
+        },
+        "description": {
+          "description": "編集者向けの説明（管理画面の入力欄に出す。Q51）。",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": false,

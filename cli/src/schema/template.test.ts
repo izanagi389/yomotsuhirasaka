@@ -25,6 +25,19 @@ test("the manifest gets the body's nodes and marks from the editor's extensions"
   assert.deepEqual(m.contentTypes, template.contentTypes);
 });
 
+test("custom nodes go into their parents' children, and stay declared in customNodes", () => {
+  const callout = { name: "callout", attrs: [{ name: "label", type: "string" }], toMarkdown: { source: "x" } };
+  const badge = { name: "badge", inline: true, toMarkdown: { source: "x" } };
+  const m = toManifest({ ...template, body: { customNodes: [callout, badge] } });
+  const nodes = m.body.nodes as { name: string; children: string[] }[];
+  const children = (name: string) => nodes.find((n) => n.name === name)?.children ?? [];
+  assert.equal(nodes.some((n) => n.name === "callout" || n.name === "badge"), false);
+  assert.ok(children("doc").includes("callout") && children("blockquote").includes("callout"));
+  assert.ok(children("paragraph").includes("badge") && !children("doc").includes("badge"));
+  assert.deepEqual((m.body as unknown as { customNodes: unknown[] }).customNodes, [callout, badge]);
+  assert.throws(() => toManifest({ ...template, body: { customNodes: [{ name: "box", children: ["nope"] }] } }), TemplateError);
+});
+
 test("body.nodes and body.marks are not written by hand", () => {
   assert.throws(() => toManifest({ ...template, body: { nodes: [] } }), TemplateError);
   assert.throws(() => toManifest([]), TemplateError);

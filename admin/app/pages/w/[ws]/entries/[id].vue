@@ -198,7 +198,7 @@ onBeforeRouteLeave(async () => {
           />
         </TabsContent>
         <TabsContent value="versions" class="mt-4">
-          <VersionsPanel :key="published" :workspace-id="ws" :entry-id="id" :content-type="contentType" :can-erase="canErase(workspace)" />
+          <VersionsPanel :key="published" :workspace-id="ws" :entry-id="id" :content-type="contentType" :can-erase="canErase(workspace)" :custom-nodes="manifest?.body.customNodes ?? []" />
         </TabsContent>
         <TabsContent value="settings" class="mt-4">
           <SettingsPanel :workspace-id="ws" :entry-id="id" :editable="canPublish(workspace)" />
