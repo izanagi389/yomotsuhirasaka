@@ -39,7 +39,14 @@ test("the folder name is the template name", () => {
   const dir = join(root, "blog");
   mkdirSync(dir);
   writeFileSync(join(dir, "template.json"), JSON.stringify(template));
-  assert.equal(loadTemplate(dir).name, "blog");
+});
+
+test("loadTemplate reads the folder", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cms-template-"));
+  const dir = join(root, "blog");
+  mkdirSync(dir);
+  writeFileSync(join(dir, "template.json"), JSON.stringify(template));
+  assert.equal((await loadTemplate(dir)).name, "blog");
   writeFileSync(join(dir, "template.json"), "{ not json");
-  assert.throws(() => loadTemplate(dir), /not valid JSON/);
+  await assert.rejects(loadTemplate(dir), /not valid JSON/);
 });

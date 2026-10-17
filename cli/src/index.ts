@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// CMSのCLI。M1では、テンプレートのデプロイ（`cms deploy`・`cms schema build`）と、既存のブログからの取り込み（`cms import`）。
+// CMSのCLI。テンプレートのデプロイ（`cms deploy`・`cms schema build`）、カスタムノードの雛形（`cms node scaffold`）、
+// 既存のブログからの取り込み（`cms import`）。
 // メッセージは英語（CLAUDE.md「言語」）。トークンは環境変数 CMS_TOKEN で渡す（引数に書くとプロセスの一覧に出るため）。
 
 import { writeFileSync } from "node:fs";
@@ -8,15 +9,20 @@ import { ApiError, Client, checkBaseUrl } from "./api.js";
 import { ConfigError, loadConfig } from "./import/config.js";
 import { runImport, type Logger } from "./import/run.js";
 import { deploy } from "./schema/deploy.js";
+import { scaffoldNode } from "./schema/scaffold.js";
 import { TemplateError, loadTemplate } from "./schema/template.js";
 
 const USAGE = `Usage:
   cms deploy <template folder> --url <CMS URL> [--dry-run] [--allow-destructive] [--allow-broken-queries]
   cms schema build <template folder> [--out <manifest .json>]
+  cms node scaffold <node name> --template <template folder> [--inline]
   cms import <folder> --url <CMS URL> --workspace <workspace ID> --redirects <output.json>
              [--config <import config .json>] [--static-dir <folder>]
 
 The template folder is templates/<template name>/ and holds template.json.
+Functions (urlFunction, hooks, custom node conversions) are TypeScript files in the template
+folder, referred to as { "file": "./functions/x.ts" }; only relative imports inside the folder
+are allowed.
 
 Environment:
   CMS_TOKEN  personal token: "deploy" scope for deploy (server administrator), "write" scope for import`;
@@ -34,13 +40,13 @@ function token(): string | null {
 }
 
 /** `cms schema build`: マニフェストを書き出す（デプロイしない。中身を確かめるため）。 */
-function schemaBuild(rest: string[]): number {
+async function schemaBuild(rest: string[]): Promise<number> {
   const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { out: { type: "string" } } });
   if (positionals.length !== 1) {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
-  const { manifest } = loadTemplate(positionals[0]!);
+  const { manifest } = await loadTemplate(positionals[0]!);
   const json = `${JSON.stringify(manifest, null, 2)}\n`;
   if (values.out) writeFileSync(values.out, json);
   else process.stdout.write(json);
@@ -66,7 +72,7 @@ async function deployCommand(rest: string[]): Promise<number> {
   const t = token();
   if (!t) return 2;
   const base = checkBaseUrl(values.url);
-  const { name, manifest } = loadTemplate(positionals[0]!);
+  const { name, manifest } = await loadTemplate(positionals[0]!);
   return deploy(
     new Client(base, t),
     name,
@@ -76,11 +82,30 @@ async function deployCommand(rest: string[]): Promise<number> {
   );
 }
 
+/** `cms node scaffold`: カスタムノードの変換関数の雛形を作り、template.json に足す宣言を表示する。 */
+function nodeScaffold(rest: string[]): number {
+  const { values, positionals } = parseArgs({
+    args: rest,
+    allowPositionals: true,
+    options: { template: { type: "string" }, inline: { type: "boolean", default: false } },
+  });
+  if (positionals.length !== 1 || !values.template) {
+    process.stderr.write(`${USAGE}\n`);
+    return 2;
+  }
+  const { file, declaration } = scaffoldNode(values.template, positionals[0]!, { inline: values.inline });
+  log.info(`created ${file}`);
+  log.info("add this to body.customNodes in template.json:");
+  log.info(JSON.stringify(declaration, null, 2));
+  return 0;
+}
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   try {
     if (command === "deploy") return await deployCommand(rest);
-    if (command === "schema" && rest[0] === "build") return schemaBuild(rest.slice(1));
+    if (command === "schema" && rest[0] === "build") return await schemaBuild(rest.slice(1));
+    if (command === "node" && rest[0] === "scaffold") return nodeScaffold(rest.slice(1));
   } catch (e) {
     if (e instanceof TemplateError) {
       log.error(e.message);

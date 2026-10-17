@@ -1,12 +1,16 @@
 // テンプレートのファイル（templates/<テンプレート名>/template.json）を読み、デプロイのAPIが受け取るマニフェストにする（Q49, Q57）。
 // - 本文のノードとマークは、管理画面と同じTiptapの拡張機能（@new-cms/editor-schema）から書き出す。テンプレートには書かない
+// - 関数（URL生成関数・フック・カスタムノードの変換関数）は `{ "file": "./x.ts" }` と書き、ここでJSのソースにする（functions.ts）
 // - ここでの検査は早く知らせるためのもの。正しいかどうかはサーバーが決める（13-security.md「デプロイ」）
 
 import { readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { bodyDefinition, standardExtensions } from "@new-cms/editor-schema";
+import { checkTemplateFunctions } from "./checks.js";
+import { TemplateError } from "./errors.js";
+import { bundleFunctions } from "./functions.js";
 
-export class TemplateError extends Error {}
+export { TemplateError };
 
 /** テンプレート名（サーバーと同じ条件: 英小文字・数字・ハイフン、1〜64文字）。 */
 export function templateName(dir: string): string {
@@ -44,8 +48,8 @@ export function toManifest(template: unknown): Manifest {
   };
 }
 
-/** テンプレートのフォルダを読む。 */
-export function loadTemplate(dir: string): { name: string; manifest: Manifest } {
+/** テンプレートのフォルダを読み、関数をJSのソースにしたマニフェストを返す。 */
+export async function loadTemplate(dir: string): Promise<{ name: string; manifest: Manifest }> {
   const name = templateName(dir);
   const file = join(dir, "template.json");
   let text: string;
@@ -60,5 +64,10 @@ export function loadTemplate(dir: string): { name: string; manifest: Manifest } 
   } catch (e) {
     throw new TemplateError(`${file} is not valid JSON: ${(e as Error).message}`);
   }
-  return { name, manifest: toManifest(parsed) };
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new TemplateError("template.json must contain a JSON object");
+  }
+  const problems = checkTemplateFunctions(parsed as Record<string, unknown>);
+  if (problems.length > 0) throw new TemplateError(`the template is not valid:\n  ${problems.join("\n  ")}`);
+  return { name, manifest: toManifest(await bundleFunctions(dir, parsed as Record<string, unknown>)) };
 }
