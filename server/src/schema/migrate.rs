@@ -184,6 +184,7 @@ pub async fn apply(
             nodes: Vec::new(),
             marks: Vec::new(),
             embed_providers: Vec::new(),
+            custom_nodes: Vec::new(),
         },
         content_types: Vec::new(),
     };
@@ -203,16 +204,13 @@ pub async fn apply(
             return Ok(Err(Failure::LocaleInUse(l.clone())));
         }
     }
-    let new_nodes: Vec<&str> = new
-        .body
-        .nodes
+    let (new_all, old_all) = (new.body.all_nodes(), old_m.body.all_nodes());
+    let new_nodes: Vec<&str> = new_all
         .iter()
         .map(|n| n.name.as_str())
         .chain(new.body.marks.iter().map(|m| m.name.as_str()))
         .collect();
-    for name in old_m
-        .body
-        .nodes
+    for name in old_all
         .iter()
         .map(|n| n.name.as_str())
         .chain(old_m.body.marks.iter().map(|m| m.name.as_str()))

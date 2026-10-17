@@ -197,13 +197,14 @@ export interface UrlChange {
  * fields を省略したときに返す項目は `id`・`title`・`slug` だけ（他のフィールドを使うクエリは fields で明示する）。
  * - list: 記事の一覧。変数 `locale`、`limit`（件数）を取る
  * - byId: 1件の記事。変数 `id`、`locale` を取る。include で返す項目を足す
+ *   （bodyHtml・bodyMarkdown は、本文のフィールド `body` を変換器でHTML・Markdownにしたもの。M2）
  * - deep: 参照フィールド `related` を depth 段たどる（深さの検査用）
  * - wide: 一覧を aliases 個の別名で並べる（複雑さの検査用）
  * - text: GraphQLの文をそのまま使う
  */
 export type QuerySpec =
   | { kind: "list"; fields?: string[] }
-  | { kind: "byId"; fields?: string[]; include?: ("body" | "alternates" | "related")[] }
+  | { kind: "byId"; fields?: string[]; include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related")[] }
   | { kind: "deep"; depth: number }
   | { kind: "wide"; aliases: number }
   | { kind: "text"; text: string };

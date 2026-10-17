@@ -1,0 +1,27 @@
+{
+  "name": "@new-cms/converter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "本文（TiptapのJSON）の変換器。Markdown と HTML を作る。サーバーの組み込みJSと管理画面で同じものを動かす（Q56）",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "sync:server": "npm run build && node scripts/sync-server.mjs",
+    "test": "npm run build && vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  },
+  "files": [
+    "dist"
+  ]
+}

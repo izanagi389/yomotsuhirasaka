@@ -167,7 +167,7 @@ pub async fn erase(
         return Ok(Err(Refused::Published));
     }
     let updated = sqlx::query(
-        "UPDATE versions SET fields = NULL, erased_at = COALESCE(erased_at, now())
+        "UPDATE versions SET fields = NULL, rendered = NULL, erased_at = COALESCE(erased_at, now())
          WHERE id = $1 AND entry_id = $2",
     )
     .bind(version_id)

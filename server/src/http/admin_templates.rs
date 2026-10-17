@@ -211,7 +211,7 @@ pub async fn schema_info(
     let manifest = match version {
         Some(v) => deploy::load_version(&state.pool, &template, v)
             .await?
-            .map(|m| m.without_dev_notes()),
+            .map(|m| m.for_members()),
         None => None,
     };
     Ok(Json(SchemaInfo {

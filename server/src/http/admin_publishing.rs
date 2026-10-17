@@ -92,6 +92,14 @@ fn refused(r: Refused) -> ApiError {
                 reasons.join("; ")
             ),
         ),
+        Refused::ConversionFailed(f) => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "conversion_failed",
+            format!(
+                "The body could not be converted because {}. Ask the developer of the template to fix the custom node's conversion function.",
+                f.describe()
+            ),
+        ),
         Refused::HookFailed(f) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "hook_failed",

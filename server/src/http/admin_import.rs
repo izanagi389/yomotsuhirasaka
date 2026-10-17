@@ -109,6 +109,9 @@ pub async fn import(
                 Refused::HookRejected(reasons) => {
                     format!("the beforePublish hook stopped it: {}", reasons.join("; "))
                 }
+                Refused::ConversionFailed(f) => {
+                    format!("the body could not be converted because {}", f.describe())
+                }
                 Refused::HookFailed(f) => {
                     format!("the beforePublish hook failed because {}", f.describe())
                 }

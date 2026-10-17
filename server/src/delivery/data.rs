@@ -28,6 +28,8 @@ pub struct Entry {
     pub first_published_at: String,
     /// 公開中の版のフィールドのスナップショット。
     pub fields: Map<String, Value>,
+    /// 公開中の版の本文の変換結果（フィールド名 → {markdown, html}）。HTMLは無害化する前のもの。
+    pub rendered: Map<String, Value>,
 }
 
 type Row = (
@@ -39,6 +41,7 @@ type Row = (
     String,
     String,
     Option<String>,
+    Option<String>,
 );
 
 fn select(filter: &str, tail: &str) -> String {
@@ -46,7 +49,7 @@ fn select(filter: &str, tail: &str) -> String {
         "SELECT e.id, e.content_type, e.locale, e.translation_group_id, v.url,
                 to_char(v.published_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(f.first AT TIME ZONE 'UTC', {RFC3339}),
-                v.fields::text
+                v.fields::text, v.rendered::text
          FROM entries e
          JOIN versions v ON v.id = e.published_version_id
          CROSS JOIN LATERAL (SELECT min(published_at) AS first FROM versions WHERE entry_id = e.id) f
@@ -56,14 +59,33 @@ fn select(filter: &str, tail: &str) -> String {
 }
 
 fn entry(r: Row) -> Result<Option<Entry>> {
-    let (id, content_type, locale, group_id, url, published_at, first_published_at, fields) = r;
+    let (
+        id,
+        content_type,
+        locale,
+        group_id,
+        url,
+        published_at,
+        first_published_at,
+        fields,
+        rendered,
+    ) = r;
     let Some(fields) = fields else {
         return Ok(None);
     };
-    let fields = match serde_json::from_str::<Value>(&fields)? {
-        Value::Object(m) => m,
-        _ => Map::new(),
+    let object = |text: Option<String>| -> Result<Map<String, Value>> {
+        Ok(
+            match text
+                .map(|t| serde_json::from_str::<Value>(&t))
+                .transpose()?
+            {
+                Some(Value::Object(m)) => m,
+                _ => Map::new(),
+            },
+        )
     };
+    let fields = object(Some(fields))?;
+    let rendered = object(rendered)?;
     Ok(Some(Entry {
         id,
         content_type,
@@ -73,6 +95,7 @@ fn entry(r: Row) -> Result<Option<Entry>> {
         published_at,
         first_published_at,
         fields,
+        rendered,
     }))
 }
 
@@ -191,6 +214,56 @@ pub async fn resolve_groups(
         .iter()
         .filter_map(|g| by_group.get(g).cloned())
         .collect())
+}
+
+/// 変換した本文の画像の参照先（`cms-media:<ID>`）を、その時点のメディアのURLに置き換える。
+/// 削除されたメディアの参照先は空にする（原則3、INV-PUB-06）。
+pub async fn resolve_media_refs(
+    conn: &mut PgConnection,
+    media_base: &str,
+    workspace_id: Uuid,
+    text: &str,
+) -> Result<String> {
+    const SCHEME: &str = "cms-media:";
+    let mut ids = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find(SCHEME) {
+        let after = &rest[i + SCHEME.len()..];
+        if let Some(id) = after.get(..36).and_then(|s| Uuid::parse_str(s).ok()) {
+            ids.push(id);
+        }
+        rest = after;
+    }
+    if !text.contains(SCHEME) {
+        return Ok(text.to_owned());
+    }
+    let rows: Vec<(Uuid, String)> = if ids.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as("SELECT id, file FROM media WHERE id = ANY($1) AND deleted_at IS NULL")
+            .bind(&ids)
+            .fetch_all(conn)
+            .await?
+    };
+    let found: HashMap<Uuid, String> = rows.into_iter().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find(SCHEME) {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + SCHEME.len()..];
+        match after.get(..36).and_then(|s| Uuid::parse_str(s).ok()) {
+            Some(id) => {
+                if let Some(file) = found.get(&id) {
+                    out.push_str(&crate::media::store::url_of(media_base, workspace_id, file));
+                }
+                rest = &after[36..];
+            }
+            // 正しいIDの続かない参照先は、参照先として扱わない（接頭辞だけを落とす）
+            None => rest = after,
+        }
+    }
+    out.push_str(rest);
+    Ok(out)
 }
 
 /// 本文の画像に、配信のURLと大きさ（`src`・`width`・`height`）を足す。削除されたメディアの画像は本文から除く。

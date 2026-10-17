@@ -16,6 +16,7 @@ const MAX_CONTENT_TYPES: usize = 100;
 const MAX_FIELDS: usize = 200;
 const MAX_LOCALES: usize = 50;
 const MAX_ALLOWED_HOSTS: usize = 50;
+const MAX_CUSTOM_ATTRS: usize = 50;
 const MAX_BODY_NODES: usize = 100;
 const MAX_TEXT_CHARS: usize = 2000;
 /// 一覧のフィールドで1回に取得できる件数の上限の、さらに上限。
@@ -157,12 +158,94 @@ pub struct BodyMark {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Body {
+    /// 標準のノード（変換器が変換の仕方を知っているもの: [`STANDARD_NODES`]）。それ以外は `customNodes` に書く。
     pub nodes: Vec<BodyNode>,
     #[serde(default)]
     pub marks: Vec<BodyMark>,
     /// 埋め込みを許す提供元のホスト名。
     #[serde(default)]
     pub embed_providers: Vec<String>,
+    /// カスタムノード（M2、Q36, Q37）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_nodes: Vec<CustomNode>,
+}
+
+/// 変換器が変換の仕方を知っている標準のノードとマーク（`packages/converter`）。
+pub const STANDARD_NODES: &[&str] = &[
+    "doc",
+    "paragraph",
+    "text",
+    "heading",
+    "bulletList",
+    "orderedList",
+    "listItem",
+    "blockquote",
+    "codeBlock",
+    "horizontalRule",
+    "hardBreak",
+    "image",
+    "embed",
+];
+pub const STANDARD_MARKS: &[&str] = &["bold", "italic", "strike", "code", "link"];
+
+/// カスタムノードの属性の型。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AttrType {
+    String,
+    Number,
+    Boolean,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CustomAttr {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: AttrType,
+}
+
+/// カスタムノード。テンプレートに宣言的に書き、Tiptapの拡張機能はこの宣言から作る（`@new-cms/editor-schema`）。
+/// Markdownへの変換関数は必須（ないものはデプロイを拒否する。INV-NODE-01）。HTMLへの変換関数は任意で、
+/// 出力は無害化する（INV-CNV-01）。変換関数は純粋な関数で、ホスト関数は使えない。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CustomNode {
+    pub name: String,
+    /// インライン（段落などの子）か。既定はブロック。
+    #[serde(default)]
+    pub inline: bool,
+    #[serde(default)]
+    pub attrs: Vec<CustomAttr>,
+    /// 子として許すノード。
+    #[serde(default)]
+    pub children: Vec<String>,
+    /// `toMarkdown(node, ctx)` を既定のエクスポートにするESモジュール。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_markdown: Option<crate::script::Script>,
+    /// `toHtml(node, ctx)` を既定のエクスポートにするESモジュール。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_html: Option<crate::script::Script>,
+}
+
+impl Body {
+    /// 本文の検証に使うノードの定義（標準のノードと、カスタムノード）。
+    pub fn all_nodes(&self) -> Vec<BodyNode> {
+        self.nodes
+            .iter()
+            .cloned()
+            .chain(self.custom_nodes.iter().map(|c| BodyNode {
+                name: c.name.clone(),
+                children: c.children.clone(),
+                attrs: c.attrs.iter().map(|a| a.name.clone()).collect(),
+                marks: false,
+            }))
+            .collect()
+    }
+
+    pub fn custom_node(&self, name: &str) -> Option<&CustomNode> {
+        self.custom_nodes.iter().find(|c| c.name == name)
+    }
 }
 
 /// テンプレートのマニフェスト。
@@ -206,6 +289,9 @@ pub struct TemplateBody {
     /// 埋め込みを許す提供元のホスト名（例: `www.youtube.com`）。https のURLだけを受け付ける（Q97）。
     #[serde(default)]
     pub embed_providers: Vec<String>,
+    /// カスタムノード。
+    #[serde(default)]
+    pub custom_nodes: Vec<CustomNode>,
 }
 
 /// テンプレートのファイルのJSON Schema（`cli/schema/template.schema.json` に置き、テストで最新か確かめる）。
@@ -216,6 +302,35 @@ pub fn template_json_schema() -> serde_json::Value {
 impl Manifest {
     pub fn content_type(&self, name: &str) -> Option<&ContentType> {
         self.content_types.iter().find(|c| c.name == name)
+    }
+
+    /// スキーマ情報のAPIで所属者に返す写し: `devNote`（INV-SCH-01）と、関数のソースを除く。
+    /// 関数（URL生成関数・フック・変換関数）のソースには、送信先の認証情報などが書かれうるため、所属者には見せない。
+    pub fn for_members(&self) -> Self {
+        let mut m = self.without_dev_notes();
+        let clear = |s: &mut Option<crate::script::Script>| {
+            if let Some(s) = s {
+                s.source.clear();
+            }
+        };
+        for c in &mut m.body.custom_nodes {
+            clear(&mut c.to_markdown);
+            clear(&mut c.to_html);
+        }
+        for ct in &mut m.content_types {
+            clear(&mut ct.url_function);
+            let h = &mut ct.hooks;
+            for s in [
+                &mut h.before_save,
+                &mut h.before_publish,
+                &mut h.after_save,
+                &mut h.after_publish,
+                &mut h.after_unpublish,
+            ] {
+                clear(s);
+            }
+        }
+        m
     }
 
     /// `devNote` を除いた写し（スキーマ情報のAPIで返す。INV-SCH-01）。
@@ -371,9 +486,28 @@ fn script_problems(path: &str, s: &crate::script::Script, is_async: bool) -> Vec
     problems
 }
 
+/// 変換関数の検査: 形の検査に加え、ホスト関数を使わない純粋な関数であること（Q36）。
+fn conversion_problems(path: &str, s: &crate::script::Script) -> Vec<String> {
+    let mut problems = script_problems(path, s, false);
+    if !s.permissions.is_empty() || !s.allowed_hosts.is_empty() {
+        problems.push(format!(
+            "{path}.permissions: conversion functions are pure and cannot use host functions"
+        ));
+    }
+    problems
+}
+
 /// マニフェストに含まれる関数（場所, 関数）。
 pub fn scripts(m: &Manifest) -> Vec<(String, &crate::script::Script)> {
     let mut out = Vec::new();
+    for (i, c) in m.body.custom_nodes.iter().enumerate() {
+        if let Some(f) = &c.to_markdown {
+            out.push((format!("body.customNodes[{i}].toMarkdown"), f));
+        }
+        if let Some(f) = &c.to_html {
+            out.push((format!("body.customNodes[{i}].toHtml"), f));
+        }
+    }
     for (i, ct) in m.content_types.iter().enumerate() {
         if let Some(f) = &ct.url_function {
             out.push((format!("contentTypes[{i}].urlFunction"), f));
@@ -419,12 +553,60 @@ pub fn validate(m: &Manifest) -> Vec<String> {
         if !node_names.insert(n.name.as_str()) {
             problems.push(format!("body.nodes[{i}].name: duplicated"));
         }
+        // 変換の仕方を知らないノードは、変換関数を付けたカスタムノードとして書かせる（INV-NODE-01）
+        if !STANDARD_NODES.contains(&n.name.as_str()) {
+            problems.push(format!(
+                "body.nodes[{i}].name: `{}` is not a standard node; declare it in body.customNodes with a toMarkdown function",
+                n.name
+            ));
+        }
         for (j, a) in n.attrs.iter().enumerate() {
             if !valid_node_name(a) {
                 problems.push(format!(
                     "body.nodes[{i}].attrs[{j}]: invalid attribute name"
                 ));
             }
+        }
+    }
+    for (i, c) in body.custom_nodes.iter().enumerate() {
+        let path = format!("body.customNodes[{i}]");
+        if !valid_node_name(&c.name) {
+            problems.push(format!("{path}.name: invalid node name"));
+        }
+        if STANDARD_NODES.contains(&c.name.as_str()) || STANDARD_MARKS.contains(&c.name.as_str()) {
+            problems.push(format!("{path}.name: `{}` is a standard name", c.name));
+        }
+        if !node_names.insert(c.name.as_str()) {
+            problems.push(format!("{path}.name: duplicated"));
+        }
+        if c.attrs.len() > MAX_CUSTOM_ATTRS {
+            problems.push(format!("{path}.attrs: at most {MAX_CUSTOM_ATTRS}"));
+        }
+        let mut seen = BTreeSet::new();
+        for (j, a) in c.attrs.iter().enumerate() {
+            if !valid_node_name(&a.name) {
+                problems.push(format!("{path}.attrs[{j}].name: invalid attribute name"));
+            }
+            if !seen.insert(a.name.as_str()) {
+                problems.push(format!("{path}.attrs[{j}].name: duplicated"));
+            }
+        }
+        match &c.to_markdown {
+            None => problems.push(format!(
+                "{path}.toMarkdown: a Markdown conversion function is required for every custom node"
+            )),
+            Some(s) => problems.extend(conversion_problems(&format!("{path}.toMarkdown"), s)),
+        }
+        if let Some(s) = &c.to_html {
+            problems.extend(conversion_problems(&format!("{path}.toHtml"), s));
+        }
+    }
+    for (i, mk) in body.marks.iter().enumerate() {
+        if !STANDARD_MARKS.contains(&mk.name.as_str()) {
+            problems.push(format!(
+                "body.marks[{i}].name: `{}` is not a standard mark",
+                mk.name
+            ));
         }
     }
     for required in ["doc", "text"] {
@@ -454,6 +636,13 @@ pub fn validate(m: &Manifest) -> Vec<String> {
         for (j, c) in n.children.iter().enumerate() {
             if !node_names.contains(c.as_str()) {
                 problems.push(format!("body.nodes[{i}].children[{j}]: unknown node"));
+            }
+        }
+    }
+    for (i, n) in body.custom_nodes.iter().enumerate() {
+        for (j, c) in n.children.iter().enumerate() {
+            if !node_names.contains(c.as_str()) {
+                problems.push(format!("body.customNodes[{i}].children[{j}]: unknown node"));
             }
         }
     }
@@ -761,6 +950,26 @@ pub(crate) mod tests {
             m.content_types[0].hooks.after_save = Some(script(perm, hosts));
             assert!(validate(&m).iter().any(|p| p.contains(needle)), "{needle}");
         }
+    }
+
+    #[test]
+    fn function_sources_are_not_shown_to_members() {
+        let mut m = sample();
+        let s: crate::script::Script =
+            serde_json::from_str(r#"{"source": "export default () => 'SECRET-TOKEN'"}"#).unwrap();
+        m.content_types[0].url_function = Some(s.clone());
+        m.content_types[0].hooks.after_publish = Some(s.clone());
+        m.body.custom_nodes.push(CustomNode {
+            name: "callout".into(),
+            inline: false,
+            attrs: vec![],
+            children: vec![],
+            to_markdown: Some(s.clone()),
+            to_html: Some(s),
+        });
+        let out = serde_json::to_string(&m.for_members()).unwrap();
+        assert!(!out.contains("SECRET-TOKEN"), "{out}");
+        assert!(out.contains("callout"));
     }
 
     #[test]

@@ -51,9 +51,141 @@
             "type": "string"
           },
           "default": []
+        },
+        "customNodes": {
+          "description": "カスタムノード。",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CustomNode"
+          },
+          "default": []
         }
       },
       "additionalProperties": false
+    },
+    "CustomNode": {
+      "description": "カスタムノード。テンプレートに宣言的に書き、Tiptapの拡張機能はこの宣言から作る（`@new-cms/editor-schema`）。\nMarkdownへの変換関数は必須（ないものはデプロイを拒否する。INV-NODE-01）。HTMLへの変換関数は任意で、\n出力は無害化する（INV-CNV-01）。変換関数は純粋な関数で、ホスト関数は使えない。",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "inline": {
+          "description": "インライン（段落などの子）か。既定はブロック。",
+          "type": "boolean",
+          "default": false
+        },
+        "attrs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CustomAttr"
+          },
+          "default": []
+        },
+        "children": {
+          "description": "子として許すノード。",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "toMarkdown": {
+          "description": "`toMarkdown(node, ctx)` を既定のエクスポートにするESモジュール。",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Script"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "toHtml": {
+          "description": "`toHtml(node, ctx)` を既定のエクスポートにするESモジュール。",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Script"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ]
+    },
+    "CustomAttr": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/AttrType"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type"
+      ]
+    },
+    "AttrType": {
+      "description": "カスタムノードの属性の型。",
+      "type": "string",
+      "enum": [
+        "string",
+        "number",
+        "boolean"
+      ]
+    },
+    "Script": {
+      "description": "テンプレートに書かれた関数（CLIがTSをJSに変換して入れる。Q49）。",
+      "type": "object",
+      "properties": {
+        "source": {
+          "description": "ESモジュールのJSのソース。既定のエクスポートが関数本体。",
+          "type": "string"
+        },
+        "permissions": {
+          "description": "呼べるホスト関数。ここにないものは呼べない（INV-HOOK-02）。",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Permission"
+          },
+          "default": []
+        },
+        "allowedHosts": {
+          "description": "`http.fetch` で送ってよいホスト名かIPアドレス。ここにあっても、内部向けのアドレスの遮断などの\n外部への送信の検査は外れない（13-security.md「外部への送信」、INV-HOOK-05）。",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "source"
+      ]
+    },
+    "Permission": {
+      "description": "関数が権限として宣言できるホスト関数（04-hooks.md「外部へのアクセス」）。",
+      "oneOf": [
+        {
+          "description": "同じワークスペースの公開中の記事を読む（`cms.content.get(id)`）。",
+          "type": "string",
+          "const": "content.read"
+        },
+        {
+          "description": "外部へHTTPで送る（`cms.http.fetch(url, options)`）。非同期のフックだけ。宛先は `allowedHosts` に限る。",
+          "type": "string",
+          "const": "http.fetch"
+        }
+      ]
     },
     "ContentType": {
       "type": "object",
@@ -114,50 +246,6 @@
         "urlTemplate",
         "listLimit",
         "fields"
-      ]
-    },
-    "Script": {
-      "description": "テンプレートに書かれた関数（CLIがTSをJSに変換して入れる。Q49）。",
-      "type": "object",
-      "properties": {
-        "source": {
-          "description": "ESモジュールのJSのソース。既定のエクスポートが関数本体。",
-          "type": "string"
-        },
-        "permissions": {
-          "description": "呼べるホスト関数。ここにないものは呼べない（INV-HOOK-02）。",
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Permission"
-          },
-          "default": []
-        },
-        "allowedHosts": {
-          "description": "`http.fetch` で送ってよいホスト名かIPアドレス。ここにあっても、内部向けのアドレスの遮断などの\n外部への送信の検査は外れない（13-security.md「外部への送信」、INV-HOOK-05）。",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "source"
-      ]
-    },
-    "Permission": {
-      "description": "関数が権限として宣言できるホスト関数（04-hooks.md「外部へのアクセス」）。",
-      "oneOf": [
-        {
-          "description": "同じワークスペースの公開中の記事を読む（`cms.content.get(id)`）。",
-          "type": "string",
-          "const": "content.read"
-        },
-        {
-          "description": "外部へHTTPで送る（`cms.http.fetch(url, options)`）。非同期のフックだけ。宛先は `allowedHosts` に限る。",
-          "type": "string",
-          "const": "http.fetch"
-        }
       ]
     },
     "Hooks": {

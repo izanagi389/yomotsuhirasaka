@@ -3,7 +3,7 @@
 // 本番ではCLIが、テンプレートのJSONとTiptapの拡張機能から同じ形を作る。ここでは、Tiptapの標準の拡張機能
 // （StarterKit と Link）と、CMSの画像（image）・埋め込み（embed）の定義を、名前から引いて書き出す。
 
-import type { ScriptPermission, ScriptSpec, TemplateSpec } from "./template.js";
+import type { CustomNodeSpec, ScriptPermission, ScriptSpec, TemplateSpec } from "./template.js";
 
 interface NodeDef {
   children: string[];
@@ -52,17 +52,38 @@ const toScript = (s: ScriptSpec) => ({
   allowedHosts: s.allowedHosts,
 });
 
+// カスタムノード: 本番ではCLIが template.json の宣言と変換関数のTSファイルから作る。
+// 宣言は body.customNodes に、変換関数はJSのソースのまま入れる。ブロックは doc の子に、インラインは段落の子に足す。
+const customNode = (c: CustomNodeSpec) => ({
+  name: c.name,
+  inline: c.inline ?? false,
+  attrs: c.attrs,
+  children: c.children ?? [],
+  toMarkdown: c.toMarkdown === undefined ? undefined : { source: c.toMarkdown },
+  toHtml: c.toHtml === undefined ? undefined : { source: c.toHtml },
+});
+
 export function toManifest(t: TemplateSpec): unknown {
-  const present = new Set(t.bodyNodes);
+  const customs = t.customNodes ?? [];
+  const present = new Set([...t.bodyNodes, ...customs.map((c) => c.name)]);
+  const extraChildren = (parent: string): string[] =>
+    customs.filter((c) => (c.inline ? parent === "paragraph" : parent === "doc")).map((c) => c.name);
   return {
     locales: t.locales,
     defaultLocale: t.defaultLocale,
     body: {
-      nodes: t.bodyNodes.map((name) => {
-        const def = NODE_DEFS[name];
-        if (!def) throw new Error(`ドライバーが知らない本文のノードです: ${name}（tests/invariants/support/manifest.ts）`);
-        return { name, children: def.children.filter((c) => present.has(c)), attrs: def.attrs, marks: def.marks };
-      }),
+      nodes: [
+        ...t.bodyNodes.map((name) => {
+          const def = NODE_DEFS[name];
+          if (!def) throw new Error(`ドライバーが知らない本文のノードです: ${name}（tests/invariants/support/manifest.ts）`);
+          const children = [...def.children.filter((c) => present.has(c)), ...extraChildren(name)];
+          return { name, children, attrs: def.attrs, marks: def.marks };
+        }),
+        ...customs
+          .filter((c) => c.asPlainBodyNode)
+          .map((c) => ({ name: c.name, children: c.children ?? [], attrs: c.attrs.map((a) => a.name), marks: false })),
+      ],
+      customNodes: customs.filter((c) => !c.asPlainBodyNode).map(customNode),
       marks: t.bodyMarks.map((name) => {
         const attrs = MARK_ATTRS[name];
         if (!attrs) throw new Error(`ドライバーが知らない本文のマークです: ${name}（tests/invariants/support/manifest.ts）`);
