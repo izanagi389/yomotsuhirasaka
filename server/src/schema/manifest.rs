@@ -60,9 +60,12 @@ pub struct Field {
     pub dev_note: Option<String>,
 }
 
+/// 関数の書き方（型の引数）: マニフェストではJSのソース（[`crate::script::Script`]）、
+/// テンプレートのファイルではTSのファイルへのパス（[`TemplateScript`]。CLIがJSにしてマニフェストに入れる。Q49）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ContentType {
+#[serde(bound(deserialize = "F: Deserialize<'de>", serialize = "F: Serialize"))]
+pub struct ContentType<F = crate::script::Script> {
     /// コンテンツタイプの名前（英小文字で始まる英小文字・数字・`_`）。DBとGraphQLの名前の元になる。
     pub name: String,
     /// ロケールごとの公開URLのテンプレート。使える差し込みは `{locale}` と `{slug}`（Q82）。
@@ -70,10 +73,10 @@ pub struct ContentType {
     /// URL生成関数（M2、Q38）。あれば、テンプレートの代わりにこれで公開URLを作る。
     /// 受け取るのは公開する記事（`{id, contentType, locale, slug, fields}`）、返すのは http(s) の絶対URL。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url_function: Option<crate::script::Script>,
+    pub url_function: Option<F>,
     /// フック（M2、04-hooks.md）。
     #[serde(default, skip_serializing_if = "Hooks::is_empty")]
-    pub hooks: Hooks,
+    pub hooks: Hooks<F>,
     /// 一覧のフィールドで1回に取得できる件数の上限。
     pub list_limit: u32,
     pub fields: Vec<Field>,
@@ -96,28 +99,41 @@ pub struct ContentType {
 ///   - `afterSave`: 保存が30秒止まってから、記事ごとに1回（その時点の下書き）。
 ///   - `afterPublish`: 公開・更新・訂正としての公開の後（公開した版）。
 ///   - `afterUnpublish`: 非公開・削除の後（entry は null）。
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Hooks {
+#[serde(bound(deserialize = "F: Deserialize<'de>", serialize = "F: Serialize"))]
+pub struct Hooks<F = crate::script::Script> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before_save: Option<crate::script::Script>,
+    pub before_save: Option<F>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before_publish: Option<crate::script::Script>,
+    pub before_publish: Option<F>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after_save: Option<crate::script::Script>,
+    pub after_save: Option<F>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after_publish: Option<crate::script::Script>,
+    pub after_publish: Option<F>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after_unpublish: Option<crate::script::Script>,
+    pub after_unpublish: Option<F>,
 }
 
-impl Hooks {
+impl<F> Default for Hooks<F> {
+    fn default() -> Self {
+        Self {
+            before_save: None,
+            before_publish: None,
+            after_save: None,
+            after_publish: None,
+            after_unpublish: None,
+        }
+    }
+}
+
+impl<F> Hooks<F> {
     pub fn is_empty(&self) -> bool {
         self.all().is_empty()
     }
 
     /// (名前, 非同期か, 関数)
-    pub fn all(&self) -> Vec<(&'static str, bool, &crate::script::Script)> {
+    pub fn all(&self) -> Vec<(&'static str, bool, &F)> {
         [
             ("beforeSave", false, &self.before_save),
             ("beforePublish", false, &self.before_publish),
@@ -210,7 +226,8 @@ pub struct CustomAttr {
 /// 出力は無害化する（INV-CNV-01）。変換関数は純粋な関数で、ホスト関数は使えない。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CustomNode {
+#[serde(bound(deserialize = "F: Deserialize<'de>", serialize = "F: Serialize"))]
+pub struct CustomNode<F = crate::script::Script> {
     pub name: String,
     /// インライン（段落などの子）か。既定はブロック。
     #[serde(default)]
@@ -222,10 +239,25 @@ pub struct CustomNode {
     pub children: Vec<String>,
     /// `toMarkdown(node, ctx)` を既定のエクスポートにするESモジュール。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub to_markdown: Option<crate::script::Script>,
+    pub to_markdown: Option<F>,
     /// `toHtml(node, ctx)` を既定のエクスポートにするESモジュール。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub to_html: Option<crate::script::Script>,
+    pub to_html: Option<F>,
+}
+
+/// テンプレートのファイルでの関数: TSのファイルへのパス（テンプレートのフォルダからの相対パス。フォルダの外は指せない）。
+/// CLIが esbuild で1つのESモジュールにまとめ、マニフェストの `source` にする。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TemplateScript {
+    /// TSのファイル（例: `./functions/url.ts`）。既定のエクスポートが関数本体。
+    pub file: String,
+    /// 呼べるホスト関数。
+    #[serde(default)]
+    pub permissions: Vec<crate::script::Permission>,
+    /// `http.fetch` で送ってよいホスト名かIPアドレス。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_hosts: Vec<String>,
 }
 
 impl Body {
@@ -279,7 +311,7 @@ pub struct TemplateFile {
     pub default_locale: String,
     #[serde(default)]
     pub body: TemplateBody,
-    pub content_types: Vec<ContentType>,
+    pub content_types: Vec<ContentType<TemplateScript>>,
 }
 
 /// テンプレートのファイルの本文の設定（ノードとマークはCLIが書き出す）。
@@ -291,7 +323,7 @@ pub struct TemplateBody {
     pub embed_providers: Vec<String>,
     /// カスタムノード。
     #[serde(default)]
-    pub custom_nodes: Vec<CustomNode>,
+    pub custom_nodes: Vec<CustomNode<TemplateScript>>,
 }
 
 /// テンプレートのファイルのJSON Schema（`cli/schema/template.schema.json` に置き、テストで最新か確かめる）。
@@ -1036,11 +1068,32 @@ pub(crate) mod tests {
         manifest_body.remove("nodes");
         manifest_body.remove("marks");
         assert_eq!(body(&template, "TemplateBody"), manifest_body);
-        // コンテンツタイプとフィールドは、同じ型を使っている
-        assert_eq!(
-            template["$defs"]["ContentType"],
-            manifest["$defs"]["ContentType"]
-        );
+        // コンテンツタイプ・フック・カスタムノードは同じ項目を持つ（関数の書き方だけが型の引数で違う）
+        let def_props = |root: &serde_json::Value, prefix: &str| -> BTreeSet<String> {
+            let defs = root["$defs"].as_object().unwrap();
+            let (_, def) = defs
+                .iter()
+                .find(|(k, _)| k.starts_with(prefix))
+                .unwrap_or_else(|| panic!("no $defs starting with {prefix}"));
+            def["properties"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect()
+        };
+        for name in ["ContentType", "Hooks", "CustomNode"] {
+            assert_eq!(
+                def_props(&template, name),
+                def_props(&manifest, name),
+                "{name}"
+            );
+        }
         assert_eq!(template["$defs"]["Field"], manifest["$defs"]["Field"]);
+        // 関数は、ソース（source）の代わりにTSのファイル（file）を持つ
+        let mut script = def_props(&manifest, "Script");
+        script.remove("source");
+        script.insert("file".to_owned());
+        assert_eq!(def_props(&template, "TemplateScript"), script);
     }
 }

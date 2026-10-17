@@ -1,6 +1,6 @@
 # CMSのCLI
 
-M1では、テンプレートのデプロイと、既存のブログ（Markdownのフォルダ）からの取り込みを行います。
+テンプレートのデプロイ、カスタムノードの雛形づくり、既存のブログ（Markdownのフォルダ）からの取り込みを行います。
 
 リポジトリのルートの npm workspaces の一部です（管理画面と、本文のノードの定義 `@new-cms/editor-schema` を共有します）。
 
@@ -25,6 +25,38 @@ node cli/dist/index.js schema build templates/blog   # マニフェストを表�
 - まずサーバーで試行し（何も書き込まない）、マニフェストの問題・破壊的な変更・壊れる登録済みのクエリを表示します。判定はサーバーが行い、デプロイのときにもう一度検査します。
 - マニフェストに問題があれば止めます。破壊的な変更は `--allow-destructive`、登録済みのクエリを壊す変更は `--allow-broken-queries` がなければ止めます（Q53, Q54）。
 - `--dry-run` は試行だけで終わります。
+
+### 関数（URL生成関数・フック・カスタムノードの変換関数）
+
+関数は、テンプレートのフォルダの中の TypeScript のファイルに書き、`template.json` からパスで参照します（Q49）。
+
+```json
+{
+  "body": {
+    "customNodes": [
+      { "name": "callout", "attrs": [{ "name": "label", "type": "string" }], "toMarkdown": { "file": "./nodes/callout.ts" } }
+    ]
+  },
+  "contentTypes": [
+    {
+      "name": "post",
+      "urlFunction": { "file": "./functions/url.ts", "permissions": ["content.read"] },
+      "hooks": { "afterPublish": { "file": "./functions/notify.ts", "permissions": ["http.fetch"], "allowedHosts": ["hooks.example.com"] } }
+    }
+  ]
+}
+```
+
+- CLIが esbuild で1つの ES モジュールにまとめ、マニフェストに JS のソースとして入れます。サーバーはソースだけを受け取ります。
+- `import` できるのは、テンプレートのフォルダの中の相対パスだけです。npm のパッケージや `node:` は使えません。型は `import type { ... } from "@new-cms/cli/types"` で使えます（変換で消えます）。
+- フォルダの外を指すパス（`..`、絶対パス、外に出るシンボリックリンク）は止めます。
+- デプロイの前に、サーバーと同じ規則で早めに検査します（カスタムノードの `toMarkdown` は必須、`http.fetch` は非同期のフックだけ、など）。判定はサーバーがもう一度行います。
+
+カスタムノードの変換関数の雛形は、次で作ります。`template.json` は書き換えず、足す宣言を表示します。
+
+```sh
+node cli/dist/index.js node scaffold callout --template templates/blog [--inline]
+```
 - 終了コード: 0 成功、1 デプロイしなかった・移行待ちのワークスペースがある、2 使い方の誤り。
 
 ## 既存のブログからの取り込み（`docs/decisions/03-content-and-editing.md`「既存ブログからの取り込み」）

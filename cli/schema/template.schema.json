@@ -94,7 +94,7 @@
           "description": "`toMarkdown(node, ctx)` を既定のエクスポートにするESモジュール。",
           "anyOf": [
             {
-              "$ref": "#/$defs/Script"
+              "$ref": "#/$defs/TemplateScript"
             },
             {
               "type": "null"
@@ -105,7 +105,7 @@
           "description": "`toHtml(node, ctx)` を既定のエクスポートにするESモジュール。",
           "anyOf": [
             {
-              "$ref": "#/$defs/Script"
+              "$ref": "#/$defs/TemplateScript"
             },
             {
               "type": "null"
@@ -143,16 +143,16 @@
         "boolean"
       ]
     },
-    "Script": {
-      "description": "テンプレートに書かれた関数（CLIがTSをJSに変換して入れる。Q49）。",
+    "TemplateScript": {
+      "description": "テンプレートのファイルでの関数: TSのファイルへのパス（テンプレートのフォルダからの相対パス。フォルダの外は指せない）。\nCLIが esbuild で1つのESモジュールにまとめ、マニフェストの `source` にする。",
       "type": "object",
       "properties": {
-        "source": {
-          "description": "ESモジュールのJSのソース。既定のエクスポートが関数本体。",
+        "file": {
+          "description": "TSのファイル（例: `./functions/url.ts`）。既定のエクスポートが関数本体。",
           "type": "string"
         },
         "permissions": {
-          "description": "呼べるホスト関数。ここにないものは呼べない（INV-HOOK-02）。",
+          "description": "呼べるホスト関数。",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Permission"
@@ -160,7 +160,7 @@
           "default": []
         },
         "allowedHosts": {
-          "description": "`http.fetch` で送ってよいホスト名かIPアドレス。ここにあっても、内部向けのアドレスの遮断などの\n外部への送信の検査は外れない（13-security.md「外部への送信」、INV-HOOK-05）。",
+          "description": "`http.fetch` で送ってよいホスト名かIPアドレス。",
           "type": "array",
           "items": {
             "type": "string"
@@ -169,7 +169,7 @@
       },
       "additionalProperties": false,
       "required": [
-        "source"
+        "file"
       ]
     },
     "Permission": {
@@ -188,6 +188,7 @@
       ]
     },
     "ContentType": {
+      "description": "関数の書き方（型の引数）: マニフェストではJSのソース（[`crate::script::Script`]）、\nテンプレートのファイルではTSのファイルへのパス（[`TemplateScript`]。CLIがJSにしてマニフェストに入れる。Q49）。",
       "type": "object",
       "properties": {
         "name": {
@@ -202,7 +203,7 @@
           "description": "URL生成関数（M2、Q38）。あれば、テンプレートの代わりにこれで公開URLを作る。\n受け取るのは公開する記事（`{id, contentType, locale, slug, fields}`）、返すのは http(s) の絶対URL。",
           "anyOf": [
             {
-              "$ref": "#/$defs/Script"
+              "$ref": "#/$defs/TemplateScript"
             },
             {
               "type": "null"
@@ -255,7 +256,7 @@
         "beforeSave": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Script"
+              "$ref": "#/$defs/TemplateScript"
             },
             {
               "type": "null"
@@ -265,7 +266,7 @@
         "beforePublish": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Script"
+              "$ref": "#/$defs/TemplateScript"
             },
             {
               "type": "null"
@@ -275,7 +276,7 @@
         "afterSave": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Script"
+              "$ref": "#/$defs/TemplateScript"
             },
             {
               "type": "null"
@@ -285,7 +286,7 @@
         "afterPublish": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Script"
+              "$ref": "#/$defs/TemplateScript"
             },
             {
               "type": "null"
@@ -295,7 +296,7 @@
         "afterUnpublish": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Script"
+              "$ref": "#/$defs/TemplateScript"
             },
             {
               "type": "null"

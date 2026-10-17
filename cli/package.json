@@ -2,7 +2,7 @@
   "name": "@new-cms/cli",
   "version": "0.1.0",
   "private": true,
-  "description": "CMSのCLI（スキーマのデプロイ、既存のブログからの取り込み）",
+  "description": "CMSのCLI（スキーマのデプロイ、カスタムノードの雛形、既存のブログからの取り込み）",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -21,11 +21,17 @@
     "@tiptap/core": "3.32.0",
     "@tiptap/pm": "3.32.0",
     "@tiptap/starter-kit": "3.32.0",
+    "esbuild": "0.28.2",
     "markdown-it": "15.0.2",
     "yaml": "2.9.1"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
     "typescript": "7.0.2"
+  },
+  "exports": {
+    "./types": {
+      "types": "./types/index.d.ts"
+    }
   }
 }
