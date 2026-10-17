@@ -29,19 +29,29 @@ export function tagsOf(html: string): string[] {
   return html.match(/<\/?[a-zA-Z][^>]*>/g) ?? [];
 }
 
+/** タグの属性（名前は小文字、値は引用符を外したもの）。値の中の文字列は属性として数えない。 */
+export function attributesOf(tag: string): { name: string; value: string }[] {
+  const body = tag.replace(/^<\/?[a-zA-Z][a-zA-Z0-9:-]*/, "").replace(/\/?>$/, "");
+  const out: { name: string; value: string }[] = [];
+  const re = /([^\s"'>\/=]+)(?:\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]*)))?/g;
+  for (const m of body.matchAll(re)) {
+    out.push({ name: m[1]!.toLowerCase(), value: m[3] ?? m[4] ?? m[5] ?? "" });
+  }
+  return out;
+}
+
 /** スクリプトを実行できる要素や属性が、HTMLに含まれないことを確かめる。 */
 export function expectNoActiveHtml(html: string, what: string): void {
   expect(/<!--|<!\[cdata\[|<\?/i.test(html), `${what}: コメントや処理命令が含まれている`).toBe(false);
   for (const tag of tagsOf(html)) {
     const name = /^<\/?([a-zA-Z][a-zA-Z0-9:-]*)/.exec(tag)![1]!.toLowerCase();
     expect(ACTIVE_ELEMENTS.includes(name), `${what}: 要素 <${name}> が含まれている: ${tag}`).toBe(false);
-    expect(/[\s/"']on[a-z]+\s*=/i.test(tag), `${what}: イベントの属性が含まれている: ${tag}`).toBe(false);
-    expect(/[\s/"'](style|srcdoc)\s*=/i.test(tag), `${what}: style や srcdoc の属性が含まれている: ${tag}`).toBe(false);
-    for (const m of tag.matchAll(/[\s/"']([a-zA-Z:-]+)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/g)) {
-      const attr = m[1]!.toLowerCase();
-      if (!URL_ATTRS.includes(attr)) continue;
-      const value = normalizeValue(m[3] ?? m[4] ?? m[5] ?? "");
-      expect(/^(javascript|vbscript|data|file):/.test(value), `${what}: 危険なスキームのURLが含まれている: ${tag}`).toBe(false);
+    for (const a of attributesOf(tag)) {
+      expect(/^on/.test(a.name), `${what}: イベントの属性が含まれている: ${tag}`).toBe(false);
+      expect(["style", "srcdoc"].includes(a.name), `${what}: style や srcdoc の属性が含まれている: ${tag}`).toBe(false);
+      if (URL_ATTRS.includes(a.name)) {
+        expect(/^(javascript|vbscript|data|file):/.test(normalizeValue(a.value)), `${what}: 危険なスキームのURLが含まれている: ${tag}`).toBe(false);
+      }
     }
   }
 }

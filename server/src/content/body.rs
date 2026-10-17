@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::{Map, Value};
 
-use crate::schema::manifest::Body;
+use crate::schema::manifest::{AttrType, Body};
 
 /// 見出しのノードの名前と、アンカーIDの属性の名前。アンカーIDは、マニフェストの定義によらず見出しに付ける。
 pub const HEADING: &str = "heading";
@@ -275,6 +275,26 @@ fn check_node(
     }
     let extra: &[&str] = if ty == HEADING { &[ANCHOR_ATTR] } else { &[] };
     check_attrs(ctx, path, obj.get("attrs"), &def.attrs, extra);
+    // カスタムノードの属性は、宣言した型の値（または null）だけを受け付ける
+    if let (Some(custom), Some(attrs)) = (
+        ctx.body.custom_node(ty),
+        obj.get("attrs").and_then(Value::as_object),
+    ) {
+        for a in &custom.attrs {
+            let ok = match (a.kind, attrs.get(&a.name)) {
+                (_, None | Some(Value::Null)) => true,
+                (AttrType::String, Some(v)) => v.is_string(),
+                (AttrType::Number, Some(v)) => v.is_number(),
+                (AttrType::Boolean, Some(v)) => v.is_boolean(),
+            };
+            if !ok {
+                ctx.problem(
+                    &format!("{path}.attrs.{}", a.name),
+                    "attribute value does not match the declared type",
+                );
+            }
+        }
+    }
     if ty == HEADING {
         ctx.headings.push(index_path.clone());
     }
@@ -321,9 +341,10 @@ fn check_node(
 
 /// 本文を検証し、アンカーIDを決めた本文を返す。問題があれば、その一覧を返す。
 pub fn validate(doc: &Value, body: &Body) -> Result<Value, Vec<String>> {
+    let all_nodes = body.all_nodes();
     let mut ctx = Ctx {
         body,
-        nodes: body.nodes.iter().map(|n| (n.name.as_str(), n)).collect(),
+        nodes: all_nodes.iter().map(|n| (n.name.as_str(), n)).collect(),
         marks: body.marks.iter().map(|m| (m.name.as_str(), m)).collect(),
         problems: Vec::new(),
         count: 0,

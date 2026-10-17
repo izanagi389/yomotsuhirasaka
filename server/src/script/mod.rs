@@ -22,13 +22,34 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use rquickjs::{Context, Ctx, Function, Module, Runtime, Value as JsValue};
+use rquickjs::{Context, Ctx, Function, Module, Object, Runtime, Value as JsValue};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::Semaphore;
 
 pub use host::Host;
+
+/// 本文の変換器（`packages/converter` をビルドしたもの。`npm run sync:server -w @new-cms/converter` で更新する）。
+pub const CONVERTER_SOURCE: &str = include_str!("converter.js");
+/// 変換器の版（`packages/converter` の `VERSION`。テストで一致を確かめる）。版に保存し、変わったら作り直す（Q58）。
+pub const CONVERTER_VERSION: &str = "1";
+
+/// カスタムノードの変換関数（変換器に渡す）。
+#[derive(Debug, Clone)]
+pub struct CustomNodeScripts {
+    pub name: String,
+    pub inline: bool,
+    pub to_markdown: String,
+    pub to_html: Option<String>,
+}
+
+/// 本文のフィールドを変換した結果。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rendered {
+    pub markdown: String,
+    pub html: String,
+}
 
 /// 関数のソースの大きさの上限（バイト）。
 pub const MAX_SOURCE_BYTES: usize = 512 * 1024;
@@ -172,6 +193,28 @@ impl Engine {
         parse_errors(self.call(Mode::Sync, script, Some(host), input).await?)
     }
 
+    /// 本文のフィールド（名前 → TiptapのJSON）を、Markdown と HTML に変換する。HTMLは無害化する前のもの。
+    pub async fn render(
+        &self,
+        nodes: Vec<CustomNodeScripts>,
+        docs: &Map<String, Value>,
+    ) -> Result<std::collections::BTreeMap<String, Rendered>, Failure> {
+        if docs.is_empty() {
+            return Ok(Default::default());
+        }
+        let _permit = self
+            .running
+            .acquire()
+            .await
+            .map_err(|_| Failure::Internal)?;
+        let limits = self.limits_for(Mode::Sync);
+        let docs = Value::Object(docs.clone()).to_string();
+        let out = tokio::task::spawn_blocking(move || run_render(limits, &nodes, &docs))
+            .await
+            .map_err(|_| Failure::Internal)??;
+        serde_json::from_value(out).map_err(|_| Failure::InvalidResult)
+    }
+
     /// 非同期のフック（保存後・公開後・非公開の後）。返した値は使わない。
     pub async fn after(&self, script: &Script, host: Host, input: &Value) -> Result<(), Failure> {
         self.call(Mode::Async, script, Some(host), input)
@@ -293,15 +336,12 @@ fn valid_url(s: &str) -> bool {
             .is_ok_and(|u| matches!(u.scheme(), "https" | "http") && u.host().is_some())
 }
 
-/// 新しいランタイムで、モジュールを読み込み、`input` があれば既定のエクスポートを呼ぶ（ブロッキング用のスレッドで呼ぶ）。
-/// 返り値は関数の返した値（`input` がなければ null）。
-fn run(
-    limits: Limits,
-    source: &str,
-    permissions: &[Permission],
-    host: Option<host::Bound>,
-    input: Option<&str>,
-) -> Result<Value, Failure> {
+/// 新しいランタイムを上限付きで作り、`f` を動かす（ブロッキング用のスレッドで呼ぶ）。
+/// `f` には、上限の時刻（ホスト関数が待つ時間の上限に使う）を渡す。
+fn execute<F>(limits: Limits, f: F) -> Result<Value, Failure>
+where
+    F: for<'js> FnOnce(&Ctx<'js>, Instant) -> rquickjs::Result<Value>,
+{
     let runtime = Runtime::new().map_err(|_| Failure::Internal)?;
     runtime.set_memory_limit(limits.memory_bytes);
     runtime.set_max_stack_size(MAX_STACK_BYTES);
@@ -316,28 +356,70 @@ fn run(
         over
     })));
     let context = Context::full(&runtime).map_err(|_| Failure::Internal)?;
-    let result = context.with(|ctx| {
-        let outcome = (|| -> rquickjs::Result<Value> {
-            if let Some(host) = host {
-                host::install(&ctx, permissions, host, deadline)?;
-            }
-            let (module, promise) =
-                Module::declare(ctx.clone(), "template-function", source)?.eval()?;
-            promise.finish::<()>()?;
-            let f: Function = module.get("default")?;
-            let Some(input) = input else {
-                return Ok(Value::Null);
-            };
-            let arg = ctx.json_parse(input)?;
-            let out: JsValue = f.call((arg,))?;
-            Ok(to_json(&ctx, out))
-        })();
-        outcome.map_err(|e| classify(&ctx, &e))
-    });
+    let result = context.with(|ctx| f(&ctx, deadline).map_err(|e| classify(&ctx, &e)));
     match result {
         Err(_) if timed_out.load(Ordering::Relaxed) => Err(Failure::TimeLimit),
         other => other,
     }
+}
+
+/// モジュールを読み込み、既定のエクスポートの関数を返す。
+fn load_default<'js>(ctx: &Ctx<'js>, name: &str, source: &str) -> rquickjs::Result<Function<'js>> {
+    let (module, promise) = Module::declare(ctx.clone(), name, source)?.eval()?;
+    promise.finish::<()>()?;
+    module.get("default")
+}
+
+/// 新しいランタイムで、モジュールを読み込み、`input` があれば既定のエクスポートを呼ぶ（ブロッキング用のスレッドで呼ぶ）。
+/// 返り値は関数の返した値（`input` がなければ null）。
+fn run(
+    limits: Limits,
+    source: &str,
+    permissions: &[Permission],
+    host: Option<host::Bound>,
+    input: Option<&str>,
+) -> Result<Value, Failure> {
+    execute(limits, |ctx, deadline| {
+        if let Some(host) = host {
+            host::install(ctx, permissions, host, deadline)?;
+        }
+        let f = load_default(ctx, "template-function", source)?;
+        let Some(input) = input else {
+            return Ok(Value::Null);
+        };
+        let arg = ctx.json_parse(input)?;
+        let out: JsValue = f.call((arg,))?;
+        Ok(to_json(ctx, out))
+    })
+}
+
+/// 変換器で本文のフィールドを変換する（ブロッキング用のスレッドで呼ぶ）。
+fn run_render(limits: Limits, nodes: &[CustomNodeScripts], docs: &str) -> Result<Value, Failure> {
+    execute(limits, |ctx, _| {
+        let (converter, promise) =
+            Module::declare(ctx.clone(), "converter", CONVERTER_SOURCE)?.eval()?;
+        promise.finish::<()>()?;
+        let render: Function = converter.get("renderFields")?;
+        let registry = Object::new(ctx.clone())?;
+        for (i, n) in nodes.iter().enumerate() {
+            let entry = Object::new(ctx.clone())?;
+            entry.set(
+                "toMarkdown",
+                load_default(ctx, &format!("node-{i}-markdown"), &n.to_markdown)?,
+            )?;
+            if let Some(html) = &n.to_html {
+                entry.set(
+                    "toHtml",
+                    load_default(ctx, &format!("node-{i}-html"), html)?,
+                )?;
+            }
+            entry.set("inline", n.inline)?;
+            registry.set(n.name.as_str(), entry)?;
+        }
+        let docs = ctx.json_parse(docs)?;
+        let out: JsValue = render.call((docs, registry))?;
+        Ok(to_json(ctx, out))
+    })
 }
 
 /// 関数の返した値をJSONにする（JSONにできない値は InvalidResult になるよう、ここでは null にしない）。
@@ -495,6 +577,46 @@ mod tests {
             e.check(&script("syntax error here")).await,
             Err(Failure::Exception)
         );
+    }
+
+    #[test]
+    fn converter_version_matches_the_package() {
+        assert!(
+            CONVERTER_SOURCE.contains(&format!("export const VERSION = \"{CONVERTER_VERSION}\";")),
+            "update CONVERTER_VERSION to the converter's VERSION"
+        );
+    }
+
+    #[tokio::test]
+    async fn renders_with_custom_nodes() {
+        let e = engine(32, 2000);
+        let docs: Map<String, Value> = serde_json::from_str(
+            r#"{"body": {"type": "doc", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "<b>x</b>"}]},
+                {"type": "callout", "attrs": {"label": "L"}}
+            ]}}"#,
+        )
+        .unwrap();
+        let nodes = vec![CustomNodeScripts {
+            name: "callout".into(),
+            inline: false,
+            to_markdown: "export default function (n) { return '> ' + n.attrs.label; }".into(),
+            to_html: Some(
+                "export default function (n) { return '<aside>' + n.attrs.label + '</aside>'; }"
+                    .into(),
+            ),
+        }];
+        let out = e.render(nodes.clone(), &docs).await.unwrap();
+        assert_eq!(out["body"].markdown, "\\<b\\>x\\</b\\>\n\n> L");
+        assert_eq!(
+            out["body"].html,
+            "<p>&#60;b&#62;x&#60;/b&#62;</p>\n<aside>L</aside>"
+        );
+        let throwing = vec![CustomNodeScripts {
+            to_markdown: "export default function () { throw new Error('x'); }".into(),
+            ..nodes[0].clone()
+        }];
+        assert_eq!(e.render(throwing, &docs).await, Err(Failure::Exception));
     }
 
     #[test]

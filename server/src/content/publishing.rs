@@ -6,6 +6,8 @@
 //! - 公開URLは公開時に計算して保存する。前に公開したときと変わったら、変更履歴に追記する（Q39, Q40、INV-URL-01）。
 //!   コンテンツタイプにURL生成関数があればそれを組み込みJSで動かし、なければテンプレートから作る（Q38）。関数が失敗したら
 //!   （例外、上限超え、正しくない値）、間違ったURLを公開して変更履歴に残さないよう、公開しない（原則8）。
+//! - 公開のとき、本文のフィールドを変換器で Markdown と HTML にして版に保存する。変換に失敗したら（カスタムノードの
+//!   変換関数の例外など）公開しない（間違った出力を公開しないため。URL生成関数と同じ）。
 //! - 公開前のフック（beforePublish）が理由を返したら公開しない。フックが失敗したときも公開しない（URL生成関数と同じ）。
 //! - 「訂正として公開」は、前の版から影響したセクションを求めて版に記録する（Q42、INV-COR-01）。前に一度も公開していない記事は訂正にできない。
 //! - 版のメタデータ（番号、日時、URL、アンカーID、訂正の記録）は、本文を抹消しても残す（Q134）。
@@ -55,6 +57,43 @@ pub enum Refused {
     HookRejected(Vec<String>),
     /// 公開前のフックが失敗した。
     HookFailed(Failure),
+    /// 本文を変換できなかった。
+    ConversionFailed(Failure),
+}
+
+/// カスタムノードの変換関数（変換器に渡す形）。
+pub fn custom_node_scripts(manifest: &Manifest) -> Vec<crate::script::CustomNodeScripts> {
+    manifest
+        .body
+        .custom_nodes
+        .iter()
+        .filter_map(|c| {
+            Some(crate::script::CustomNodeScripts {
+                name: c.name.clone(),
+                inline: c.inline,
+                to_markdown: c.to_markdown.as_ref()?.source.clone(),
+                to_html: c.to_html.as_ref().map(|s| s.source.clone()),
+            })
+        })
+        .collect()
+}
+
+/// 本文のフィールドを変換する（フィールド名 → {markdown, html}）。
+async fn render(
+    scripts: &Scripts<'_>,
+    manifest: &Manifest,
+    ct: &ContentType,
+    values: &Map<String, Value>,
+) -> Result<Value, Failure> {
+    let docs: Map<String, Value> = rich_text_fields(ct, values)
+        .into_iter()
+        .map(|(name, doc)| (name.to_owned(), doc.clone()))
+        .collect();
+    let out = scripts
+        .engine
+        .render(custom_node_scripts(manifest), &docs)
+        .await?;
+    serde_json::to_value(out).map_err(|_| Failure::Internal)
 }
 
 /// 同期のフックに渡す記事（`{id, contentType, locale, fields}`）。
@@ -309,6 +348,9 @@ pub async fn check_before_publish(
             f.describe()
         )),
     }
+    if let Err(f) = render(scripts, manifest, ct, &draft.fields).await {
+        problems.push(format!("body: cannot convert the body ({})", f.describe()));
+    }
     let url = url_of(scripts, ct, &draft).await.unwrap_or_else(|f| {
         problems.push(format!(
             "url: cannot make the public URL ({})",
@@ -399,6 +441,10 @@ pub async fn publish(
         return Ok(Err(Refused::UrlTaken));
     }
 
+    let rendered = match render(scripts, manifest, ct, &draft.fields).await {
+        Ok(r) => r,
+        Err(f) => return Ok(Err(Refused::ConversionFailed(f))),
+    };
     let snapshot = Value::Object(draft.fields.clone());
     let anchors: Vec<String> = rich_texts(ct, &draft.fields)
         .into_iter()
@@ -419,8 +465,8 @@ pub async fn publish(
     let version_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO versions (id, entry_id, number, schema_version, fields, published_by, correction,
-                               url, anchors, affected_anchors, affects_lead)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11)",
+                               url, anchors, affected_anchors, affects_lead, rendered, rendered_with)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)",
     )
     .bind(version_id)
     .bind(entry_id)
@@ -433,6 +479,8 @@ pub async fn publish(
     .bind(&anchors)
     .bind(affected_anchors.as_deref())
     .bind(affects_lead)
+    .bind(rendered.to_string())
+    .bind(crate::script::CONVERTER_VERSION)
     .execute(&mut *conn)
     .await?;
     sqlx::query("UPDATE entries SET published_version_id = $2, url = $3 WHERE id = $1")

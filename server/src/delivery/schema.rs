@@ -218,8 +218,66 @@ fn entry_type(ct: &ContentType) -> Object {
             field = field.description(d.clone());
         }
         obj = obj.field(field);
+        if f.kind == FieldType::Richtext {
+            obj = obj
+                .field(rendered_field(&f.name, Rendering::Html))
+                .field(rendered_field(&f.name, Rendering::Markdown));
+        }
     }
     obj
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Rendering {
+    Html,
+    Markdown,
+}
+
+/// 本文のフィールドを変換したもの（`<名前>Html`・`<名前>Markdown`）。公開のときに版ごとに作ったものを返す。
+/// 画像の参照先はその時点のメディアのURLに置き換え、HTMLは返すたびに無害化する（INV-CNV-01）。
+/// フィールドの名前は英小文字・数字・`_` だけなので、大文字を含むこの名前が他のフィールドとぶつかることはない。
+fn rendered_field(field: &str, kind: Rendering) -> Field {
+    let (suffix, key) = match kind {
+        Rendering::Html => ("Html", "html"),
+        Rendering::Markdown => ("Markdown", "markdown"),
+    };
+    let name = field.to_owned();
+    Field::new(
+        format!("{field}{suffix}"),
+        TypeRef::named(TypeRef::STRING),
+        move |ctx| {
+            let name = name.clone();
+            FieldFuture::new(async move {
+                let e = parent(&ctx)?;
+                let Some(text) = e
+                    .rendered
+                    .get(&name)
+                    .and_then(|r| r.get(key))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                else {
+                    return Ok(None);
+                };
+                let req = request(&ctx)?;
+                let mut guard = req.tx.lock().await;
+                let Some(tx) = guard.as_mut() else {
+                    return Ok(None);
+                };
+                let text = data::resolve_media_refs(tx, &req.media_base, req.workspace_id, &text)
+                    .await
+                    .map_err(internal)?;
+                let text = match kind {
+                    Rendering::Html => crate::content::html::sanitize(&text),
+                    Rendering::Markdown => text,
+                };
+                Ok(Some(GqlValue::from(text)))
+            })
+        },
+    )
+    .description(match kind {
+        Rendering::Html => "The rich text field converted to HTML (sanitized).",
+        Rendering::Markdown => "The rich text field converted to Markdown.",
+    })
 }
 
 fn root_fields(query: Object, ct: &ContentType) -> Object {

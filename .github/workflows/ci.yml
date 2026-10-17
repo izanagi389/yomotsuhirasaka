@@ -73,6 +73,11 @@ jobs:
                   npm run typecheck -w @new-cms/editor-schema
                   npm test -w @new-cms/editor-schema
                   npm run build -w @new-cms/editor-schema
+            # 変換器のテストは、サーバーに同梱したコピー（server/src/script/converter.js）が最新かも確かめる
+            - name: Type check and test the body converter
+              run: |
+                  npm run typecheck -w @new-cms/converter
+                  npm test -w @new-cms/converter
             - name: Build and test the Nuxt module
               run: |
                   npm run typecheck -w @new-cms/nuxt

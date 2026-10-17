@@ -143,7 +143,7 @@ inv("inv_cnv_01", "変換器が出力するHTMLでは、本文中の文字列が
   const body = doc(
     heading(nasty[0]!),
     paragraph(nasty[1]!, text(nasty[2]!, [{ type: "bold" }]), link(nasty[3]!, `https://example.com/?q="><script>alert(1)</script>${m}`)),
-    paragraph(link("anchor", `#"><img src=x onerror=alert(1)>`), { type: "badge", attrs: { label: nasty[4]! } }),
+    paragraph(link("anchor", `#"><img/src=x/onerror=alert(1)>`), { type: "badge", attrs: { label: nasty[4]! } }),
     { type: "codeBlock", attrs: { language: `"><script>alert(1)</script>` }, content: [text(nasty[5]!)] },
     { type: "blockquote", content: [paragraph(nasty[0]!)] },
     driver.body.image({ mediaId: media.id, alt: `"onerror="alert(1)" x="${m}` }),

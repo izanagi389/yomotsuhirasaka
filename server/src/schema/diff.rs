@@ -111,9 +111,10 @@ pub fn breaking_changes(old: Option<&Manifest>, new: &Manifest) -> Vec<Breaking>
     for l in removed(old.locales.iter().collect(), new.locales.iter().collect()) {
         out.push(Breaking::LocaleRemoved(l));
     }
+    let (old_nodes, new_nodes) = (old.body.all_nodes(), new.body.all_nodes());
     for n in removed(
-        old.body.nodes.iter().map(|n| &n.name).collect(),
-        new.body.nodes.iter().map(|n| &n.name).collect(),
+        old_nodes.iter().map(|n| &n.name).collect(),
+        new_nodes.iter().map(|n| &n.name).collect(),
     ) {
         out.push(Breaking::BodyNodeRemoved(n));
     }
