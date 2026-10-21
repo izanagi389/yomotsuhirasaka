@@ -24,6 +24,11 @@ jobs:
         env:
             # server/tests/ のDBの結合テストが使う（なければ飛ばされる）
             CMS_TEST_PG_SUPERUSER_URL: postgres://postgres:ci-only-superuser-pw-16@127.0.0.1:5432/postgres
+            # 結合テストはファイルごとに実行ファイルができ、デバッグ情報を丸ごと入れるとランナーのディスクが足りなくなる。
+            # 失敗したときの行番号だけを残す（手元の Cargo.toml の設定は変えない）
+            CARGO_INCREMENTAL: "0"
+            CARGO_PROFILE_DEV_DEBUG: line-tables-only
+            CARGO_PROFILE_TEST_DEBUG: line-tables-only
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             # パスキーの照合（webauthn-rs）が OpenSSL を使う
