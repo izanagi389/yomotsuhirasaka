@@ -208,14 +208,21 @@ export interface UrlChange {
  * - deep: 参照フィールド `related` を depth 段たどる（深さの検査用）
  * - wide: 一覧を aliases 個の別名で並べる（複雑さの検査用）
  * - redirects: ワークスペースのリダイレクト一覧（M2。読むのは driver.redirects.parse）
+ * - correctionFeed: 訂正フィード（M2）。変数 `locale`、`limit` を取る
+ * - byId の include の corrections・deletedAnchors・freshness は、記事の訂正履歴・削除済みアンカー・鮮度（M2）
  * - text: GraphQLの文をそのまま使う
  */
 export type QuerySpec =
   | { kind: "list"; fields?: string[] }
-  | { kind: "byId"; fields?: string[]; include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related")[] }
+  | {
+      kind: "byId";
+      fields?: string[];
+      include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness")[];
+    }
   | { kind: "deep"; depth: number }
   | { kind: "wide"; aliases: number }
   | { kind: "redirects" }
+  | { kind: "correctionFeed" }
   | { kind: "text"; text: string };
 
 /** 登録済みクエリの参照。 */
@@ -381,8 +388,13 @@ export interface CmsClient {
   saveDraftRaw(auth: Auth, workspaceId: string, entryId: string, changes: Partial<EntryInput>, revision: string): Promise<HttpResponse>;
   /** 最新のリビジョン番号を読んでから保存する。 */
   saveDraft(session: Session, workspaceId: string, entryId: string, changes: Partial<EntryInput>): Promise<void>;
-  publishEntry(session: Session, workspaceId: string, entryId: string, options?: { correction?: boolean }): Promise<void>;
-  publishRaw(auth: Auth, workspaceId: string, entryId: string, options?: { correction?: boolean }): Promise<HttpResponse>;
+  /** 公開する。note は「訂正として公開」のときの説明（自由記述）。 */
+  publishEntry(session: Session, workspaceId: string, entryId: string, options?: { correction?: boolean; note?: string }): Promise<void>;
+  publishRaw(auth: Auth, workspaceId: string, entryId: string, options?: { correction?: boolean; note?: string }): Promise<HttpResponse>;
+  /** 訂正の説明を書き直す（公開した後でも書ける。編集の履歴は管理画面の中だけに残る）。 */
+  editCorrectionNote(session: Session, workspaceId: string, entryId: string, versionId: string, note: string): Promise<void>;
+  /** 「確認済み」を記録する（最終確認日を進める。版は作らない）。 */
+  markVerified(session: Session, workspaceId: string, entryId: string, memo: string): Promise<void>;
   unpublishEntry(session: Session, workspaceId: string, entryId: string): Promise<void>;
   deleteEntry(session: Session, workspaceId: string, entryId: string): Promise<void>;
   /** 記事の公開設定（外部AI向けの素材に含めるか、など）を1つ切り替える。 */

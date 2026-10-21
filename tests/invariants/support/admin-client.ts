@@ -290,15 +290,28 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
 
   // --- 公開・版 ---
   // 公開は、同じ認証で読んだ下書きのリビジョン番号を付けて送る（読めなければ、合わないリビジョン番号で送る）
-  const publishRaw = async (auth: Auth, workspaceId: string, entryId: string, options: { correction?: boolean } = {}, extras?: RequestExtras): Promise<HttpResponse> => {
+  const publishRaw = async (
+    auth: Auth,
+    workspaceId: string,
+    entryId: string,
+    options: { correction?: boolean; note?: string } = {},
+    extras?: RequestExtras,
+  ): Promise<HttpResponse> => {
     const current = await getEntryRaw(auth, workspaceId, entryId, extras);
     const revision = isSuccess(current) ? (JSON.parse(current.text) as { revision: number }).revision : 0;
+    // 訂正の説明は自由記述として送る（定型文を選ぶ操作は管理画面のもの。server/src/http/admin_corrections.rs）
+    const note = options.note === undefined ? {} : { correctionNote: { text: options.note } };
     return request("POST", `${entriesPath(workspaceId)}/${entryId}/publish`, {
       auth,
       extras,
-      body: { revision, correction: options.correction ?? false },
+      body: { revision, correction: options.correction ?? false, ...note },
     });
   };
+  // 訂正の説明を書き直す（版ごと）。確認済みを記録する（記事ごと）
+  const editCorrectionNoteRaw = (auth: Auth, workspaceId: string, entryId: string, versionId: string, note: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("PUT", `${entriesPath(workspaceId)}/${entryId}/versions/${versionId}/correction-note`, { auth, extras, body: { text: note } });
+  const markVerifiedRaw = (auth: Auth, workspaceId: string, entryId: string, memo: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", `${entriesPath(workspaceId)}/${entryId}/verify`, { auth, extras, body: { memo } });
   const unpublishRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("POST", `${entriesPath(workspaceId)}/${entryId}/unpublish`, { auth, extras });
   const deleteEntryRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
@@ -352,7 +365,11 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const DEFAULT_LOCALE = BASE_TEMPLATE.defaultLocale;
   const selection = (fields?: string[]): string => (fields ? ["id", ...fields.filter((f) => f !== "id")] : ["id", "title", "slug"]).join(" ");
   // 変換した本文: 本文のフィールド <名前> に対して <名前>Html と <名前>Markdown（server/src/delivery/schema.rs）
-  const INCLUDES: Record<"body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related", string> = {
+  // 訂正履歴・削除済みアンカー・鮮度（M2。server/src/delivery/schema.rs）
+  const INCLUDES: Record<"body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness", string> = {
+    corrections: "corrections { correctedAt description sections }",
+    deletedAnchors: "deletedAnchors { anchor deletedAt description }",
+    freshness: "lastVerifiedAt reviewDueAt reviewExpired",
     body: "body",
     bodyHtml: "bodyHtml",
     bodyMarkdown: "bodyMarkdown",
@@ -370,6 +387,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         return `{ ${LIST}(locale: ${JSON.stringify(DEFAULT_LOCALE)}) { ${"related { ".repeat(spec.depth)}id${" }".repeat(spec.depth)} } }`;
       case "wide":
         return `{ ${Array.from({ length: spec.aliases }, (_, i) => `a${i}: ${LIST}(locale: ${JSON.stringify(DEFAULT_LOCALE)}) { id }`).join(" ")} }`;
+      case "correctionFeed":
+        return "query($locale: String!, $limit: Int) { corrections(locale: $locale, limit: $limit) { entryId url correctedAt description sections } }";
       case "redirects":
         return "{ redirects { from to status } }";
       case "text":
@@ -438,6 +457,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("publishEntry", true, "workspace", (auth, t, extras) => publishRaw(auth, t.workspaceId, t.entryId, {}, extras)),
     op("publishAsCorrection", true, "workspace", (auth, t, extras) => publishRaw(auth, t.workspaceId, t.entryId, { correction: true }, extras)),
     op("unpublishEntry", true, "workspace", (auth, t, extras) => unpublishRaw(auth, t.workspaceId, t.entryId, extras)),
+    // 対象は存在しない版（舞台の記事を変えないため）
+    op("editCorrectionNote", true, "workspace", (auth, t, extras) => editCorrectionNoteRaw(auth, t.workspaceId, t.entryId, randomUUID(), "inv-op", extras)),
+    op("markVerified", true, "workspace", (auth, t, extras) => markVerifiedRaw(auth, t.workspaceId, t.entryId, "inv-op", extras)),
     // 対象は存在しない記事（舞台の記事を壊さないため）
     op("deleteEntry", true, "workspace", (auth, t, extras) => deleteEntryRaw(auth, t.workspaceId, randomUUID(), extras)),
     op("getPublishSettings", false, "workspace", (auth, t, extras) => getPublishSettingsRaw(auth, t.workspaceId, t.entryId, extras)),
@@ -630,9 +652,15 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       const current = toDraft(ensure("下書きの取得", await getEntryRaw(session(s), workspaceId, entryId)));
       ensure("下書きの保存", await saveDraftRaw(session(s), workspaceId, entryId, changes, current.revision));
     },
-    publishRaw: (auth: Auth, workspaceId: string, entryId: string, options?: { correction?: boolean }) => publishRaw(auth, workspaceId, entryId, options),
-    async publishEntry(s: Session, workspaceId: string, entryId: string, options?: { correction?: boolean }): Promise<void> {
+    publishRaw: (auth: Auth, workspaceId: string, entryId: string, options?: { correction?: boolean; note?: string }) => publishRaw(auth, workspaceId, entryId, options),
+    async publishEntry(s: Session, workspaceId: string, entryId: string, options?: { correction?: boolean; note?: string }): Promise<void> {
       ensure(options?.correction ? "訂正としての公開" : "公開", await publishRaw(session(s), workspaceId, entryId, options));
+    },
+    async editCorrectionNote(s: Session, workspaceId: string, entryId: string, versionId: string, note: string): Promise<void> {
+      ensure("訂正の説明の書き直し", await editCorrectionNoteRaw(session(s), workspaceId, entryId, versionId, note));
+    },
+    async markVerified(s: Session, workspaceId: string, entryId: string, memo: string): Promise<void> {
+      ensure("確認済みの記録", await markVerifiedRaw(session(s), workspaceId, entryId, memo));
     },
     async unpublishEntry(s: Session, workspaceId: string, entryId: string): Promise<void> {
       ensure("非公開", await unpublishRaw(session(s), workspaceId, entryId));
