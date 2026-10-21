@@ -59,3 +59,72 @@ describe("containsSecret", () => {
     expect(containsSecret({ a: ["x", { b: "cms_pat_zzz" }] })).toBe(true);
   });
 });
+
+describe("Webhookの署名の検証", async () => {
+  const { createHmac } = await import("node:crypto");
+  const { SeenEvents, parseSignature, verifySignature, MAX_SKEW_SECONDS } = await import("../src/runtime/server/webhook-verify.ts");
+  const now = 1_800_000_000;
+  const body = JSON.stringify({ type: "entry.published", workspaceId: "w", entryId: "e" });
+  const sign = (secret: string, t = now, id = "evt-1", b = body) => createHmac("sha256", secret).update(`${t}.${id}.${b}`).digest("hex");
+  const header = (sigs: string[], t = now, id = "evt-1") => [`t=${t}`, `id=${id}`, ...sigs.map((s) => `v1=${s}`)].join(",");
+
+  it("正しい署名を受け付け、同じイベントの再送は受け付けない", () => {
+    const seen = new SeenEvents();
+    expect(verifySignature(header([sign("s1")]), body, ["s1"], seen, now)).toBe(true);
+    expect(verifySignature(header([sign("s1")]), body, ["s1"], seen, now)).toBe(false);
+  });
+
+  it("秘密の入れ替え中は、新旧のどちらの署名でも受け付ける", () => {
+    expect(verifySignature(header([sign("old", now, "evt-2"), sign("new", now, "evt-2")], now, "evt-2"), body, ["new"], new SeenEvents(), now)).toBe(true);
+    expect(verifySignature(header([sign("old", now, "evt-3")], now, "evt-3"), body, ["new", "old"], new SeenEvents(), now)).toBe(true);
+  });
+
+  it("秘密・本文・時刻・イベントIDのどれかが違えば受け付けない", () => {
+    const seen = new SeenEvents();
+    expect(verifySignature(header([sign("other")]), body, ["s1"], seen, now)).toBe(false);
+    expect(verifySignature(header([sign("s1")]), body + " ", ["s1"], seen, now)).toBe(false);
+    expect(verifySignature(header([sign("s1", now - MAX_SKEW_SECONDS - 1)], now - MAX_SKEW_SECONDS - 1), body, ["s1"], seen, now)).toBe(false);
+    expect(verifySignature(header([sign("s1", now, "evt-x")], now, "evt-y"), body, ["s1"], seen, now)).toBe(false);
+    expect(verifySignature(header([sign("s1")]), body, [], seen, now)).toBe(false);
+    expect(verifySignature(undefined, body, ["s1"], seen, now)).toBe(false);
+    // 偽の署名では、イベントIDを覚えない（正しいイベントを締め出させない）
+    expect(verifySignature(header([sign("s1")]), body, ["s1"], seen, now)).toBe(true);
+  });
+
+  it("ヘッダーの形が違えば読まない", () => {
+    for (const h of ["", "t=1", "t=1,id=a", "t=x,id=a,v1=" + "0".repeat(64), "t=1,id=a,v1=zz", "t=1,id=a,v2=" + "0".repeat(64)]) {
+      expect(parseSignature(h), h).toBeNull();
+    }
+  });
+});
+
+describe("リダイレクトの規則", async () => {
+  const { normalizePath, toPathRules, toRouteRules } = await import("../src/runtime/server/redirect-rules.ts");
+  const rules = toPathRules(
+    [
+      { from: "https://example.com/ja/blog/old/", to: "https://example.com/ja/blog/new", status: 301 },
+      { from: "https://example.com/ja/blog/gone", to: null, status: 410 },
+      { from: "https://example.com/en/x", to: "https://other.example/en/x", status: 301 },
+      { from: "https://other.example/en/y", to: "https://other.example/en/z", status: 301 },
+      { from: "https://example.com/bad", to: "javascript:alert(1)", status: 301 },
+    ],
+    "https://example.com",
+  );
+
+  it("サイトのオリジンのURLだけを、パスの規則にする", () => {
+    expect(rules.get("/ja/blog/old")).toEqual({ status: 301, to: "/ja/blog/new" });
+    expect(rules.get("/ja/blog/gone")).toEqual({ status: 410, to: null });
+    expect(rules.get("/en/x")).toEqual({ status: 301, to: "https://other.example/en/x" });
+    expect(rules.has("/en/y")).toBe(false);
+    expect(rules.has("/bad")).toBe(false);
+    expect(normalizePath("/a/")).toBe("/a");
+    expect(normalizePath("/")).toBe("/");
+  });
+
+  it("routeRules には 301 だけを入れる", () => {
+    expect(toRouteRules(rules)).toEqual({
+      "/ja/blog/old": { redirect: { to: "/ja/blog/new", statusCode: 301 } },
+      "/en/x": { redirect: { to: "https://other.example/en/x", statusCode: 301 } },
+    });
+  });
+});
