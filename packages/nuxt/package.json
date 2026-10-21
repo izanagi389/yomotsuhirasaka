@@ -2,7 +2,7 @@
   "name": "@new-cms/nuxt",
   "version": "0.1.0",
   "private": true,
-  "description": "CMSの公式Nuxtモジュール（M1: 配信APIからの取得と、本文の描画）",
+  "description": "CMSの公式Nuxtモジュール（配信APIからの取得、本文の描画、リダイレクト、Webhookの受け口）",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {

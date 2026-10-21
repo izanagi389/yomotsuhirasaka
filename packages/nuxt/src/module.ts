@@ -10,12 +10,17 @@
 // - キーは、ブラウザに渡る設定（runtimeConfig.public）やバンドルに入れない。公開の設定にキーがあれば、ビルドを止める
 // - 画面からは useCmsQuery で取る。取るのはサイトのサーバー（`<routePrefix>/<名前>`）で、そこから配信APIを呼ぶ
 // - 本文は <CmsBody :doc="..."> で描く
+// - リダイレクト（siteUrl を設定したとき）: CMSのリダイレクト一覧を、ビルドのときに routeRules の 301 にし、サーバーのミドルウェアで
+//   301 と 410 を返す。一覧はキャッシュし、CMSのWebhook（<webhookRoute>、NUXT_CMS_WEBHOOK_SECRET）を受けたら消す
 
 import { resolve } from "node:path";
 
 import { addComponent, addImports, addServerHandler, createResolver, defineNuxtModule, useLogger } from "nuxt/kit";
 
 import { RegisterError, checkUrl, readQueries, registerQueries } from "./register.ts";
+import { fetchQuery } from "./runtime/server/fetch-query.ts";
+import { REDIRECTS_QUERY, REDIRECTS_QUERY_TEXT } from "./runtime/server/names.ts";
+import { type CmsRedirect, toPathRules, toRouteRules } from "./runtime/server/redirect-rules.ts";
 
 export interface ModuleOptions {
   /** CMSのURL。 */
@@ -26,6 +31,10 @@ export interface ModuleOptions {
   queriesDir: string;
   /** サイトのサーバーの、クエリを取るルートの接頭辞。 */
   routePrefix: string;
+  /** サイトのURL（例: https://example.com）。設定すると、CMSのリダイレクト一覧のうち、このオリジンのURLを転送する。 */
+  siteUrl: string;
+  /** CMSからのWebhookの受け口のパス。秘密は NUXT_CMS_WEBHOOK_SECRET で渡す（設定しなければ受け口は 404）。 */
+  webhookRoute: string;
 }
 
 /** CMSのAPIキー（`cms_key_`）か個人トークン（`cms_pat_`）らしい文字列を含むか。 */
@@ -38,7 +47,7 @@ export function containsSecret(value: unknown): boolean {
 
 export default defineNuxtModule<ModuleOptions>({
   meta: { name: "@new-cms/nuxt", configKey: "cms" },
-  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q" },
+  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q", siteUrl: "", webhookRoute: "/_cms/webhook" },
   async setup(options, nuxt) {
     const logger = useLogger("cms");
     const resolver = createResolver(import.meta.url);
@@ -49,11 +58,15 @@ export default defineNuxtModule<ModuleOptions>({
     }
 
     const url = options.url ? checkUrl(options.url) : "";
-    nuxt.options.runtimeConfig.cms = { url, workspaceId: options.workspaceId, readKey: "" };
+    const siteUrl = options.siteUrl ? new URL(options.siteUrl).origin : "";
+    nuxt.options.runtimeConfig.cms = { url, workspaceId: options.workspaceId, readKey: "", siteUrl, webhookSecret: "" };
     nuxt.options.runtimeConfig.public.cms = { routePrefix: options.routePrefix };
 
     // クエリの登録（nuxt prepare では行わない）
     const queries = readQueries(resolve(nuxt.options.rootDir, options.queriesDir));
+    if (Object.hasOwn(queries, REDIRECTS_QUERY)) throw new RegisterError(`${options.queriesDir}/${REDIRECTS_QUERY}.graphql: this name is used by the module`);
+    // リダイレクト一覧のクエリは、モジュールが自分で登録する
+    if (siteUrl) queries[REDIRECTS_QUERY] = REDIRECTS_QUERY_TEXT;
     let ids: Record<string, string> = {};
     if (Object.keys(queries).length > 0 && !nuxt.options._prepare) {
       const registerKey = process.env["CMS_REGISTER_KEY"];
@@ -63,6 +76,22 @@ export default defineNuxtModule<ModuleOptions>({
       logger.info(`registered ${Object.keys(ids).length} CMS quer${Object.keys(ids).length === 1 ? "y" : "ies"}`);
     }
     nuxt.options.nitro.virtual = { ...nuxt.options.nitro.virtual, "#cms/queries": () => `export default ${JSON.stringify(ids)};` };
+
+    // リダイレクト: ビルドのときに読むキーがあれば routeRules の 301 を作る（サイトが書いた routeRules は上書きしない）。
+    // 410 と、ビルドの後の変更は、サーバーのミドルウェアが返す
+    if (siteUrl && ids[REDIRECTS_QUERY]) {
+      const readKey = process.env["NUXT_CMS_READ_KEY"];
+      if (readKey) {
+        const data = (await fetchQuery({ url, workspaceId: options.workspaceId, readKey }, ids[REDIRECTS_QUERY], undefined)) as { redirects?: CmsRedirect[] } | null;
+        const rules = toRouteRules(toPathRules(data?.redirects ?? [], siteUrl));
+        nuxt.options.routeRules = { ...rules, ...nuxt.options.routeRules };
+        logger.info(`added ${Object.keys(rules).length} redirect(s) from the CMS to routeRules`);
+      } else {
+        logger.info("NUXT_CMS_READ_KEY is not set at build time; CMS redirects are served by the server middleware only");
+      }
+      addServerHandler({ middleware: true, handler: resolver.resolve("./runtime/server/redirects.js") });
+    }
+    addServerHandler({ route: options.webhookRoute, method: "post", handler: resolver.resolve("./runtime/server/webhook.js") });
 
     addServerHandler({ route: `${options.routePrefix}/:name`, method: "get", handler: resolver.resolve("./runtime/server/query.js") });
     addImports({ name: "useCmsQuery", from: resolver.resolve("./runtime/composables.js") });
