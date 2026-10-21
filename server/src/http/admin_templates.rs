@@ -135,7 +135,24 @@ pub async fn deploy_template(
     )
     .await?
     {
-        Ok(outcome) => Ok(Json(DeployResponse::Applied(outcome))),
+        Ok(outcome) => {
+            // URLの決め方が変わったコンテンツタイプは、移行が済んだワークスペースの公開中の記事のURLを再計算する（Q39）
+            for ws in outcome.workspaces.iter().filter(|w| w.state == "ok") {
+                for ct in &outcome.url_rule_changes {
+                    if let Err(e) = crate::content::urls::schedule_content_type(
+                        &state.pool,
+                        &state.keys,
+                        ws.workspace_id,
+                        ct,
+                    )
+                    .await
+                    {
+                        tracing::error!(workspace_id = %ws.workspace_id, "cannot queue URL recomputation: {e:#}");
+                    }
+                }
+            }
+            Ok(Json(DeployResponse::Applied(outcome)))
+        }
         Err(Rejected::Invalid(problems)) => Err(ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "invalid_manifest",

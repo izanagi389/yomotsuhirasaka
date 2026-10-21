@@ -8,9 +8,11 @@ pub mod hooks;
 pub mod html;
 pub mod import;
 pub mod publishing;
+pub mod redirects;
 pub mod sections;
 pub mod settings;
 pub mod translations;
+pub mod urls;
 
 use anyhow::{Context, Result};
 use sqlx::PgPool;

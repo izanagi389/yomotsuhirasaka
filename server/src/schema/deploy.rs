@@ -74,6 +74,9 @@ pub struct Outcome {
     /// 最新の版と同じ内容だった（新しい版は作らず、移行待ちのワークスペースだけやり直した）。
     pub unchanged: bool,
     pub workspaces: Vec<WorkspaceResult>,
+    /// 公開URLの決め方（テンプレートか関数）が変わったコンテンツタイプ（URLの再計算に使う。応答には含めない）。
+    #[serde(skip)]
+    pub url_rule_changes: Vec<String>,
 }
 
 /// テンプレートの版のマニフェスト。
@@ -290,6 +293,10 @@ async fn deploy_locked(
         version,
         unchanged,
         workspaces,
+        url_rule_changes: crate::content::urls::url_rule_changes(
+            latest.as_ref().map(|(_, m)| m),
+            &manifest,
+        ),
     }))
 }
 

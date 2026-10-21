@@ -40,6 +40,14 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
             tracing::error!(job_id = %job.id, "webhook delivery: {e:#}");
             Outcome::Retry("internal_error")
         }),
+        (Some(payload), crate::content::urls::JOB_KIND) => {
+            crate::content::urls::run(&state.pool, &state.keys, &state.scripts, payload)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(job_id = %job.id, "URL recomputation: {e:#}");
+                    Outcome::Retry("internal_error")
+                })
+        }
         (Some(payload), hooks::JOB_KIND) => {
             hooks::run(&state.pool, &state.scripts, state.egress.as_ref(), payload)
                 .await

@@ -20,7 +20,8 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use super::data::{self, Entry};
-use super::names::{self, ALTERNATE_TYPE, JSON_SCALAR, QUERY_TYPE};
+use super::names::{self, ALTERNATE_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE, REDIRECTS_FIELD};
+use crate::content::redirects::{self, Rule};
 use crate::schema::manifest::{ContentType, FieldType, Manifest};
 
 /// 一覧の `offset` の上限。
@@ -380,13 +381,53 @@ fn root_fields(query: Object, ct: &ContentType) -> Object {
     query.field(single).field(by_slug).field(list)
 }
 
+/// リダイレクト一覧の1件の型。
+fn redirect_type() -> Object {
+    Object::new(REDIRECT_TYPE)
+        .description("A redirect from an old public URL. `to` is null and `status` is 410 when the entry was deleted.")
+        .field(Field::new("from", TypeRef::named_nn(TypeRef::STRING), |ctx| {
+            let v = ctx.parent_value.try_downcast_ref::<Rule>().map(|r| r.from.clone());
+            FieldFuture::new(async move { Ok(Some(GqlValue::from(v?))) })
+        }))
+        .field(Field::new("to", TypeRef::named(TypeRef::STRING), |ctx| {
+            let v = ctx.parent_value.try_downcast_ref::<Rule>().map(|r| r.to.clone());
+            FieldFuture::new(async move { Ok(v?.map(GqlValue::from)) })
+        }))
+        .field(Field::new("status", TypeRef::named_nn(TypeRef::INT), |ctx| {
+            let v = ctx.parent_value.try_downcast_ref::<Rule>().map(|r| i32::from(r.status));
+            FieldFuture::new(async move { Ok(Some(GqlValue::from(v?))) })
+        }))
+}
+
+/// リダイレクト一覧（Q40、INV-RED-01, 02）。返すたびに、その時点の記事の状態から作り直す。
+fn redirects_field() -> Field {
+    Field::new(
+        REDIRECTS_FIELD,
+        TypeRef::named_nn_list_nn(REDIRECT_TYPE),
+        |ctx| {
+            FieldFuture::new(async move {
+                let req = request(&ctx)?;
+                let mut guard = req.tx.lock().await;
+                let Some(tx) = guard.as_mut() else {
+                    return Ok(Some(FieldValue::list(Vec::<FieldValue>::new())));
+                };
+                let rules = redirects::list(tx).await.map_err(internal)?;
+                Ok(Some(FieldValue::list(
+                    rules.into_iter().map(FieldValue::owned_any),
+                )))
+            })
+        },
+    )
+    .description("Redirects from old public URLs, resolved to the current URL (no chains).")
+}
+
 /// マニフェストからスキーマを組み立てる。
 pub fn build(
     manifest: &Manifest,
     introspection: bool,
     limits: QueryLimits,
 ) -> anyhow::Result<Schema> {
-    let mut query = Object::new(QUERY_TYPE);
+    let mut query = Object::new(QUERY_TYPE).field(redirects_field());
     for ct in &manifest.content_types {
         query = root_fields(query, ct);
     }
@@ -395,6 +436,7 @@ pub fn build(
             Scalar::new(JSON_SCALAR).description("A JSON value (rich text bodies as Tiptap JSON)."),
         )
         .register(alternate_type())
+        .register(redirect_type())
         .limit_depth(limits.depth)
         .limit_complexity(limits.complexity)
         .disable_suggestions();

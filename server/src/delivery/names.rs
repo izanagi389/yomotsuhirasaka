@@ -16,6 +16,9 @@ use crate::schema::manifest::Manifest;
 pub const QUERY_TYPE: &str = "Query";
 pub const JSON_SCALAR: &str = "CmsJSON";
 pub const ALTERNATE_TYPE: &str = "CmsAlternate";
+pub const REDIRECT_TYPE: &str = "CmsRedirect";
+/// CMSが置くルートのフィールド（リダイレクト一覧）。コンテンツタイプから決まる名前とぶつけない。
+pub const REDIRECTS_FIELD: &str = "redirects";
 
 /// 記事の型のCMSのフィールドのうち、テンプレートのフィールド名（英小文字・数字・_）とぶつかりうるもの。
 pub const RESERVED_FIELDS: [&str; 4] = ["id", "locale", "url", "alternates"];
@@ -70,7 +73,7 @@ pub fn list(content_type: &str) -> String {
 pub fn problems(m: &Manifest) -> Vec<String> {
     let mut problems = Vec::new();
     let mut types = BTreeSet::new();
-    let mut roots = BTreeSet::new();
+    let mut roots = BTreeSet::from([REDIRECTS_FIELD.to_owned()]);
     for (i, ct) in m.content_types.iter().enumerate() {
         let t = type_name(&ct.name);
         if RESERVED_TYPES.contains(&t.as_str()) || t.starts_with("Cms") || !types.insert(t) {
@@ -118,6 +121,10 @@ mod tests {
         other.name = "post_list".into();
         m.content_types.push(other.clone());
         assert!(!problems(&m).is_empty(), "postList collides");
+        m.content_types.pop();
+        other.name = "redirects".into();
+        m.content_types.push(other.clone());
+        assert!(!problems(&m).is_empty(), "redirects is reserved");
         m.content_types.pop();
         other.name = "query".into();
         m.content_types.push(other.clone());
