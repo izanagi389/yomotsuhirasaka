@@ -213,31 +213,48 @@ async fn url_of(
     ct: &ContentType,
     draft: &Draft,
 ) -> Result<Option<String>, Failure> {
+    Ok(
+        compute_url(scripts, ct, draft.id, &draft.locale, &draft.fields)
+            .await?
+            .map(|(url, _)| url),
+    )
+}
+
+/// 記事のフィールドから公開URLを作る（スラッグのフィールドが空なら None）。
+/// URL生成関数を使ったときは、関数がホスト関数で読もうとした記事のID（依存先）も返す（Q39）。
+pub async fn compute_url(
+    scripts: &Scripts<'_>,
+    ct: &ContentType,
+    id: Uuid,
+    locale: &str,
+    fields: &Map<String, Value>,
+) -> Result<Option<(String, Vec<Uuid>)>, Failure> {
     let Some(slug) = ct
         .fields
         .iter()
         .find(|f| f.kind == FieldType::Slug)
-        .and_then(|f| draft.fields.get(&f.name))
+        .and_then(|f| fields.get(&f.name))
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
     else {
         return Ok(None);
     };
     let Some(function) = &ct.url_function else {
-        return Ok(Some(public_url(&ct.url_template, &draft.locale, slug)));
+        return Ok(Some((
+            public_url(&ct.url_template, locale, slug),
+            Vec::new(),
+        )));
     };
     let input = serde_json::json!({
-        "id": draft.id,
-        "contentType": draft.content_type,
-        "locale": draft.locale,
+        "id": id,
+        "contentType": ct.name,
+        "locale": locale,
         "slug": slug,
-        "fields": draft.fields,
+        "fields": fields,
     });
-    scripts
-        .engine
-        .url(function, scripts.host.clone(), &input)
-        .await
-        .map(Some)
+    let host = scripts.host.tracking();
+    let url = scripts.engine.url(function, host.clone(), &input).await?;
+    Ok(Some((url, host.reads())))
 }
 
 /// いちばん新しい版の番号と、本文（抹消していれば None）。
@@ -433,10 +450,11 @@ pub async fn publish(
         Err(f) => return Ok(Err(Refused::HookFailed(f))),
     }
     // スラッグは公開に必須なので、check を通っていれば空でない
-    let url = match url_of(scripts, ct, &draft).await {
-        Ok(url) => url.unwrap_or_default(),
-        Err(f) => return Ok(Err(Refused::UrlFunctionFailed(f))),
-    };
+    let (url, dependencies) =
+        match compute_url(scripts, ct, draft.id, &draft.locale, &draft.fields).await {
+            Ok(url) => url.unwrap_or_default(),
+            Err(f) => return Ok(Err(Refused::UrlFunctionFailed(f))),
+        };
     if url_taken(conn, &url, entry_id).await? {
         return Ok(Err(Refused::UrlTaken));
     }
@@ -489,6 +507,7 @@ pub async fn publish(
         .bind(&url)
         .execute(&mut *conn)
         .await?;
+    super::urls::record_dependencies(conn, entry_id, &dependencies).await?;
     let previous_url = previous_url.filter(|p| *p != url);
     if let Some(from) = &previous_url {
         sqlx::query(

@@ -4,6 +4,7 @@
 //!   と照合する（保存済みの状態やキャッシュを信用しない。原則3、INV-PUB-02）。削除した記事は返さない。
 //! - 参照フィールドは翻訳グループを指し、同じロケールの公開中の記事に解決する（INV-LOC-04）。
 //! - 他のロケールへのリンクには、公開中の記事だけを含める（INV-LOC-03）。
+//! - 公開URLは記事のいまのURL（`entries.url`）。依存先の変化で再計算されると、版を作らずに変わる（Q39）。
 
 use std::collections::HashMap;
 
@@ -46,7 +47,7 @@ type Row = (
 
 fn select(filter: &str, tail: &str) -> String {
     format!(
-        "SELECT e.id, e.content_type, e.locale, e.translation_group_id, v.url,
+        "SELECT e.id, e.content_type, e.locale, e.translation_group_id, e.url,
                 to_char(v.published_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(f.first AT TIME ZONE 'UTC', {RFC3339}),
                 v.fields::text, v.rendered::text

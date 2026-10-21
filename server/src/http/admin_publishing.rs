@@ -140,7 +140,8 @@ async fn notify_webhooks(
     }
 }
 
-/// 公開後・非公開の後のフックを積む（操作を確定した後に呼ぶ）。積めなくても操作は確定しているので、記録して続ける。
+/// 公開後・非公開の後のフックと、この記事に依存する記事のURLの再計算を積む（操作を確定した後に呼ぶ）。
+/// 積めなくても操作は確定しているので、記録して続ける。
 pub(super) async fn schedule_hooks(
     state: &AppState,
     ws: Uuid,
@@ -151,6 +152,11 @@ pub(super) async fn schedule_hooks(
     if let Err(e) = hooks::schedule_after(&state.pool, &state.keys, ws, id, event, version_id).await
     {
         tracing::error!(workspace_id = %ws, entry_id = %id, "cannot queue hooks: {e:#}");
+    }
+    if let Err(e) =
+        crate::content::urls::schedule_dependents(&state.pool, &state.keys, ws, id).await
+    {
+        tracing::error!(workspace_id = %ws, entry_id = %id, "cannot queue URL recomputation: {e:#}");
     }
 }
 

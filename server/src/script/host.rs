@@ -14,6 +14,8 @@
 //! | `content.read` | `cms.content.get(id)` | 同じワークスペースの公開中の記事（`{id, contentType, locale, fields}`）。なければ null |
 //! | `http.fetch` | `cms.http.fetch(url, {method, headers, body})` | `{status, body}`（本文は1MBまで。3xxもそのまま返す）。失敗は例外 |
 
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use rquickjs::function::Opt;
@@ -39,6 +41,8 @@ pub struct Host {
     pool: PgPool,
     db: WorkspaceDb,
     fetch: Option<Fetch>,
+    /// `cms.content.get` で読もうとした記事のID（URL生成関数の依存の記録に使う。05-urls-and-redirects.md、Q39）。
+    reads: Arc<Mutex<BTreeSet<Uuid>>>,
 }
 
 /// 外部へ送る手段（非同期のフックだけが持つ）。
@@ -54,7 +58,24 @@ impl Host {
             pool,
             db,
             fetch: None,
+            reads: Arc::default(),
         }
+    }
+
+    /// 読んだ記事を新しく数え始める写し（1回の関数の実行の依存を集めるため）。
+    pub fn tracking(&self) -> Self {
+        Self {
+            reads: Arc::default(),
+            ..self.clone()
+        }
+    }
+
+    /// これまでに `cms.content.get` で読もうとした記事のID（見つからなかったものも含む。後から公開されうるため）。
+    pub fn reads(&self) -> Vec<Uuid> {
+        self.reads
+            .lock()
+            .map(|r| r.iter().copied().collect())
+            .unwrap_or_default()
     }
 
     /// 外部へ送る手段を付ける（非同期のフック用）。宛先は `allowed_hosts` に限る。
@@ -156,6 +177,9 @@ pub(super) fn install<'js>(
                 let Ok(id) = Uuid::parse_str(&id) else {
                     return Ok(JsValue::new_null(ctx));
                 };
+                if let Ok(mut reads) = host.reads.lock() {
+                    reads.insert(id);
+                }
                 let Some(left) = deadline.checked_duration_since(Instant::now()) else {
                     return Err(Exception::throw_internal(&ctx, "time limit"));
                 };
