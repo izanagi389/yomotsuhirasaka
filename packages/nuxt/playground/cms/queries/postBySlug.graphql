@@ -4,6 +4,7 @@ query ($slug: String!, $locale: String!) {
     title
     url
     body
+    aiTrainingOptOut
     deletedAnchors {
       anchor
       deletedAt

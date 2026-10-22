@@ -1,6 +1,6 @@
 # @new-cms/nuxt
 
-CMSの公式Nuxtモジュールです。配信APIからの取得、本文の描画、CMSのリダイレクト一覧による転送、CMSからのWebhookの受け口、訂正の一覧とフィード、削除済みアンカーの案内を持ちます（`llms.txt`・プレビューなどはこれから）。
+CMSの公式Nuxtモジュールです。配信APIからの取得、本文の描画、CMSのリダイレクト一覧による転送、CMSからのWebhookの受け口、訂正の一覧とフィード、削除済みアンカーの案内、AI向けの素材（記事のMarkdown版・`llms.txt`・学習拒否）を持ちます（プレビューなどはこれから）。
 
 ## 使い方
 
@@ -16,6 +16,8 @@ export default defineNuxtConfig({
     // webhookRoute: "/_cms/webhook"
     // 訂正の一覧とフィードを使うとき（キーはロケール）
     corrections: { feeds: { ja: { path: "/corrections", title: "訂正の一覧", link: "https://example.com/" } } },
+    // AI向けの素材を出すとき（siteUrl が要る）
+    ai: { locales: { ja: { title: "例のブログ", description: "技術の記事" } }, robotsTxt: {} },
   },
 });
 ```
@@ -121,6 +123,36 @@ postBySlug(slug: $slug, locale: $locale) { title body deletedAnchors { anchor de
 - `#` 以降はサーバーに届かないので、ブラウザで照らし合わせます（表示したときと、`#` が変わったとき）。一覧はサイトのサーバーが記事と一緒に取ったものを使い、ブラウザから配信APIは呼びません。
 - サーバーでの描画では何も出しません。出すときは `<aside role="status">` で、クラスもスタイルも付けません。
 - 説明文もスロットもなければ、何も出しません。
+
+### AI向けの素材（`ai` を設定したとき）
+
+CMSが作る素材（記事のMarkdown版、目録、学習への利用を拒否した記事）を、サイトのドメインに置きます。どの記事が素材になるかは、CMSのスキーマ（コンテンツタイプの `aiMarkdown`）と、記事の「外部AI向けの素材に含める」で決まります。
+
+- `<記事のURL>.md`: 記事のMarkdown版（例: `/ja/blog/hello` → `/ja/blog/hello.md`。末尾の `/` は除きます）。`siteUrl` と同じオリジンの記事だけです。目録にないパスは、サイトの処理に任せます。
+- `/llms.txt`: `locales` のロケールごとに、記事のMarkdown版へのリンクを並べます。先頭の名前と説明は最初のロケールのものです。
+- `/robots.txt`（`robotsTxt` を設定したとき）: 学習用のクローラーに、学習への利用を拒否した記事とそのMarkdown版を `Disallow` で並べます。モジュールが robots.txt 全体を返すので、`public/robots.txt` があるとビルドを止めます。サイトの行は `extra` に書きます。
+
+| 設定 | 内容 |
+|---|---|
+| `locales` | ロケール → `{ title, description }`（llms.txt に書く） |
+| `markdown` | `.md` を返すか（既定は true） |
+| `llmsTxt` | `/llms.txt` を返すか（既定は true） |
+| `robotsTxt` | `{ addCrawlers, removeCrawlers, extra }`。既定のクローラーは `DEFAULT_AI_TRAINING_CRAWLERS`（GPTBot、Google-Extended、CCBot、ClaudeBot、anthropic-ai、Applebot-Extended、meta-externalagent、Bytespider）。検索・引用のためのクローラーは含めません |
+
+- サーバーのルートが返し、配信APIから取ったものはキャッシュします（5分。CMSのWebhookを受けたら消します）。
+- `nuxt generate` では、ビルドのときに `llms.txt`・`robots.txt`・記事の `.md` をファイルとして書き出します（記事の `.md` には、ビルドのときの `NUXT_CMS_READ_KEY` が要ります）。
+- `robots.txt` で学習用のクローラーの組を作ると、そのクローラーは `User-agent: *` の組を読まなくなります。`extra` の `*` の規則を学習用のクローラーにも効かせたいときは、`extra` にそのクローラーの組も書いてください。
+
+学習への利用を拒否した記事のページには、メタタグを足します。記事のクエリに `aiTrainingOptOut` を足し、記事のページで呼びます。
+
+```vue
+<script setup lang="ts">
+const { data } = await useCmsQuery<{ postBySlug: Post | null }>("postBySlug", { slug, locale: "ja" });
+useCmsAiMeta(() => data.value?.postBySlug); // <meta name="robots" content="noai, noimageai">
+</script>
+```
+
+これらはクローラーへの意思表示であって、技術的に止めるものではありません。
 
 ## 開発
 
