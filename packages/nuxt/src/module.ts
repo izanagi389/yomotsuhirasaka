@@ -12,14 +12,18 @@
 // - 本文は <CmsBody :doc="..."> で描く
 // - リダイレクト（siteUrl を設定したとき）: CMSのリダイレクト一覧を、ビルドのときに routeRules の 301 にし、サーバーのミドルウェアで
 //   301 と 410 を返す。一覧はキャッシュし、CMSのWebhook（<webhookRoute>、NUXT_CMS_WEBHOOK_SECRET）を受けたら消す
+// - 訂正（corrections を設定したとき）: 訂正一覧は useCmsCorrections と <CmsCorrections> で、ページはサイトが作る。
+//   フィード（<path>.xml と <path>.json）はサーバーのルートが返し、nuxt generate ではビルドのときに書き出す
+// - 削除済みアンカーの案内: <CmsDeletedAnchorNotice :anchors="post.deletedAnchors">
 
 import { resolve } from "node:path";
 
 import { addComponent, addImports, addServerHandler, createResolver, defineNuxtModule, useLogger } from "nuxt/kit";
 
 import { RegisterError, checkUrl, readQueries, registerQueries } from "./register.ts";
+import { type CorrectionFeedConfig, checkFeedConfig } from "./runtime/server/feed.ts";
 import { fetchQuery } from "./runtime/server/fetch-query.ts";
-import { REDIRECTS_QUERY, REDIRECTS_QUERY_TEXT } from "./runtime/server/names.ts";
+import { CORRECTIONS_QUERY, CORRECTIONS_QUERY_TEXT, REDIRECTS_QUERY, REDIRECTS_QUERY_TEXT, RESERVED_QUERIES } from "./runtime/server/names.ts";
 import { type CmsRedirect, toPathRules, toRouteRules } from "./runtime/server/redirect-rules.ts";
 
 export interface ModuleOptions {
@@ -35,7 +39,26 @@ export interface ModuleOptions {
   siteUrl: string;
   /** CMSからのWebhookの受け口のパス。秘密は NUXT_CMS_WEBHOOK_SECRET で渡す（設定しなければ受け口は 404）。 */
   webhookRoute: string;
+  /** 訂正の一覧とフィード。設定すると、訂正の一覧のクエリを登録する。 */
+  corrections: false | { feeds?: Record<string, CorrectionFeedOptions> };
 }
+
+/** 訂正フィードの設定（キーはロケール）。 */
+export interface CorrectionFeedOptions {
+  /** フィードのパス（拡張子なし。例: /corrections → /corrections.xml と /corrections.json）。 */
+  path: string;
+  /** フィードの名前。 */
+  title: string;
+  /** サイトのURL。 */
+  link: string;
+  /** フィードの説明（なければ title）。 */
+  description?: string;
+  /** 載せる件数（1〜100。既定は 50）。 */
+  limit?: number;
+}
+
+export type { CmsCorrectionItem } from "./runtime/server/feed.ts";
+export type { CmsDeletedAnchor } from "./runtime/deleted-anchor.ts";
 
 /** CMSのAPIキー（`cms_key_`）か個人トークン（`cms_pat_`）らしい文字列を含むか。 */
 export function containsSecret(value: unknown): boolean {
@@ -47,7 +70,7 @@ export function containsSecret(value: unknown): boolean {
 
 export default defineNuxtModule<ModuleOptions>({
   meta: { name: "@new-cms/nuxt", configKey: "cms" },
-  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q", siteUrl: "", webhookRoute: "/_cms/webhook" },
+  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q", siteUrl: "", webhookRoute: "/_cms/webhook", corrections: false },
   async setup(options, nuxt) {
     const logger = useLogger("cms");
     const resolver = createResolver(import.meta.url);
@@ -59,14 +82,23 @@ export default defineNuxtModule<ModuleOptions>({
 
     const url = options.url ? checkUrl(options.url) : "";
     const siteUrl = options.siteUrl ? new URL(options.siteUrl).origin : "";
-    nuxt.options.runtimeConfig.cms = { url, workspaceId: options.workspaceId, readKey: "", siteUrl, webhookSecret: "" };
+    const feeds: Record<string, CorrectionFeedConfig> = {};
+    for (const [locale, raw] of Object.entries((options.corrections && options.corrections.feeds) || {})) {
+      const feed = checkFeedConfig(locale, raw ?? {});
+      if (Object.hasOwn(feeds, feed.path)) throw new RegisterError(`cms.corrections.feeds.${locale}.path: used by another feed`);
+      feeds[feed.path] = feed;
+    }
+    nuxt.options.runtimeConfig.cms = { url, workspaceId: options.workspaceId, readKey: "", siteUrl, webhookSecret: "", correctionFeeds: feeds };
     nuxt.options.runtimeConfig.public.cms = { routePrefix: options.routePrefix };
 
     // クエリの登録（nuxt prepare では行わない）
     const queries = readQueries(resolve(nuxt.options.rootDir, options.queriesDir));
-    if (Object.hasOwn(queries, REDIRECTS_QUERY)) throw new RegisterError(`${options.queriesDir}/${REDIRECTS_QUERY}.graphql: this name is used by the module`);
-    // リダイレクト一覧のクエリは、モジュールが自分で登録する
+    for (const name of RESERVED_QUERIES) {
+      if (Object.hasOwn(queries, name)) throw new RegisterError(`${options.queriesDir}/${name}.graphql: this name is used by the module`);
+    }
+    // リダイレクト一覧と訂正の一覧のクエリは、モジュールが自分で登録する
     if (siteUrl) queries[REDIRECTS_QUERY] = REDIRECTS_QUERY_TEXT;
+    if (options.corrections) queries[CORRECTIONS_QUERY] = CORRECTIONS_QUERY_TEXT;
     let ids: Record<string, string> = {};
     if (Object.keys(queries).length > 0 && !nuxt.options._prepare) {
       const registerKey = process.env["CMS_REGISTER_KEY"];
@@ -91,10 +123,21 @@ export default defineNuxtModule<ModuleOptions>({
       }
       addServerHandler({ middleware: true, handler: resolver.resolve("./runtime/server/redirects.js") });
     }
+    // 訂正フィード: サーバーのルートで返す。nuxt generate ではビルドのときに書き出す（Q145）
+    const feedRoutes = Object.keys(feeds).flatMap((path) => [`${path}.xml`, `${path}.json`]);
+    for (const route of feedRoutes) addServerHandler({ route, method: "get", handler: resolver.resolve("./runtime/server/corrections-feed.js") });
+    if (feedRoutes.length > 0 && nuxt.options.nitro.static) {
+      nuxt.options.nitro.prerender = { ...nuxt.options.nitro.prerender, routes: [...(nuxt.options.nitro.prerender?.routes ?? []), ...feedRoutes] };
+    }
     addServerHandler({ route: options.webhookRoute, method: "post", handler: resolver.resolve("./runtime/server/webhook.js") });
 
     addServerHandler({ route: `${options.routePrefix}/:name`, method: "get", handler: resolver.resolve("./runtime/server/query.js") });
-    addImports({ name: "useCmsQuery", from: resolver.resolve("./runtime/composables.js") });
+    addImports([
+      { name: "useCmsQuery", from: resolver.resolve("./runtime/composables.js") },
+      { name: "useCmsCorrections", from: resolver.resolve("./runtime/composables.js") },
+    ]);
     addComponent({ name: "CmsBody", filePath: resolver.resolve("./runtime/body.js") });
+    addComponent({ name: "CmsCorrections", filePath: resolver.resolve("./runtime/corrections.js") });
+    addComponent({ name: "CmsDeletedAnchorNotice", filePath: resolver.resolve("./runtime/deleted-anchor.js") });
   },
 });

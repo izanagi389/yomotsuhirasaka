@@ -1,6 +1,6 @@
 # @new-cms/nuxt
 
-CMSの公式Nuxtモジュールです。配信APIからの取得、本文の描画、CMSのリダイレクト一覧による転送、CMSからのWebhookの受け口を持ちます（`llms.txt`・訂正フィード・プレビューなどはこれから）。
+CMSの公式Nuxtモジュールです。配信APIからの取得、本文の描画、CMSのリダイレクト一覧による転送、CMSからのWebhookの受け口、訂正の一覧とフィード、削除済みアンカーの案内を持ちます（`llms.txt`・プレビューなどはこれから）。
 
 ## 使い方
 
@@ -14,6 +14,8 @@ export default defineNuxtConfig({
     // queriesDir: "cms/queries", routePrefix: "/_cms/q"
     siteUrl: "https://example.com", // リダイレクトを使うとき
     // webhookRoute: "/_cms/webhook"
+    // 訂正の一覧とフィードを使うとき（キーはロケール）
+    corrections: { feeds: { ja: { path: "/corrections", title: "訂正の一覧", link: "https://example.com/" } } },
   },
 });
 ```
@@ -68,6 +70,57 @@ CMSのWebhook（記事の公開・更新・非公開・削除・URLの変更な�
 - 確かめられたら、モジュールがサイトのサーバーに持つキャッシュ（リダイレクト一覧など）を消します。本文の中身は使いません。
 - 秘密を設定しなければ、受け口は 404 を返します。
 - サイトのサーバーが複数のプロセスで動くときは、Webhookを受けたプロセスのキャッシュだけが消えます。ほかのプロセスは5分以内に取り直します。
+
+### 訂正の一覧とフィード（`corrections` を設定したとき）
+
+「訂正として公開」した記事の訂正を、新しい順に出します（通常の更新や確認済みの記録は含みません）。変更前の本文や差分は、配信APIも返しません。
+
+```vue
+<!-- pages/corrections.vue（ページはサイトが作る） -->
+<script setup lang="ts">
+const { data } = await useCmsCorrections({ locale: "ja", limit: 20, offset: 0 });
+</script>
+
+<template>
+  <CmsCorrections :items="data?.corrections" />
+</template>
+```
+
+- `<CmsCorrections>` は、クラスもスタイルもない `ol`／`li` に、日付（`time`。UTC の YYYY-MM-DD）、記事へのリンク、説明文（`p`）を描きます。1件ごとの描き方は `#item="{ item }"` のスロットで置き換えられます（`item.sections` は影響したセクションのアンカーID）。
+- 説明文が未記入の訂正には、ワークスペースの定型文（未記入のときの文）が入ります。そのロケールの定型文がなければ `null` です。
+- `corrections: {}`（フィードなし）でも、一覧の composable と部品は使えます。訂正の一覧のクエリはモジュールが登録します（`cms/queries/cmsCorrections.graphql` という名前は使えません）。
+
+フィードは、`feeds` のロケールごとに `<path>.xml`（RSS 2.0）と `<path>.json`（JSON Feed 1.1）を返します。
+
+| 設定 | 内容 |
+|---|---|
+| `path` | パス（拡張子なし。`/corrections` なら `/corrections.xml` と `/corrections.json`） |
+| `title` | フィードの名前 |
+| `link` | サイトのURL |
+| `description` | フィードの説明（省略すると `title`） |
+| `limit` | 載せる件数（1〜100。既定は 50） |
+
+- サイトのサーバーのルートが返し、配信APIから取ったものはキャッシュします（5分。CMSのWebhookを受けたら消します）。
+- `nuxt generate` では、ビルドのときにファイルとして書き出します。
+- 項目のIDは「記事のID@訂正の日時」です。JSON Feed では、影響したセクションを拡張の `_corrections.sections` に入れます。
+
+### 削除済みアンカーの案内
+
+古いリンクの `#アンカー` が、訂正などで消えたセクションのものなら知らせます。記事のクエリに `deletedAnchors` を足し、記事のページに部品を置きます。
+
+```graphql
+postBySlug(slug: $slug, locale: $locale) { title body deletedAnchors { anchor deletedAt description } }
+```
+
+```vue
+<CmsDeletedAnchorNotice :anchors="post.deletedAnchors" />
+<!-- 説明文がないとき（通常の更新で消えたときなど）の文を渡す -->
+<CmsDeletedAnchorNotice :anchors="post.deletedAnchors" v-slot="{ anchor }">{{ anchor.description ?? "このセクションは削除されました" }}</CmsDeletedAnchorNotice>
+```
+
+- `#` 以降はサーバーに届かないので、ブラウザで照らし合わせます（表示したときと、`#` が変わったとき）。一覧はサイトのサーバーが記事と一緒に取ったものを使い、ブラウザから配信APIは呼びません。
+- サーバーでの描画では何も出しません。出すときは `<aside role="status">` で、クラスもスタイルも付けません。
+- 説明文もスロットもなければ、何も出しません。
 
 ## 開発
 
