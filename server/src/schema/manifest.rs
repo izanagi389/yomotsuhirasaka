@@ -83,6 +83,10 @@ pub struct ContentType<F = crate::script::Script> {
     /// 確認期限（06-corrections-and-freshness.md「鮮度」）。なければ期限なし。記事ごとに上書きできる。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review: Option<Review>,
+    /// AI向けのMarkdown版に載せるもの（M2、07-ai-delivery.md、Q35）。挙げていないフィールドは載せない。
+    /// なければ、このタイプの記事はAI向けの素材（Markdown版・目録）にならない。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_markdown: Option<AiMarkdown>,
     /// 一覧のフィールドで1回に取得できる件数の上限。
     pub list_limit: u32,
     pub fields: Vec<Field>,
@@ -92,6 +96,24 @@ pub struct ContentType<F = crate::script::Script> {
     /// 開発者向けのメモ。どのAPIにも出さない（Q51、INV-SCH-01）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dev_note: Option<String>,
+}
+
+/// AI向けのMarkdown版の中身（07-ai-delivery.md）。CMSは、ここに挙げたものに加えて、URL・ロケール・更新日・最終確認日・
+/// 読了時間・訂正履歴・削除済みアンカーを冒頭のメタデータに載せる。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AiMarkdown {
+    /// 見出し（`#`）にするフィールド（text）。目録の記事の名前にも使う。
+    pub title: String,
+    /// 冒頭のメタデータ（front matter）に載せるフィールド（text・slug）。
+    #[serde(default)]
+    pub meta: Vec<String>,
+    /// 本文として、この順に載せるフィールド（text・richtext）。
+    #[serde(default)]
+    pub fields: Vec<String>,
+    /// 関係として載せる参照フィールド。関係の種類はフィールドの名前、相手は記事のURL。
+    #[serde(default)]
+    pub relations: Vec<String>,
 }
 
 /// 確認期限の既定値。
@@ -778,6 +800,9 @@ pub fn validate(m: &Manifest) -> Vec<String> {
         {
             problems.push(format!("{path}.titleField: must name a text field"));
         }
+        if let Some(ai) = &ct.ai_markdown {
+            problems.extend(ai_markdown_problems(&path, ct, ai));
+        }
         if !(1..=MAX_LIST_LIMIT).contains(&ct.list_limit) {
             problems.push(format!("{path}.listLimit: must be 1 to {MAX_LIST_LIMIT}"));
         }
@@ -831,6 +856,43 @@ pub fn validate(m: &Manifest) -> Vec<String> {
             .count();
         if slugs != 1 {
             problems.push(format!("{path}.fields: exactly one slug field is required"));
+        }
+    }
+    problems
+}
+
+/// `aiMarkdown` の検査: 挙げたフィールドがあり、使い道に合う型で、重ならないこと。
+fn ai_markdown_problems<F>(path: &str, ct: &ContentType<F>, ai: &AiMarkdown) -> Vec<String> {
+    let mut problems = Vec::new();
+    let kind_of = |name: &str| ct.fields.iter().find(|f| f.name == name).map(|f| f.kind);
+    if kind_of(&ai.title) != Some(FieldType::Text) {
+        problems.push(format!("{path}.aiMarkdown.title: must name a text field"));
+    }
+    let lists: [(&str, &Vec<String>, &[FieldType]); 3] = [
+        ("meta", &ai.meta, &[FieldType::Text, FieldType::Slug]),
+        (
+            "fields",
+            &ai.fields,
+            &[FieldType::Text, FieldType::Richtext],
+        ),
+        ("relations", &ai.relations, &[FieldType::Reference]),
+    ];
+    for (key, names, kinds) in lists {
+        let mut seen = BTreeSet::new();
+        for (i, name) in names.iter().enumerate() {
+            if !kind_of(name).is_some_and(|k| kinds.contains(&k)) {
+                let allowed: Vec<String> = kinds
+                    .iter()
+                    .map(|k| format!("{k:?}").to_lowercase())
+                    .collect();
+                problems.push(format!(
+                    "{path}.aiMarkdown.{key}[{i}]: must name a field of type {}",
+                    allowed.join(" or ")
+                ));
+            }
+            if !seen.insert(name.as_str()) {
+                problems.push(format!("{path}.aiMarkdown.{key}[{i}]: duplicated"));
+            }
         }
     }
     problems

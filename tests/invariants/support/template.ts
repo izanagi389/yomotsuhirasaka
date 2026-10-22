@@ -55,6 +55,15 @@ export interface ContentTypeSpec {
   hooks?: Partial<Record<HookKind, ScriptSpec>>;
   /** 一覧のフィールドで1回に取得できる件数の上限。 */
   listLimit: number;
+  /**
+   * AI向けのMarkdown版に載せるもの（M2、07-ai-delivery.md、Q35）。ここに挙げていないフィールドは載せない。
+   * 書いていないコンテンツタイプの記事は、AI向けの素材（Markdown版・目録）にならない。
+   * - title: 見出し（`#`）にするフィールド
+   * - meta: 冒頭のメタデータ（front matter）に載せるフィールド
+   * - fields: 本文として、この順に載せるフィールド
+   * - relations: 関係として載せる参照フィールド（関係の種類はフィールドの名前、相手は記事のURL）
+   */
+  aiMarkdown?: { title: string; meta?: string[]; fields?: string[]; relations?: string[] };
   description?: string;
   devNote?: string;
 }

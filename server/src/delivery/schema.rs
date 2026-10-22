@@ -19,9 +19,11 @@ use sqlx::{Postgres, Transaction};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use super::ai::{self, CatalogItem};
 use super::data::{self, Entry};
 use super::names::{
-    self, ALTERNATE_TYPE, CORRECTION_FEED_ITEM_TYPE, CORRECTION_TYPE, CORRECTIONS_FIELD,
+    self, AI_CATALOG_FIELD, AI_CATALOG_ITEM_TYPE, AI_MARKDOWN_FIELD, AI_TRAINING_OPT_OUTS_FIELD,
+    ALTERNATE_TYPE, CORRECTION_FEED_ITEM_TYPE, CORRECTION_TYPE, CORRECTIONS_FIELD,
     DELETED_ANCHOR_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE, REDIRECTS_FIELD,
 };
 use crate::content::corrections::{self, Correction, DeletedAnchor, FeedItem};
@@ -352,9 +354,155 @@ fn corrections_feed_field(manifest: Arc<Manifest>) -> Field {
     .description("Corrections of published entries in the locale, newest first.")
 }
 
-fn entry_type(ct: &ContentType) -> Object {
+/// AI向けの素材（07-ai-delivery.md）: Markdown版、読了時間、学習への利用の拒否。スイッチは返すたびにいまの値を見る（INV-AIX-01）。
+fn ai_fields(obj: Object, ct: &ContentType, manifest: Arc<Manifest>) -> Object {
+    let markdown = Field::new(
+        AI_MARKDOWN_FIELD,
+        TypeRef::named(TypeRef::STRING),
+        move |ctx| {
+            let manifest = manifest.clone();
+            FieldFuture::new(async move {
+                let e = parent(&ctx)?;
+                let req = request(&ctx)?;
+                let mut guard = req.tx.lock().await;
+                let Some(tx) = guard.as_mut() else {
+                    return Ok(None);
+                };
+                let md = ai::markdown(tx, &manifest, &req.media_base, req.workspace_id, e)
+                    .await
+                    .map_err(internal)?;
+                Ok(md.map(GqlValue::from))
+            })
+        },
+    )
+    .description(
+        "The entry as Markdown for AI readers (null when the entry is not an AI material).",
+    );
+    let ct_for_time = ct.clone();
+    obj.field(markdown)
+        .field(
+            Field::new("readingTime", TypeRef::named_nn(TypeRef::INT), move |ctx| {
+                let v = parent(&ctx).map(|e| GqlValue::from(ai::reading_time(&ct_for_time, &e.rendered)));
+                FieldFuture::new(async move { Ok(Some(v?)) })
+            })
+            .description("Estimated reading time in minutes (at least 1)."),
+        )
+        .field(
+            value_field::<Entry, _>("aiTrainingOptOut", TypeRef::named_nn(TypeRef::BOOLEAN), |e| {
+                Some(GqlValue::from(e.opt_out_of_ai_training))
+            })
+            .description("Whether the entry opts out of use for AI training (a signal to crawlers, not an enforcement)."),
+        )
+}
+
+/// 目録の1件の型。
+fn catalog_item_type() -> Object {
+    Object::new(AI_CATALOG_ITEM_TYPE)
+        .description("A published entry offered to AI readers.")
+        .field(value_field::<CatalogItem, _>(
+            "entryId",
+            TypeRef::named_nn(TypeRef::ID),
+            |i| Some(GqlValue::from(i.entry_id.to_string())),
+        ))
+        .field(value_field::<CatalogItem, _>(
+            "contentType",
+            TypeRef::named_nn(TypeRef::STRING),
+            |i| Some(GqlValue::from(i.content_type.clone())),
+        ))
+        .field(value_field::<CatalogItem, _>(
+            "url",
+            TypeRef::named_nn(TypeRef::STRING),
+            |i| Some(GqlValue::from(i.url.clone())),
+        ))
+        .field(value_field::<CatalogItem, _>(
+            "title",
+            TypeRef::named(TypeRef::STRING),
+            |i| i.title.clone().map(GqlValue::from),
+        ))
+        .field(value_field::<CatalogItem, _>(
+            "locale",
+            TypeRef::named_nn(TypeRef::STRING),
+            |i| Some(GqlValue::from(i.locale.clone())),
+        ))
+        .field(value_field::<CatalogItem, _>(
+            "updatedAt",
+            TypeRef::named_nn(TypeRef::STRING),
+            |i| Some(GqlValue::from(i.updated_at.clone())),
+        ))
+}
+
+/// 目録（INV-AIX-01）。
+fn catalog_field(manifest: Arc<Manifest>) -> Field {
+    Field::new(
+        AI_CATALOG_FIELD,
+        TypeRef::named_nn_list_nn(AI_CATALOG_ITEM_TYPE),
+        move |ctx| {
+            let manifest = manifest.clone();
+            FieldFuture::new(async move {
+                let locale = ctx.args.try_get("locale")?.string()?.to_owned();
+                let limit = ctx
+                    .args
+                    .get("limit")
+                    .and_then(|v| v.i64().ok())
+                    .unwrap_or(ai::CATALOG_LIMIT)
+                    .clamp(0, ai::CATALOG_LIMIT);
+                let offset = ctx
+                    .args
+                    .get("offset")
+                    .and_then(|v| v.i64().ok())
+                    .unwrap_or(0)
+                    .clamp(0, MAX_OFFSET);
+                let req = request(&ctx)?;
+                let mut guard = req.tx.lock().await;
+                let Some(tx) = guard.as_mut() else {
+                    return Ok(Some(FieldValue::list(Vec::<FieldValue>::new())));
+                };
+                let out = ai::catalog(tx, &manifest, &locale, limit, offset)
+                    .await
+                    .map_err(internal)?;
+                Ok(Some(FieldValue::list(
+                    out.into_iter().map(FieldValue::owned_any),
+                )))
+            })
+        },
+    )
+    .argument(InputValue::new(
+        "locale",
+        TypeRef::named_nn(TypeRef::STRING),
+    ))
+    .argument(InputValue::new("limit", TypeRef::named(TypeRef::INT)))
+    .argument(InputValue::new("offset", TypeRef::named(TypeRef::INT)))
+    .description(
+        "Published entries offered to AI readers in the locale, most recently updated first.",
+    )
+}
+
+/// 学習への利用を拒否した記事のURL（すべてのロケール）。
+fn training_opt_outs_field() -> Field {
+    Field::new(
+        AI_TRAINING_OPT_OUTS_FIELD,
+        TypeRef::named_nn_list_nn(TypeRef::STRING),
+        |ctx| {
+            FieldFuture::new(async move {
+                let req = request(&ctx)?;
+                let mut guard = req.tx.lock().await;
+                let Some(tx) = guard.as_mut() else {
+                    return Ok(Some(GqlValue::List(Vec::new())));
+                };
+                let urls = ai::training_opt_outs(tx).await.map_err(internal)?;
+                Ok(Some(GqlValue::List(
+                    urls.into_iter().map(GqlValue::from).collect(),
+                )))
+            })
+        },
+    )
+    .description("Public URLs of published entries that opt out of use for AI training.")
+}
+
+fn entry_type(ct: &ContentType, manifest: Arc<Manifest>) -> Object {
     let mut obj = system_fields(Object::new(names::type_name(&ct.name)));
     obj = correction_fields(obj, ct);
+    obj = ai_fields(obj, ct, manifest);
     if let Some(d) = &ct.description {
         obj = obj.description(d.clone());
     }
@@ -661,9 +809,12 @@ pub fn build(
     introspection: bool,
     limits: QueryLimits,
 ) -> anyhow::Result<Schema> {
+    let shared = Arc::new(manifest.clone());
     let mut query = Object::new(QUERY_TYPE)
         .field(redirects_field())
-        .field(corrections_feed_field(Arc::new(manifest.clone())));
+        .field(corrections_feed_field(shared.clone()))
+        .field(catalog_field(shared.clone()))
+        .field(training_opt_outs_field());
     for ct in &manifest.content_types {
         query = root_fields(query, ct);
     }
@@ -676,11 +827,12 @@ pub fn build(
         .register(correction_type())
         .register(deleted_anchor_type())
         .register(correction_feed_item_type())
+        .register(catalog_item_type())
         .limit_depth(limits.depth)
         .limit_complexity(limits.complexity)
         .disable_suggestions();
     for ct in &manifest.content_types {
-        builder = builder.register(entry_type(ct));
+        builder = builder.register(entry_type(ct, shared.clone()));
     }
     if !introspection {
         builder = builder.disable_introspection();

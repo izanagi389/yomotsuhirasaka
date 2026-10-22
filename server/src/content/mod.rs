@@ -11,6 +11,7 @@ pub mod html;
 pub mod import;
 pub mod publishing;
 pub mod redirects;
+pub mod rerender;
 pub mod sections;
 pub mod settings;
 pub mod translations;
