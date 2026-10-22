@@ -210,6 +210,8 @@ export interface UrlChange {
  * - redirects: ワークスペースのリダイレクト一覧（M2。読むのは driver.redirects.parse）
  * - correctionFeed: 訂正フィード（M2）。変数 `locale`、`limit` を取る
  * - byId の include の corrections・deletedAnchors・freshness は、記事の訂正履歴・削除済みアンカー・鮮度（M2）
+ * - byId の include の aiMarkdown は、記事のAI向けのMarkdown版（M2。素材にならない記事では空）
+ * - aiCatalog: AI向けの記事の目録（M2）。変数 `locale`、`limit` を取る
  * - text: GraphQLの文をそのまま使う
  */
 export type QuerySpec =
@@ -217,12 +219,13 @@ export type QuerySpec =
   | {
       kind: "byId";
       fields?: string[];
-      include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness")[];
+      include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness" | "aiMarkdown")[];
     }
   | { kind: "deep"; depth: number }
   | { kind: "wide"; aliases: number }
   | { kind: "redirects" }
   | { kind: "correctionFeed" }
+  | { kind: "aiCatalog" }
   | { kind: "text"; text: string };
 
 /** 登録済みクエリの参照。 */
@@ -399,6 +402,8 @@ export interface CmsClient {
   deleteEntry(session: Session, workspaceId: string, entryId: string): Promise<void>;
   /** 記事の公開設定（外部AI向けの素材に含めるか、など）を1つ切り替える。 */
   changePublishSettings(session: Session, workspaceId: string, entryId: string): Promise<void>;
+  /** 記事の「外部AI向けの素材に含める」を指定した値にする。 */
+  setIncludeInAiMaterials(session: Session, workspaceId: string, entryId: string, include: boolean): Promise<void>;
   getEntryRaw(auth: Auth, workspaceId: string, entryId: string): Promise<HttpResponse>;
   listVersions(session: Session, workspaceId: string, entryId: string): Promise<VersionInfo[]>;
   getVersionRaw(auth: Auth, workspaceId: string, entryId: string, versionId: string): Promise<HttpResponse>;

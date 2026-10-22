@@ -366,7 +366,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const selection = (fields?: string[]): string => (fields ? ["id", ...fields.filter((f) => f !== "id")] : ["id", "title", "slug"]).join(" ");
   // 変換した本文: 本文のフィールド <名前> に対して <名前>Html と <名前>Markdown（server/src/delivery/schema.rs）
   // 訂正履歴・削除済みアンカー・鮮度（M2。server/src/delivery/schema.rs）
-  const INCLUDES: Record<"body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness", string> = {
+  // AI向けのMarkdown版（M2。server/src/delivery/schema.rs）
+  const INCLUDES: Record<"body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness" | "aiMarkdown", string> = {
+    aiMarkdown: "aiMarkdown",
     corrections: "corrections { correctedAt description sections }",
     deletedAnchors: "deletedAnchors { anchor deletedAt description }",
     freshness: "lastVerifiedAt reviewDueAt reviewExpired",
@@ -391,6 +393,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         return "query($locale: String!, $limit: Int) { corrections(locale: $locale, limit: $limit) { entryId url correctedAt description sections } }";
       case "redirects":
         return "{ redirects { from to status } }";
+      case "aiCatalog":
+        return "query($locale: String!, $limit: Int) { aiCatalog(locale: $locale, limit: $limit) { entryId contentType url title locale updatedAt } }";
       case "text":
         return spec.text;
     }
@@ -670,6 +674,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     async changePublishSettings(s: Session, workspaceId: string, entryId: string): Promise<void> {
       ensure("公開設定の変更", await togglePublishSettingsRaw(session(s), workspaceId, entryId));
+    },
+    async setIncludeInAiMaterials(s: Session, workspaceId: string, entryId: string, include: boolean): Promise<void> {
+      ensure("公開設定の変更", await request("PATCH", settingsPath(workspaceId, entryId), { auth: session(s), body: { includeInAiMaterials: include } }));
     },
     async listVersions(s: Session, workspaceId: string, entryId: string): Promise<VersionInfo[]> {
       const res = ensure("版の一覧", await versionsRaw(session(s), workspaceId, entryId));

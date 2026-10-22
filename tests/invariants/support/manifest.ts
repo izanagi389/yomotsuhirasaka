@@ -97,6 +97,9 @@ export function toManifest(t: TemplateSpec): unknown {
       urlFunction: ct.urlFunction ? toScript(ct.urlFunction) : undefined,
       hooks: ct.hooks ? Object.fromEntries(Object.entries(ct.hooks).map(([kind, s]) => [kind, toScript(s)])) : undefined,
       listLimit: ct.listLimit,
+      aiMarkdown: ct.aiMarkdown
+        ? { title: ct.aiMarkdown.title, meta: ct.aiMarkdown.meta ?? [], fields: ct.aiMarkdown.fields ?? [], relations: ct.aiMarkdown.relations ?? [] }
+        : undefined,
       description: ct.description,
       devNote: ct.devNote,
       fields: ct.fields.map((f) => ({
