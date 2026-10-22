@@ -51,6 +51,11 @@ pub mod action {
     pub const ENTRY_UNPUBLISHED: &str = "entry.unpublished";
     pub const ENTRY_DELETED: &str = "entry.deleted";
     pub const ENTRY_SETTINGS_CHANGED: &str = "entry.settings_changed";
+    /// 「確認済み」の記録（Q46）。
+    pub const ENTRY_VERIFIED: &str = "entry.verified";
+    /// 訂正の説明の記入・書き直し（Q63）。
+    pub const CORRECTION_NOTE_EDITED: &str = "correction.note_edited";
+    pub const CORRECTION_TEMPLATES_CHANGED: &str = "correction.templates_changed";
     /// 既存のブログからの取り込み（対象は取り込んだ記事）。
     pub const ENTRIES_IMPORTED: &str = "entry.imported";
     /// 版の本文の抹消（重い操作として、誰が行っても記録する。対象は記事・版・削除したメディア）。

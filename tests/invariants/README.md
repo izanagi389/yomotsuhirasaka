@@ -29,6 +29,7 @@
 | `startup.test.ts` | 起動時の検査（KEY-02, CFG-01） |
 | `db-roles.test.ts` | DBの権限（DB-01〜04, CFG-03） |
 | `hooks.test.ts` | 組み込みJSとフック（HOOK-01〜05） |
+| `corrections.test.ts` | 訂正履歴・削除済みアンカー・訂正フィード・鮮度（COR-02〜04, FRS-01） |
 | `redirects.test.ts` | リダイレクト一覧（RED-01, 02） |
 | `converter.test.ts` | 変換器とカスタムノード（NODE-01, CNV-01） |
 | `meta.test.ts` | 約束の一覧・テスト・`pending.txt` の整合。CMSなしで動く |

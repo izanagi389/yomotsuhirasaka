@@ -1,9 +1,11 @@
 //! 記事: 本文の検証、フィールド、下書き（03-content-and-editing.md）。
 
 pub mod body;
+pub mod corrections;
 pub mod entries;
 pub mod erase;
 pub mod fields;
+pub mod freshness;
 pub mod hooks;
 pub mod html;
 pub mod import;

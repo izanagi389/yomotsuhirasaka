@@ -3,6 +3,7 @@
 pub mod admin_api_keys;
 pub mod admin_audit;
 pub mod admin_auth;
+pub mod admin_corrections;
 pub mod admin_entries;
 pub mod admin_import;
 pub mod admin_invitations;
@@ -315,6 +316,38 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/entries/{id}/url-history",
             get(admin_publishing::url_history),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/versions/{vid}/correction-note",
+            put(admin_corrections::put_note),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/versions/{vid}/correction-note/history",
+            get(admin_corrections::note_history),
+        )
+        .route(
+            "/workspaces/{ws}/correction-templates",
+            get(admin_corrections::get_templates).put(admin_corrections::put_templates),
+        )
+        .route(
+            "/workspaces/{ws}/corrections/unwritten",
+            get(admin_corrections::unwritten),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/freshness",
+            get(admin_corrections::get_freshness),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/verify",
+            post(admin_corrections::verify),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/review",
+            put(admin_corrections::put_review),
+        )
+        .route(
+            "/workspaces/{ws}/reviews/expired",
+            get(admin_corrections::expired),
         )
         .route(
             "/templates/{name}/deploy",

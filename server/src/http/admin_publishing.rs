@@ -38,6 +38,7 @@ use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Access, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
+use crate::content::corrections;
 use crate::content::hooks;
 use crate::content::publishing::{
     self, PublishCheck, Published, Refused, Scripts, UrlChange, VersionDetail, VersionInfo,
@@ -47,7 +48,11 @@ use crate::script::Host;
 use crate::webhooks::{self, EntryEvent, EntryRef};
 use crate::workspace_db;
 
-async fn publisher(state: &AppState, current: &Current, ws: Uuid) -> Result<Access, ApiError> {
+pub(super) async fn publisher(
+    state: &AppState,
+    current: &Current,
+    ws: Uuid,
+) -> Result<Access, ApiError> {
     let access = reader(state, current, ws).await?;
     if !(access.server_admin || matches!(access.role, Some(Role::Admin | Role::Editor))) {
         return Err(access::Denied::Forbidden.into());
@@ -198,6 +203,9 @@ pub struct Publish {
     /// 訂正として公開するか。
     #[serde(default)]
     correction: bool,
+    /// 訂正の説明（定型文の選択と自由記述。訂正として公開するときだけ。後から書いてもよい）。
+    #[serde(default)]
+    correction_note: Option<corrections::NoteInput>,
 }
 
 pub async fn publish(
@@ -208,9 +216,32 @@ pub async fn publish(
 ) -> Result<Json<Published>, ApiError> {
     let (ws, id) = (parse(&ws)?, parse(&id)?);
     let access = publisher(&state, &current, ws).await?;
+    if req.correction_note.is_some() && !req.correction {
+        return Err(invalid(vec![
+            "correctionNote: only when publishing as a correction".to_owned(),
+        ]));
+    }
     let applied = writable(&state, ws).await?;
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    // 説明は公開と同じトランザクションで保存する（定型文はその時点の文を写す）
+    let note = match &req.correction_note {
+        Some(input) => match corrections::resolve_note(&mut tx, input).await? {
+            Some(text) if corrections::valid_note(&text) => Some(text),
+            Some(_) => {
+                return Err(invalid(vec![format!(
+                    "correctionNote: at most {} characters without control characters",
+                    corrections::MAX_NOTE_CHARS
+                )]));
+            }
+            None => {
+                return Err(invalid(vec![
+                    "correctionNote.templateId: unknown template".to_owned(),
+                ]));
+            }
+        },
+        None => None,
+    };
     let scripts = Scripts {
         engine: &state.scripts,
         host: Host::new(state.pool.clone(), db.clone()),
@@ -232,6 +263,16 @@ pub async fn publish(
         Err(e) if is_url_conflict(&e) => return Err(url_taken()),
         Err(e) => return Err(e.into()),
     };
+    if let Some(text) = note.as_deref().filter(|t| !t.is_empty()) {
+        corrections::save_note(
+            &mut tx,
+            id,
+            published.version_id,
+            text,
+            Some(current.user_id),
+        )
+        .await?;
+    }
     let entry = webhooks::entry_ref(&mut tx, id).await?;
     match tx.commit().await {
         Ok(()) => {}
