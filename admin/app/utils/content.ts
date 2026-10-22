@@ -18,6 +18,10 @@ export interface ContentType {
   urlTemplate: string;
   description?: string;
   fields: Field[];
+  /** 記事のタイトルにするフィールド。 */
+  titleField?: string;
+  /** 確認期限の既定。 */
+  review?: { intervalDays: number };
 }
 
 export interface Manifest {
@@ -155,6 +159,8 @@ export interface VersionInfo {
   anchors: string[];
   erased: boolean;
   erasedAt: string | null;
+  /** 訂正の説明（訂正として公開した版で、書いたときだけ）。 */
+  correctionNote: string | null;
 }
 
 export interface VersionDetail extends VersionInfo {
@@ -209,4 +215,52 @@ export function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+// ---------------------------------------------------------------------------
+// 訂正の説明と鮮度（06-corrections-and-freshness.md）
+// ---------------------------------------------------------------------------
+
+/** GET/PUT /workspaces/{ws}/correction-templates の1件。 */
+export interface CorrectionTemplate {
+  id?: string;
+  locale: string;
+  /** choice: 選べる文、fallback: 説明を書いていないときの文（ロケールに1つ）。 */
+  kind: "choice" | "fallback";
+  text: string;
+}
+
+/** GET .../versions/{vid}/correction-note/history の1件。 */
+export interface NoteEdit {
+  text: string;
+  editedBy: string | null;
+  editedAt: string;
+}
+
+/** GET /workspaces/{ws}/corrections/unwritten の1件。 */
+export interface UnwrittenCorrection {
+  entryId: string;
+  versionId: string;
+  locale: string;
+  title: string | null;
+  correctedAt: string;
+}
+
+/** GET .../entries/{id}/freshness */
+export interface FreshnessDetail {
+  lastVerifiedAt: string | null;
+  reviewDueAt: string | null;
+  reviewExpired: boolean;
+  reviewIntervalDays: number | null;
+  reviewDisabled: boolean;
+  defaultIntervalDays: number | null;
+  history: { verifiedAt: string; verifiedBy: string | null; memo: string }[];
+}
+
+/** GET /workspaces/{ws}/reviews/expired の1件。 */
+export interface ExpiredReview {
+  entryId: string;
+  locale: string;
+  title: string | null;
+  reviewDueAt: string;
 }

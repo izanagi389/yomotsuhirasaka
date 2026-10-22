@@ -1,10 +1,11 @@
 <script setup lang="ts">
-// ワークスペースの中の画面の切り替え（記事・メディア・管理）。管理は管理者とサーバー管理者だけに出す（権限の判断はサーバー）。
+// ワークスペースの中の画面の切り替え（記事・要対応・メディア・管理）。管理は管理者とサーバー管理者だけに出す（権限の判断はサーバー）。
 const props = defineProps<{ workspaceId: string; name: string | undefined; admin?: boolean }>();
 const { t } = useI18n();
 const route = useRoute();
 const items = computed(() => [
   { to: `/w/${props.workspaceId}`, label: t("nav.entries") },
+  { to: `/w/${props.workspaceId}/checks`, label: t("nav.checks") },
   { to: `/w/${props.workspaceId}/media`, label: t("nav.media") },
   ...(props.admin ? [{ to: `/w/${props.workspaceId}/admin`, label: t("nav.admin") }] : []),
 ]);

@@ -5,19 +5,23 @@
 // - どの記事でも使われていないメディアを一覧にし、既定で選んだ状態で一緒に削除できる
 // - 同じ翻訳グループの他のロケールの記事に、同じ内容が残っているかもしれないことを知らせる
 // - 抹消した内容は、それ以前のDBのバックアップには残ることを表示する
+// - 訂正として公開した版の説明を、後から書き直せる（公開できる人だけ）。編集の履歴は管理画面だけに出す（Q63、INV-COR-04）
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import ReadOnlyBody from "~/components/editor/ReadOnlyBody.vue";
 import { mediaInfo } from "~/components/editor/media";
 import type { CustomNodeDecl } from "@new-cms/editor-schema";
-import type { ContentType, EraseCandidates, MediaInfo, VersionDetail, VersionInfo } from "~/utils/content";
+import type { ContentType, EraseCandidates, MediaInfo, NoteEdit, VersionDetail, VersionInfo } from "~/utils/content";
 
 const props = defineProps<{
   workspaceId: string;
   entryId: string;
   contentType: ContentType;
   canErase: boolean;
+  /** 訂正の説明を書き直せるか。 */
+  canWriteNote: boolean;
   /** カスタムノードの宣言（版の本文の表示に使う）。 */
   customNodes?: CustomNodeDecl[];
 }>();
@@ -80,6 +84,37 @@ async function erase() {
   }
 }
 
+// 訂正の説明
+const noting = ref<VersionInfo | null>(null);
+const noteText = ref("");
+const noteHistory = ref<NoteEdit[]>([]);
+const noteError = ref<unknown>(null);
+async function openNote(v: VersionInfo) {
+  noting.value = v;
+  noteText.value = v.correctionNote ?? "";
+  noteHistory.value = [];
+  noteError.value = null;
+  try {
+    noteHistory.value = await api.get<NoteEdit[]>(`${base.value}/${v.id}/correction-note/history`);
+  } catch (e) {
+    noteError.value = e;
+  }
+}
+async function saveNote() {
+  if (!noting.value) return;
+  busy.value = true;
+  noteError.value = null;
+  try {
+    await api.put(`${base.value}/${noting.value.id}/correction-note`, { text: noteText.value });
+    noting.value = null;
+    await refresh();
+  } catch (e) {
+    noteError.value = e;
+  } finally {
+    busy.value = false;
+  }
+}
+
 const textFields = computed(() => props.contentType.fields.filter((f) => f.type === "text" || f.type === "slug"));
 const richFields = computed(() => props.contentType.fields.filter((f) => f.type === "richtext"));
 </script>
@@ -95,10 +130,13 @@ const richFields = computed(() => props.contentType.fields.filter((f) => f.type 
         <Badge v-if="v.current">{{ t("versions.current") }}</Badge>
         <Badge v-if="v.isCorrection" variant="outline">{{ t("versions.correction") }}</Badge>
         <Badge v-if="v.erased" variant="destructive">{{ t("versions.erased") }}</Badge>
+        <Badge v-if="v.isCorrection && !v.correctionNote" variant="secondary" data-testid="note-unwritten">{{ t("corrections.unwritten") }}</Badge>
         <div class="ml-auto flex gap-2">
+          <Button v-if="v.isCorrection && canWriteNote" size="sm" variant="outline" @click="openNote(v)">{{ t("corrections.editNote") }}</Button>
           <Button v-if="!v.erased" size="sm" variant="outline" @click="view(v)">{{ t("versions.view") }}</Button>
           <Button v-if="canErase && !v.erased" size="sm" variant="outline" class="text-destructive" @click="openErase(v)">{{ t("versions.erase") }}</Button>
         </div>
+        <p v-if="v.isCorrection && v.correctionNote" class="w-full whitespace-pre-line text-muted-foreground">{{ v.correctionNote }}</p>
       </li>
     </ul>
 
@@ -124,6 +162,31 @@ const richFields = computed(() => props.contentType.fields.filter((f) => f.type 
         />
       </template>
     </section>
+
+    <Dialog :open="noting !== null" @update:open="(v) => !v && (noting = null)">
+      <DialogContent class="max-h-[90svh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{{ t("corrections.editNoteTitle", { n: noting?.number ?? 0 }) }}</DialogTitle>
+          <DialogDescription>{{ t("corrections.editNoteDescription") }}</DialogDescription>
+        </DialogHeader>
+        <Textarea v-model="noteText" maxlength="2000" rows="4" :aria-label="t('corrections.note')" />
+        <section v-if="noteHistory.length > 0" class="grid gap-2 text-sm">
+          <h3 class="font-medium">{{ t("corrections.history") }}</h3>
+          <ul class="grid gap-2">
+            <li v-for="(h, i) in [...noteHistory].reverse()" :key="i" class="grid gap-0.5 rounded-md border p-2">
+              <span class="text-muted-foreground">{{ formatDateTime(h.editedAt, locale) }}</span>
+              <span v-if="h.text" class="whitespace-pre-line">{{ h.text }}</span>
+              <span v-else class="text-muted-foreground">{{ t("corrections.cleared") }}</span>
+            </li>
+          </ul>
+        </section>
+        <FormError :error="noteError" />
+        <DialogFooter>
+          <Button variant="outline" @click="noting = null">{{ t("common.cancel") }}</Button>
+          <Button :disabled="busy" @click="saveNote">{{ t("common.save") }}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog :open="erasing !== null" @update:open="(v) => !v && (erasing = null)">
       <DialogContent class="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
