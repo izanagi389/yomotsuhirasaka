@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// ワークスペースの管理（管理者とサーバー管理者）: 所属者・招待・配信APIのキー・Webhook・監査ログ。
+// ワークスペースの管理（管理者とサーバー管理者）: 所属者・招待・配信APIのキー・Webhook・訂正の定型文・監査ログ。
 // 権限の判断はサーバーが行う。発行や変更の多くは再認証が要り、サーバーが求めたらダイアログで確認する。
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ApiKeysPanel from "~/components/admin/ApiKeysPanel.vue";
 import AuditPanel from "~/components/admin/AuditPanel.vue";
+import CorrectionTemplatesPanel from "~/components/admin/CorrectionTemplatesPanel.vue";
 import InvitationsPanel from "~/components/admin/InvitationsPanel.vue";
 import MembersPanel from "~/components/admin/MembersPanel.vue";
 import WebhooksPanel from "~/components/admin/WebhooksPanel.vue";
@@ -13,7 +14,7 @@ const route = useRoute();
 const ws = route.params.ws as string;
 const { t } = useI18n();
 const api = useApi();
-const { workspace, error } = await useWorkspace(ws);
+const { workspace, manifest, error } = await useWorkspace(ws);
 const tab = ref("members");
 
 // 監査ログに、操作した人のメールアドレスを出す（所属者の一覧から分かる人だけ）
@@ -40,12 +41,16 @@ watch(tab, async (v) => {
         <TabsTrigger value="invitations">{{ t("adminTabs.invitations") }}</TabsTrigger>
         <TabsTrigger value="apiKeys">{{ t("adminTabs.apiKeys") }}</TabsTrigger>
         <TabsTrigger value="webhooks">{{ t("adminTabs.webhooks") }}</TabsTrigger>
+        <TabsTrigger value="correctionTemplates">{{ t("adminTabs.correctionTemplates") }}</TabsTrigger>
         <TabsTrigger value="audit">{{ t("adminTabs.audit") }}</TabsTrigger>
       </TabsList>
       <TabsContent value="members" class="mt-4"><MembersPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="invitations" class="mt-4"><InvitationsPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="apiKeys" class="mt-4"><ApiKeysPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="webhooks" class="mt-4"><WebhooksPanel :workspace-id="ws" /></TabsContent>
+      <TabsContent value="correctionTemplates" class="mt-4">
+        <CorrectionTemplatesPanel :workspace-id="ws" :locales="manifest?.locales ?? []" />
+      </TabsContent>
       <TabsContent value="audit" class="mt-4"><AuditPanel :workspace-id="ws" :people="people" /></TabsContent>
     </Tabs>
   </div>

@@ -5,14 +5,19 @@
 // - URLの変更
 // 判定はサーバー（publish-check）が、公開と同じコードで行う。確認した下書きのリビジョン番号で公開するので、
 // 確認の後に誰かが下書きを変えていれば公開されない（409）。
+// 訂正として公開するときは、訂正の説明を定型文と自由記述で書ける（任意。後から版のタブで書き直せる。Q63）。
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { PublishCheck, Published } from "~/utils/content";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import type { CorrectionTemplate, PublishCheck, Published } from "~/utils/content";
 
 const props = defineProps<{
   workspaceId: string;
   entryId: string;
+  /** 記事のロケール（訂正の説明の定型文を選ぶ）。 */
+  locale: string;
   /** 訂正として公開するか。 */
   correction: boolean;
   /** 未保存の変更を保存する（保存できなければ false）。 */
@@ -30,6 +35,26 @@ const error = ref<unknown>(null);
 const notSaved = ref(false);
 
 const base = computed(() => `/workspaces/${props.workspaceId}/entries/${props.entryId}`);
+
+// 訂正の説明
+const choices = ref<CorrectionTemplate[]>([]);
+const templateId = ref("");
+const noteText = ref("");
+async function loadTemplates() {
+  templateId.value = "";
+  noteText.value = "";
+  try {
+    const all = await api.get<CorrectionTemplate[]>(`/workspaces/${props.workspaceId}/correction-templates`);
+    choices.value = all.filter((c) => c.kind === "choice" && c.locale === props.locale);
+  } catch {
+    // 定型文が読めなくても、自由記述で書ける
+    choices.value = [];
+  }
+}
+watch(open, (v) => v && props.correction && loadTemplates(), { immediate: true });
+const correctionNote = computed(() =>
+  templateId.value || noteText.value.trim() ? { templateId: templateId.value || undefined, text: noteText.value.trim() || undefined } : undefined,
+);
 
 async function load() {
   loading.value = true;
@@ -62,7 +87,11 @@ async function publish() {
   publishing.value = true;
   error.value = null;
   try {
-    const result = await api.post<Published>(`${base.value}/publish`, { revision: check.value.revision, correction: props.correction });
+    const result = await api.post<Published>(`${base.value}/publish`, {
+      revision: check.value.revision,
+      correction: props.correction,
+      ...(props.correction && correctionNote.value ? { correctionNote: correctionNote.value } : {}),
+    });
     open.value = false;
     emit("published", result);
   } catch (e) {
@@ -143,6 +172,22 @@ function sectionName(s: { anchor: string | null; title: string | null; field: st
         <p v-else class="text-muted-foreground">{{ t("publish.firstTime") }}</p>
 
         <p v-if="correction && !check.canCorrect" class="text-destructive">{{ t("errors.nothing_to_correct") }}</p>
+
+        <section v-if="correction && check.canCorrect" class="grid gap-3" data-testid="correction-note">
+          <h3 class="font-medium">{{ t("corrections.note") }}</h3>
+          <p class="text-muted-foreground">{{ t("corrections.noteHelp") }}</p>
+          <div v-if="choices.length > 0" class="grid gap-1.5">
+            <Label for="correction-template">{{ t("corrections.template") }}</Label>
+            <select id="correction-template" v-model="templateId" class="h-9 rounded-md border bg-transparent px-3">
+              <option value="">{{ t("corrections.noTemplate") }}</option>
+              <option v-for="c in choices" :key="c.id" :value="c.id">{{ c.text }}</option>
+            </select>
+          </div>
+          <div class="grid gap-1.5">
+            <Label for="correction-text">{{ t("corrections.freeText") }}</Label>
+            <Textarea id="correction-text" v-model="noteText" maxlength="2000" rows="3" />
+          </div>
+        </section>
       </div>
 
       <DialogFooter>

@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import EntryField from "~/components/entry/EntryField.vue";
+import FreshnessPanel from "~/components/entry/FreshnessPanel.vue";
 import PublishDialog from "~/components/entry/PublishDialog.vue";
 import SettingsPanel from "~/components/entry/SettingsPanel.vue";
 import TranslationsPanel from "~/components/entry/TranslationsPanel.vue";
@@ -168,6 +169,7 @@ onBeforeRouteLeave(async () => {
           <TabsTrigger value="content">{{ t("entryTabs.content") }}</TabsTrigger>
           <TabsTrigger value="translations">{{ t("entryTabs.translations") }}</TabsTrigger>
           <TabsTrigger value="versions">{{ t("entryTabs.versions") }}</TabsTrigger>
+          <TabsTrigger value="freshness">{{ t("entryTabs.freshness") }}</TabsTrigger>
           <TabsTrigger value="settings">{{ t("entryTabs.settings") }}</TabsTrigger>
           <TabsTrigger value="urls">{{ t("entryTabs.urls") }}</TabsTrigger>
         </TabsList>
@@ -198,7 +200,10 @@ onBeforeRouteLeave(async () => {
           />
         </TabsContent>
         <TabsContent value="versions" class="mt-4">
-          <VersionsPanel :key="published" :workspace-id="ws" :entry-id="id" :content-type="contentType" :can-erase="canErase(workspace)" :custom-nodes="manifest?.body.customNodes ?? []" />
+          <VersionsPanel :key="published" :workspace-id="ws" :entry-id="id" :content-type="contentType" :can-erase="canErase(workspace)" :can-write-note="canPublish(workspace)" :custom-nodes="manifest?.body.customNodes ?? []" />
+        </TabsContent>
+        <TabsContent value="freshness" class="mt-4">
+          <FreshnessPanel :key="published" :workspace-id="ws" :entry-id="id" :editable="canPublish(workspace)" />
         </TabsContent>
         <TabsContent value="settings" class="mt-4">
           <SettingsPanel :workspace-id="ws" :entry-id="id" :editable="canPublish(workspace)" />
@@ -212,6 +217,7 @@ onBeforeRouteLeave(async () => {
         v-model:open="publishOpen"
         :workspace-id="ws"
         :entry-id="id"
+        :locale="draft.locale"
         :correction="asCorrection"
         :flush="autosave.flush"
         @published="onPublished"

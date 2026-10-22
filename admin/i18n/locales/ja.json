@@ -295,7 +295,8 @@
     "translations": "翻訳",
     "versions": "版",
     "settings": "公開設定",
-    "urls": "URLの履歴"
+    "urls": "URLの履歴",
+    "freshness": "鮮度"
   },
   "translations": {
     "source": "元の記事",
@@ -370,14 +371,16 @@
   "nav": {
     "entries": "記事",
     "media": "メディア",
-    "admin": "管理"
+    "admin": "管理",
+    "checks": "要対応"
   },
   "adminTabs": {
     "members": "所属者",
     "invitations": "招待",
     "apiKeys": "配信APIのキー",
     "webhooks": "Webhook",
-    "audit": "監査ログ"
+    "audit": "監査ログ",
+    "correctionTemplates": "訂正の定型文"
   },
   "secretOnce": {
     "warning": "この値は今だけ表示します。閉じると二度と表示できないので、安全な場所に保管してください。",
@@ -636,5 +639,55 @@
       "oidc_not_configured": "このサーバーでは、シングルサインオンを使えません。",
       "internal": "サーバーで問題が起きました。"
     }
+  },
+  "corrections": {
+    "note": "訂正の説明",
+    "noteHelp": "何をどう直したかを読者に伝える文です（任意）。後から版のタブで書き直せます。書かなければ、ワークスペースの「説明なしのときの文」が表示されます。",
+    "template": "定型文",
+    "noTemplate": "選ばない",
+    "freeText": "自由記述",
+    "unwritten": "説明なし",
+    "editNote": "説明を編集",
+    "editNoteTitle": "第{n}版の訂正の説明",
+    "editNoteDescription": "書き直すと、配信APIと訂正フィードには新しい説明だけが出ます。編集の履歴は管理画面だけに残ります。空にすると「説明なし」に戻ります。",
+    "history": "編集の履歴",
+    "cleared": "（説明を消しました）"
+  },
+  "freshness": {
+    "lastVerified": "最終確認日",
+    "never": "まだ公開していません",
+    "due": "確認期限",
+    "noDue": "期限なし",
+    "expired": "期限切れ",
+    "verify": "確認済みにする",
+    "verifyHelp": "内容が今も正しいことを確かめたら記録します。最終確認日が今日になり、確認期限が延びます。版は作りません。メモは管理画面だけに残ります。",
+    "memo": "メモ（任意。確認した内容など）",
+    "verifyButton": "確認済みとして記録",
+    "notPublished": "公開した記事だけ記録できます。",
+    "interval": "確認期限",
+    "defaultDays": "スキーマの既定（{n}日）",
+    "defaultNone": "スキーマの既定（期限なし）",
+    "custom": "この記事だけ日数を変える",
+    "days": "日",
+    "disabled": "この記事は期限なし",
+    "history": "確認の記録",
+    "noHistory": "まだ記録はありません。"
+  },
+  "checks": {
+    "unwritten": "説明を書いていない訂正",
+    "unwrittenHelp": "訂正として公開した版のうち、説明を書いていないものです。記事を開き、版のタブで説明を書いてください。",
+    "expired": "確認期限が切れた記事",
+    "expiredHelp": "公開中の記事のうち、確認期限を過ぎたものです。内容を確かめて、鮮度のタブで「確認済み」を記録してください。",
+    "none": "ありません。",
+    "correctedAt": "訂正: {at}",
+    "dueAt": "期限: {at}"
+  },
+  "correctionTemplates": {
+    "help": "訂正として公開するときに選べる説明の文と、説明を書いていない訂正に表示する文を、ロケールごとに決めます。選んだ文はその時点で説明に写されるため、ここを変えても過去の説明は変わりません。",
+    "fallback": "説明なしのときの文",
+    "choices": "選べる文",
+    "choice": "選べる文 {n}",
+    "add": "文を追加",
+    "saved": "保存しました。"
   }
 }

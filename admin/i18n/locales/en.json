@@ -295,7 +295,8 @@
     "translations": "Translations",
     "versions": "Versions",
     "settings": "Publish settings",
-    "urls": "URL history"
+    "urls": "URL history",
+    "freshness": "Freshness"
   },
   "translations": {
     "source": "Source entry",
@@ -370,14 +371,16 @@
   "nav": {
     "entries": "Entries",
     "media": "Media",
-    "admin": "Admin"
+    "admin": "Admin",
+    "checks": "To do"
   },
   "adminTabs": {
     "members": "Members",
     "invitations": "Invitations",
     "apiKeys": "Delivery API keys",
     "webhooks": "Webhooks",
-    "audit": "Audit log"
+    "audit": "Audit log",
+    "correctionTemplates": "Correction templates"
   },
   "secretOnce": {
     "warning": "This value is shown only now. Once closed it cannot be shown again, so store it somewhere safe.",
@@ -636,5 +639,55 @@
       "oidc_not_configured": "Single sign-on is not configured on this server.",
       "internal": "Something went wrong on the server."
     }
+  },
+  "corrections": {
+    "note": "Correction note",
+    "noteHelp": "Tell readers what was corrected (optional). You can rewrite it later in the Versions tab. Without a note, the workspace fallback text is shown.",
+    "template": "Template",
+    "noTemplate": "None",
+    "freeText": "Your text",
+    "unwritten": "No note",
+    "editNote": "Edit note",
+    "editNoteTitle": "Correction note of version {n}",
+    "editNoteDescription": "Only the new note appears in the delivery API and the corrections feed. The edit history stays in the admin UI. Clear it to go back to no note.",
+    "history": "Edit history",
+    "cleared": "(note cleared)"
+  },
+  "freshness": {
+    "lastVerified": "Last verified",
+    "never": "Not published yet",
+    "due": "Review due",
+    "noDue": "No deadline",
+    "expired": "Expired",
+    "verify": "Mark as verified",
+    "verifyHelp": "Record that the content is still accurate. The last verified date becomes today and the review deadline moves. No version is created. The memo stays in the admin UI.",
+    "memo": "Memo (optional, what you checked)",
+    "verifyButton": "Record as verified",
+    "notPublished": "Only entries that have been published can be verified.",
+    "interval": "Review deadline",
+    "defaultDays": "Schema default ({n} days)",
+    "defaultNone": "Schema default (no deadline)",
+    "custom": "Custom for this entry",
+    "days": "days",
+    "disabled": "No deadline for this entry",
+    "history": "Verification log",
+    "noHistory": "No records yet."
+  },
+  "checks": {
+    "unwritten": "Corrections without a note",
+    "unwrittenHelp": "Versions published as corrections that have no note. Open the entry and write the note in the Versions tab.",
+    "expired": "Entries past their review deadline",
+    "expiredHelp": "Published entries past their review deadline. Check the content and record it as verified in the Freshness tab.",
+    "none": "None.",
+    "correctedAt": "Corrected: {at}",
+    "dueAt": "Due: {at}"
+  },
+  "correctionTemplates": {
+    "help": "Per locale, set the notes editors can pick when publishing a correction, and the text shown for corrections without a note. A picked note is copied at that moment, so changing it here does not change past notes.",
+    "fallback": "Text when there is no note",
+    "choices": "Notes to pick",
+    "choice": "Note {n}",
+    "add": "Add a note",
+    "saved": "Saved."
   }
 }
