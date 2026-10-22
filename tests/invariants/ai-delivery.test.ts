@@ -70,6 +70,19 @@ async function markdownOf(site: Site, entryId: string): Promise<HttpResponse> {
   return res;
 }
 
+/** 公開URLで取る記事のMarkdown版（配信APIの応答のまま。連携部品の `.md` が使う）。 */
+async function markdownByUrl(site: Site, entryId: string): Promise<HttpResponse> {
+  const { cms } = await world();
+  const byId = await cms.registerQuery(site.id, site.registerKey.secret, { kind: "byId", fields: ["id", "url"] });
+  const entry = await cms.deliveryRaw(site.id, site.readKey.secret, byId, { id: entryId, locale: "ja" });
+  expectSuccess(entry, "配信APIでの記事のURLの取得");
+  const url = (JSON.parse(entry.text) as { data: Record<string, { url: string } | null> }).data;
+  const query = await cms.registerQuery(site.id, site.registerKey.secret, { kind: "aiMarkdownByUrl" });
+  const res = await cms.deliveryRaw(site.id, site.readKey.secret, query, { url: Object.values(url)[0]!.url });
+  expectSuccess(res, "配信APIでの公開URLによるMarkdown版の取得");
+  return res;
+}
+
 /** 記事の目録（配信APIの応答のまま）。 */
 async function catalogOf(site: Site): Promise<HttpResponse> {
   const { cms } = await world();
@@ -92,6 +105,7 @@ inv("inv_aix_01", "「外部AI向けの素材に含める」がOFFの記事は�
 
   // 対照: 「含める」（初期値）のあいだは、どれにも含まれる
   expect(has(await markdownOf(site, target), targetTitle), "「含める」の記事のMarkdown版に、記事のタイトルがない").toBe(true);
+  expect(has(await markdownByUrl(site, target), targetTitle), "公開URLで取った「含める」の記事のMarkdown版に、記事のタイトルがない").toBe(true);
   expect(has(await catalogOf(site), targetSlug), "「含める」の記事が目録にない").toBe(true);
   expect(has(await markdownOf(site, source), targetSlug), "関係の相手（「含める」の記事）のURLが、もう一方の記事のMarkdown版にない").toBe(true);
 
@@ -99,6 +113,7 @@ inv("inv_aix_01", "「外部AI向けの素材に含める」がOFFの記事は�
   await cms.setIncludeInAiMaterials(site.editorSession, site.id, target, false);
   for (const value of [targetTitle, targetSlug]) {
     expectNotLeaked(await markdownOf(site, target), value, "OFFの記事のMarkdown版");
+    expectNotLeaked(await markdownByUrl(site, target), value, "公開URLで取ったOFFの記事のMarkdown版");
     expectNotLeaked(await catalogOf(site), value, "目録（OFFの記事）");
     expectNotLeaked(await markdownOf(site, source), value, "OFFの記事を関係に持つ記事のMarkdown版");
   }

@@ -119,6 +119,18 @@ fn entries(rows: Vec<Row>) -> Result<Vec<Entry>> {
     Ok(out)
 }
 
+/// 公開URLで1件（いまのURL。公開中の記事のURLは重ならない）。
+pub async fn by_url(conn: &mut PgConnection, url: &str) -> Result<Option<Entry>> {
+    let row: Option<Row> = sqlx::query_as(crate::db::trusted(select("e.url = $1", "LIMIT 1")))
+        .bind(url)
+        .fetch_optional(conn)
+        .await?;
+    Ok(match row {
+        Some(r) => entry(r)?,
+        None => None,
+    })
+}
+
 /// IDで1件。
 pub async fn by_id(conn: &mut PgConnection, content_type: &str, id: Uuid) -> Result<Option<Entry>> {
     let row: Option<Row> = sqlx::query_as(crate::db::trusted(select(

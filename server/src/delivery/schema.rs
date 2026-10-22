@@ -22,9 +22,10 @@ use uuid::Uuid;
 use super::ai::{self, CatalogItem};
 use super::data::{self, Entry};
 use super::names::{
-    self, AI_CATALOG_FIELD, AI_CATALOG_ITEM_TYPE, AI_MARKDOWN_FIELD, AI_TRAINING_OPT_OUTS_FIELD,
-    ALTERNATE_TYPE, CORRECTION_FEED_ITEM_TYPE, CORRECTION_TYPE, CORRECTIONS_FIELD,
-    DELETED_ANCHOR_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE, REDIRECTS_FIELD,
+    self, AI_CATALOG_FIELD, AI_CATALOG_ITEM_TYPE, AI_MARKDOWN_BY_URL_FIELD, AI_MARKDOWN_FIELD,
+    AI_TRAINING_OPT_OUTS_FIELD, ALTERNATE_TYPE, CORRECTION_FEED_ITEM_TYPE, CORRECTION_TYPE,
+    CORRECTIONS_FIELD, DELETED_ANCHOR_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE,
+    REDIRECTS_FIELD,
 };
 use crate::content::corrections::{self, Correction, DeletedAnchor, FeedItem};
 use crate::content::freshness::{self, Freshness};
@@ -477,6 +478,30 @@ fn catalog_field(manifest: Arc<Manifest>) -> Field {
     )
 }
 
+/// 公開URLで、記事のMarkdown版（素材にならない記事・公開中でないURLでは null。INV-AIX-01）。
+fn markdown_by_url_field(manifest: Arc<Manifest>) -> Field {
+    Field::new(AI_MARKDOWN_BY_URL_FIELD, TypeRef::named(TypeRef::STRING), move |ctx| {
+        let manifest = manifest.clone();
+        FieldFuture::new(async move {
+            let url = ctx.args.try_get("url")?.string()?.to_owned();
+            let req = request(&ctx)?;
+            let mut guard = req.tx.lock().await;
+            let Some(tx) = guard.as_mut() else {
+                return Ok(None);
+            };
+            let Some(e) = data::by_url(tx, &url).await.map_err(internal)? else {
+                return Ok(None);
+            };
+            let md = ai::markdown(tx, &manifest, &req.media_base, req.workspace_id, &e)
+                .await
+                .map_err(internal)?;
+            Ok(md.map(GqlValue::from))
+        })
+    })
+    .argument(InputValue::new("url", TypeRef::named_nn(TypeRef::STRING)))
+    .description("The Markdown version of the published entry at the public URL (null when there is none or it is not an AI material).")
+}
+
 /// 学習への利用を拒否した記事のURL（すべてのロケール）。
 fn training_opt_outs_field() -> Field {
     Field::new(
@@ -814,6 +839,7 @@ pub fn build(
         .field(redirects_field())
         .field(corrections_feed_field(shared.clone()))
         .field(catalog_field(shared.clone()))
+        .field(markdown_by_url_field(shared.clone()))
         .field(training_opt_outs_field());
     for ct in &manifest.content_types {
         query = root_fields(query, ct);
