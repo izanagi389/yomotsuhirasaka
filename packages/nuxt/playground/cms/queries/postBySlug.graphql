@@ -4,5 +4,10 @@ query ($slug: String!, $locale: String!) {
     title
     url
     body
+    deletedAnchors {
+      anchor
+      deletedAt
+      description
+    }
   }
 }

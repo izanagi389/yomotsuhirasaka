@@ -4,6 +4,8 @@
 import { useFetch, useRuntimeConfig } from "nuxt/app";
 import { type MaybeRefOrGetter, computed, toValue } from "vue";
 
+import type { CmsCorrectionItem } from "./server/feed.ts";
+
 export function useCmsQuery<T = unknown>(name: string, variables?: MaybeRefOrGetter<Record<string, unknown> | undefined>) {
   const prefix = (useRuntimeConfig().public as { cms?: { routePrefix?: string } }).cms?.routePrefix ?? "/_cms/q";
   const query = computed(() => {
@@ -14,4 +16,12 @@ export function useCmsQuery<T = unknown>(name: string, variables?: MaybeRefOrGet
     query,
     key: () => `cms:${name}:${query.value.v ?? ""}`,
   });
+}
+
+/**
+ * 訂正の一覧（新しい順）。nuxt.config で `cms.corrections` を設定したときに使える。
+ * `const { data } = await useCmsCorrections({ locale: "ja", limit: 20, offset: 0 })` → `data.value?.corrections`
+ */
+export function useCmsCorrections(variables: MaybeRefOrGetter<{ locale: string; limit?: number; offset?: number }>) {
+  return useCmsQuery<{ corrections: CmsCorrectionItem[] }>("cmsCorrections", variables);
 }
