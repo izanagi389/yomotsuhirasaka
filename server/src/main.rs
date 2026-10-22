@@ -735,6 +735,10 @@ async fn serve(config: Config) -> Result<()> {
     auth::password::warm_up();
     let listen = config.listen.clone();
     let state = http::AppState::new(app_pool, migration_pool, app_role, config, ring);
+    // 変換結果のない・古い公開中の版を作り直す（Q58）
+    if let Err(e) = cms_server::content::rerender::schedule_all(&state.pool, &state.keys).await {
+        tracing::error!("cannot queue re-rendering: {e:#}");
+    }
     worker::spawn(state.clone());
     worker::spawn_sweeper(state.clone());
     let app = http::router(state);

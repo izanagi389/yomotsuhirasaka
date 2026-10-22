@@ -5,7 +5,8 @@
 //! - 1件: `blogPost(id, locale)`、スラッグで1件: `blogPostBySlug(slug, locale)`、一覧: `blogPostList(locale, limit, offset)`
 //!
 //! 記事の型には、CMSが決めるフィールド（`id`・`locale`・`url`・`publishedAt`・`firstPublishedAt`・`translationGroupId`・
-//! `alternates`・`corrections`・`deletedAnchors`・`lastVerifiedAt`・`reviewDueAt`・`reviewExpired`）を置く。テンプレートのフィールドは名前をそのまま使う（英小文字・数字・アンダースコア）。
+//! `alternates`・`corrections`・`deletedAnchors`・`lastVerifiedAt`・`reviewDueAt`・`reviewExpired`・
+//! `aiMarkdown`・`readingTime`・`aiTrainingOptOut`）を置く。テンプレートのフィールドは名前をそのまま使う（英小文字・数字・アンダースコア）。
 //! 名前がぶつかるテンプレートは、デプロイの時点で止める（原則10）。
 
 use std::collections::BTreeSet;
@@ -24,6 +25,13 @@ pub const DELETED_ANCHOR_TYPE: &str = "CmsDeletedAnchor";
 pub const CORRECTION_FEED_ITEM_TYPE: &str = "CmsCorrectionFeedItem";
 /// CMSが置くルートのフィールド（訂正フィード）。記事の型の訂正履歴のフィールドも同じ名前。
 pub const CORRECTIONS_FIELD: &str = "corrections";
+
+/// CMSが置くルートのフィールド（AI向けの目録と、学習への利用を拒否した記事のURL。07-ai-delivery.md）。
+pub const AI_CATALOG_FIELD: &str = "aiCatalog";
+pub const AI_TRAINING_OPT_OUTS_FIELD: &str = "aiTrainingOptOuts";
+pub const AI_CATALOG_ITEM_TYPE: &str = "CmsAiCatalogItem";
+/// 記事の型のCMSのフィールド（AI向けのMarkdown版）。本文のフィールド `ai` の `aiMarkdown` とぶつかる。
+pub const AI_MARKDOWN_FIELD: &str = "aiMarkdown";
 
 /// 記事の型のCMSのフィールドのうち、テンプレートのフィールド名（英小文字・数字・_）とぶつかりうるもの。
 pub const RESERVED_FIELDS: [&str; 5] = ["id", "locale", "url", "alternates", CORRECTIONS_FIELD];
@@ -78,7 +86,12 @@ pub fn list(content_type: &str) -> String {
 pub fn problems(m: &Manifest) -> Vec<String> {
     let mut problems = Vec::new();
     let mut types = BTreeSet::new();
-    let mut roots = BTreeSet::from([REDIRECTS_FIELD.to_owned(), CORRECTIONS_FIELD.to_owned()]);
+    let mut roots = BTreeSet::from([
+        REDIRECTS_FIELD.to_owned(),
+        CORRECTIONS_FIELD.to_owned(),
+        AI_CATALOG_FIELD.to_owned(),
+        AI_TRAINING_OPT_OUTS_FIELD.to_owned(),
+    ]);
     for (i, ct) in m.content_types.iter().enumerate() {
         let t = type_name(&ct.name);
         if RESERVED_TYPES.contains(&t.as_str()) || t.starts_with("Cms") || !types.insert(t) {
@@ -94,6 +107,15 @@ pub fn problems(m: &Manifest) -> Vec<String> {
             }
         }
         for (j, f) in ct.fields.iter().enumerate() {
+            // 本文のフィールドは `<名前>Html`・`<名前>Markdown` も置く
+            if f.kind == crate::schema::manifest::FieldType::Richtext
+                && format!("{}Markdown", f.name) == AI_MARKDOWN_FIELD
+            {
+                problems.push(format!(
+                    "contentTypes[{i}].fields[{j}].name: `{}Markdown` is reserved for the field the CMS provides",
+                    f.name
+                ));
+            }
             if RESERVED_FIELDS.contains(&f.name.as_str()) {
                 problems.push(format!(
                     "contentTypes[{i}].fields[{j}].name: `{}` is reserved for the field the CMS provides",
@@ -134,6 +156,10 @@ mod tests {
         other.name = "corrections".into();
         m.content_types.push(other.clone());
         assert!(!problems(&m).is_empty(), "corrections is reserved");
+        m.content_types.pop();
+        other.name = "ai_catalog".into();
+        m.content_types.push(other.clone());
+        assert!(!problems(&m).is_empty(), "aiCatalog is reserved");
         m.content_types.pop();
         other.name = "query".into();
         m.content_types.push(other.clone());

@@ -79,7 +79,7 @@ pub fn custom_node_scripts(manifest: &Manifest) -> Vec<crate::script::CustomNode
 }
 
 /// 本文のフィールドを変換する（フィールド名 → {markdown, html}）。
-async fn render(
+pub(crate) async fn render(
     scripts: &Scripts<'_>,
     manifest: &Manifest,
     ct: &ContentType,

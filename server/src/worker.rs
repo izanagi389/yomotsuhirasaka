@@ -48,6 +48,14 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
                     Outcome::Retry("internal_error")
                 })
         }
+        (Some(payload), crate::content::rerender::JOB_KIND) => {
+            crate::content::rerender::run(&state.pool, &state.scripts, payload)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(job_id = %job.id, "re-rendering: {e:#}");
+                    Outcome::Retry("internal_error")
+                })
+        }
         (Some(payload), hooks::JOB_KIND) => {
             hooks::run(&state.pool, &state.scripts, state.egress.as_ref(), payload)
                 .await

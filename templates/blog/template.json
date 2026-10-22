@@ -11,6 +11,7 @@
       "description": "ブログの記事",
       "urlTemplate": "https://example.com/{locale}/blog/{slug}",
       "listLimit": 50,
+      "aiMarkdown": { "title": "title", "meta": ["summary"], "fields": ["body"], "relations": ["related"] },
       "fields": [
         { "name": "title", "type": "text", "required": true, "description": "記事のタイトル" },
         { "name": "slug", "type": "slug", "required": true, "description": "URLに使う名前（英小文字・数字・ハイフン）" },

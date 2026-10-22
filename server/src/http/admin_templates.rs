@@ -138,6 +138,13 @@ pub async fn deploy_template(
         Ok(outcome) => {
             // URLの決め方が変わったコンテンツタイプは、移行が済んだワークスペースの公開中の記事のURLを再計算する（Q39）
             for ws in outcome.workspaces.iter().filter(|w| w.state == "ok") {
+                // 変換結果のない・古い変換器で作った公開中の版を作り直す（Q58。移行待ちだった版もここで拾う）
+                if let Err(e) =
+                    crate::content::rerender::schedule(&state.pool, &state.keys, ws.workspace_id)
+                        .await
+                {
+                    tracing::error!(workspace_id = %ws.workspace_id, "cannot queue re-rendering: {e:#}");
+                }
                 for ct in &outcome.url_rule_changes {
                     if let Err(e) = crate::content::urls::schedule_content_type(
                         &state.pool,

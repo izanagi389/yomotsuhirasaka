@@ -31,6 +31,9 @@ pub struct Entry {
     pub fields: Map<String, Value>,
     /// 公開中の版の本文の変換結果（フィールド名 → {markdown, html}）。HTMLは無害化する前のもの。
     pub rendered: Map<String, Value>,
+    /// 記事の公開設定（読むたびのいまの値）: 外部AI向けの素材に含めるか、学習への利用を拒否するか（07-ai-delivery.md）。
+    pub include_in_ai_materials: bool,
+    pub opt_out_of_ai_training: bool,
 }
 
 type Row = (
@@ -43,6 +46,8 @@ type Row = (
     String,
     Option<String>,
     Option<String>,
+    bool,
+    bool,
 );
 
 fn select(filter: &str, tail: &str) -> String {
@@ -50,7 +55,7 @@ fn select(filter: &str, tail: &str) -> String {
         "SELECT e.id, e.content_type, e.locale, e.translation_group_id, e.url,
                 to_char(v.published_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(f.first AT TIME ZONE 'UTC', {RFC3339}),
-                v.fields::text, v.rendered::text
+                v.fields::text, v.rendered::text, e.include_in_ai_materials, e.opt_out_of_ai_training
          FROM entries e
          JOIN versions v ON v.id = e.published_version_id
          CROSS JOIN LATERAL (SELECT min(published_at) AS first FROM versions WHERE entry_id = e.id) f
@@ -70,6 +75,8 @@ fn entry(r: Row) -> Result<Option<Entry>> {
         first_published_at,
         fields,
         rendered,
+        include_in_ai_materials,
+        opt_out_of_ai_training,
     ) = r;
     let Some(fields) = fields else {
         return Ok(None);
@@ -97,6 +104,8 @@ fn entry(r: Row) -> Result<Option<Entry>> {
         first_published_at,
         fields,
         rendered,
+        include_in_ai_materials,
+        opt_out_of_ai_training,
     }))
 }
 
