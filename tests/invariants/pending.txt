@@ -11,10 +11,6 @@ inv_aix_01
 inv_aix_02
 inv_aix_03
 
-inv_cor_02
-inv_cor_03
-inv_cor_04
-inv_frs_01
 
 inv_perm_02
 inv_perm_03

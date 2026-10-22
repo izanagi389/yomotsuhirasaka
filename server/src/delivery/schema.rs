@@ -20,12 +20,19 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use super::data::{self, Entry};
-use super::names::{self, ALTERNATE_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE, REDIRECTS_FIELD};
+use super::names::{
+    self, ALTERNATE_TYPE, CORRECTION_FEED_ITEM_TYPE, CORRECTION_TYPE, CORRECTIONS_FIELD,
+    DELETED_ANCHOR_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE, REDIRECTS_FIELD,
+};
+use crate::content::corrections::{self, Correction, DeletedAnchor, FeedItem};
+use crate::content::freshness::{self, Freshness};
 use crate::content::redirects::{self, Rule};
 use crate::schema::manifest::{ContentType, FieldType, Manifest};
 
 /// 一覧の `offset` の上限。
 const MAX_OFFSET: i64 = 100_000;
+/// 訂正フィードの件数の上限。
+const FEED_LIMIT: i64 = 100;
 
 /// 1回のリクエストで使うもの（リクエストのデータとして渡す）。
 pub struct RequestData {
@@ -119,8 +126,235 @@ fn alternate_type() -> Object {
     }))
 }
 
+/// 返す値の型 `T` の1つのフィールド（`get` が値を取り出す）。
+fn value_field<T, F>(name: &str, ty: TypeRef, get: F) -> Field
+where
+    T: Send + Sync + 'static,
+    F: Fn(&T) -> Option<GqlValue> + Send + Sync + 'static,
+{
+    Field::new(name, ty, move |ctx| {
+        let v = ctx.parent_value.try_downcast_ref::<T>().map(&get);
+        FieldFuture::new(async move { v })
+    })
+}
+
+fn sections_value(sections: &[String]) -> Option<GqlValue> {
+    Some(GqlValue::List(
+        sections.iter().cloned().map(GqlValue::from).collect(),
+    ))
+}
+
+/// 訂正履歴の1件の型（Q63）。説明の編集履歴と編集日時は出さない（INV-COR-04）。
+fn correction_type() -> Object {
+    Object::new(CORRECTION_TYPE)
+        .description(
+            "A version published as a correction. `sections` are the anchor IDs it affected.",
+        )
+        .field(value_field::<Correction, _>(
+            "correctedAt",
+            TypeRef::named_nn(TypeRef::STRING),
+            |c| Some(GqlValue::from(c.corrected_at.clone())),
+        ))
+        .field(value_field::<Correction, _>(
+            "description",
+            TypeRef::named(TypeRef::STRING),
+            |c| c.description.clone().map(GqlValue::from),
+        ))
+        .field(value_field::<Correction, _>(
+            "sections",
+            TypeRef::named_nn_list_nn(TypeRef::STRING),
+            |c| sections_value(&c.sections),
+        ))
+}
+
+/// 削除済みアンカーの1件の型。消えたセクションの本文は持たない（INV-COR-02）。
+fn deleted_anchor_type() -> Object {
+    Object::new(DELETED_ANCHOR_TYPE)
+        .description("An anchor ID that no longer exists in the current version. `description` is set when it was removed by a correction.")
+        .field(value_field::<DeletedAnchor, _>("anchor", TypeRef::named_nn(TypeRef::STRING), |d| {
+            Some(GqlValue::from(d.anchor.clone()))
+        }))
+        .field(value_field::<DeletedAnchor, _>("deletedAt", TypeRef::named_nn(TypeRef::STRING), |d| {
+            Some(GqlValue::from(d.deleted_at.clone()))
+        }))
+        .field(value_field::<DeletedAnchor, _>("description", TypeRef::named(TypeRef::STRING), |d| {
+            d.description.clone().map(GqlValue::from)
+        }))
+}
+
+/// 訂正フィードの1件の型（INV-COR-03）。
+fn correction_feed_item_type() -> Object {
+    Object::new(CORRECTION_FEED_ITEM_TYPE)
+        .description("A correction of a published entry, newest first.")
+        .field(value_field::<FeedItem, _>(
+            "entryId",
+            TypeRef::named_nn(TypeRef::ID),
+            |i| Some(GqlValue::from(i.entry_id.to_string())),
+        ))
+        .field(value_field::<FeedItem, _>(
+            "contentType",
+            TypeRef::named_nn(TypeRef::STRING),
+            |i| Some(GqlValue::from(i.content_type.clone())),
+        ))
+        .field(value_field::<FeedItem, _>(
+            "url",
+            TypeRef::named_nn(TypeRef::STRING),
+            |i| Some(GqlValue::from(i.url.clone())),
+        ))
+        .field(value_field::<FeedItem, _>(
+            "title",
+            TypeRef::named(TypeRef::STRING),
+            |i| i.title.clone().map(GqlValue::from),
+        ))
+        .field(value_field::<FeedItem, _>(
+            "correctedAt",
+            TypeRef::named_nn(TypeRef::STRING),
+            |i| Some(GqlValue::from(i.corrected_at.clone())),
+        ))
+        .field(value_field::<FeedItem, _>(
+            "description",
+            TypeRef::named(TypeRef::STRING),
+            |i| i.description.clone().map(GqlValue::from),
+        ))
+        .field(value_field::<FeedItem, _>(
+            "sections",
+            TypeRef::named_nn_list_nn(TypeRef::STRING),
+            |i| sections_value(&i.sections),
+        ))
+}
+
+/// 記事の訂正履歴・削除済みアンカー・鮮度（06-corrections-and-freshness.md）。返すたびに現在の状態から求める。
+/// 鮮度は最終確認日と期限だけで、確認者とメモは出さない（INV-FRS-01）。
+fn correction_fields(obj: Object, ct: &ContentType) -> Object {
+    let corrections = Field::new(
+        CORRECTIONS_FIELD,
+        TypeRef::named_nn_list_nn(CORRECTION_TYPE),
+        |ctx| {
+            FieldFuture::new(async move {
+                let e = parent(&ctx)?;
+                let req = request(&ctx)?;
+                let mut guard = req.tx.lock().await;
+                let Some(tx) = guard.as_mut() else {
+                    return Ok(Some(FieldValue::list(Vec::<FieldValue>::new())));
+                };
+                let out = corrections::entry_corrections(tx, e.id, &e.locale)
+                    .await
+                    .map_err(internal)?;
+                Ok(Some(FieldValue::list(
+                    out.into_iter().map(FieldValue::owned_any),
+                )))
+            })
+        },
+    )
+    .description("Versions published as corrections, oldest first.");
+    let deleted = Field::new(
+        "deletedAnchors",
+        TypeRef::named_nn_list_nn(DELETED_ANCHOR_TYPE),
+        |ctx| {
+            FieldFuture::new(async move {
+                let e = parent(&ctx)?;
+                let req = request(&ctx)?;
+                let mut guard = req.tx.lock().await;
+                let Some(tx) = guard.as_mut() else {
+                    return Ok(Some(FieldValue::list(Vec::<FieldValue>::new())));
+                };
+                let out = corrections::deleted_anchors(tx, e.id, &e.locale)
+                    .await
+                    .map_err(internal)?;
+                Ok(Some(FieldValue::list(
+                    out.into_iter().map(FieldValue::owned_any),
+                )))
+            })
+        },
+    )
+    .description("Anchor IDs removed from the entry, so that old links can show a notice.");
+    let default_days = ct.review.as_ref().map(|r| r.interval_days);
+    let fresh = |name: &str, ty: TypeRef, get: fn(Freshness) -> Option<GqlValue>| {
+        Field::new(name, ty, move |ctx| {
+            FieldFuture::new(async move {
+                let e = parent(&ctx)?;
+                let req = request(&ctx)?;
+                let mut guard = req.tx.lock().await;
+                let Some(tx) = guard.as_mut() else {
+                    return Ok(None);
+                };
+                let f = freshness::get(tx, default_days, e.id)
+                    .await
+                    .map_err(internal)?;
+                Ok(f.and_then(get))
+            })
+        })
+    };
+    obj.field(corrections)
+        .field(deleted)
+        .field(
+            fresh("lastVerifiedAt", TypeRef::named(TypeRef::STRING), |f| {
+                f.last_verified_at.map(GqlValue::from)
+            })
+            .description("When the content was last verified (or first published)."),
+        )
+        .field(
+            fresh("reviewDueAt", TypeRef::named(TypeRef::STRING), |f| {
+                f.review_due_at.map(GqlValue::from)
+            })
+            .description(
+                "When the content should be verified again. Null when it has no review deadline.",
+            ),
+        )
+        .field(fresh(
+            "reviewExpired",
+            TypeRef::named_nn(TypeRef::BOOLEAN),
+            |f| Some(GqlValue::from(f.review_expired)),
+        ))
+}
+
+/// 訂正フィード（INV-COR-03）。訂正として公開した版だけを、新しい順に返す。
+fn corrections_feed_field(manifest: Arc<Manifest>) -> Field {
+    Field::new(
+        CORRECTIONS_FIELD,
+        TypeRef::named_nn_list_nn(CORRECTION_FEED_ITEM_TYPE),
+        move |ctx| {
+            let manifest = manifest.clone();
+            FieldFuture::new(async move {
+                let locale = ctx.args.try_get("locale")?.string()?.to_owned();
+                let limit = ctx
+                    .args
+                    .get("limit")
+                    .and_then(|v| v.i64().ok())
+                    .unwrap_or(FEED_LIMIT)
+                    .clamp(0, FEED_LIMIT);
+                let offset = ctx
+                    .args
+                    .get("offset")
+                    .and_then(|v| v.i64().ok())
+                    .unwrap_or(0)
+                    .clamp(0, MAX_OFFSET);
+                let req = request(&ctx)?;
+                let mut guard = req.tx.lock().await;
+                let Some(tx) = guard.as_mut() else {
+                    return Ok(Some(FieldValue::list(Vec::<FieldValue>::new())));
+                };
+                let out = corrections::feed(tx, &manifest, &locale, limit, offset)
+                    .await
+                    .map_err(internal)?;
+                Ok(Some(FieldValue::list(
+                    out.into_iter().map(FieldValue::owned_any),
+                )))
+            })
+        },
+    )
+    .argument(InputValue::new(
+        "locale",
+        TypeRef::named_nn(TypeRef::STRING),
+    ))
+    .argument(InputValue::new("limit", TypeRef::named(TypeRef::INT)))
+    .argument(InputValue::new("offset", TypeRef::named(TypeRef::INT)))
+    .description("Corrections of published entries in the locale, newest first.")
+}
+
 fn entry_type(ct: &ContentType) -> Object {
     let mut obj = system_fields(Object::new(names::type_name(&ct.name)));
+    obj = correction_fields(obj, ct);
     if let Some(d) = &ct.description {
         obj = obj.description(d.clone());
     }
@@ -427,7 +661,9 @@ pub fn build(
     introspection: bool,
     limits: QueryLimits,
 ) -> anyhow::Result<Schema> {
-    let mut query = Object::new(QUERY_TYPE).field(redirects_field());
+    let mut query = Object::new(QUERY_TYPE)
+        .field(redirects_field())
+        .field(corrections_feed_field(Arc::new(manifest.clone())));
     for ct in &manifest.content_types {
         query = root_fields(query, ct);
     }
@@ -437,6 +673,9 @@ pub fn build(
         )
         .register(alternate_type())
         .register(redirect_type())
+        .register(correction_type())
+        .register(deleted_anchor_type())
+        .register(correction_feed_item_type())
         .limit_depth(limits.depth)
         .limit_complexity(limits.complexity)
         .disable_suggestions();

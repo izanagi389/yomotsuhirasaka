@@ -586,6 +586,8 @@ pub struct VersionInfo {
     pub anchors: Vec<String>,
     pub erased: bool,
     pub erased_at: Option<String>,
+    /// 訂正の説明（訂正として公開した版で、書いたときだけ。管理画面だけ）。
+    pub correction_note: Option<String>,
 }
 
 /// 版の中身（抹消した版の fields は null）。
@@ -610,12 +612,14 @@ type VersionRow = (
     Option<bool>,
     Vec<String>,
     Option<String>,
+    Option<String>,
 );
 
 const VERSION_COLUMNS: &str = r#"v.id, v.number, v.schema_version, v.published_by,
     to_char(v.published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), v.url,
     COALESCE(v.id = e.published_version_id, false), v.correction, v.affected_anchors, v.affects_lead, v.anchors,
-    to_char(v.erased_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"#;
+    to_char(v.erased_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+    (SELECT n.text FROM correction_notes n WHERE n.version_id = v.id)"#;
 
 fn info(r: VersionRow) -> VersionInfo {
     let (
@@ -631,6 +635,7 @@ fn info(r: VersionRow) -> VersionInfo {
         affects_lead,
         anchors,
         erased_at,
+        correction_note,
     ) = r;
     VersionInfo {
         id,
@@ -646,6 +651,7 @@ fn info(r: VersionRow) -> VersionInfo {
         anchors,
         erased: erased_at.is_some(),
         erased_at,
+        correction_note,
     }
 }
 

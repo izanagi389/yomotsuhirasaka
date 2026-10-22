@@ -77,6 +77,12 @@ pub struct ContentType<F = crate::script::Script> {
     /// フック（M2、04-hooks.md）。
     #[serde(default, skip_serializing_if = "Hooks::is_empty")]
     pub hooks: Hooks<F>,
+    /// 記事のタイトルのフィールド（text）。訂正フィード・目録・管理画面の一覧などで記事の名前として使う。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_field: Option<String>,
+    /// 確認期限（06-corrections-and-freshness.md「鮮度」）。なければ期限なし。記事ごとに上書きできる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<Review>,
     /// 一覧のフィールドで1回に取得できる件数の上限。
     pub list_limit: u32,
     pub fields: Vec<Field>,
@@ -86,6 +92,14 @@ pub struct ContentType<F = crate::script::Script> {
     /// 開発者向けのメモ。どのAPIにも出さない（Q51、INV-SCH-01）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dev_note: Option<String>,
+}
+
+/// 確認期限の既定値。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Review {
+    /// 最終確認日からの日数（1〜3650）。
+    pub interval_days: u32,
 }
 
 /// コンテンツタイプのフック（04-hooks.md、Q12）。種類ごとに1つ。
@@ -750,6 +764,19 @@ pub fn validate(m: &Manifest) -> Vec<String> {
                 f,
                 is_async,
             ));
+        }
+        if let Some(r) = &ct.review
+            && !(1..=3650).contains(&r.interval_days)
+        {
+            problems.push(format!("{path}.review.intervalDays: must be 1 to 3650"));
+        }
+        if let Some(tf) = &ct.title_field
+            && !ct
+                .fields
+                .iter()
+                .any(|f| &f.name == tf && f.kind == FieldType::Text)
+        {
+            problems.push(format!("{path}.titleField: must name a text field"));
         }
         if !(1..=MAX_LIST_LIMIT).contains(&ct.list_limit) {
             problems.push(format!("{path}.listLimit: must be 1 to {MAX_LIST_LIMIT}"));

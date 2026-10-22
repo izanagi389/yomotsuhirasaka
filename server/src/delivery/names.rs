@@ -5,7 +5,7 @@
 //! - 1件: `blogPost(id, locale)`、スラッグで1件: `blogPostBySlug(slug, locale)`、一覧: `blogPostList(locale, limit, offset)`
 //!
 //! 記事の型には、CMSが決めるフィールド（`id`・`locale`・`url`・`publishedAt`・`firstPublishedAt`・`translationGroupId`・
-//! `alternates`）を置く。テンプレートのフィールドは名前をそのまま使う（英小文字・数字・アンダースコア）。
+//! `alternates`・`corrections`・`deletedAnchors`・`lastVerifiedAt`・`reviewDueAt`・`reviewExpired`）を置く。テンプレートのフィールドは名前をそのまま使う（英小文字・数字・アンダースコア）。
 //! 名前がぶつかるテンプレートは、デプロイの時点で止める（原則10）。
 
 use std::collections::BTreeSet;
@@ -19,9 +19,14 @@ pub const ALTERNATE_TYPE: &str = "CmsAlternate";
 pub const REDIRECT_TYPE: &str = "CmsRedirect";
 /// CMSが置くルートのフィールド（リダイレクト一覧）。コンテンツタイプから決まる名前とぶつけない。
 pub const REDIRECTS_FIELD: &str = "redirects";
+pub const CORRECTION_TYPE: &str = "CmsCorrection";
+pub const DELETED_ANCHOR_TYPE: &str = "CmsDeletedAnchor";
+pub const CORRECTION_FEED_ITEM_TYPE: &str = "CmsCorrectionFeedItem";
+/// CMSが置くルートのフィールド（訂正フィード）。記事の型の訂正履歴のフィールドも同じ名前。
+pub const CORRECTIONS_FIELD: &str = "corrections";
 
 /// 記事の型のCMSのフィールドのうち、テンプレートのフィールド名（英小文字・数字・_）とぶつかりうるもの。
-pub const RESERVED_FIELDS: [&str; 4] = ["id", "locale", "url", "alternates"];
+pub const RESERVED_FIELDS: [&str; 5] = ["id", "locale", "url", "alternates", CORRECTIONS_FIELD];
 
 /// GraphQLの組み込みの型と、CMSが使う型の名前。
 const RESERVED_TYPES: [&str; 10] = [
@@ -73,7 +78,7 @@ pub fn list(content_type: &str) -> String {
 pub fn problems(m: &Manifest) -> Vec<String> {
     let mut problems = Vec::new();
     let mut types = BTreeSet::new();
-    let mut roots = BTreeSet::from([REDIRECTS_FIELD.to_owned()]);
+    let mut roots = BTreeSet::from([REDIRECTS_FIELD.to_owned(), CORRECTIONS_FIELD.to_owned()]);
     for (i, ct) in m.content_types.iter().enumerate() {
         let t = type_name(&ct.name);
         if RESERVED_TYPES.contains(&t.as_str()) || t.starts_with("Cms") || !types.insert(t) {
@@ -125,6 +130,10 @@ mod tests {
         other.name = "redirects".into();
         m.content_types.push(other.clone());
         assert!(!problems(&m).is_empty(), "redirects is reserved");
+        m.content_types.pop();
+        other.name = "corrections".into();
+        m.content_types.push(other.clone());
+        assert!(!problems(&m).is_empty(), "corrections is reserved");
         m.content_types.pop();
         other.name = "query".into();
         m.content_types.push(other.clone());
