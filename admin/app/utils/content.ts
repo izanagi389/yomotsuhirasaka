@@ -275,3 +275,46 @@ export interface ExpiredReview {
   title: string | null;
   reviewDueAt: string;
 }
+
+/** レビュー依頼に出てくる人（公開できる人と依頼した本人だけ。それ以外は null）。server/src/http/admin_reviews.rs */
+export interface ReviewPerson {
+  userId: string;
+  /** 表示名（未設定ならメールアドレス）。 */
+  name: string;
+  /** 同じ名前の人が並ぶときだけ。 */
+  email?: string;
+}
+
+/** レビュー依頼の1件。 */
+export interface ReviewRequest {
+  id: string;
+  entryId: string;
+  state: "open" | "rejected" | "withdrawn" | "published";
+  requestedBy: ReviewPerson | null;
+  reviewer: ReviewPerson | null;
+  assignedToMe: boolean;
+  requestedRevision: number;
+  changedSinceRequest: boolean;
+  comment: string | null;
+  createdAt: string;
+  closedAt: string | null;
+  closedBy: ReviewPerson | null;
+}
+
+/** GET .../entries/{id}/review-request */
+export interface EntryReview {
+  open: ReviewRequest | null;
+  history: ReviewRequest[];
+}
+
+/** GET /workspaces/{ws}/review-requests */
+export interface ReviewLists {
+  waiting: { request: ReviewRequest; entry: EntrySummary }[];
+  rejected: { request: ReviewRequest; entry: EntrySummary }[];
+}
+
+/** 人の名前（同じ名前の人にはメールアドレスを添える）。 */
+export function personLabel(p: ReviewPerson | null | undefined, other: string): string {
+  if (!p) return other;
+  return p.email ? `${p.name} (${p.email})` : p.name;
+}
