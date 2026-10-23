@@ -393,6 +393,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         return "query($locale: String!, $limit: Int) { corrections(locale: $locale, limit: $limit) { entryId url correctedAt description sections } }";
       case "redirects":
         return "{ redirects { from to status } }";
+      case "aiMarkdownByUrl":
+        return "query($url: String!) { aiMarkdownByUrl(url: $url) }";
       case "aiCatalog":
         return "query($locale: String!, $limit: Int) { aiCatalog(locale: $locale, limit: $limit) { entryId contentType url title locale updatedAt } }";
       case "text":

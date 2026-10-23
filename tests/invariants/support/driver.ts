@@ -212,6 +212,7 @@ export interface UrlChange {
  * - byId の include の corrections・deletedAnchors・freshness は、記事の訂正履歴・削除済みアンカー・鮮度（M2）
  * - byId の include の aiMarkdown は、記事のAI向けのMarkdown版（M2。素材にならない記事では空）
  * - aiCatalog: AI向けの記事の目録（M2）。変数 `locale`、`limit` を取る
+ * - aiMarkdownByUrl: 公開URLで記事のMarkdown版（M2。連携部品の `.md` 用）。変数 `url` を取る
  * - text: GraphQLの文をそのまま使う
  */
 export type QuerySpec =
@@ -226,6 +227,7 @@ export type QuerySpec =
   | { kind: "redirects" }
   | { kind: "correctionFeed" }
   | { kind: "aiCatalog" }
+  | { kind: "aiMarkdownByUrl" }
   | { kind: "text"; text: string };
 
 /** 登録済みクエリの参照。 */

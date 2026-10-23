@@ -29,6 +29,8 @@ pub const CORRECTIONS_FIELD: &str = "corrections";
 /// CMSが置くルートのフィールド（AI向けの目録と、学習への利用を拒否した記事のURL。07-ai-delivery.md）。
 pub const AI_CATALOG_FIELD: &str = "aiCatalog";
 pub const AI_TRAINING_OPT_OUTS_FIELD: &str = "aiTrainingOptOuts";
+/// 公開URLで記事のMarkdown版を返すルートのフィールド（連携部品が `<記事のURL>.md` を返すため）。
+pub const AI_MARKDOWN_BY_URL_FIELD: &str = "aiMarkdownByUrl";
 pub const AI_CATALOG_ITEM_TYPE: &str = "CmsAiCatalogItem";
 /// 記事の型のCMSのフィールド（AI向けのMarkdown版）。本文のフィールド `ai` の `aiMarkdown` とぶつかる。
 pub const AI_MARKDOWN_FIELD: &str = "aiMarkdown";
@@ -91,6 +93,7 @@ pub fn problems(m: &Manifest) -> Vec<String> {
         CORRECTIONS_FIELD.to_owned(),
         AI_CATALOG_FIELD.to_owned(),
         AI_TRAINING_OPT_OUTS_FIELD.to_owned(),
+        AI_MARKDOWN_BY_URL_FIELD.to_owned(),
     ]);
     for (i, ct) in m.content_types.iter().enumerate() {
         let t = type_name(&ct.name);
