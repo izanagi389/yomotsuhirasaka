@@ -47,6 +47,8 @@ export interface WorkspaceInfo {
   role: "admin" | "editor" | "author" | "viewer" | null;
   schemaVersion: number | null;
   schemaState: "none" | "ok" | "pending";
+  /** 自分が持つ重い権限（1件の取得のときだけ）。表示の出し分けに使う。照合はサーバーが操作のたびに行う。 */
+  permissions?: HeavyPermission[];
 }
 
 export type FieldValue = string | string[] | JSONContent | null;
@@ -126,6 +128,15 @@ export function entryTitle(ct: ContentType | undefined, fields: Record<string, F
 }
 
 /** 公開・非公開・削除ができるか（管理者・編集者とサーバー管理者。Q77, Q200）。 */
+/** 個人に追加で付与できる重い権限（Q76。server/src/access.rs）。 */
+export type HeavyPermission = "viewQuestionLog" | "manageLlm" | "policySwitches" | "corrections" | "takeOverEditing";
+export const HEAVY_PERMISSIONS: HeavyPermission[] = ["viewQuestionLog", "manageLlm", "policySwitches", "corrections", "takeOverEditing"];
+
+/** 重い権限を持つか（ロールの既定か、個人への付与）。 */
+export function hasPermission(w: WorkspaceInfo | null | undefined, p: HeavyPermission): boolean {
+  return !!w?.permissions?.includes(p);
+}
+
 export function canPublish(w: WorkspaceInfo | null | undefined): boolean {
   return !!w && (w.role === null || w.role === "admin" || w.role === "editor");
 }

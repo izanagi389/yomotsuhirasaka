@@ -142,14 +142,20 @@ onBeforeRouteLeave(async () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem data-testid="publish-correction" @select="openPublish(true)">{{ t("publish.asCorrection") }}</DropdownMenuItem>
-                <DropdownMenuSeparator />
+                <template v-if="hasPermission(workspace, 'corrections')">
+                  <DropdownMenuItem data-testid="publish-correction" @select="openPublish(true)">{{ t("publish.asCorrection") }}</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </template>
                 <DropdownMenuItem :disabled="!draft.publishedVersionId" @select="confirm = 'unpublish'">{{ t("entries.unpublish") }}</DropdownMenuItem>
                 <DropdownMenuItem class="text-destructive" @select="confirm = 'delete'">{{ t("entries.delete") }}</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
+        <!-- 訂正の権限だけを付与された人（執筆者など）は、訂正としての公開だけができる -->
+        <Button v-else-if="hasPermission(workspace, 'corrections')" :disabled="!editable || !draft.publishedVersionId" data-testid="publish-correction" @click="openPublish(true)">
+          {{ t("publish.asCorrection") }}
+        </Button>
       </div>
 
       <div v-if="autosave.status.value === 'conflict'" class="flex flex-wrap items-center gap-3 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm" role="alert">
@@ -200,13 +206,13 @@ onBeforeRouteLeave(async () => {
           />
         </TabsContent>
         <TabsContent value="versions" class="mt-4">
-          <VersionsPanel :key="published" :workspace-id="ws" :entry-id="id" :content-type="contentType" :can-erase="canErase(workspace)" :can-write-note="canPublish(workspace)" :custom-nodes="manifest?.body.customNodes ?? []" />
+          <VersionsPanel :key="published" :workspace-id="ws" :entry-id="id" :content-type="contentType" :can-erase="canErase(workspace)" :can-write-note="hasPermission(workspace, 'corrections')" :custom-nodes="manifest?.body.customNodes ?? []" />
         </TabsContent>
         <TabsContent value="freshness" class="mt-4">
-          <FreshnessPanel :key="published" :workspace-id="ws" :entry-id="id" :editable="canPublish(workspace)" />
+          <FreshnessPanel :key="published" :workspace-id="ws" :entry-id="id" :editable="canPublish(workspace)" :can-verify="hasPermission(workspace, 'corrections')" />
         </TabsContent>
         <TabsContent value="settings" class="mt-4">
-          <SettingsPanel :workspace-id="ws" :entry-id="id" :editable="canPublish(workspace)" />
+          <SettingsPanel :workspace-id="ws" :entry-id="id" :editable="hasPermission(workspace, 'policySwitches')" />
         </TabsContent>
         <TabsContent value="urls" class="mt-4">
           <UrlHistoryPanel :key="published" :workspace-id="ws" :entry-id="id" />

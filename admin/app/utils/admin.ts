@@ -1,6 +1,17 @@
 // 管理APIが返す、所属・招待・キー・Webhook・監査ログの形（server/src/http/admin_*.rs）。
 
+import type { HeavyPermission } from "~/utils/content";
+
 export type Role = "admin" | "editor" | "author" | "viewer";
+
+/** 重い権限を個人に付与できるロール（11-permissions-and-audit.md の表。ロールの既定で持つものは除く）。 */
+export const GRANTABLE_TO: Record<HeavyPermission, Role[]> = {
+  viewQuestionLog: ["admin", "editor", "author", "viewer"],
+  manageLlm: ["editor", "author", "viewer"],
+  policySwitches: ["editor", "author"],
+  corrections: ["author"],
+  takeOverEditing: ["author"],
+};
 export const ROLES: Role[] = ["admin", "editor", "author", "viewer"];
 
 export interface MemberInfo {
@@ -8,6 +19,10 @@ export interface MemberInfo {
   email: string;
   role: Role;
   canViewMembers: boolean;
+  /** 個人に付与した重い権限。 */
+  grants: HeavyPermission[];
+  /** 実際に持つ重い権限（ロールの既定と、個人への付与）。 */
+  permissions: HeavyPermission[];
   mfaEnabled: boolean;
   joinedAt: string;
 }
