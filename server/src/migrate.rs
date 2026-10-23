@@ -90,6 +90,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "member_grants",
         include_str!("../migrations/0019_member_grants.sql"),
     ),
+    (
+        20,
+        "display_names",
+        include_str!("../migrations/0020_display_names.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。

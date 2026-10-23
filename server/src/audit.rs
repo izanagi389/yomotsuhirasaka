@@ -14,6 +14,8 @@ pub mod action {
     pub const IDENTITY_LINKED: &str = "auth.identity_linked";
     /// SSOのログインで、ドメインのルール（JIT）により利用者を作った。
     pub const USER_PROVISIONED: &str = "auth.user_provisioned";
+    /// 本人が表示名を変えた（名前そのものは書かない）。
+    pub const DISPLAY_NAME_CHANGED: &str = "user.display_name_changed";
     pub const WORKSPACE_CREATED: &str = "workspace.created";
     pub const MEMBER_ROLE_CHANGED: &str = "member.role_changed";
     pub const MEMBER_REMOVED: &str = "member.removed";

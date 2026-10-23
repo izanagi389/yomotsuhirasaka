@@ -25,7 +25,7 @@ use super::extract::{
     AuthSession, AuthSessionForMfaSetup, ClientIp, JsonBody, SESSION_COOKIE, check_origin, cookie,
     mfa_setup_pending, require_cookie_session,
 };
-use crate::audit;
+use crate::audit::{self, action};
 use crate::auth::{devices, mfa, passkeys, password, session, throttle, users};
 use crate::locale::Locale;
 use crate::mail::notify::Event;
@@ -69,6 +69,10 @@ pub(super) struct Me {
     effective_locale: Locale,
     /// 再認証が有効な残りの秒数（0なら、重い操作の前に再認証が要る）。
     reauth_seconds_left: i64,
+    /// 本人が決めた表示名（未設定なら null。管理画面は、決めるまで入力を求める）。
+    display_name: Option<String>,
+    /// 表示名の入力欄の初期値（SSOのIdPが返した名前。本人にだけ返す）。
+    display_name_suggestion: Option<String>,
 }
 
 impl Me {
@@ -85,7 +89,26 @@ impl Me {
             locale: c.locale,
             effective_locale: c.locale.unwrap_or(state.config.default_locale),
             reauth_seconds_left: c.reauth_seconds_left,
+            display_name: None,
+            display_name_suggestion: None,
         }
+    }
+
+    /// 表示名も読んで作る（応答に使うのはこちら）。
+    pub(super) async fn load(state: &AppState, c: &session::Current) -> Result<Self, ApiError> {
+        let mut me = Self::new(state, c);
+        let names: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT display_name, display_name_suggestion FROM cms.users WHERE id = $1",
+        )
+        .bind(c.user_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(anyhow::Error::from)?;
+        if let Some((name, suggestion)) = names {
+            me.display_name = name;
+            me.display_name_suggestion = suggestion;
+        }
+        Ok(me)
     }
 }
 
@@ -309,7 +332,7 @@ async fn complete_login(
     let mut res = Json(LoginResponse {
         mfa_required: false,
         csrf_token: Some(established.issued.csrf_token.clone()),
-        user: Some(Me::new(state, &established.current)),
+        user: Some(Me::load(state, &established.current).await?),
     })
     .into_response();
     set_login_cookies(state, &mut res, &established);
@@ -415,8 +438,8 @@ pub async fn logout(
 pub async fn me(
     State(state): State<AppState>,
     AuthSessionForMfaSetup(current): AuthSessionForMfaSetup,
-) -> Json<impl Serialize> {
-    Json(Me::new(&state, &current))
+) -> Result<Json<impl Serialize>, ApiError> {
+    Ok(Json(Me::load(&state, &current).await?))
 }
 
 #[derive(Deserialize)]
@@ -425,6 +448,8 @@ pub struct UpdateMe {
     /// 言語。null で未設定に戻す（インスタンスの既定の言語を使う）。項目がなければ変えない。
     #[serde(default, deserialize_with = "present")]
     locale: Option<Option<String>>,
+    /// 表示名（1〜50文字、制御文字なし。前後の空白は除く）。未設定には戻せない。
+    display_name: Option<String>,
 }
 
 /// 項目が「ない」ことと「null」を区別する（ない: None、null: Some(None)）。
@@ -435,28 +460,60 @@ where
     Option::<String>::deserialize(d).map(Some)
 }
 
-/// 本人の設定の変更（今は言語だけ。Q198）。
+/// 本人の設定の変更（言語（Q198）と表示名）。表示名を変えられるのは本人だけで、変更は監査ログに残す（名前は書かない）。
 pub async fn update_me(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
     JsonBody(req): JsonBody<UpdateMe>,
 ) -> Result<Json<impl Serialize>, ApiError> {
-    let Some(locale) = req.locale else {
-        return Err(ApiError::bad_request("Send `locale`."));
-    };
-    let locale: Option<Locale> = locale
-        .map(|l| l.parse())
-        .transpose()
-        .map_err(|()| ApiError::bad_request("`locale` must be \"en\", \"ja\" or null."))?;
-    sqlx::query("UPDATE cms.users SET locale = $2 WHERE id = $1")
-        .bind(current.user_id)
-        .bind(locale.map(Locale::as_str))
-        .execute(&state.pool)
+    if req.locale.is_none() && req.display_name.is_none() {
+        return Err(ApiError::bad_request(
+            "Send `locale`, `displayName` or both.",
+        ));
+    }
+    let mut updated = current;
+    if let Some(locale) = req.locale {
+        let locale: Option<Locale> = locale
+            .map(|l| l.parse())
+            .transpose()
+            .map_err(|()| ApiError::bad_request("`locale` must be \"en\", \"ja\" or null."))?;
+        sqlx::query("UPDATE cms.users SET locale = $2 WHERE id = $1")
+            .bind(updated.user_id)
+            .bind(locale.map(Locale::as_str))
+            .execute(&state.pool)
+            .await
+            .map_err(anyhow::Error::from)?;
+        updated.locale = locale;
+    }
+    if let Some(raw) = &req.display_name {
+        let name = crate::auth::users::normalize_display_name(raw).ok_or_else(|| {
+            ApiError::bad_request(
+                "`displayName` must be 1 to 50 characters without control characters.",
+            )
+        })?;
+        let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
+        let changed = sqlx::query(
+            "UPDATE cms.users SET display_name = $2, display_name_suggestion = NULL
+             WHERE id = $1 AND display_name IS DISTINCT FROM $2",
+        )
+        .bind(updated.user_id)
+        .bind(&name)
+        .execute(&mut *tx)
         .await
         .map_err(anyhow::Error::from)?;
-    let mut updated = current;
-    updated.locale = locale;
-    Ok(Json(Me::new(&state, &updated)))
+        if changed.rows_affected() == 1 {
+            audit::record(
+                &mut *tx,
+                None,
+                Some(updated.user_id),
+                action::DISPLAY_NAME_CHANGED,
+                &[updated.user_id],
+            )
+            .await?;
+        }
+        tx.commit().await.map_err(anyhow::Error::from)?;
+    }
+    Ok(Json(Me::load(&state, &updated).await?))
 }
 
 #[derive(Deserialize)]

@@ -8,6 +8,7 @@ const items = computed(() => [
   ...(me.value?.mfaSetupRequired
     ? []
     : [
+        { to: "/account/profile", label: t("account.nav.profile") },
         { to: "/account/sessions", label: t("account.nav.sessions") },
         { to: "/account/tokens", label: t("account.nav.tokens") },
       ]),

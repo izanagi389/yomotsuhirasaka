@@ -537,6 +537,19 @@ async fn touch_identity(state: &AppState, v: &Verified) -> Result<(), Fail> {
     .bind(&v.subject)
     .execute(&state.pool)
     .await?;
+    // 表示名をまだ決めていなければ、IdPの名前を入力欄の初期値として覚える（表示名にはしない）
+    if let Some(name) = &v.name {
+        sqlx::query(
+            "UPDATE cms.users SET display_name_suggestion = $3
+             WHERE display_name IS NULL
+               AND id = (SELECT user_id FROM cms.external_identities WHERE issuer = $1 AND subject = $2)",
+        )
+        .bind(&v.issuer)
+        .bind(&v.subject)
+        .bind(name)
+        .execute(&state.pool)
+        .await?;
+    }
     Ok(())
 }
 
@@ -722,6 +735,6 @@ pub async fn complete(
     };
     Ok(Json(Completed {
         csrf_token,
-        user: Me::new(&state, &current),
+        user: Me::load(&state, &current).await?,
     }))
 }
