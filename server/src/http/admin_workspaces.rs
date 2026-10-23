@@ -4,7 +4,7 @@
 //! |---|---|---|---|
 //! | GET | /api/admin/workspaces | 自分の所属するワークスペース（サーバー管理者はすべて） | ログイン中の人 |
 //! | POST | /api/admin/workspaces | ワークスペースの作成 | サーバー管理者（多要素認証・再認証） |
-//! | GET | /api/admin/workspaces/{ws} | ワークスペースの情報 | 所属者・サーバー管理者 |
+//! | GET | /api/admin/workspaces/{ws} | ワークスペースの情報（自分のロールと重い権限を含む） | 所属者・サーバー管理者 |
 //! | GET | /api/admin/workspaces/{ws}/members | 所属者の一覧 | 管理者・サーバー管理者（多要素認証）、閲覧の権限を与えられた所属者（Q190） |
 //! | GET | /api/admin/workspaces/{ws}/members/{user} | 所属者の1人 | 同上 |
 //! | PATCH | /api/admin/workspaces/{ws}/members/{user} | ロール・閲覧の権限・重い権限の付与（`grants`）の変更 | 管理者・サーバー管理者（多要素認証・再認証） |
@@ -53,6 +53,9 @@ pub struct WorkspaceInfo {
     schema_version: Option<i32>,
     /// none: まだ適用していない、ok: 最新、pending: 移行待ち（Q53）
     schema_state: String,
+    /// 自分が持つ重い権限（1件の取得のときだけ。管理画面が操作を出し分ける。権限の照合は操作のたびにサーバーで行う）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permissions: Option<Vec<&'static str>>,
 }
 
 type WorkspaceRow = (
@@ -76,6 +79,7 @@ fn workspace_info(
         role,
         schema_version,
         schema_state,
+        permissions: None,
     }
 }
 
@@ -129,8 +133,10 @@ pub async fn get_workspace(
     Path(ws): Path<String>,
 ) -> Result<Json<WorkspaceInfo>, ApiError> {
     let id = parse_id(&ws)?;
-    access::member(&state.pool, &current, id).await??;
-    Ok(Json(fetch_workspace(&state, &current, id).await?))
+    let access = access::member(&state.pool, &current, id).await??;
+    let mut info = fetch_workspace(&state, &current, id).await?;
+    info.permissions = Some(access.heavy_permissions());
+    Ok(Json(info))
 }
 
 #[derive(Deserialize)]

@@ -190,6 +190,15 @@ impl Access {
             None => self.server_admin && p != Permission::ViewQuestionLog,
         }
     }
+
+    /// 持っている重い権限の名前（管理画面が操作を出し分けるため）。
+    pub fn heavy_permissions(&self) -> Vec<&'static str> {
+        Permission::ALL
+            .into_iter()
+            .filter(|p| p.is_heavy() && self.has(*p))
+            .map(Permission::as_str)
+            .collect()
+    }
 }
 
 /// 所属しているときのロールと、個人に付与した権限。
