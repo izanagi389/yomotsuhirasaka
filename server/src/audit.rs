@@ -55,6 +55,11 @@ pub mod action {
     pub const ENTRY_SETTINGS_CHANGED: &str = "entry.settings_changed";
     /// 「確認済み」の記録（Q46）。
     pub const ENTRY_VERIFIED: &str = "entry.verified";
+    /// レビュー依頼（計画の8番）。対象は記事と依頼のID。差し戻しのコメントは書かない。
+    pub const REVIEW_REQUESTED: &str = "review.requested";
+    pub const REVIEW_REVIEWER_CHANGED: &str = "review.reviewer_changed";
+    pub const REVIEW_REJECTED: &str = "review.rejected";
+    pub const REVIEW_WITHDRAWN: &str = "review.withdrawn";
     /// 訂正の説明の記入・書き直し（Q63）。
     pub const CORRECTION_NOTE_EDITED: &str = "correction.note_edited";
     pub const CORRECTION_TEMPLATES_CHANGED: &str = "correction.templates_changed";

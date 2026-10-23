@@ -283,6 +283,15 @@ pub async fn publish(
         Err(e) if is_url_conflict(&e) => return Err(url_taken()),
         Err(e) => return Err(e.into()),
     };
+    // 開いているレビュー依頼は「公開済み」として閉じる（承認という段階は作らない。Q77）
+    crate::content::reviews::close(
+        &mut tx,
+        id,
+        crate::content::reviews::State::Published,
+        current.user_id,
+        None,
+    )
+    .await?;
     if let Some(text) = note.as_deref().filter(|t| !t.is_empty()) {
         corrections::save_note(
             &mut tx,

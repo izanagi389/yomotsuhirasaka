@@ -126,8 +126,14 @@ mod tests {
 
     #[test]
     fn display_names_are_trimmed_and_checked() {
-        assert_eq!(normalize_display_name("  山田 花子 ").as_deref(), Some("山田 花子"));
-        assert_eq!(normalize_display_name(&"あ".repeat(50)).map(|n| n.chars().count()), Some(50));
+        assert_eq!(
+            normalize_display_name("  山田 花子 ").as_deref(),
+            Some("山田 花子")
+        );
+        assert_eq!(
+            normalize_display_name(&"あ".repeat(50)).map(|n| n.chars().count()),
+            Some(50)
+        );
         for bad in ["", "   ", "a\nb", "a\u{7}b"] {
             assert_eq!(normalize_display_name(bad), None, "{bad:?}");
         }
