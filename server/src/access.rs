@@ -4,6 +4,7 @@
 //! - 所属していないワークスペースは、存在しないものと同じに見せる（404）。
 //! - サーバー管理者とワークスペースの管理者は、多要素認証を設定していないと管理操作ができない（INV-AUTH-05）。
 //! - サーバー管理者は、所属していないワークスペースも操作できる。その操作はワークスペースの監査ログに残す（Q122）。
+//! - 重い権限は、ロールの既定に加えて、管理者が個人に追加で付与できる（Q76）。付与もリクエストのたびに照合する。
 
 use std::fmt;
 use std::str::FromStr;
@@ -53,6 +54,108 @@ impl FromStr for Role {
     }
 }
 
+/// 個人に追加で付与できる権限（11-permissions-and-audit.md「ロールと権限」、Q76, Q190）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Permission {
+    /// 所属者の一覧の閲覧（M1）。
+    ViewMembers,
+    /// 質問ログの閲覧。どのロールにも既定では付けない（INV-PERM-02）。
+    ViewQuestionLog,
+    /// LLMの接続設定と予算の変更。
+    ManageLlm,
+    /// サイトの方針に関わるスイッチ（学習への利用の拒否、外部AI向けの素材に含める、チャットボットの対象）。
+    PolicySwitches,
+    /// 訂正としての公開と、確認済みの記録。
+    Corrections,
+    /// 編集の引き継ぎ。
+    TakeOverEditing,
+}
+
+impl Permission {
+    pub const ALL: [Permission; 6] = [
+        Permission::ViewMembers,
+        Permission::ViewQuestionLog,
+        Permission::ManageLlm,
+        Permission::PolicySwitches,
+        Permission::Corrections,
+        Permission::TakeOverEditing,
+    ];
+
+    /// 重い権限（管理APIの `grants`・`permissions` で扱うもの。所属者の一覧の閲覧は `canViewMembers` で扱う）。
+    pub fn is_heavy(self) -> bool {
+        self != Permission::ViewMembers
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Permission::ViewMembers => "viewMembers",
+            Permission::ViewQuestionLog => "viewQuestionLog",
+            Permission::ManageLlm => "manageLlm",
+            Permission::PolicySwitches => "policySwitches",
+            Permission::Corrections => "corrections",
+            Permission::TakeOverEditing => "takeOverEditing",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.as_str() == s)
+    }
+
+    /// ロールが既定で持つか。
+    pub fn role_default(self, role: Role) -> bool {
+        match self {
+            Permission::ViewMembers | Permission::ManageLlm | Permission::PolicySwitches => {
+                role == Role::Admin
+            }
+            Permission::ViewQuestionLog => false,
+            Permission::Corrections | Permission::TakeOverEditing => {
+                matches!(role, Role::Admin | Role::Editor)
+            }
+        }
+    }
+
+    fn bit(self) -> u8 {
+        1 << (self as u8)
+    }
+}
+
+/// 個人に付与した権限の集まり。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Grants(u8);
+
+impl Grants {
+    /// DBの値（名前の配列）から。知らない名前は無視する（DBの制約で入らない）。
+    pub fn from_names<S: AsRef<str>>(names: &[S]) -> Self {
+        Grants(
+            names
+                .iter()
+                .filter_map(|n| Permission::parse(n.as_ref()))
+                .fold(0, |acc, p| acc | p.bit()),
+        )
+    }
+
+    pub fn contains(self, p: Permission) -> bool {
+        self.0 & p.bit() != 0
+    }
+
+    pub fn with(self, p: Permission, on: bool) -> Self {
+        Grants(if on {
+            self.0 | p.bit()
+        } else {
+            self.0 & !p.bit()
+        })
+    }
+
+    /// DBに書く値（名前の配列）。
+    pub fn names(self) -> Vec<&'static str> {
+        Permission::ALL
+            .into_iter()
+            .filter(|p| self.contains(*p))
+            .map(Permission::as_str)
+            .collect()
+    }
+}
+
 /// 操作を拒否する理由。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Denied {
@@ -72,6 +175,37 @@ pub struct Access {
     pub role: Option<Role>,
     /// サーバー管理者として操作しているか。
     pub server_admin: bool,
+    /// 個人に付与した権限（所属しているとき）。
+    pub grants: Grants,
+}
+
+impl Access {
+    /// 権限を持つか（ロールの既定か、個人への付与）。所属していないサーバー管理者は、質問ログの閲覧のほかはすべて持つ。
+    pub fn has(&self, p: Permission) -> bool {
+        if self.grants.contains(p) {
+            return true;
+        }
+        match self.role {
+            Some(role) => p.role_default(role),
+            None => self.server_admin && p != Permission::ViewQuestionLog,
+        }
+    }
+}
+
+/// 所属しているときのロールと、個人に付与した権限。
+async fn membership(
+    pool: &PgPool,
+    workspace_id: Uuid,
+    user_id: Uuid,
+) -> Result<Option<(Role, Grants)>> {
+    let row: Option<(String, Vec<String>)> = sqlx::query_as(
+        "SELECT role, grants FROM cms.memberships WHERE workspace_id = $1 AND user_id = $2",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.and_then(|(r, g)| Some((r.parse().ok()?, Grants::from_names(&g)))))
 }
 
 pub async fn role_in(pool: &PgPool, workspace_id: Uuid, user_id: Uuid) -> Result<Option<Role>> {
@@ -115,7 +249,8 @@ pub async fn member(
     {
         return Ok(Err(Denied::NotFound));
     }
-    let role = role_in(pool, workspace_id, current.user_id).await?;
+    let found = membership(pool, workspace_id, current.user_id).await?;
+    let role = found.map(|(r, _)| r);
     if role.is_none() && !acts_as_server_admin(current) {
         return Ok(Err(Denied::NotFound));
     }
@@ -123,6 +258,7 @@ pub async fn member(
         workspace_id,
         role,
         server_admin: acts_as_server_admin(current) && role.is_none(),
+        grants: found.map(|(_, g)| g).unwrap_or_default(),
     }))
 }
 
@@ -162,15 +298,7 @@ pub async fn member_list_viewer(
         }
         return Ok(Ok(access));
     }
-    let granted: bool = sqlx::query_scalar(
-        "SELECT can_view_members FROM cms.memberships WHERE workspace_id = $1 AND user_id = $2",
-    )
-    .bind(workspace_id)
-    .bind(current.user_id)
-    .fetch_optional(pool)
-    .await?
-    .unwrap_or(false);
-    if granted {
+    if access.grants.contains(Permission::ViewMembers) {
         Ok(Ok(access))
     } else {
         Ok(Err(Denied::Forbidden))
@@ -216,5 +344,33 @@ mod tests {
         }
         assert!("owner".parse::<Role>().is_err());
         assert!("Admin".parse::<Role>().is_err());
+    }
+
+    #[test]
+    fn permissions_round_trip_and_defaults() {
+        for p in Permission::ALL {
+            assert_eq!(Permission::parse(p.as_str()), Some(p));
+        }
+        // 質問ログの閲覧は、どのロールにも既定で付かない（INV-PERM-02）
+        for r in [Role::Admin, Role::Editor, Role::Author, Role::Viewer] {
+            assert!(!Permission::ViewQuestionLog.role_default(r));
+        }
+        let access = |role, grants| Access {
+            workspace_id: Uuid::nil(),
+            role,
+            server_admin: role.is_none(),
+            grants,
+        };
+        assert!(!access(Some(Role::Editor), Grants::default()).has(Permission::PolicySwitches));
+        assert!(access(Some(Role::Editor), Grants::default()).has(Permission::Corrections));
+        let g = Grants::default().with(Permission::Corrections, true);
+        assert!(access(Some(Role::Author), g).has(Permission::Corrections));
+        assert!(
+            !access(Some(Role::Author), g.with(Permission::Corrections, false))
+                .has(Permission::Corrections)
+        );
+        assert!(!access(None, Grants::default()).has(Permission::ViewQuestionLog));
+        assert!(access(None, Grants::default()).has(Permission::ManageLlm));
+        assert_eq!(Grants::from_names(&g.names()), g);
     }
 }

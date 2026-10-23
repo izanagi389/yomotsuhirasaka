@@ -13,7 +13,8 @@
 //! | PUT | /api/admin/workspaces/{ws}/entries/{id}/review | 確認期限の上書き（`{intervalDays?, disabled}`） |
 //! | GET | /api/admin/workspaces/{ws}/reviews/expired | 確認期限切れの公開中の記事 |
 //!
-//! - 説明の記入・確認済みの記録・期限の上書きは、公開できる人（管理者・編集者とサーバー管理者）。読むのは所属者全員。
+//! - 説明の記入と確認済みの記録は、重い権限「訂正としての公開と確認済みの記録」を持つ人（管理者・編集者の既定と、
+//!   個人への付与。Q76、INV-PERM-03）。期限の上書きは、公開できる人（管理者・編集者とサーバー管理者）。読むのは所属者全員。
 //! - 定型文を変えられるのは管理者とサーバー管理者。
 //! - 確認済みの記録と、説明の記入・書き直しは、監査ログに残す（IDと操作の種類だけ）。
 //! - 「確認済み」は記事ごとの操作だけで、一括の操作は作らない（Q46）。
@@ -25,10 +26,10 @@ use serde::Deserialize;
 
 use super::AppState;
 use super::admin_entries::{db, invalid, parse, readable, reader};
-use super::admin_publishing::publisher;
+use super::admin_publishing::{holder, publisher};
 use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
-use crate::access;
+use crate::access::{self, Permission};
 use crate::audit::{self, action};
 use crate::content::corrections::{self, NoteEdit, Template, Unwritten};
 use crate::content::freshness::{self, Expired, FreshnessDetail, ReviewOverride};
@@ -48,7 +49,7 @@ pub async fn put_note(
     JsonBody(req): JsonBody<NoteBody>,
 ) -> Result<StatusCode, ApiError> {
     let (ws, id, vid) = (parse(&ws)?, parse(&id)?, parse(&vid)?);
-    publisher(&state, &current, ws).await?;
+    holder(&state, &current, ws, Permission::Corrections).await?;
     let text = req.text.trim();
     if !corrections::valid_note(text) {
         return Err(invalid(vec![format!(
@@ -176,7 +177,7 @@ pub async fn verify(
     JsonBody(req): JsonBody<VerifyBody>,
 ) -> Result<StatusCode, ApiError> {
     let (ws, id) = (parse(&ws)?, parse(&id)?);
-    publisher(&state, &current, ws).await?;
+    holder(&state, &current, ws, Permission::Corrections).await?;
     let memo = req.memo.trim();
     if memo.chars().count() > freshness::MAX_MEMO_CHARS
         || memo.chars().any(|c| c.is_control() && c != '\n')

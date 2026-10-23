@@ -7,12 +7,14 @@
 //! | GET | /api/admin/workspaces/{ws} | ワークスペースの情報 | 所属者・サーバー管理者 |
 //! | GET | /api/admin/workspaces/{ws}/members | 所属者の一覧 | 管理者・サーバー管理者（多要素認証）、閲覧の権限を与えられた所属者（Q190） |
 //! | GET | /api/admin/workspaces/{ws}/members/{user} | 所属者の1人 | 同上 |
-//! | PATCH | /api/admin/workspaces/{ws}/members/{user} | ロールと閲覧の権限の変更 | 管理者・サーバー管理者（多要素認証・再認証） |
+//! | PATCH | /api/admin/workspaces/{ws}/members/{user} | ロール・閲覧の権限・重い権限の付与（`grants`）の変更 | 管理者・サーバー管理者（多要素認証・再認証） |
 //! | DELETE | /api/admin/workspaces/{ws}/members/{user} | 所属から外す | 同上・再認証 |
 //! | GET | /api/admin/users | インスタンスの利用者の一覧 | サーバー管理者（多要素認証） |
 //!
 //! 所属していないワークスペースや、そのワークスペースに所属していない利用者は、存在しないものと同じ404にする（INV-TEN-04）。
 //! 所属者を加えるのは招待の承諾だけ（Q121。`admin_invitations.rs`）。
+//! 所属者の応答の `grants` は個人に付与した重い権限、`permissions` はロールの既定を含めて実際に持つ重い権限（Q76）。
+//! 重い権限を付与できるのは管理者とサーバー管理者だけで、自分への付与もできる。変更はすべて監査ログに残す。
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -23,7 +25,7 @@ use uuid::Uuid;
 use super::AppState;
 use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
-use crate::access::{self, Role};
+use crate::access::{self, Grants, Permission, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
 use crate::workspace_db;
@@ -201,20 +203,33 @@ pub struct MemberInfo {
     email: String,
     role: String,
     can_view_members: bool,
+    /// 個人に付与した重い権限。
+    grants: Vec<&'static str>,
+    /// 実際に持つ重い権限（ロールの既定と、個人への付与）。
+    permissions: Vec<&'static str>,
     mfa_enabled: bool,
     joined_at: String,
 }
 
-type MemberRow = (Uuid, String, String, bool, bool, String);
+type MemberRow = (Uuid, String, String, Vec<String>, bool, String);
 
-fn member_info(
-    (user_id, email, role, can_view_members, mfa_enabled, joined_at): MemberRow,
-) -> MemberInfo {
+fn member_info((user_id, email, role, grants, mfa_enabled, joined_at): MemberRow) -> MemberInfo {
+    let grants = Grants::from_names(&grants);
+    let parsed: Option<Role> = role.parse().ok();
+    let heavy = |held: &dyn Fn(Permission) -> bool| -> Vec<&'static str> {
+        Permission::ALL
+            .into_iter()
+            .filter(|p| p.is_heavy() && held(*p))
+            .map(Permission::as_str)
+            .collect()
+    };
     MemberInfo {
         user_id,
         email,
+        can_view_members: grants.contains(Permission::ViewMembers),
+        grants: heavy(&|p| grants.contains(p)),
+        permissions: heavy(&|p| grants.contains(p) || parsed.is_some_and(|r| p.role_default(r))),
         role,
-        can_view_members,
         mfa_enabled,
         joined_at,
     }
@@ -222,7 +237,7 @@ fn member_info(
 
 fn member_sql(filter: &str) -> sqlx::AssertSqlSafe<String> {
     crate::sql!(
-        "SELECT u.id, u.email, m.role, m.can_view_members, {mfa},
+        "SELECT u.id, u.email, m.role, m.grants, {mfa},
                 to_char(m.created_at AT TIME ZONE 'UTC', {RFC3339})
          FROM cms.memberships m JOIN cms.users u ON u.id = m.user_id
          WHERE m.workspace_id = $1 {filter}
@@ -273,6 +288,8 @@ pub struct ChangeMember {
     role: Option<String>,
     /// 所属者の一覧の閲覧の権限（Q190）。
     can_view_members: Option<bool>,
+    /// 個人に付与する重い権限（送ったものに置き換える。Q76）。
+    grants: Option<Vec<String>>,
 }
 
 fn last_admin() -> ApiError {
@@ -314,11 +331,28 @@ pub async fn change_member_role(
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }
-    if req.role.is_none() && req.can_view_members.is_none() {
+    if req.role.is_none() && req.can_view_members.is_none() && req.grants.is_none() {
         return Err(ApiError::bad_request(
-            "Send `role`, `canViewMembers` or both.",
+            "Send `role`, `canViewMembers`, `grants` or some of them.",
         ));
     }
+    let heavy: Option<Vec<Permission>> = req
+        .grants
+        .as_ref()
+        .map(|names| {
+            names
+                .iter()
+                .map(|n| Permission::parse(n).filter(|p| p.is_heavy()))
+                .collect::<Option<Vec<_>>>()
+        })
+        .map(|v| {
+            v.ok_or_else(|| {
+                ApiError::bad_request(
+                    "`grants` must list viewQuestionLog, manageLlm, policySwitches, corrections or takeOverEditing.",
+                )
+            })
+        })
+        .transpose()?;
     let role: Option<Role> = req
         .role
         .as_deref()
@@ -329,25 +363,42 @@ pub async fn change_member_role(
     if role.is_some_and(|r| r != Role::Admin) {
         ensure_other_admin_remains(&mut tx, ws, user).await?;
     }
-    let done = sqlx::query(
-        "UPDATE cms.memberships
-         SET role = coalesce($3, role), can_view_members = coalesce($4, can_view_members)
+    let current_grants: Option<Vec<String>> = sqlx::query_scalar(
+        "SELECT grants FROM cms.memberships WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+    )
+    .bind(ws)
+    .bind(user)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(anyhow::Error::from)?;
+    let Some(current_grants) = current_grants else {
+        return Err(ApiError::not_found());
+    };
+    let before = Grants::from_names(&current_grants);
+    let mut after = before;
+    if let Some(on) = req.can_view_members {
+        after = after.with(Permission::ViewMembers, on);
+    }
+    if let Some(heavy) = &heavy {
+        for p in Permission::ALL.into_iter().filter(|p| p.is_heavy()) {
+            after = after.with(p, heavy.contains(&p));
+        }
+    }
+    sqlx::query(
+        "UPDATE cms.memberships SET role = coalesce($3, role), grants = $4
          WHERE workspace_id = $1 AND user_id = $2",
     )
     .bind(ws)
     .bind(user)
     .bind(role.map(Role::as_str))
-    .bind(req.can_view_members)
+    .bind(after.names())
     .execute(&mut *tx)
     .await
     .map_err(anyhow::Error::from)?;
-    if done.rows_affected() != 1 {
-        return Err(ApiError::not_found());
-    }
     for (changed, what) in [
         (role.is_some(), action::MEMBER_ROLE_CHANGED),
         (
-            req.can_view_members.is_some(),
+            req.can_view_members.is_some() || req.grants.is_some(),
             action::MEMBER_PERMISSION_CHANGED,
         ),
     ] {
