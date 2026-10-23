@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, Auth, CmsClient, Credentials, Draft, EntryInput, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, Auth, CmsClient, Credentials, Draft, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -332,6 +332,14 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     const current = await getPublishSettingsRaw(auth, workspaceId, entryId, extras);
     const include = isSuccess(current) ? (JSON.parse(current.text) as { includeInAiMaterials?: unknown }).includeInAiMaterials !== false : true;
     return request("PATCH", settingsPath(workspaceId, entryId), { auth, extras, body: { includeInAiMaterials: !include } });
+  };
+
+  // --- 重い権限 ---
+  const memberPermissionList = async (s: Session, workspaceId: string, userId: string, key: "permissions" | "grants"): Promise<HeavyPermission[]> => {
+    const res = ensure("所属者の権限の取得", await request("GET", `${ADMIN}/workspaces/${workspaceId}/members/${userId}`, { auth: session(s) }));
+    const list = (JSON.parse(res.text) as Record<string, unknown>)[key];
+    if (!Array.isArray(list) || !list.every((g) => typeof g === "string")) throw new SetupError("所属者の権限の読み取り", res);
+    return list as HeavyPermission[];
   };
 
   // --- 版の本文の抹消 ---
@@ -814,6 +822,28 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         "ロールの変更",
         await request("PATCH", `${ADMIN}/workspaces/${workspaceId}/members/${userId}`, { auth: session(s), body: { role } }),
       );
+    },
+    // 重い権限は、所属者の1人の応答の permissions（ロールの既定と付与の合計）と grants（個別の付与）
+    // （server/src/http/admin_workspaces.rs）
+    async memberPermissions(s: Session, workspaceId: string, userId: string): Promise<HeavyPermission[]> {
+      return memberPermissionList(s, workspaceId, userId, "permissions");
+    },
+    async memberGrants(s: Session, workspaceId: string, userId: string): Promise<HeavyPermission[]> {
+      return memberPermissionList(s, workspaceId, userId, "grants");
+    },
+    setMemberGrantsRaw(auth: Auth, workspaceId: string, userId: string, grants: HeavyPermission[]): Promise<HttpResponse> {
+      return request("PATCH", `${ADMIN}/workspaces/${workspaceId}/members/${userId}`, { auth, body: { grants } });
+    },
+    setPublishSettingsRaw(
+      auth: Auth,
+      workspaceId: string,
+      entryId: string,
+      changes: { includeInAiMaterials?: boolean; optOutOfAiTraining?: boolean; useForChatbot?: boolean },
+    ): Promise<HttpResponse> {
+      return request("PATCH", settingsPath(workspaceId, entryId), { auth, body: changes });
+    },
+    markVerifiedRaw(auth: Auth, workspaceId: string, entryId: string, memo: string): Promise<HttpResponse> {
+      return markVerifiedRaw(auth, workspaceId, entryId, memo);
     },
     async removeMember(s: Session, workspaceId: string, userId: string): Promise<void> {
       ensure("所属から外す", await request("DELETE", `${ADMIN}/workspaces/${workspaceId}/members/${userId}`, { auth: session(s) }));

@@ -22,6 +22,7 @@ const uniqueSlug = (label: string) => `${label}-${randomUUID().slice(0, 8)}`;
 
 interface Site {
   id: string;
+  adminSession: Session;
   editorSession: Session;
   readKey: IssuedSecret;
   registerKey: IssuedSecret;
@@ -44,7 +45,7 @@ async function siteWith(label: string, aiMarkdown: NonNullable<TemplateSpec["con
   await cms.reauthenticate(adminSession, admin);
   const readKey = await cms.createApiKey(adminSession, id, ["read"]);
   const registerKey = await cms.createApiKey(adminSession, id, ["register"]);
-  return { id, editorSession, readKey, registerKey };
+  return { id, adminSession, editorSession, readKey, registerKey };
 }
 
 /** 記事を作って公開する。 */
@@ -109,8 +110,8 @@ inv("inv_aix_01", "「外部AI向けの素材に含める」がOFFの記事は�
   expect(has(await catalogOf(site), targetSlug), "「含める」の記事が目録にない").toBe(true);
   expect(has(await markdownOf(site, source), targetSlug), "関係の相手（「含める」の記事）のURLが、もう一方の記事のMarkdown版にない").toBe(true);
 
-  // OFFにしたら、保存済みの素材を信用せず、すぐにどこからも消える（原則3）
-  await cms.setIncludeInAiMaterials(site.editorSession, site.id, target, false);
+  // OFFにしたら、保存済みの素材を信用せず、すぐにどこからも消える（原則3）。方針のスイッチは、既定では管理者だけが変えられる
+  await cms.setIncludeInAiMaterials(site.adminSession, site.id, target, false);
   for (const value of [targetTitle, targetSlug]) {
     expectNotLeaked(await markdownOf(site, target), value, "OFFの記事のMarkdown版");
     expectNotLeaked(await markdownByUrl(site, target), value, "公開URLで取ったOFFの記事のMarkdown版");

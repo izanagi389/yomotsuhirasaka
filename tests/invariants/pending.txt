@@ -9,8 +9,6 @@
 
 
 
-inv_perm_02
-inv_perm_03
 
 inv_sched_01
 inv_sched_02

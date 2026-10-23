@@ -49,6 +49,16 @@ export interface Credentials {
   totpSecret?: string;
 }
 
+/**
+ * 個人に追加で付与できる重い権限（11-permissions-and-audit.md、Q76）。
+ * - viewQuestionLog: 質問ログの閲覧（どのロールにも既定では付かない。M4で使う）
+ * - manageLlm: LLMの接続設定と予算の変更（M3以降で使う）
+ * - policySwitches: サイトの方針に関わるスイッチ（学習への利用の拒否、外部AI向けの素材に含める、チャットボットの対象）
+ * - corrections: 訂正としての公開と、確認済みの記録
+ * - takeOverEditing: 編集の引き継ぎ
+ */
+export type HeavyPermission = "viewQuestionLog" | "manageLlm" | "policySwitches" | "corrections" | "takeOverEditing";
+
 export interface Member extends Credentials {
   userId: string;
 }
@@ -366,6 +376,21 @@ export interface CmsClient {
   /** 招待を承諾する。新しい利用者はパスワードを決め、既存の利用者はログイン中のセッションで承諾する。 */
   acceptInviteRaw(token: string, as: { newPassword: string } | { session: Session }): Promise<HttpResponse>;
   changeMemberRole(session: Session, workspaceId: string, userId: string, role: WorkspaceRole): Promise<void>;
+  /** 所属者が実際に持つ重い権限（ロールの既定と、個別に付与したもの）を読む。 */
+  memberPermissions(session: Session, workspaceId: string, userId: string): Promise<HeavyPermission[]>;
+  /** 所属者に個別に付与した重い権限（ロールの既定は含まない）を読む。 */
+  memberGrants(session: Session, workspaceId: string, userId: string): Promise<HeavyPermission[]>;
+  /** 所属者に個別に付与する重い権限を、渡したものに置き換える（応答をそのまま返す）。 */
+  setMemberGrantsRaw(auth: Auth, workspaceId: string, userId: string, grants: HeavyPermission[]): Promise<HttpResponse>;
+  /** 記事の公開設定のスイッチを変える（送った項目だけ。応答をそのまま返す）。 */
+  setPublishSettingsRaw(
+    auth: Auth,
+    workspaceId: string,
+    entryId: string,
+    changes: { includeInAiMaterials?: boolean; optOutOfAiTraining?: boolean; useForChatbot?: boolean },
+  ): Promise<HttpResponse>;
+  /** 「確認済み」を記録する（応答をそのまま返す）。 */
+  markVerifiedRaw(auth: Auth, workspaceId: string, entryId: string, memo: string): Promise<HttpResponse>;
   removeMember(session: Session, workspaceId: string, userId: string): Promise<void>;
   /** サーバー管理者を新しく作る（サーバー上のCLIで）。 */
   createServerAdmin(options: { mfa: boolean }): Promise<Member>;

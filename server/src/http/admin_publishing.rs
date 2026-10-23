@@ -14,7 +14,9 @@
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/versions/{vid}/erase-candidates | 抹消と一緒に削除できるメディアと、他のロケールの記事 |
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/versions/{vid}/erase | 版の本文を抹消する（`{deleteMediaIds}`） |
 //!
-//! - 公開・訂正としての公開・非公開・削除は、管理者・編集者とサーバー管理者だけ（執筆者はできない。Q77, Q200、INV-PERM-01）。
+//! - 公開・非公開・削除は、管理者・編集者とサーバー管理者だけ（執筆者はできない。Q77, Q200、INV-PERM-01）。
+//! - 訂正としての公開は、重い権限「訂正としての公開と確認済みの記録」を持つ人（管理者・編集者の既定と、個人への付与。Q76、
+//!   INV-PERM-03）。付与された執筆者も、通常の公開はできない。
 //! - 公開は移行待ちの間は受け付けない（INV-SCH-04）。非公開と削除は、記事を急いで取り下げられるよう、移行待ちの間も受け付ける。
 //! - 訂正としての公開は、誰が行っても監査ログに残す（11-permissions-and-audit.md）。それ以外は、所属していないサーバー管理者が
 //!   行ったときに残す（Q122）。
@@ -22,8 +24,8 @@
 //! - 公開の確認（publish-check）は、公開と同じ判定（Rustの sections.rs）を書き込まずに行う。変わったセクションは、訂正として
 //!   公開したときに版に記録するものと同じ（Q68）。読むだけなので、下書きを読める人なら使える。
 //! - 版とURLの変更履歴を読むのは、下書きと同じく所属者全員とサーバー管理者。
-//! - 公開設定のスイッチ（Q184）を変えられるのは、公開できる人（管理者・編集者とサーバー管理者）。M1では保存と
-//!   変更のWebhookだけで、効果はM2以降。読むのは所属者全員とサーバー管理者。
+//! - 公開設定のスイッチ（Q184）は、サイトの方針に関わる重い権限（管理者の既定と、個人への付与。Q76、INV-PERM-03）を
+//!   持つ人だけが変えられる。読むのは所属者全員とサーバー管理者。
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -35,7 +37,7 @@ use super::AppState;
 use super::admin_entries::{db, invalid, parse, readable, reader, revision_conflict, writable};
 use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
-use crate::access::{self, Access, Role};
+use crate::access::{self, Access, Permission, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
 use crate::content::corrections;
@@ -47,6 +49,20 @@ use crate::content::settings::{self, PublishSettings};
 use crate::script::Host;
 use crate::webhooks::{self, EntryEvent, EntryRef};
 use crate::workspace_db;
+
+/// 重い権限を持つ人なら通す（ロールの既定か、個人への付与。リクエストのたびに照合する）。
+pub(super) async fn holder(
+    state: &AppState,
+    current: &Current,
+    ws: Uuid,
+    permission: Permission,
+) -> Result<Access, ApiError> {
+    let access = reader(state, current, ws).await?;
+    if !access.has(permission) {
+        return Err(access::Denied::Forbidden.into());
+    }
+    Ok(access)
+}
 
 pub(super) async fn publisher(
     state: &AppState,
@@ -215,7 +231,11 @@ pub async fn publish(
     JsonBody(req): JsonBody<Publish>,
 ) -> Result<Json<Published>, ApiError> {
     let (ws, id) = (parse(&ws)?, parse(&id)?);
-    let access = publisher(&state, &current, ws).await?;
+    let access = if req.correction {
+        holder(&state, &current, ws, Permission::Corrections).await?
+    } else {
+        publisher(&state, &current, ws).await?
+    };
     if req.correction_note.is_some() && !req.correction {
         return Err(invalid(vec![
             "correctionNote: only when publishing as a correction".to_owned(),
@@ -536,7 +556,7 @@ pub async fn change_settings(
     JsonBody(req): JsonBody<settings::Change>,
 ) -> Result<Json<PublishSettings>, ApiError> {
     let (ws, id) = (parse(&ws)?, parse(&id)?);
-    let access = publisher(&state, &current, ws).await?;
+    let access = holder(&state, &current, ws, Permission::PolicySwitches).await?;
     if req.is_empty() {
         return Err(ApiError::bad_request(
             "Send at least one of `useForChatbot`, `includeInAiMaterials` and `optOutOfAiTraining`.",

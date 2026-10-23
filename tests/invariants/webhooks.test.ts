@@ -262,7 +262,8 @@ inv(
     await cms.publishEntry(s, a.id, e.id);
     await expectEvent(e.id, "urlChanged");
 
-    await cms.changePublishSettings(s, a.id, e.id);
+    // 方針のスイッチは、既定では管理者だけが変えられる（INV-PERM-03）
+    await cms.changePublishSettings(a.adminSession, a.id, e.id);
     await expectEvent(e.id, "settingsChanged");
 
     await cms.saveDraft(s, a.id, e.id, { body: simpleBody(marker("wh06-v4")) });
@@ -300,7 +301,7 @@ inv("inv_wh_07", "Webhookの本文には、記事の本文と下書きの内容�
   const e = await cms.createEntry(s, a.id, { title: "Webhookの本文", body: simpleBody(bodyMarker) });
   await cms.publishEntry(s, a.id, e.id);
   await cms.saveDraft(s, a.id, e.id, { title: draftMarker, body: simpleBody(draftMarker) }); // 公開しない下書き
-  await cms.changePublishSettings(s, a.id, e.id);
+  await cms.changePublishSettings(a.adminSession, a.id, e.id); // 方針のスイッチは既定では管理者だけ
   await cms.unpublishEntry(s, a.id, e.id);
 
   const received = await rc.collect((r) => r.path.startsWith(path) && parseOrNull(r.body)?.entryId === e.id, 10_000);
