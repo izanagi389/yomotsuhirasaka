@@ -572,7 +572,8 @@
       "label": "Account",
       "security": "Security",
       "sessions": "Sessions and history",
-      "tokens": "Personal tokens"
+      "tokens": "Personal tokens",
+      "profile": "Profile"
     },
     "sessions": {
       "title": "Active sessions",
@@ -612,6 +613,12 @@
       "revokeTitle": "Revoke the token",
       "revokeDescription": "Revokes \"{name}\". CLIs using this token will stop working.",
       "noMemberships": "You are not a member of any workspace. A token used only for deploying can be issued without choosing a workspace."
+    },
+    "profile": {
+      "displayName": "Display name",
+      "help": "The name other members see when choosing a reviewer and in review history. 1 to 50 characters; you can change it at any time.",
+      "required": "Choose a display name before using the admin UI.",
+      "saved": "Display name saved."
     }
   },
   "sso": {

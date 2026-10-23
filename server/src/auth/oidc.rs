@@ -117,6 +117,8 @@ pub struct Verified {
     pub email: Option<String>,
     /// `email_verified` が真偽値の true のときだけ true。
     pub email_verified: bool,
+    /// 名前（`name`）。表示名の決まりに合うものだけ。表示名の入力欄の初期値にだけ使う。
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,6 +135,8 @@ struct Claims {
     email: Option<String>,
     #[serde(default)]
     email_verified: Option<serde_json::Value>,
+    #[serde(default)]
+    name: Option<serde_json::Value>,
     #[serde(default)]
     auth_time: Option<i64>,
 }
@@ -367,6 +371,11 @@ impl Oidc {
                 .map(|e| e.trim().to_lowercase())
                 .filter(|e| e.contains('@')),
             email_verified: claims.email_verified == Some(serde_json::Value::Bool(true)),
+            name: claims
+                .name
+                .as_ref()
+                .and_then(serde_json::Value::as_str)
+                .and_then(crate::auth::users::normalize_display_name),
         })
     }
 

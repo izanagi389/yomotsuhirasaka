@@ -16,6 +16,10 @@ export interface Me {
   passkeyRequired: boolean;
   /** IdPでの再ログインで再認証できるか（SSOの、管理者でない人）。 */
   idpReauthAllowed: boolean;
+  /** 本人が決めた表示名（未設定なら null。決めるまで、プロフィールの画面で入力を求める）。 */
+  displayName: string | null;
+  /** 表示名の入力欄の初期値（SSOのIdPが返した名前）。 */
+  displayNameSuggestion: string | null;
 }
 
 export function useAuth() {

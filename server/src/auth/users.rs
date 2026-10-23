@@ -15,6 +15,18 @@ pub fn normalize_email(raw: &str) -> Option<String> {
     ok.then_some(email)
 }
 
+/// 表示名の長さの上限（文字数）。
+pub const MAX_DISPLAY_NAME_CHARS: usize = 50;
+
+/// 表示名を、保存する形（前後の空白を除く）にする。空・長すぎる・制御文字を含むものは None。
+pub fn normalize_display_name(raw: &str) -> Option<String> {
+    let name = raw.trim();
+    let ok = !name.is_empty()
+        && name.chars().count() <= MAX_DISPLAY_NAME_CHARS
+        && !name.chars().any(char::is_control);
+    ok.then(|| name.to_owned())
+}
+
 /// ログインの照合に使う情報。
 pub struct LoginRecord {
     pub id: Uuid,
@@ -111,6 +123,16 @@ pub async fn set_password<'e>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_names_are_trimmed_and_checked() {
+        assert_eq!(normalize_display_name("  山田 花子 ").as_deref(), Some("山田 花子"));
+        assert_eq!(normalize_display_name(&"あ".repeat(50)).map(|n| n.chars().count()), Some(50));
+        for bad in ["", "   ", "a\nb", "a\u{7}b"] {
+            assert_eq!(normalize_display_name(bad), None, "{bad:?}");
+        }
+        assert_eq!(normalize_display_name(&"あ".repeat(51)), None);
+    }
 
     #[test]
     fn emails() {
