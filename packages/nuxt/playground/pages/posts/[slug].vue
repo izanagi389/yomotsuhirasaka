@@ -2,10 +2,11 @@
 import type { CmsDeletedAnchor } from "@new-cms/nuxt";
 
 const route = useRoute();
-const { data } = await useCmsQuery<{ postBySlug: { id: string; title: string; url: string; body: unknown; deletedAnchors: CmsDeletedAnchor[] } | null }>("postBySlug", {
+const { data } = await useCmsQuery<{ postBySlug: { id: string; title: string; url: string; body: unknown; deletedAnchors: CmsDeletedAnchor[]; aiTrainingOptOut: boolean } | null }>("postBySlug", {
   slug: String(route.params.slug),
   locale: "ja",
 });
+useCmsAiMeta(() => data.value?.postBySlug);
 </script>
 
 <template>

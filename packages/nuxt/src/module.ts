@@ -15,15 +15,32 @@
 // - 訂正（corrections を設定したとき）: 訂正一覧は useCmsCorrections と <CmsCorrections> で、ページはサイトが作る。
 //   フィード（<path>.xml と <path>.json）はサーバーのルートが返し、nuxt generate ではビルドのときに書き出す
 // - 削除済みアンカーの案内: <CmsDeletedAnchorNotice :anchors="post.deletedAnchors">
+// - AI向けの素材（ai を設定したとき。siteUrl が要る）: `<記事のURL>.md`、/llms.txt、（設定すれば）/robots.txt。
+//   サーバーのルートが返し、nuxt generate ではビルドのときに書き出す。学習拒否のメタタグは useCmsAiMeta(post)
 
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { addComponent, addImports, addServerHandler, createResolver, defineNuxtModule, useLogger } from "nuxt/kit";
 
 import { RegisterError, checkUrl, readQueries, registerQueries } from "./register.ts";
+import { type AiConfig, type AiOptions, checkAiConfig, markdownPath } from "./runtime/server/ai.ts";
+import { loadCatalog } from "./runtime/server/ai-load.ts";
 import { type CorrectionFeedConfig, checkFeedConfig } from "./runtime/server/feed.ts";
 import { fetchQuery } from "./runtime/server/fetch-query.ts";
-import { CORRECTIONS_QUERY, CORRECTIONS_QUERY_TEXT, REDIRECTS_QUERY, REDIRECTS_QUERY_TEXT, RESERVED_QUERIES } from "./runtime/server/names.ts";
+import {
+  AI_CATALOG_QUERY,
+  AI_CATALOG_QUERY_TEXT,
+  AI_MARKDOWN_QUERY,
+  AI_MARKDOWN_QUERY_TEXT,
+  AI_OPT_OUTS_QUERY,
+  AI_OPT_OUTS_QUERY_TEXT,
+  CORRECTIONS_QUERY,
+  CORRECTIONS_QUERY_TEXT,
+  REDIRECTS_QUERY,
+  REDIRECTS_QUERY_TEXT,
+  RESERVED_QUERIES,
+} from "./runtime/server/names.ts";
 import { type CmsRedirect, toPathRules, toRouteRules } from "./runtime/server/redirect-rules.ts";
 
 export interface ModuleOptions {
@@ -41,6 +58,11 @@ export interface ModuleOptions {
   webhookRoute: string;
   /** 訂正の一覧とフィード。設定すると、訂正の一覧のクエリを登録する。 */
   corrections: false | { feeds?: Record<string, CorrectionFeedOptions> };
+  /**
+   * AI向けの素材（`<記事のURL>.md`・/llms.txt・/robots.txt）。siteUrl が要る。
+   * locales: ロケール → llms.txt に書く名前と説明。robotsTxt: 設定すると /robots.txt 全体をモジュールが返す。
+   */
+  ai: false | AiOptions;
 }
 
 /** 訂正フィードの設定（キーはロケール）。 */
@@ -58,6 +80,8 @@ export interface CorrectionFeedOptions {
 }
 
 export type { CmsCorrectionItem } from "./runtime/server/feed.ts";
+export type { CmsAiCatalogItem } from "./runtime/server/ai.ts";
+export { DEFAULT_AI_TRAINING_CRAWLERS } from "./runtime/server/ai.ts";
 export type { CmsDeletedAnchor } from "./runtime/deleted-anchor.ts";
 
 /** CMSのAPIキー（`cms_key_`）か個人トークン（`cms_pat_`）らしい文字列を含むか。 */
@@ -70,7 +94,7 @@ export function containsSecret(value: unknown): boolean {
 
 export default defineNuxtModule<ModuleOptions>({
   meta: { name: "@new-cms/nuxt", configKey: "cms" },
-  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q", siteUrl: "", webhookRoute: "/_cms/webhook", corrections: false },
+  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q", siteUrl: "", webhookRoute: "/_cms/webhook", corrections: false, ai: false },
   async setup(options, nuxt) {
     const logger = useLogger("cms");
     const resolver = createResolver(import.meta.url);
@@ -88,7 +112,11 @@ export default defineNuxtModule<ModuleOptions>({
       if (Object.hasOwn(feeds, feed.path)) throw new RegisterError(`cms.corrections.feeds.${locale}.path: used by another feed`);
       feeds[feed.path] = feed;
     }
-    nuxt.options.runtimeConfig.cms = { url, workspaceId: options.workspaceId, readKey: "", siteUrl, webhookSecret: "", correctionFeeds: feeds };
+    const ai: AiConfig | null = options.ai ? checkAiConfig(options.ai, siteUrl) : null;
+    if (ai?.robotsTxt && existsSync(resolve(nuxt.options.rootDir, nuxt.options.dir.public, "robots.txt"))) {
+      throw new RegisterError("cms.ai.robotsTxt: remove public/robots.txt (the module serves /robots.txt; put your own lines in cms.ai.robotsTxt.extra)");
+    }
+    nuxt.options.runtimeConfig.cms = { url, workspaceId: options.workspaceId, readKey: "", siteUrl, webhookSecret: "", correctionFeeds: feeds, ai };
     nuxt.options.runtimeConfig.public.cms = { routePrefix: options.routePrefix };
 
     // クエリの登録（nuxt prepare では行わない）
@@ -99,6 +127,11 @@ export default defineNuxtModule<ModuleOptions>({
     // リダイレクト一覧と訂正の一覧のクエリは、モジュールが自分で登録する
     if (siteUrl) queries[REDIRECTS_QUERY] = REDIRECTS_QUERY_TEXT;
     if (options.corrections) queries[CORRECTIONS_QUERY] = CORRECTIONS_QUERY_TEXT;
+    if (ai) {
+      queries[AI_CATALOG_QUERY] = AI_CATALOG_QUERY_TEXT;
+      queries[AI_MARKDOWN_QUERY] = AI_MARKDOWN_QUERY_TEXT;
+      if (ai.robotsTxt) queries[AI_OPT_OUTS_QUERY] = AI_OPT_OUTS_QUERY_TEXT;
+    }
     let ids: Record<string, string> = {};
     if (Object.keys(queries).length > 0 && !nuxt.options._prepare) {
       const registerKey = process.env["CMS_REGISTER_KEY"];
@@ -129,12 +162,47 @@ export default defineNuxtModule<ModuleOptions>({
     if (feedRoutes.length > 0 && nuxt.options.nitro.static) {
       nuxt.options.nitro.prerender = { ...nuxt.options.nitro.prerender, routes: [...(nuxt.options.nitro.prerender?.routes ?? []), ...feedRoutes] };
     }
+    // AI向けの素材: サーバーのルートで返す。nuxt generate ではビルドのときに書き出す（Q145）
+    if (ai) {
+      const prerender: string[] = [];
+      if (ai.markdown) {
+        addServerHandler({ middleware: true, handler: resolver.resolve("./runtime/server/ai-markdown.js") });
+        // 記事の .md は、ビルドのときの目録から書き出す（読むキーがあるときだけ）
+        const readKey = process.env["NUXT_CMS_READ_KEY"];
+        if (nuxt.options.nitro.static && ids[AI_CATALOG_QUERY]) {
+          if (readKey) {
+            for (const { locale } of ai.locales) {
+              const items = await loadCatalog({ url, workspaceId: options.workspaceId, readKey }, ids[AI_CATALOG_QUERY], locale);
+              for (const item of items) {
+                const md = markdownPath(item.url, ai.siteOrigin);
+                if (md) prerender.push(md);
+              }
+            }
+            logger.info(`writing ${prerender.length} Markdown version(s) of articles`);
+          } else {
+            logger.warn("NUXT_CMS_READ_KEY is not set at build time; the Markdown versions of articles are not written");
+          }
+        }
+      }
+      if (ai.llmsTxt) {
+        addServerHandler({ route: "/llms.txt", method: "get", handler: resolver.resolve("./runtime/server/ai-llms.js") });
+        prerender.push("/llms.txt");
+      }
+      if (ai.robotsTxt) {
+        addServerHandler({ route: "/robots.txt", method: "get", handler: resolver.resolve("./runtime/server/ai-robots.js") });
+        prerender.push("/robots.txt");
+      }
+      if (prerender.length > 0 && nuxt.options.nitro.static) {
+        nuxt.options.nitro.prerender = { ...nuxt.options.nitro.prerender, routes: [...(nuxt.options.nitro.prerender?.routes ?? []), ...prerender] };
+      }
+    }
     addServerHandler({ route: options.webhookRoute, method: "post", handler: resolver.resolve("./runtime/server/webhook.js") });
 
     addServerHandler({ route: `${options.routePrefix}/:name`, method: "get", handler: resolver.resolve("./runtime/server/query.js") });
     addImports([
       { name: "useCmsQuery", from: resolver.resolve("./runtime/composables.js") },
       { name: "useCmsCorrections", from: resolver.resolve("./runtime/composables.js") },
+      { name: "useCmsAiMeta", from: resolver.resolve("./runtime/composables.js") },
     ]);
     addComponent({ name: "CmsBody", filePath: resolver.resolve("./runtime/body.js") });
     addComponent({ name: "CmsCorrections", filePath: resolver.resolve("./runtime/corrections.js") });
