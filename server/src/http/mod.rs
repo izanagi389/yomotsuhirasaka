@@ -12,6 +12,7 @@ pub mod admin_mfa;
 pub mod admin_oidc;
 pub mod admin_publishing;
 pub mod admin_resets;
+pub mod admin_reviews;
 pub mod admin_templates;
 pub mod admin_tokens;
 pub mod admin_translations;
@@ -344,6 +345,25 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/entries/{id}/review",
             put(admin_corrections::put_review),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/review-request",
+            get(admin_reviews::get_review)
+                .post(admin_reviews::create_review)
+                .patch(admin_reviews::change_reviewer),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/review-request/reject",
+            post(admin_reviews::reject),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/review-request/withdraw",
+            post(admin_reviews::withdraw),
+        )
+        .route("/workspaces/{ws}/reviewers", get(admin_reviews::reviewers))
+        .route(
+            "/workspaces/{ws}/review-requests",
+            get(admin_reviews::lists),
         )
         .route(
             "/workspaces/{ws}/reviews/expired",
