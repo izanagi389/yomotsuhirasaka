@@ -2,7 +2,7 @@
 // 記事の鮮度（06-corrections-and-freshness.md、Q46）。
 // - 「確認済み」は記事ごとの操作だけで、一括の操作は作らない。メモは管理画面だけに残る（INV-FRS-01）
 // - 確認期限は、スキーマの既定・記事ごとの日数・期限なしから選ぶ
-// - 記録と変更は、公開できる人（管理者・編集者とサーバー管理者）だけ
+// - 「確認済み」の記録は、重い権限「訂正としての公開と確認済みの記録」を持つ人（Q76）。期限の変更は、公開できる人
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { FreshnessDetail } from "~/utils/content";
 
-const props = defineProps<{ workspaceId: string; entryId: string; editable: boolean }>();
+const props = defineProps<{ workspaceId: string; entryId: string; editable: boolean; canVerify: boolean }>();
 const { t, locale } = useI18n();
 const api = useApi();
 const base = computed(() => `/workspaces/${props.workspaceId}/entries/${props.entryId}`);
@@ -79,7 +79,7 @@ function saveReview() {
         </dd>
       </dl>
 
-      <section v-if="editable" class="grid gap-2">
+      <section v-if="canVerify" class="grid gap-2">
         <h3 class="font-medium">{{ t("freshness.verify") }}</h3>
         <p class="text-muted-foreground">{{ t("freshness.verifyHelp") }}</p>
         <Textarea v-model="memo" maxlength="2000" rows="2" :placeholder="t('freshness.memo')" :aria-label="t('freshness.memo')" />
