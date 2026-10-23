@@ -311,7 +311,7 @@
     "createFor": "Create {locale} translation"
   },
   "settings": {
-    "note": "These switches are saved and changes are announced by webhook. Their effect on the chatbot and on materials for external AI comes in a later version.",
+    "note": "Changes to these switches are announced by webhook. Materials for external AI and the AI-training opt-out are applied by the site integration. The effect on the chatbot comes in a later version.",
     "changedFromDefault": "Changed from the default",
     "showDefaults": "Show settings left at their defaults ({n})",
     "hideDefaults": "Hide settings left at their defaults",
@@ -326,7 +326,8 @@
     "optOutOfAiTraining": {
       "label": "Opt out of AI training",
       "help": "Mark the external materials so that they are not used for AI training."
-    }
+    },
+    "needPermission": "To change these switches, ask an administrator for the policy switches permission."
   },
   "urlHistory": {
     "empty": "The public URL has not changed."
@@ -403,7 +404,12 @@
     "passwordResetSent": "A password reset email was sent to {email}.",
     "mfaResetSent": "An MFA reset email was sent to {email}.",
     "passwordResetLink": "Password reset link for {email} (give it to them)",
-    "mfaResetLink": "MFA reset link for {email} (give it to them)"
+    "mfaResetLink": "MFA reset link for {email} (give it to them)",
+    "heavy": "Heavy permissions",
+    "heavyOf": "Heavy permissions of {email}",
+    "heavyCount": "{n}",
+    "byRole": "From role",
+    "heavyHelp": "Permissions granted to the person on top of their role. Granting and revoking are recorded in the audit log."
   },
   "invitations": {
     "send": "Invite",
@@ -689,5 +695,27 @@
     "choice": "Note {n}",
     "add": "Add a note",
     "saved": "Saved."
+  },
+  "permissions": {
+    "viewQuestionLog": {
+      "label": "View the question log",
+      "help": "See the questions visitors asked the chatbot. No role has this by default."
+    },
+    "manageLlm": {
+      "label": "LLM connection and budget",
+      "help": "Change the LLM endpoints and the token budgets."
+    },
+    "policySwitches": {
+      "label": "Policy switches",
+      "help": "Change whether an entry is included in materials for external AI, opts out of AI training, or is used for the chatbot."
+    },
+    "corrections": {
+      "label": "Corrections and verification",
+      "help": "Publish a published entry as a correction, write correction notes, and record verification. Does not allow ordinary publishing."
+    },
+    "takeOverEditing": {
+      "label": "Take over editing",
+      "help": "Take over editing an entry someone else is editing."
+    }
   }
 }

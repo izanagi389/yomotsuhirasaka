@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 記事の公開設定のスイッチ（Q67, Q184）。初期値から変えていないものは折りたたむ。
-// M1 では保存と変更の Webhook だけで、効果は M2 以降。変えられるのは公開できる人（管理者・編集者とサーバー管理者）。
+// 変えられるのは、サイトの方針に関わる重い権限を持つ人（管理者の既定と、個人への付与。Q76）。
 import { Switch } from "@/components/ui/switch";
 import { DEFAULT_PUBLISH_SETTINGS, type PublishSettings } from "~/utils/content";
 
@@ -34,6 +34,7 @@ async function set(key: keyof PublishSettings, value: boolean) {
   <div class="grid gap-4 text-sm">
     <FormError :error="error ?? saveError" />
     <p class="text-muted-foreground">{{ t("settings.note") }}</p>
+    <p v-if="!editable" class="text-muted-foreground" data-testid="settings-need-permission">{{ t("settings.needPermission") }}</p>
     <template v-if="settings">
       <ul class="grid gap-3">
         <li v-for="k in changed" :key="k" class="flex items-start gap-3">
