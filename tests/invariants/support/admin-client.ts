@@ -274,12 +274,27 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     });
   const getEntryRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("GET", `${entriesPath(workspaceId)}/${entryId}`, { auth, extras });
-  const saveDraftRaw = (auth: Auth, workspaceId: string, entryId: string, changes: Partial<EntryInput>, revision: string, extras?: RequestExtras): Promise<HttpResponse> =>
+  const saveDraftRaw = (
+    auth: Auth,
+    workspaceId: string,
+    entryId: string,
+    changes: Partial<EntryInput>,
+    revision: string,
+    extras?: RequestExtras,
+    lockId?: string,
+  ): Promise<HttpResponse> =>
     request("PUT", `${entriesPath(workspaceId)}/${entryId}/draft`, {
       auth,
       extras,
-      body: { revision: Number(revision), fields: entryFields(changes, false) },
+      body: { revision: Number(revision), fields: entryFields(changes, false), ...(lockId === undefined ? {} : { lockId }) },
     });
+  // 編集のロック（M2。server/src/http/admin_locks.rs）。応答の lockId を保存に付ける
+  const lockPath = (workspaceId: string, entryId: string) => `${entriesPath(workspaceId)}/${entryId}/edit-lock`;
+  const lockIdOf = (what: string, res: HttpResponse): string => {
+    const id = (JSON.parse(ensure(what, res).text) as { lockId?: unknown }).lockId;
+    if (typeof id !== "string") throw new SetupError(what, res);
+    return id;
+  };
   const toDraft = (res: HttpResponse): Draft => {
     const d = JSON.parse(res.text) as { revision?: unknown; fields?: Record<string, unknown> };
     const fields = d.fields ?? {};
@@ -676,8 +691,19 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       const list = JSON.parse(res.text) as { id: string; locale: string; fields: Record<string, unknown> }[];
       return list.map((e) => ({ id: e.id, locale: e.locale, slug: String(e.fields["slug"] ?? "") }));
     },
-    saveDraftRaw: (auth: Auth, workspaceId: string, entryId: string, changes: Partial<EntryInput>, revision: string) =>
-      saveDraftRaw(auth, workspaceId, entryId, changes, revision),
+    saveDraftRaw: (auth: Auth, workspaceId: string, entryId: string, changes: Partial<EntryInput>, revision: string, options?: { lockId?: string }) =>
+      saveDraftRaw(auth, workspaceId, entryId, changes, revision, undefined, options?.lockId),
+    acquireEditLockRaw: (auth: Auth, workspaceId: string, entryId: string) => request("POST", lockPath(workspaceId, entryId), { auth }),
+    async acquireEditLock(s: Session, workspaceId: string, entryId: string): Promise<string> {
+      return lockIdOf("編集のロック", await request("POST", lockPath(workspaceId, entryId), { auth: session(s) }));
+    },
+    takeOverEditLockRaw: (auth: Auth, workspaceId: string, entryId: string) => request("POST", `${lockPath(workspaceId, entryId)}/take-over`, { auth }),
+    async takeOverEditLock(s: Session, workspaceId: string, entryId: string): Promise<string> {
+      return lockIdOf("編集の引き継ぎ", await request("POST", `${lockPath(workspaceId, entryId)}/take-over`, { auth: session(s) }));
+    },
+    async releaseEditLock(s: Session, workspaceId: string, entryId: string, lockId: string): Promise<void> {
+      ensure("編集のロックを外す", await request("DELETE", `${lockPath(workspaceId, entryId)}/${lockId}`, { auth: session(s) }));
+    },
     async saveDraft(s: Session, workspaceId: string, entryId: string, changes: Partial<EntryInput>): Promise<void> {
       const current = toDraft(ensure("下書きの取得", await getEntryRaw(session(s), workspaceId, entryId)));
       ensure("下書きの保存", await saveDraftRaw(session(s), workspaceId, entryId, changes, current.revision));
