@@ -59,6 +59,9 @@ pub struct WorkspaceInfo {
     /// 編集の引き継ぎを誰ができるか（`anyone` か `permission`。1件の取得のときだけ）。
     #[serde(skip_serializing_if = "Option::is_none")]
     take_over_policy: Option<String>,
+    /// プレビューを許すサイトのオリジン（1件の取得のときだけ）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview_origins: Option<Vec<String>>,
 }
 
 type WorkspaceRow = (
@@ -84,6 +87,7 @@ fn workspace_info(
         schema_state,
         permissions: None,
         take_over_policy: None,
+        preview_origins: None,
     }
 }
 
@@ -140,7 +144,9 @@ pub async fn get_workspace(
     let access = access::member(&state.pool, &current, id).await??;
     let mut info = fetch_workspace(&state, &current, id).await?;
     info.permissions = Some(access.heavy_permissions());
-    info.take_over_policy = Some(super::admin_locks::take_over_policy_of(&state.pool, id).await?);
+    info.take_over_policy =
+        Some(super::admin_settings::take_over_policy_of(&state.pool, id).await?);
+    info.preview_origins = Some(super::admin_settings::preview_origins_of(&state.pool, id).await?);
     Ok(Json(info))
 }
 

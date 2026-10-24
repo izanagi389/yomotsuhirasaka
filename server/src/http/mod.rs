@@ -16,6 +16,7 @@ pub mod admin_publishing;
 pub mod admin_resets;
 pub mod admin_reviews;
 pub mod admin_scheduling;
+pub mod admin_settings;
 pub mod admin_templates;
 pub mod admin_todo;
 pub mod admin_tokens;
@@ -271,7 +272,7 @@ pub fn router(state: AppState) -> Router {
         .route("/workspaces/{ws}", get(admin_workspaces::get_workspace))
         .route(
             "/workspaces/{ws}/settings",
-            patch(admin_locks::patch_settings),
+            patch(admin_settings::patch_settings),
         )
         .route("/ws", get(realtime::connect))
         .route(
