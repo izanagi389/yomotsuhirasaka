@@ -9,6 +9,7 @@ pub mod freshness;
 pub mod hooks;
 pub mod html;
 pub mod import;
+pub mod locks;
 pub mod publishing;
 pub mod redirects;
 pub mod rerender;

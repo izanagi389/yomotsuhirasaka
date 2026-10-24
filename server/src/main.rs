@@ -739,6 +739,7 @@ async fn serve(config: Config) -> Result<()> {
     if let Err(e) = cms_server::content::rerender::schedule_all(&state.pool, &state.keys).await {
         tracing::error!("cannot queue re-rendering: {e:#}");
     }
+    cms_server::http::realtime::spawn_listener(state.clone());
     worker::spawn(state.clone());
     worker::spawn_sweeper(state.clone());
     let app = http::router(state);

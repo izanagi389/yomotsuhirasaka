@@ -417,7 +417,19 @@ export interface CmsClient {
   getDraft(session: Session, workspaceId: string, entryId: string): Promise<Draft>;
   listEntries(session: Session, workspaceId: string): Promise<{ id: string; slug: string; locale: string }[]>;
   /** 下書きを保存する。revision には保存の前に読んだリビジョン番号を渡す。 */
-  saveDraftRaw(auth: Auth, workspaceId: string, entryId: string, changes: Partial<EntryInput>, revision: string): Promise<HttpResponse>;
+  /** 下書きを保存する。lockId は、編集のロック（M2）を持って保存するときに付ける。 */
+  saveDraftRaw(auth: Auth, workspaceId: string, entryId: string, changes: Partial<EntryInput>, revision: string, options?: { lockId?: string }): Promise<HttpResponse>;
+  /**
+   * 記事の編集のロック（M2、Q73）。記事の画面を開いたときに取り、保存に lockId を付ける。ほかの画面が持っていれば断られる。
+   * ロックは画面（ロックのID）ごと。保存はロックを取らない。
+   */
+  acquireEditLockRaw(auth: Auth, workspaceId: string, entryId: string): Promise<HttpResponse>;
+  acquireEditLock(session: Session, workspaceId: string, entryId: string): Promise<string>;
+  /** 編集を引き継ぐ（ほかの画面のロックを奪う）。新しいロックのIDを返す。 */
+  takeOverEditLockRaw(auth: Auth, workspaceId: string, entryId: string): Promise<HttpResponse>;
+  takeOverEditLock(session: Session, workspaceId: string, entryId: string): Promise<string>;
+  /** ロックを外す（画面を離れたとき）。 */
+  releaseEditLock(session: Session, workspaceId: string, entryId: string, lockId: string): Promise<void>;
   /** 最新のリビジョン番号を読んでから保存する。 */
   saveDraft(session: Session, workspaceId: string, entryId: string, changes: Partial<EntryInput>): Promise<void>;
   /** 公開する。note は「訂正として公開」のときの説明（自由記述）。 */

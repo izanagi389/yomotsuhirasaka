@@ -7,6 +7,7 @@ pub mod admin_corrections;
 pub mod admin_entries;
 pub mod admin_import;
 pub mod admin_invitations;
+pub mod admin_locks;
 pub mod admin_media;
 pub mod admin_mfa;
 pub mod admin_oidc;
@@ -23,6 +24,7 @@ pub mod admin_workspaces;
 pub mod delivery;
 pub mod error;
 pub mod extract;
+pub mod realtime;
 
 use std::ops::Deref;
 use std::sync::Arc;
@@ -30,7 +32,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::http::{HeaderName, HeaderValue, header};
 use axum::response::Response;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use sqlx::PgPool;
 
 use crate::auth::throttle::IpLimiter;
@@ -74,6 +76,8 @@ pub struct Inner {
     pub admin_ui: Option<admin_ui::AdminUi>,
     /// 外部のOIDC/SSO（設定したときだけ）。
     pub oidc: Option<Arc<crate::auth::oidc::Oidc>>,
+    /// 管理画面への即時の知らせ（WebSocket、計画の10番）。
+    pub events: realtime::Events,
 }
 
 impl Deref for AppState {
@@ -125,6 +129,7 @@ impl AppState {
             .map(|c| Arc::new(crate::auth::oidc::Oidc::new(c, &config.public_url)));
         let scripts = crate::script::Engine::new(config.scripts.limits());
         Self(Arc::new(Inner {
+            events: realtime::Events::default(),
             scripts,
             oidc,
             admin_ui,
@@ -262,6 +267,27 @@ pub fn router(state: AppState) -> Router {
             get(admin_workspaces::list_workspaces).post(admin_workspaces::create_workspace),
         )
         .route("/workspaces/{ws}", get(admin_workspaces::get_workspace))
+        .route(
+            "/workspaces/{ws}/settings",
+            patch(admin_locks::patch_settings),
+        )
+        .route("/ws", get(realtime::connect))
+        .route(
+            "/workspaces/{ws}/entries/{id}/edit-lock",
+            get(admin_locks::get_lock).post(admin_locks::acquire),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/edit-lock/take-over",
+            post(admin_locks::take_over),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/edit-lock/{lock}/heartbeat",
+            post(admin_locks::heartbeat),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/edit-lock/{lock}",
+            delete(admin_locks::release),
+        )
         .route("/workspaces/{ws}/schema", get(admin_templates::schema_info))
         .route(
             "/workspaces/{ws}/entries",

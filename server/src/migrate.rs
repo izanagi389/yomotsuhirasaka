@@ -95,6 +95,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "display_names",
         include_str!("../migrations/0020_display_names.sql"),
     ),
+    (
+        21,
+        "take_over_policy",
+        include_str!("../migrations/0021_take_over_policy.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -127,6 +132,8 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("template_versions", "SELECT"),
     // サーバー管理者が上限を変える
     ("workspace_limits", "SELECT, INSERT, UPDATE"),
+    // 管理者が設定を変える（編集の引き継ぎを誰ができるか）
+    ("workspace_settings", "SELECT, INSERT, UPDATE"),
     // 管理者が削除する（送信の記録も一緒に消える）
     ("webhooks", "SELECT, INSERT, UPDATE, DELETE"),
     ("webhook_deliveries", "SELECT, INSERT, UPDATE"),
