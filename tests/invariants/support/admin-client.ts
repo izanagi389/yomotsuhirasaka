@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, Auth, CmsClient, Credentials, Draft, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, Auth, CmsClient, Credentials, Draft, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -388,6 +388,10 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     request("GET", `${entriesPath(workspaceId)}/${entryId}/translation/source-diff`, { auth, extras });
   const markSourceReflectedRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("POST", `${entriesPath(workspaceId)}/${entryId}/translation/reflected`, { auth, extras });
+  const requestReviewRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", `${entriesPath(workspaceId)}/${entryId}/review-request`, { auth, extras, body: {} });
+  const todoRaw = (auth: Auth, workspaceId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${ADMIN}/workspaces/${workspaceId}/todo`, { auth, extras });
   const setTranslationSourceRaw = (auth: Auth, workspaceId: string, entryId: string, sourceEntryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("PUT", `${entriesPath(workspaceId)}/${entryId}/translation/source`, { auth, extras, body: { sourceEntryId } });
 
@@ -536,6 +540,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       createTranslationRaw(auth, t.workspaceId, t.entryId, BASE_TEMPLATE.locales[BASE_TEMPLATE.locales.length - 1]!, extras),
     ),
     op("getTranslationInfo", false, "workspace", (auth, t, extras) => translationInfoRaw(auth, t.workspaceId, t.entryId, extras)),
+    op("getTodo", false, "workspace", (auth, t, extras) => todoRaw(auth, t.workspaceId, extras)),
     op("getSourceDiff", false, "workspace", (auth, t, extras) => sourceDiffRaw(auth, t.workspaceId, t.entryId, extras)),
     op("markSourceReflected", true, "workspace", (auth, t, extras) => markSourceReflectedRaw(auth, t.workspaceId, t.entryId, extras)),
     // 元の記事は存在しない記事（舞台の翻訳グループを変えないため）
@@ -813,6 +818,18 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
           after: x.after ?? null,
         })),
       };
+    },
+    async requestReview(s: Session, workspaceId: string, entryId: string): Promise<void> {
+      ensure("レビューの依頼", await requestReviewRaw(session(s), workspaceId, entryId));
+    },
+    async getTodo(s: Session, workspaceId: string): Promise<TodoItem[]> {
+      const res = ensure("やることの取得", await todoRaw(session(s), workspaceId));
+      const body = JSON.parse(res.text) as { items?: { kind?: unknown; entry?: { id?: unknown } }[] };
+      if (!Array.isArray(body.items)) throw new SetupError("やることの読み取り", res);
+      return body.items.map((i) => {
+        if (typeof i.kind !== "string" || typeof i.entry?.id !== "string") throw new SetupError("やることの項目の読み取り", res);
+        return { kind: i.kind as TodoItem["kind"], entryId: i.entry.id };
+      });
     },
     markSourceReflectedRaw: (auth: Auth, workspaceId: string, entryId: string) => markSourceReflectedRaw(auth, workspaceId, entryId),
     async markSourceReflected(s: Session, workspaceId: string, entryId: string): Promise<void> {

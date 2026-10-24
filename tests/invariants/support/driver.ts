@@ -197,6 +197,21 @@ export interface TranslationInfo {
   sourceCorrected: boolean;
 }
 
+/** 「やること」の1件（M2）。kind は項目の種類。 */
+export interface TodoItem {
+  kind:
+    | "scheduleFailed"
+    | "scheduleRetrying"
+    | "reviewWaiting"
+    | "unwrittenCorrection"
+    | "reviewRejected"
+    | "sourceCorrected"
+    | "reviewExpired"
+    | "sourceUpdated"
+    | "scheduleCancelled";
+  entryId: string;
+}
+
 /** 元の記事の、反映済みの版から今の版までの差分（M2）。 */
 export interface SourceDiff {
   /** 比べた元の記事の版（反映済みの版と、今の版）。 */
@@ -484,6 +499,10 @@ export interface CmsClient {
   /** 「原文の更新を反映済み」にする（反映済みの版を、元の記事の今の版に進める。M2）。 */
   markSourceReflectedRaw(auth: Auth, workspaceId: string, entryId: string): Promise<HttpResponse>;
   markSourceReflected(session: Session, workspaceId: string, entryId: string): Promise<void>;
+  /** レビューを依頼する（レビューする人は指定しない。M2）。 */
+  requestReview(session: Session, workspaceId: string, entryId: string): Promise<void>;
+  /** 「やること」の一覧（M2）。 */
+  getTodo(session: Session, workspaceId: string): Promise<TodoItem[]>;
   getUrlHistory(session: Session, workspaceId: string, entryId: string): Promise<UrlChange[]>;
 
   // --- メディア ---
