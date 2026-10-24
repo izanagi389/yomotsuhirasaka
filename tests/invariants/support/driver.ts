@@ -259,7 +259,9 @@ export type WebhookEventKind =
   | "corrected"
   | "erased"
   | "settingsChanged"
-  | "urlChanged";
+  | "urlChanged"
+  | "scheduled"
+  | "scheduleCancelled";
 
 export interface ParsedWebhook {
   /** イベントの種類（ドライバーの webhookEventTypes の値のどれか）。 */
@@ -421,6 +423,14 @@ export interface CmsClient {
   /** 公開する。note は「訂正として公開」のときの説明（自由記述）。 */
   publishEntry(session: Session, workspaceId: string, entryId: string, options?: { correction?: boolean; note?: string }): Promise<void>;
   publishRaw(auth: Auth, workspaceId: string, entryId: string, options?: { correction?: boolean; note?: string }): Promise<HttpResponse>;
+  /**
+   * いまの下書きを、指定した時刻に公開するよう予約する（M2、Q78）。予約し直すと前の予約を置き換える。
+   * correction は「訂正として公開」の予約を試みるためのもの（予約できない: INV-SCHED-02）。
+   */
+  scheduleRaw(auth: Auth, workspaceId: string, entryId: string, at: Date, options?: { correction?: boolean; note?: string }): Promise<HttpResponse>;
+  schedulePublish(session: Session, workspaceId: string, entryId: string, at: Date): Promise<void>;
+  /** 予約を取り消す。 */
+  cancelSchedule(session: Session, workspaceId: string, entryId: string): Promise<void>;
   /** 訂正の説明を書き直す（公開した後でも書ける。編集の履歴は管理画面の中だけに残る）。 */
   editCorrectionNote(session: Session, workspaceId: string, entryId: string, versionId: string, note: string): Promise<void>;
   /** 「確認済み」を記録する（最終確認日を進める。版は作らない）。 */
@@ -703,6 +713,8 @@ export const driver = {
       erased: "entry.version_erased",
       settingsChanged: "entry.settings_changed",
       urlChanged: "entry.url_changed",
+      scheduled: "entry.scheduled",
+      scheduleCancelled: "entry.schedule_cancelled",
     }),
     parse: (body: string): ParsedWebhook => {
       const v = JSON.parse(body) as { type?: unknown; workspaceId?: unknown; entryId?: unknown };
