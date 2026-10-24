@@ -3,7 +3,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/* 暗いテーマは OS の設定（prefers-color-scheme）で切り替える（下の :root の色と同じ条件。切り替えのボタンはない） */
+@custom-variant dark (@media (prefers-color-scheme: dark));
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
