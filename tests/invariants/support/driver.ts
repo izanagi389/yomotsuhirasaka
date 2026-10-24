@@ -252,6 +252,7 @@ export interface UrlChange {
  * - redirects: ワークスペースのリダイレクト一覧（M2。読むのは driver.redirects.parse）
  * - correctionFeed: 訂正フィード（M2）。変数 `locale`、`limit` を取る
  * - byId の include の corrections・deletedAnchors・freshness は、記事の訂正履歴・削除済みアンカー・鮮度（M2）
+ * - bySlug: スラッグで記事を1件。変数 `slug`、`locale` を取る。fields・include は byId と同じ
  * - byId の include の aiMarkdown は、記事のAI向けのMarkdown版（M2。素材にならない記事では空）
  * - aiCatalog: AI向けの記事の目録（M2）。変数 `locale`、`limit` を取る
  * - aiMarkdownByUrl: 公開URLで記事のMarkdown版（M2。連携部品の `.md` 用）。変数 `url` を取る
@@ -261,6 +262,11 @@ export type QuerySpec =
   | { kind: "list"; fields?: string[] }
   | {
       kind: "byId";
+      fields?: string[];
+      include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness" | "aiMarkdown")[];
+    }
+  | {
+      kind: "bySlug";
       fields?: string[];
       include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness" | "aiMarkdown")[];
     }
@@ -533,6 +539,20 @@ export interface CmsClient {
   deliveryAdHocRaw(workspaceIdInUrl: string, apiKey: string, spec: QuerySpec, variables?: Record<string, unknown>): Promise<HttpResponse>;
   /** 1回のリクエストで複数のクエリを送る（バッチ）。 */
   deliveryBatchRaw(workspaceIdInUrl: string, apiKey: string, queries: RegisteredQuery[]): Promise<HttpResponse>;
+  /** 配信APIで登録済みのクエリを、プレビュー用トークンを付けて実行する（M2）。apiKey が null ならキーは送らない。 */
+  deliveryPreviewRaw(
+    workspaceIdInUrl: string,
+    apiKey: string | null,
+    previewToken: string,
+    query: RegisteredQuery,
+    variables?: Record<string, unknown>,
+  ): Promise<HttpResponse>;
+
+  // --- プレビュー（M2） ---
+  /** 記事のプレビュー用トークンを発行する。ttlSeconds を省略すると既定の有効期間。 */
+  issuePreviewToken(session: Session, workspaceId: string, entryId: string, options?: { ttlSeconds?: number }): Promise<{ id: string; token: string }>;
+  /** プレビュー用トークンを失効させる。 */
+  revokePreviewToken(session: Session, workspaceId: string, entryId: string, tokenId: string): Promise<void>;
 
   // --- スキーマ ---
   deployTemplateRaw(auth: Auth, template: TemplateSpec, options?: { allowDestructive?: boolean; allowBrokenQueries?: boolean }): Promise<HttpResponse>;
@@ -720,6 +740,26 @@ export const driver = {
   /** 公式のDocker Composeファイルのパス。 */
   officialComposeFile(): string {
     return fileURLToPath(new URL("../../../deploy/docker-compose.yml", import.meta.url));
+  },
+
+  /** ライブプレビュー（M2）。 */
+  livePreview: {
+    /**
+     * ライブプレビューのメッセージの受け手（packages/preview の acceptPreviewMessage）に、正しい形のメッセージを1つ渡し、
+     * 受け付けたかを返す。origin は送り元のオリジン、fromExpectedWindow は送り元が期待した窓（iframe や親の窓）か。
+     * allowedOrigins は受け手に設定したオリジンの一覧。
+     */
+    async accepts(message: { origin: string; fromExpectedWindow: boolean }, allowedOrigins: string[]): Promise<boolean> {
+      const mod = (await import(new URL("../../../packages/preview/dist/index.js", import.meta.url).href)) as {
+        acceptPreviewMessage: (event: { origin: string; source: unknown; data: unknown }, expected: { origins: string[]; source: unknown }) => unknown;
+      };
+      const expectedWindow = {};
+      const accepted = mod.acceptPreviewMessage(
+        { origin: message.origin, source: message.fromExpectedWindow ? expectedWindow : {}, data: { type: "cms:preview:ready" } },
+        { origins: allowedOrigins, source: expectedWindow },
+      );
+      return accepted !== null;
+    },
   },
 
   /** 本文のCMS固有のノード。 */
