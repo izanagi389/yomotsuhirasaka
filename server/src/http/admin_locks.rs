@@ -1,4 +1,4 @@
-//! 管理API: 編集のロック（ソフトロック。03-content-and-editing.md「同時編集（Q73）」、計画の10番）と、引き継ぎの設定。
+//! 管理API: 編集のロック（ソフトロック。03-content-and-editing.md「同時編集（Q73）」、計画の10番）。引き継ぎを誰ができるかの設定は admin_settings.rs。
 //!
 //! | メソッド | パス | 内容 | 誰が |
 //! |---|---|---|---|
@@ -7,7 +7,6 @@
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/edit-lock/take-over | 編集を引き継ぐ | 下書きを編集できる人（設定で「権限を持つ人だけ」にできる） |
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/edit-lock/{lockId}/heartbeat | 生存の知らせ | 下書きを編集できる人 |
 //! | DELETE | /api/admin/workspaces/{ws}/entries/{id}/edit-lock/{lockId} | ロックを外す | 下書きを編集できる人 |
-//! | PATCH | /api/admin/workspaces/{ws}/settings | ワークスペースの設定（`{takeOverPolicy}`） | 管理者・サーバー管理者（多要素認証・再認証） |
 //!
 //! - ロックのIDは保存の権利なので、取った本人（その画面）にだけ返す。ほかの人には、編集中の人と時刻だけを返す。
 //! - 編集中の人は表示名で見せる（記事を開ける所属者全員に。表示名がなければ null = 「他の所属者」）。
@@ -22,7 +21,7 @@ use uuid::Uuid;
 use super::AppState;
 use super::admin_entries::{db, editor, parse, reader};
 use super::error::ApiError;
-use super::extract::{AuthSession, JsonBody};
+use super::extract::AuthSession;
 use super::realtime::{self, Event};
 use crate::access::{self, Permission};
 use crate::audit::{self, action};
@@ -166,18 +165,6 @@ pub async fn acquire(
     Ok(Json(acquired(&lock)))
 }
 
-/// 引き継ぎの設定（行がなければ既定の anyone）。
-pub(super) async fn take_over_policy_of(pool: &sqlx::PgPool, ws: Uuid) -> Result<String, ApiError> {
-    let policy: Option<String> = sqlx::query_scalar(
-        "SELECT take_over_policy FROM cms.workspace_settings WHERE workspace_id = $1",
-    )
-    .bind(ws)
-    .fetch_optional(pool)
-    .await
-    .map_err(anyhow::Error::from)?;
-    Ok(policy.unwrap_or_else(|| "anyone".to_owned()))
-}
-
 pub async fn take_over(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
@@ -185,7 +172,8 @@ pub async fn take_over(
 ) -> Result<Json<Acquired>, ApiError> {
     let (ws, id) = (parse(&ws)?, parse(&id)?);
     let access = editor(&state, &current, ws).await?;
-    let restricted = take_over_policy_of(&state.pool, ws).await? == "permission";
+    let restricted =
+        super::admin_settings::take_over_policy_of(&state.pool, ws).await? == "permission";
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     // 権限が要る設定でも、自分の別の画面からは引き継げる
@@ -248,51 +236,5 @@ pub async fn release(
     if released {
         changed(&state, ws, id).await;
     }
-    Ok(StatusCode::NO_CONTENT)
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Settings {
-    /// 編集の引き継ぎ: `anyone`（下書きを編集できる人なら誰でも）か `permission`（重い権限を持つ人だけ）。
-    take_over_policy: String,
-}
-
-/// ワークスペースの設定の変更（管理者・多要素認証・再認証。監査ログに記録）。
-pub async fn patch_settings(
-    State(state): State<AppState>,
-    AuthSession(current): AuthSession,
-    Path(ws): Path<String>,
-    JsonBody(req): JsonBody<Settings>,
-) -> Result<StatusCode, ApiError> {
-    let ws = parse(&ws)?;
-    access::workspace_admin(&state.pool, &current, ws).await??;
-    if !current.reauth_fresh {
-        return Err(ApiError::reauth_required());
-    }
-    if !matches!(req.take_over_policy.as_str(), "anyone" | "permission") {
-        return Err(ApiError::bad_request(
-            "`takeOverPolicy` must be \"anyone\" or \"permission\".",
-        ));
-    }
-    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
-    sqlx::query(
-        "INSERT INTO cms.workspace_settings (workspace_id, take_over_policy) VALUES ($1, $2)
-         ON CONFLICT (workspace_id) DO UPDATE SET take_over_policy = EXCLUDED.take_over_policy",
-    )
-    .bind(ws)
-    .bind(&req.take_over_policy)
-    .execute(&mut *tx)
-    .await
-    .map_err(anyhow::Error::from)?;
-    audit::record(
-        &mut *tx,
-        Some(ws),
-        Some(current.user_id),
-        action::WORKSPACE_SETTINGS_CHANGED,
-        &[ws],
-    )
-    .await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }

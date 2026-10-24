@@ -100,6 +100,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "take_over_policy",
         include_str!("../migrations/0021_take_over_policy.sql"),
     ),
+    (
+        22,
+        "preview_origins",
+        include_str!("../migrations/0022_preview_origins.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。

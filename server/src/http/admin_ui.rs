@@ -6,6 +6,9 @@
 //!   `unsafe-inline` と `unsafe-eval` は使わない。ハッシュは起動時に `index.html` から計算する。
 //! - 利用者が指定したパスでも、`dist_dir` の外のファイルは返さない（実体のパスで比べる）。
 //! - ビルドのときに作った圧縮済みのファイル（`.br`・`.gz`）があり、ブラウザが対応していれば、そちらを返す。
+//! - 記事の画面（`/admin/w/{ws}/entries/{id}`）を直接開いたときだけ、CSP の `frame-src` に、そのワークスペースの
+//!   「プレビューを許すサイト」のオリジンを足す（ライブプレビューの iframe。計画の13番）。足すのは、Cookie のセッションが
+//!   そのワークスペースの所属者（かサーバー管理者）のときだけ（他のワークスペースのサイトを見せないため。原則6）。
 
 use std::path::{Component, Path, PathBuf};
 
@@ -17,14 +20,22 @@ use axum::response::{IntoResponse, Redirect, Response};
 use base64::Engine as _;
 use sha2::{Digest as _, Sha256};
 
+use uuid::Uuid;
+
 use super::AppState;
 use super::error::ApiError;
+use super::extract::{SESSION_COOKIE, cookie};
+use crate::access;
+use crate::auth::session;
 
 /// 読み込んだ管理画面。
 pub struct AdminUi {
     root: PathBuf,
     index_html: Vec<u8>,
+    /// 既定の CSP（frame-src は default-src の 'self'）。
     csp: HeaderValue,
+    /// `frame-src` を足すための、既定の CSP の文。
+    csp_text: String,
 }
 
 /// `index.html` の中の、CSP の script-src の対象になるインラインのスクリプトの中身
@@ -97,6 +108,7 @@ impl AdminUi {
             root,
             index_html,
             csp: HeaderValue::from_str(&csp).context("admin UI CSP")?,
+            csp_text: csp,
         })
     }
 
@@ -110,14 +122,34 @@ impl AdminUi {
         (real.starts_with(&self.root) && real.is_file()).then_some(real)
     }
 
+    /// 既定の CSP に、iframe で開いてよいオリジンを足したもの（オリジンは正規化済みのもの）。
+    fn csp_with_frames(&self, frames: &[String]) -> Option<HeaderValue> {
+        if frames.is_empty() {
+            return None;
+        }
+        HeaderValue::from_str(&format!(
+            "{}; frame-src 'self' {}",
+            self.csp_text,
+            frames.join(" ")
+        ))
+        .ok()
+    }
+
     fn index(&self) -> Response {
+        self.index_with(None)
+    }
+
+    fn index_with(&self, csp: Option<HeaderValue>) -> Response {
         let mut res = (
             [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
             self.index_html.clone(),
         )
             .into_response();
         let h = res.headers_mut();
-        h.insert(header::CONTENT_SECURITY_POLICY, self.csp.clone());
+        h.insert(
+            header::CONTENT_SECURITY_POLICY,
+            csp.unwrap_or_else(|| self.csp.clone()),
+        );
         h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
         res
     }
@@ -219,12 +251,68 @@ pub async fn serve(
     if last.contains('.') || rel.starts_with("_nuxt/") {
         return Ok((StatusCode::NOT_FOUND, "not found").into_response());
     }
-    Ok(ui.index())
+    let frames = match entry_workspace(&rel) {
+        Some(ws) => preview_frames(&state, &headers, ws).await?,
+        None => Vec::new(),
+    };
+    Ok(ui.index_with(ui.csp_with_frames(&frames)))
+}
+
+/// 記事の画面のパス（`w/{ws}/entries/{id}`）なら、そのワークスペース。
+fn entry_workspace(rel: &str) -> Option<Uuid> {
+    let mut parts = rel.split('/');
+    match (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) {
+        (Some("w"), Some(ws), Some("entries"), Some(id), None) if !id.is_empty() => {
+            Uuid::parse_str(ws).ok()
+        }
+        _ => None,
+    }
+}
+
+/// ライブプレビューの iframe で開いてよいオリジン（Cookie のセッションが所属者のときだけ。それ以外は空）。
+async fn preview_frames(
+    state: &AppState,
+    headers: &HeaderMap,
+    ws: Uuid,
+) -> Result<Vec<String>, ApiError> {
+    let Some(presented) = cookie(headers, SESSION_COOKIE) else {
+        return Ok(Vec::new());
+    };
+    let Some(current) = session::resolve(&state.pool, &presented, &state.config.session).await?
+    else {
+        return Ok(Vec::new());
+    };
+    if access::member(&state.pool, &current, ws).await?.is_err() {
+        return Ok(Vec::new());
+    }
+    // 保存のときに確かめた値だが、CSP の文を壊さないよう、ここでも正規化できるものだけを使う
+    Ok(super::admin_settings::preview_origins_of(&state.pool, ws)
+        .await?
+        .iter()
+        .filter_map(|o| super::admin_settings::preview_origin(o))
+        .collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn entry_paths() {
+        let ws = Uuid::new_v4();
+        assert_eq!(entry_workspace(&format!("w/{ws}/entries/abc")), Some(ws));
+        assert_eq!(entry_workspace(&format!("w/{ws}/entries")), None);
+        assert_eq!(entry_workspace(&format!("w/{ws}/entries/")), None);
+        assert_eq!(entry_workspace(&format!("w/{ws}/media")), None);
+        assert_eq!(entry_workspace("w/not-a-uuid/entries/abc"), None);
+        assert_eq!(entry_workspace(&format!("w/{ws}/entries/abc/x")), None);
+    }
 
     #[test]
     fn hashes_only_executable_inline_scripts() {
