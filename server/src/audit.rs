@@ -61,6 +61,10 @@ pub mod action {
     pub const ENTRY_SCHEDULED: &str = "entry.scheduled";
     /// 編集を引き継いだ（同時編集、Q73）。対象は記事と、引き継がれた人のID。
     pub const EDIT_TAKEN_OVER: &str = "entry.edit_taken_over";
+    /// 原文の更新を反映済みにした（Q164）。
+    pub const TRANSLATION_SOURCE_REFLECTED: &str = "translation.source_reflected";
+    /// 翻訳の元の記事を設定し直した（Q156）。
+    pub const TRANSLATION_SOURCE_CHANGED: &str = "translation.source_changed";
     /// ワークスペースの設定（編集の引き継ぎを誰ができるか）を変えた。
     pub const WORKSPACE_SETTINGS_CHANGED: &str = "workspace.settings_changed";
     pub const SCHEDULE_CANCELLED: &str = "entry.schedule_cancelled";

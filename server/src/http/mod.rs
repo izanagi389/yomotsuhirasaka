@@ -342,6 +342,18 @@ pub fn router(state: AppState) -> Router {
             get(admin_translations::info),
         )
         .route(
+            "/workspaces/{ws}/entries/{id}/translation/source-diff",
+            get(admin_translations::source_diff),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/translation/reflected",
+            post(admin_translations::mark_reflected),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/translation/source",
+            put(admin_translations::set_source),
+        )
+        .route(
             "/workspaces/{ws}/entries/{id}/url-history",
             get(admin_publishing::url_history),
         )

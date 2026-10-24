@@ -286,7 +286,7 @@ async fn url_taken(conn: &mut PgConnection, url: &str, entry_id: Uuid) -> Result
 }
 
 /// 本文のフィールドの名前と値（フィールドの順。値が本文でないものは除く）。
-fn rich_text_fields<'a>(
+pub(super) fn rich_text_fields<'a>(
     ct: &'a ContentType,
     values: &'a Map<String, Value>,
 ) -> Vec<(&'a str, &'a Value)> {
@@ -332,6 +332,8 @@ pub struct PublishCheck {
     pub compared_with: Option<i32>,
     /// 前の版から変わったセクション。前の版がない、または本文を抹消していれば None。
     pub sections: Option<Vec<CheckedSection>>,
+    /// 原文に未確認の更新があれば、その情報（公開は止めない。Q162, Q164）。
+    pub source_update: Option<super::translations::SourceUpdate>,
 }
 
 /// 公開の前の確認（公開と同じ判定を、書き込まずに行う）。記事がなければ None。
@@ -410,6 +412,7 @@ pub async fn check_before_publish(
         url_taken,
         compared_with: latest.as_ref().map(|(n, _)| *n),
         sections,
+        source_update: super::translations::source_update_of(conn, entry_id).await?,
     }))
 }
 
