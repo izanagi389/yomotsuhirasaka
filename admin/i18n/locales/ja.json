@@ -377,10 +377,10 @@
     "details": "詳細"
   },
   "nav": {
+    "todo": "やること",
     "entries": "記事",
     "media": "メディア",
-    "admin": "管理",
-    "checks": "要対応"
+    "admin": "管理"
   },
   "adminTabs": {
     "members": "所属者",
@@ -694,26 +694,6 @@
     "history": "確認の記録",
     "noHistory": "まだ記録はありません。"
   },
-  "checks": {
-    "unwritten": "説明を書いていない訂正",
-    "unwrittenHelp": "訂正として公開した版のうち、説明を書いていないものです。記事を開き、版のタブで説明を書いてください。",
-    "expired": "確認期限が切れた記事",
-    "expiredHelp": "公開中の記事のうち、確認期限を過ぎたものです。内容を確かめて、鮮度のタブで「確認済み」を記録してください。",
-    "none": "ありません。",
-    "correctedAt": "訂正: {at}",
-    "dueAt": "期限: {at}",
-    "reviewWaiting": "レビュー待ち",
-    "reviewWaitingHelp": "レビューを依頼された記事です。あなたが指定されたものが先に並びます。",
-    "reviewRejected": "差し戻された記事",
-    "reviewRejectedHelp": "あなたが依頼して差し戻された記事です。直してから、もう一度依頼してください。",
-    "scheduleRetrying": "公開を待っている予約",
-    "scheduleRetryingHelp": "予約の時刻を過ぎても公開できず、やり直している記事です。理由を取り除くか、予約し直してください。",
-    "scheduleAttention": "取り消し・失敗した予約",
-    "scheduleAttentionHelp": "あなたが予約して、訂正による取り消しか失敗になった記事です（30日間表示します）。",
-    "scheduledAt": "予約: {at}",
-    "scheduleFailed": "失敗",
-    "scheduleCorrected": "訂正で取り消し"
-  },
   "correctionTemplates": {
     "help": "訂正として公開するときに選べる説明の文と、説明を書いていない訂正に表示する文を、ロケールごとに決めます。選んだ文はその時点で説明に写されるため、ここを変えても過去の説明は変わりません。",
     "fallback": "説明なしのときの文",
@@ -829,5 +809,30 @@
       "not_reflected": "反映済みの記録がないため、差分を出せません。",
       "erased": "比べる版の本文が抹消されているため、差分を出せません。"
     }
+  },
+  "todo": {
+    "help": "あなたが対応できることを、急ぐものから順に並べています。開くと、対応する記事のタブが開きます。",
+    "none": "いま対応することはありません。",
+    "sourcePublishedAt": "原文の公開: {at}",
+    "kind": {
+      "scheduleFailed": "予約の失敗",
+      "scheduleRetrying": "公開を待っている予約",
+      "reviewWaiting": "レビュー待ち",
+      "unwrittenCorrection": "説明を書いていない訂正",
+      "reviewRejected": "差し戻し",
+      "sourceCorrected": "原文が訂正された",
+      "reviewExpired": "確認期限切れ",
+      "sourceUpdated": "原文が更新された",
+      "scheduleCancelled": "訂正で取り消された予約"
+    },
+    "notice": {
+      "expired": "確認期限が切れています。内容を確かめて「確認済み」を記録してください。",
+      "openFreshness": "鮮度を開く",
+      "unwritten": "説明を書いていない訂正が {n} 件あります。",
+      "openVersions": "版を開く"
+    },
+    "scheduledAt": "予約: {at}",
+    "correctedAt": "訂正: {at}",
+    "dueAt": "期限: {at}"
   }
 }

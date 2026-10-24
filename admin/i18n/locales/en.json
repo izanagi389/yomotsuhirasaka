@@ -377,10 +377,10 @@
     "details": "Details"
   },
   "nav": {
+    "todo": "To do",
     "entries": "Entries",
     "media": "Media",
-    "admin": "Admin",
-    "checks": "To do"
+    "admin": "Admin"
   },
   "adminTabs": {
     "members": "Members",
@@ -694,26 +694,6 @@
     "history": "Verification log",
     "noHistory": "No records yet."
   },
-  "checks": {
-    "unwritten": "Corrections without a note",
-    "unwrittenHelp": "Versions published as corrections that have no note. Open the entry and write the note in the Versions tab.",
-    "expired": "Entries past their review deadline",
-    "expiredHelp": "Published entries past their review deadline. Check the content and record it as verified in the Freshness tab.",
-    "none": "None.",
-    "correctedAt": "Corrected: {at}",
-    "dueAt": "Due: {at}",
-    "reviewWaiting": "Waiting for review",
-    "reviewWaitingHelp": "Entries whose review was requested. Those assigned to you come first.",
-    "reviewRejected": "Sent back to you",
-    "reviewRejectedHelp": "Entries you requested a review for that were sent back. Fix them and request again.",
-    "scheduleRetrying": "Scheduled publications waiting",
-    "scheduleRetryingHelp": "Entries that could not be published at their scheduled time and are being retried. Remove the cause or schedule again.",
-    "scheduleAttention": "Cancelled or failed schedules",
-    "scheduleAttentionHelp": "Entries you scheduled that were cancelled by a correction or failed (shown for 30 days).",
-    "scheduledAt": "Scheduled: {at}",
-    "scheduleFailed": "Failed",
-    "scheduleCorrected": "Cancelled by a correction"
-  },
   "correctionTemplates": {
     "help": "Per locale, set the notes editors can pick when publishing a correction, and the text shown for corrections without a note. A picked note is copied at that moment, so changing it here does not change past notes.",
     "fallback": "Text when there is no note",
@@ -829,5 +809,30 @@
       "not_reflected": "No reflected version is recorded, so changes cannot be shown.",
       "erased": "The body of a compared version has been erased, so changes cannot be shown."
     }
+  },
+  "todo": {
+    "help": "Things you can act on, most urgent first. Opening one takes you to the matching tab of the entry.",
+    "none": "Nothing to do right now.",
+    "sourcePublishedAt": "Source published: {at}",
+    "kind": {
+      "scheduleFailed": "Scheduled publish failed",
+      "scheduleRetrying": "Scheduled publish waiting",
+      "reviewWaiting": "Waiting for review",
+      "unwrittenCorrection": "Correction without a note",
+      "reviewRejected": "Sent back",
+      "sourceCorrected": "Source corrected",
+      "reviewExpired": "Review overdue",
+      "sourceUpdated": "Source updated",
+      "scheduleCancelled": "Schedule cancelled by a correction"
+    },
+    "notice": {
+      "expired": "This entry is past its review date. Check the content and record it as verified.",
+      "openFreshness": "Open freshness",
+      "unwritten": "{n} correction(s) have no note.",
+      "openVersions": "Open versions"
+    },
+    "scheduledAt": "Scheduled: {at}",
+    "correctedAt": "Corrected: {at}",
+    "dueAt": "Due: {at}"
   }
 }
