@@ -10,6 +10,7 @@ pub mod hooks;
 pub mod html;
 pub mod import;
 pub mod locks;
+pub mod previews;
 pub mod publishing;
 pub mod redirects;
 pub mod rerender;

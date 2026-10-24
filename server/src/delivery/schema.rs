@@ -43,6 +43,9 @@ pub struct RequestData {
     pub tx: Mutex<Option<Transaction<'static, Postgres>>>,
     pub workspace_id: Uuid,
     pub media_base: String,
+    /// プレビューする記事（プレビュー用トークンが有効なときだけ）。1件を取るクエリ（IDとスラッグ）でだけ、公開中の版の代わりに
+    /// これを返す。一覧や参照の解決には使わない（INV-PRV-01）。
+    pub preview: Option<Entry>,
 }
 
 /// 深さと複雑さの上限。
@@ -707,6 +710,16 @@ fn root_fields(query: Object, ct: &ContentType) -> Object {
             let Some(tx) = guard.as_mut() else {
                 return Ok(None);
             };
+            if let Some(p) = req
+                .preview
+                .as_ref()
+                .filter(|p| p.id == id && p.content_type == name)
+            {
+                return Ok(locale
+                    .as_deref()
+                    .is_none_or(|l| l == p.locale)
+                    .then(|| FieldValue::owned_any(p.clone())));
+            }
             let found = data::by_id(tx, &name, id).await.map_err(internal)?;
             Ok(found
                 .filter(|e| locale.as_deref().is_none_or(|l| l == e.locale))
@@ -732,6 +745,13 @@ fn root_fields(query: Object, ct: &ContentType) -> Object {
             let (Some(tx), Some(slug_field)) = (guard.as_mut(), slug_field) else {
                 return Ok(None);
             };
+            if let Some(p) = req.preview.as_ref().filter(|p| {
+                p.content_type == name
+                    && p.locale == locale
+                    && p.fields.get(&slug_field).and_then(Value::as_str) == Some(slug.as_str())
+            }) {
+                return Ok(Some(FieldValue::owned_any(p.clone())));
+            }
             let found = data::by_slug(tx, &name, &slug_field, &slug, &locale)
                 .await
                 .map_err(internal)?;

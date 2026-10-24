@@ -11,6 +11,11 @@
 //! - 本番では登録済みのクエリだけを実行する（INV-GQL-01）。複数のクエリの一括送信は受け付けない（INV-GQL-04）。
 //! - 登録のときに、スキーマに対する検証と、深さ・複雑さの上限を確かめる（INV-GQL-06）。データは読まない。
 //! - 応答は既定で `Cache-Control: private`（INV-GQL-08）。
+//! - プレビュー（M2、INV-PRV-01, 02）: 読み取り用のキーに加えて `X-Cms-Preview-Token` でプレビュー用トークンを送ると、その記事だけを
+//!   下書きで返す（1件を取るクエリだけ）。トークンだけでは使えない（キーの照合が先）。無効なトークンは 401。
+//!   トークン付きの応答は `Cache-Control: private, no-store`（共有キャッシュにもブラウザにも残さない）。
+//!
+//! | GET | /ws/{ws}/preview | プレビュー用トークンの確認（`read` の範囲のキーとトークン）。対象の記事・下書きのURL・有効期限 |
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,9 +34,53 @@ use super::AppState;
 use super::error::ApiError;
 use crate::api_keys::{self, Denied, Grant};
 use crate::content::applied_schema;
+use crate::content::previews;
+use crate::content::publishing::Scripts;
+use crate::delivery::data;
 use crate::delivery::queries;
 use crate::delivery::schema::{QueryLimits, RequestData};
-use crate::workspace_db;
+use crate::script::Host;
+use crate::workspace_db::{self, WorkspaceDb};
+
+/// プレビュー用トークンのヘッダー。
+const PREVIEW_HEADER: &str = "x-cms-preview-token";
+
+fn preview_token(headers: &HeaderMap) -> Option<&str> {
+    headers.get(PREVIEW_HEADER)?.to_str().ok()
+}
+
+fn invalid_preview_token() -> ApiError {
+    ApiError::new(
+        StatusCode::UNAUTHORIZED,
+        "invalid_preview_token",
+        "The preview token is not valid. It may have expired or been revoked.",
+    )
+}
+
+/// プレビュー用トークンを照合し、対象の記事を下書きから作る（キーの照合の後に呼ぶ）。
+async fn preview_entry(
+    state: &AppState,
+    ws: Uuid,
+    db: &WorkspaceDb,
+    token: &str,
+) -> Result<(data::Entry, String), ApiError> {
+    let applied = applied_schema(&state.pool, ws)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let mut tx = workspace_db::begin(&state.pool, db).await?;
+    let Some((entry_id, expires_at)) = previews::lookup(&mut tx, token).await? else {
+        return Err(invalid_preview_token());
+    };
+    let scripts = Scripts {
+        engine: &state.scripts,
+        host: Host::new(state.pool.clone(), db.clone()),
+    };
+    let entry = data::draft(&mut tx, &applied.manifest, &scripts, entry_id)
+        .await?
+        .ok_or_else(invalid_preview_token)?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    Ok((entry, expires_at))
+}
 
 fn bearer(headers: &HeaderMap) -> Option<&str> {
     headers
@@ -268,11 +317,17 @@ async fn execute(
         Some(_) => return Err(ApiError::bad_request("`variables` must be a JSON object.")),
     };
     let schema = schema_for(state, ws).await?;
+    let preview = match preview_token(headers) {
+        Some(token) => Some(preview_entry(state, ws, &db, token).await?.0),
+        None => None,
+    };
+    let previewing = preview.is_some();
     let tx = workspace_db::begin_owned(&state.pool, &db).await?;
     let data = Arc::new(RequestData {
         tx: Mutex::new(Some(tx)),
         workspace_id: ws,
         media_base: super::admin_media::media_base(state),
+        preview,
     });
     let request = async_graphql::Request::new(query)
         .variables(async_graphql::Variables::from_json(variables))
@@ -297,7 +352,9 @@ async fn execute(
         HeaderValue::from_static("application/json"),
     );
     // 既定で共有キャッシュに載せない。許すのは、設定で有効にし、公開版の読み取りだけのキーで実行したときだけ（INV-GQL-08）
-    let cache = if shared_cacheable(state, &grant) {
+    let cache = if previewing {
+        HeaderValue::from_static("private, no-store")
+    } else if shared_cacheable(state, &grant) {
         HeaderValue::from_str(&format!(
             "public, max-age=0, s-maxage={}",
             state.config.delivery.shared_cache_seconds
@@ -307,5 +364,40 @@ async fn execute(
         HeaderValue::from_static("private, no-cache")
     };
     h.insert(header::CACHE_CONTROL, cache);
+    Ok(res)
+}
+
+/// プレビュー用トークンの確認の応答。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewInfo {
+    entry_id: Uuid,
+    /// 下書きから作った公開URL（作れなければ null）。
+    url: Option<String>,
+    expires_at: String,
+}
+
+/// プレビュー用トークンの確認（サイトのプレビュー用ルートが、クッキーに替える前に呼ぶ）。
+pub async fn preview_info(
+    State(state): State<AppState>,
+    Path(ws): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let (ws, _) = authenticate(&state, &headers, &ws, "read").await?;
+    let db = workspace_db::lookup(&state.pool, ws)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let token = preview_token(&headers).ok_or_else(invalid_preview_token)?;
+    let (entry, expires_at) = preview_entry(&state, ws, &db, token).await?;
+    let mut res = Json(PreviewInfo {
+        entry_id: entry.id,
+        url: Some(entry.url).filter(|u| !u.is_empty()),
+        expires_at,
+    })
+    .into_response();
+    res.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
     Ok(res)
 }

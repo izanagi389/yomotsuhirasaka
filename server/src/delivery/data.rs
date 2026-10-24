@@ -5,6 +5,7 @@
 //! - 参照フィールドは翻訳グループを指し、同じロケールの公開中の記事に解決する（INV-LOC-04）。
 //! - 他のロケールへのリンクには、公開中の記事だけを含める（INV-LOC-03）。
 //! - 公開URLは記事のいまのURL（`entries.url`）。依存先の変化で再計算されると、版を作らずに変わる（Q39）。
+//! - 例外はプレビュー（`draft`）: プレビュー用トークンの対象の記事1件だけを、下書きから作る（INV-PRV-01）。
 
 use std::collections::HashMap;
 
@@ -14,6 +15,9 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::content::body::IMAGE;
+use crate::content::entries;
+use crate::content::publishing::{self, Scripts};
+use crate::schema::manifest::Manifest;
 
 const RFC3339: &str = r#"'YYYY-MM-DD"T"HH24:MI:SS"Z"'"#;
 
@@ -117,6 +121,61 @@ fn entries(rows: Vec<Row>) -> Result<Vec<Entry>> {
         }
     }
     Ok(out)
+}
+
+/// プレビューする記事（下書きから作る。記事がない・削除済みなら None）。
+///
+/// フィールドと本文の変換結果とURLは下書きから今計算する（変換やURLの計算に失敗したら、空・空文字にする）。
+/// 公開日時は、公開したことがあればその日時、なければ下書きの更新日時。
+pub async fn draft(
+    conn: &mut PgConnection,
+    manifest: &Manifest,
+    scripts: &Scripts<'_>,
+    entry_id: Uuid,
+) -> Result<Option<Entry>> {
+    let Some(d) = entries::draft(conn, manifest, entry_id).await? else {
+        return Ok(None);
+    };
+    let Some(ct) = manifest.content_type(&d.content_type) else {
+        return Ok(None);
+    };
+    let rendered = match publishing::render(scripts, manifest, ct, &d.fields).await {
+        Ok(Value::Object(m)) => m,
+        _ => Map::new(),
+    };
+    let url = match publishing::compute_url(scripts, ct, d.id, &d.locale, &d.fields).await {
+        Ok(Some((url, _))) => url,
+        _ => String::new(),
+    };
+    let (latest, first, include_in_ai_materials, opt_out_of_ai_training): (
+        Option<String>,
+        Option<String>,
+        bool,
+        bool,
+    ) = sqlx::query_as(crate::sql!(
+        "SELECT to_char(max(v.published_at) AT TIME ZONE 'UTC', {RFC3339}),
+                to_char(min(v.published_at) AT TIME ZONE 'UTC', {RFC3339}),
+                e.include_in_ai_materials, e.opt_out_of_ai_training
+         FROM entries e LEFT JOIN versions v ON v.entry_id = e.id
+         WHERE e.id = $1
+         GROUP BY e.id"
+    ))
+    .bind(entry_id)
+    .fetch_one(conn)
+    .await?;
+    Ok(Some(Entry {
+        id: d.id,
+        content_type: d.content_type,
+        locale: d.locale,
+        group_id: d.translation_group_id,
+        url,
+        published_at: latest.unwrap_or_else(|| d.updated_at.clone()),
+        first_published_at: first.unwrap_or_else(|| d.updated_at.clone()),
+        fields: d.fields,
+        rendered,
+        include_in_ai_materials,
+        opt_out_of_ai_training,
+    }))
 }
 
 /// 公開URLで1件（いまのURL。公開中の記事のURLは重ならない）。

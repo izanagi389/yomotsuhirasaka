@@ -435,7 +435,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       case "byId":
         return `query($id: ID!, $locale: String) { ${SINGLE}(id: $id, locale: $locale) { ${[selection(spec.fields), ...(spec.include ?? []).map((i) => INCLUDES[i])].join(" ")} } }`;
       case "bySlug":
-        return `query($slug: String!, $locale: String) { ${SINGLE}BySlug(slug: $slug, locale: $locale) { ${[selection(spec.fields), ...(spec.include ?? []).map((i) => INCLUDES[i])].join(" ")} } }`;
+        return `query($slug: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}) { ${SINGLE}BySlug(slug: $slug, locale: $locale) { ${[selection(spec.fields), ...(spec.include ?? []).map((i) => INCLUDES[i])].join(" ")} } }`;
       case "deep":
         return `{ ${LIST}(locale: ${JSON.stringify(DEFAULT_LOCALE)}) { ${"related { ".repeat(spec.depth)}id${" }".repeat(spec.depth)} } }`;
       case "wide":

@@ -11,6 +11,7 @@ pub mod admin_locks;
 pub mod admin_media;
 pub mod admin_mfa;
 pub mod admin_oidc;
+pub mod admin_previews;
 pub mod admin_publishing;
 pub mod admin_resets;
 pub mod admin_reviews;
@@ -410,6 +411,14 @@ pub fn router(state: AppState) -> Router {
         .route("/workspaces/{ws}/schedules", get(admin_scheduling::lists))
         .route("/workspaces/{ws}/todo", get(admin_todo::todo))
         .route(
+            "/workspaces/{ws}/entries/{id}/preview-tokens",
+            post(admin_previews::issue),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/preview-tokens/{token}",
+            delete(admin_previews::revoke),
+        )
+        .route(
             "/workspaces/{ws}/review-requests",
             get(admin_reviews::lists),
         )
@@ -538,6 +547,7 @@ pub fn router(state: AppState) -> Router {
         .route("/media/{ws}/{file}", get(admin_media::serve))
         .route("/ws/{ws}/graphql", get(delivery::get).post(delivery::post))
         .route("/ws/{ws}/graphql/queries", post(delivery::register))
+        .route("/ws/{ws}/preview", get(delivery::preview_info))
         .nest("/api/admin", admin)
         .route("/admin", get(admin_ui::root_redirect))
         .route("/admin/", get(admin_ui::index))
