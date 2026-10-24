@@ -76,7 +76,7 @@ pub(super) async fn publisher(
     Ok(access)
 }
 
-fn refused(r: Refused) -> ApiError {
+pub(super) fn refused(r: Refused) -> ApiError {
     match r {
         Refused::NotFound => ApiError::not_found(),
         Refused::RevisionConflict => revision_conflict(),
@@ -149,7 +149,7 @@ fn is_url_conflict(e: &anyhow::Error) -> bool {
 
 /// 記事のイベントのWebhookを送る（操作を確定した後に呼ぶ。Q146、INV-WH-06）。
 /// 送信の準備に失敗しても、確定した操作は取り消せないので、記録して成功を返す。
-async fn notify_webhooks(
+pub(super) async fn notify_webhooks(
     state: &AppState,
     ws: Uuid,
     events: &[EntryEvent],
@@ -182,7 +182,7 @@ pub(super) async fn schedule_hooks(
 }
 
 /// 公開のイベント: 公開・更新・訂正のどれか1つと、URLが変わったときは URLの変更。
-fn publish_events(p: &Published) -> Vec<EntryEvent> {
+pub(super) fn publish_events(p: &Published) -> Vec<EntryEvent> {
     let mut events = vec![if p.is_correction {
         EntryEvent::Corrected
     } else if p.was_published {
@@ -283,6 +283,14 @@ pub async fn publish(
         Err(e) if is_url_conflict(&e) => return Err(url_taken()),
         Err(e) => return Err(e.into()),
     };
+    // 予約は取り消す（予約版が、この公開や訂正を巻き戻さないように。Q133）
+    let schedule_reason = if req.correction {
+        crate::content::scheduling::Reason::Corrected
+    } else {
+        crate::content::scheduling::Reason::Published
+    };
+    let cancelled_schedule =
+        super::admin_scheduling::cancel_in(&mut tx, id, schedule_reason, &current).await?;
     // 開いているレビュー依頼は「公開済み」として閉じる（承認という段階は作らない。Q77）
     crate::content::reviews::close(
         &mut tx,
@@ -320,6 +328,18 @@ pub async fn publish(
         action::ENTRY_PUBLISHED
     };
     let events = publish_events(&published);
+    if let Some(s) = &cancelled_schedule {
+        super::admin_scheduling::after_cancel(
+            &state,
+            ws,
+            id,
+            entry.clone(),
+            schedule_reason,
+            current.user_id,
+            s.id,
+        )
+        .await?;
+    }
     notify_webhooks(&state, ws, &events, entry).await;
     schedule_hooks(&state, ws, id, events[0], Some(published.version_id)).await;
     audit_if(&state, req.correction, &access, &current, ws, act, id).await?;
@@ -369,8 +389,27 @@ pub async fn delete(
     if !publishing::delete(&mut tx, id).await? {
         return Err(ApiError::not_found());
     }
+    let cancelled_schedule = super::admin_scheduling::cancel_in(
+        &mut tx,
+        id,
+        crate::content::scheduling::Reason::Deleted,
+        &current,
+    )
+    .await?;
     let entry = webhooks::entry_ref(&mut tx, id).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
+    if let Some(s) = &cancelled_schedule {
+        super::admin_scheduling::after_cancel(
+            &state,
+            ws,
+            id,
+            entry.clone(),
+            crate::content::scheduling::Reason::Deleted,
+            current.user_id,
+            s.id,
+        )
+        .await?;
+    }
     notify_webhooks(&state, ws, &[EntryEvent::Deleted], entry).await;
     schedule_hooks(&state, ws, id, EntryEvent::Deleted, None).await;
     audit_if(

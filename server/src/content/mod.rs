@@ -13,6 +13,7 @@ pub mod publishing;
 pub mod redirects;
 pub mod rerender;
 pub mod reviews;
+pub mod scheduling;
 pub mod sections;
 pub mod settings;
 pub mod translations;

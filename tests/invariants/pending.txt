@@ -10,9 +10,6 @@
 
 
 
-inv_sched_01
-inv_sched_02
-inv_sched_03
 
 inv_lock_01
 

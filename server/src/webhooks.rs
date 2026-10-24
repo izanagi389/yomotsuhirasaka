@@ -106,6 +106,12 @@ struct Body<'a> {
     locale: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<&'a str>,
+    /// 予約の時刻（`entry.scheduled` だけ）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scheduled_at: Option<&'a str>,
+    /// 予約を取り消した理由（`entry.schedule_cancelled` だけ）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'a str>,
 }
 
 /// ジョブの中身（暗号化して保存される）。
@@ -169,6 +175,8 @@ pub async fn emit(
             translation_group_id: Some(entry.translation_group_id),
             locale: Some(&entry.locale),
             url: entry.url.as_deref(),
+            scheduled_at: None,
+            reason: None,
         })?;
         enqueue_all(
             pool,
@@ -181,6 +189,39 @@ pub async fn emit(
         .await?;
     }
     Ok(())
+}
+
+/// 予約公開のイベント（Q78）。記事の参照は他のイベントと同じで、予約版の新しいURLは送らない。
+pub enum ScheduleEvent<'a> {
+    /// 予約した（予約し直したときも）。時刻はRFC 3339。
+    Scheduled { at: &'a str },
+    /// 予約を取り消した（cancelled・corrected・published・deleted・failed）。
+    Cancelled { reason: &'a str },
+}
+
+/// 予約公開のイベントを送る。
+pub async fn emit_schedule(
+    pool: &PgPool,
+    keys: &KeyRing,
+    workspace_id: Uuid,
+    entry: &EntryRef,
+    event: ScheduleEvent<'_>,
+) -> Result<()> {
+    let (kind, scheduled_at, reason) = match event {
+        ScheduleEvent::Scheduled { at } => ("entry.scheduled", Some(at), None),
+        ScheduleEvent::Cancelled { reason } => ("entry.schedule_cancelled", None, Some(reason)),
+    };
+    let body = serde_json::to_string(&Body {
+        kind,
+        workspace_id,
+        entry_id: Some(entry.id),
+        translation_group_id: Some(entry.translation_group_id),
+        locale: Some(&entry.locale),
+        url: entry.url.as_deref(),
+        scheduled_at,
+        reason,
+    })?;
+    enqueue_all(pool, keys, workspace_id, kind, Some(entry.id), &body).await
 }
 
 /// すべての送信先にジョブを積む（1つのイベントに1つのイベントID）。
@@ -273,6 +314,8 @@ pub async fn enqueue_test(
         translation_group_id: None,
         locale: None,
         url: None,
+        scheduled_at: None,
+        reason: None,
     })?;
     let mut tx = pool.begin().await?;
     let id = enqueue_one(

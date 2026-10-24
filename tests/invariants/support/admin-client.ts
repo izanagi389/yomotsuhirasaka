@@ -307,6 +307,22 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       body: { revision, correction: options.correction ?? false, ...note },
     });
   };
+  // 予約公開（M2。server/src/http/admin_scheduling.rs）。公開と同じく、同じ認証で読んだ下書きのリビジョン番号を付けて送る
+  const scheduleRaw = async (
+    auth: Auth,
+    workspaceId: string,
+    entryId: string,
+    at: Date,
+    options: { correction?: boolean; note?: string } = {},
+  ): Promise<HttpResponse> => {
+    const current = await getEntryRaw(auth, workspaceId, entryId);
+    const revision = isSuccess(current) ? (JSON.parse(current.text) as { revision: number }).revision : 0;
+    const note = options.note === undefined ? {} : { correctionNote: { text: options.note } };
+    return request("PUT", `${entriesPath(workspaceId)}/${entryId}/schedule`, {
+      auth,
+      body: { revision, publishAt: at.toISOString(), ...(options.correction === undefined ? {} : { correction: options.correction }), ...note },
+    });
+  };
   // 訂正の説明を書き直す（版ごと）。確認済みを記録する（記事ごと）
   const editCorrectionNoteRaw = (auth: Auth, workspaceId: string, entryId: string, versionId: string, note: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("PUT", `${entriesPath(workspaceId)}/${entryId}/versions/${versionId}/correction-note`, { auth, extras, body: { text: note } });
@@ -667,6 +683,14 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       ensure("下書きの保存", await saveDraftRaw(session(s), workspaceId, entryId, changes, current.revision));
     },
     publishRaw: (auth: Auth, workspaceId: string, entryId: string, options?: { correction?: boolean; note?: string }) => publishRaw(auth, workspaceId, entryId, options),
+    scheduleRaw: (auth: Auth, workspaceId: string, entryId: string, at: Date, options?: { correction?: boolean; note?: string }) =>
+      scheduleRaw(auth, workspaceId, entryId, at, options),
+    async schedulePublish(s: Session, workspaceId: string, entryId: string, at: Date): Promise<void> {
+      ensure("予約公開", await scheduleRaw(session(s), workspaceId, entryId, at));
+    },
+    async cancelSchedule(s: Session, workspaceId: string, entryId: string): Promise<void> {
+      ensure("予約の取り消し", await request("DELETE", `${entriesPath(workspaceId)}/${entryId}/schedule`, { auth: session(s) }));
+    },
     async publishEntry(s: Session, workspaceId: string, entryId: string, options?: { correction?: boolean; note?: string }): Promise<void> {
       ensure(options?.correction ? "訂正としての公開" : "公開", await publishRaw(session(s), workspaceId, entryId, options));
     },
