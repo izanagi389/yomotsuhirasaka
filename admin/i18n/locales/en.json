@@ -242,7 +242,8 @@
       "dirty": "Unsaved changes",
       "saving": "Saving…",
       "conflict": "Saving stopped",
-      "error": "Could not save"
+      "error": "Could not save",
+      "locked": "Cannot save: someone else is editing"
     },
     "conflict": "Someone else saved this draft first. Autosave is stopped so their changes are not overwritten. Reloading discards your unsaved changes, so copy anything you need first.",
     "reload": "Reload",
@@ -382,7 +383,8 @@
     "apiKeys": "Delivery API keys",
     "webhooks": "Webhooks",
     "audit": "Audit log",
-    "correctionTemplates": "Correction templates"
+    "correctionTemplates": "Correction templates",
+    "settings": "Settings"
   },
   "secretOnce": {
     "warning": "This value is shown only now. Once closed it cannot be shown again, so store it somewhere safe.",
@@ -783,5 +785,19 @@
       "entry_not_found": "The entry was not found",
       "cannot_publish": "Cannot publish"
     }
+  },
+  "editLock": {
+    "held": "{who} is editing this entry (since {at}). It is read-only for you.",
+    "sameUser": "You are editing this entry in another window. Take over to edit here.",
+    "lost": "{who} took over editing. This entry is now read-only for you.",
+    "unsavedKept": "Your unsaved input is still on the screen. Copy it if you need it.",
+    "takeOver": "Take over editing",
+    "lostSameUser": "You started editing this entry in another window, so this one is now read-only."
+  },
+  "workspaceSettings": {
+    "takeOver": "Taking over editing",
+    "takeOverHelp": "Choose who can take over an entry someone else is editing. Take-overs are recorded in the audit log.",
+    "anyone": "Anyone who can edit entries (default)",
+    "permission": "Only people with the take over editing permission (administrators and editors by default, plus individual grants)"
   }
 }

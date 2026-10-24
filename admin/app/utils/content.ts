@@ -49,6 +49,8 @@ export interface WorkspaceInfo {
   schemaState: "none" | "ok" | "pending";
   /** 自分が持つ重い権限（1件の取得のときだけ）。表示の出し分けに使う。照合はサーバーが操作のたびに行う。 */
   permissions?: HeavyPermission[];
+  /** 編集の引き継ぎを誰ができるか（1件の取得のときだけ）。 */
+  takeOverPolicy?: "anyone" | "permission";
 }
 
 export type FieldValue = string | string[] | JSONContent | null;
