@@ -191,6 +191,23 @@ export interface TranslationInfo {
   sourceEntryId: string | null;
   /** 反映済みとして記録した元の記事の版。元なしなら null。 */
   reflectedSourceVersionId: string | null;
+  /** 元の記事に、反映済みの版より後の版がある（「原文が更新された」状態。M2）。 */
+  sourceUpdated: boolean;
+  /** 反映済みの版より後に、「訂正として公開」した版がある（M2）。 */
+  sourceCorrected: boolean;
+}
+
+/** 元の記事の、反映済みの版から今の版までの差分（M2）。 */
+export interface SourceDiff {
+  /** 比べた元の記事の版（反映済みの版と、今の版）。 */
+  fromVersionId: string | null;
+  toVersionId: string | null;
+  /** 差分を出せたか（版の本文が抹消されていると出せない）。 */
+  available: boolean;
+  /** 本文以外で変わったフィールドの名前。 */
+  changedFields: string[];
+  /** 変わったセクション。before・after はそのセクションの文字列（ないほうは null）。 */
+  sections: { anchor: string | null; kind: "changed" | "added" | "removed"; before: string | null; after: string | null }[];
 }
 
 /** リダイレクト一覧の1件。to は「消えた（410）」のとき null。 */
@@ -462,6 +479,11 @@ export interface CmsClient {
   eraseVersionRaw(session: Session, workspaceId: string, entryId: string, versionId: string, deleteMediaIds: string[]): Promise<HttpResponse>;
   createTranslation(session: Session, workspaceId: string, sourceEntryId: string, locale: string): Promise<{ id: string }>;
   getTranslationInfo(session: Session, workspaceId: string, entryId: string): Promise<TranslationInfo>;
+  /** 元の記事の、反映済みの版から今の版までの差分（M2）。 */
+  getSourceDiff(session: Session, workspaceId: string, entryId: string): Promise<SourceDiff>;
+  /** 「原文の更新を反映済み」にする（反映済みの版を、元の記事の今の版に進める。M2）。 */
+  markSourceReflectedRaw(auth: Auth, workspaceId: string, entryId: string): Promise<HttpResponse>;
+  markSourceReflected(session: Session, workspaceId: string, entryId: string): Promise<void>;
   getUrlHistory(session: Session, workspaceId: string, entryId: string): Promise<UrlChange[]>;
 
   // --- メディア ---

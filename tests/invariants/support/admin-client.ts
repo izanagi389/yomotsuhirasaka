@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, Auth, CmsClient, Credentials, Draft, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, Auth, CmsClient, Credentials, Draft, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -384,6 +384,12 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     request("POST", `${entriesPath(workspaceId)}/${entryId}/translations`, { auth, extras, body: { locale } });
   const translationInfoRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("GET", `${entriesPath(workspaceId)}/${entryId}/translation`, { auth, extras });
+  const sourceDiffRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${entriesPath(workspaceId)}/${entryId}/translation/source-diff`, { auth, extras });
+  const markSourceReflectedRaw = (auth: Auth, workspaceId: string, entryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", `${entriesPath(workspaceId)}/${entryId}/translation/reflected`, { auth, extras });
+  const setTranslationSourceRaw = (auth: Auth, workspaceId: string, entryId: string, sourceEntryId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("PUT", `${entriesPath(workspaceId)}/${entryId}/translation/source`, { auth, extras, body: { sourceEntryId } });
 
   // --- メディア ---
   // ファイルのバイト列をそのまま本文にして送る。ファイル名はサーバーに送らない（サーバーはランダムな名前で保存する）
@@ -530,6 +536,10 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       createTranslationRaw(auth, t.workspaceId, t.entryId, BASE_TEMPLATE.locales[BASE_TEMPLATE.locales.length - 1]!, extras),
     ),
     op("getTranslationInfo", false, "workspace", (auth, t, extras) => translationInfoRaw(auth, t.workspaceId, t.entryId, extras)),
+    op("getSourceDiff", false, "workspace", (auth, t, extras) => sourceDiffRaw(auth, t.workspaceId, t.entryId, extras)),
+    op("markSourceReflected", true, "workspace", (auth, t, extras) => markSourceReflectedRaw(auth, t.workspaceId, t.entryId, extras)),
+    // 元の記事は存在しない記事（舞台の翻訳グループを変えないため）
+    op("setTranslationSource", true, "workspace", (auth, t, extras) => setTranslationSourceRaw(auth, t.workspaceId, t.entryId, randomUUID(), extras)),
     op("listMedia", false, "workspace", (auth, t, extras) => request("GET", mediaPath(t.workspaceId), { auth, extras })),
     op("uploadMedia", true, "workspace", (auth, t, extras) =>
       uploadMediaRaw(auth, t.workspaceId, { filename: "op.png", bytes: TINY_PNG, contentType: "image/png" }, extras),
@@ -755,14 +765,58 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     async getTranslationInfo(s: Session, workspaceId: string, entryId: string): Promise<TranslationInfo> {
       const res = ensure("翻訳の情報の取得", await translationInfoRaw(session(s), workspaceId, entryId));
-      const t = JSON.parse(res.text) as { groupId?: unknown; locale?: unknown; sourceEntryId?: unknown; reflectedSourceVersionId?: unknown };
+      const t = JSON.parse(res.text) as {
+        groupId?: unknown;
+        locale?: unknown;
+        sourceEntryId?: unknown;
+        reflectedSourceVersionId?: unknown;
+        sourceUpdate?: { corrected?: unknown } | null;
+      };
       const idOrNull = (v: unknown) => (typeof v === "string" ? v : v === null ? null : undefined);
       const sourceEntryId = idOrNull(t.sourceEntryId);
       const reflectedSourceVersionId = idOrNull(t.reflectedSourceVersionId);
       if (typeof t.groupId !== "string" || typeof t.locale !== "string" || sourceEntryId === undefined || reflectedSourceVersionId === undefined) {
         throw new SetupError("翻訳の情報の読み取り", res);
       }
-      return { groupId: t.groupId, locale: t.locale, sourceEntryId, reflectedSourceVersionId };
+      // sourceUpdate: 更新がなければ null、あれば { corrected }
+      if (t.sourceUpdate !== null && (typeof t.sourceUpdate !== "object" || typeof t.sourceUpdate?.corrected !== "boolean")) {
+        throw new SetupError("翻訳の情報の読み取り（原文の更新）", res);
+      }
+      return {
+        groupId: t.groupId,
+        locale: t.locale,
+        sourceEntryId,
+        reflectedSourceVersionId,
+        sourceUpdated: t.sourceUpdate !== null,
+        sourceCorrected: t.sourceUpdate?.corrected === true,
+      };
+    },
+    async getSourceDiff(s: Session, workspaceId: string, entryId: string): Promise<SourceDiff> {
+      const res = ensure("原文の差分の取得", await sourceDiffRaw(session(s), workspaceId, entryId));
+      const d = JSON.parse(res.text) as {
+        fromVersionId?: string | null;
+        toVersionId?: string | null;
+        diff?: { changedFields?: string[]; sections?: { anchor?: string | null; kind?: string; before?: string | null; after?: string | null }[] } | null;
+      };
+      if (d.fromVersionId === undefined || d.toVersionId === undefined || d.diff === undefined) throw new SetupError("原文の差分の読み取り", res);
+      if (d.diff === null) return { fromVersionId: d.fromVersionId, toVersionId: d.toVersionId, available: false, changedFields: [], sections: [] };
+      if (!Array.isArray(d.diff.changedFields) || !Array.isArray(d.diff.sections)) throw new SetupError("原文の差分の読み取り", res);
+      return {
+        fromVersionId: d.fromVersionId,
+        toVersionId: d.toVersionId,
+        available: true,
+        changedFields: d.diff.changedFields,
+        sections: d.diff.sections.map((x) => ({
+          anchor: x.anchor ?? null,
+          kind: x.kind as SourceDiff["sections"][number]["kind"],
+          before: x.before ?? null,
+          after: x.after ?? null,
+        })),
+      };
+    },
+    markSourceReflectedRaw: (auth: Auth, workspaceId: string, entryId: string) => markSourceReflectedRaw(auth, workspaceId, entryId),
+    async markSourceReflected(s: Session, workspaceId: string, entryId: string): Promise<void> {
+      ensure("原文の更新の反映済み", await markSourceReflectedRaw(session(s), workspaceId, entryId));
     },
     uploadMediaRaw: (s: Session, workspaceId: string, file: UploadFile) => uploadMediaRaw(session(s), workspaceId, file),
     async uploadMedia(s: Session, workspaceId: string, file: UploadFile): Promise<{ id: string; url: string }> {
