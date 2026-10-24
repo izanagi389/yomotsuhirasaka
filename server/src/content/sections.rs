@@ -286,6 +286,25 @@ pub fn compare(before: &[&Value], after: &[&Value]) -> Vec<SectionChange> {
     out
 }
 
+/// 本文の一覧（フィールドの順）の中の、あるセクションの文字列（最上位のノードごとに改行で区切る）。
+/// `change` の示すセクション（導入はフィールドの番号、それ以外はアンカーID）がなければ None。
+pub fn section_text(docs: &[&Value], change: &SectionChange) -> Option<String> {
+    let key = change.anchor.clone();
+    let nodes = match change.lead_of {
+        Some(i) => docs.get(i).and_then(|d| sections(d).remove(&None)),
+        None => docs.iter().find_map(|d| sections(d).remove(&key)),
+    }?;
+    let lines: Vec<String> = nodes
+        .into_iter()
+        .map(|n| {
+            let mut s = String::new();
+            plain_text(n, &mut s);
+            s
+        })
+        .collect();
+    Some(lines.join("\n"))
+}
+
 /// 本文の一覧（フィールドの順）どうしを比べる（「訂正として公開」で版に記録する）。
 pub fn affected(before: &[&Value], after: &[&Value]) -> Affected {
     let mut out = Affected::default();
@@ -397,6 +416,37 @@ mod tests {
         assert!(a.lead);
         assert_eq!(affected(&[&before], &[&before]), Affected::default());
         assert_eq!(anchors(&before), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn text_of_a_section() {
+        let before = doc(vec![p("導入"), h("A", "a"), p("前の文"), p("2つめ")]);
+        let after = doc(vec![
+            p("導入"),
+            h("A", "a"),
+            p("今の文"),
+            h("B", "b"),
+            p("足した"),
+        ]);
+        let changes = compare(&[&before], &[&after]);
+        let a = changes
+            .iter()
+            .find(|c| c.anchor.as_deref() == Some("a"))
+            .unwrap();
+        assert_eq!(
+            section_text(&[&before], a).as_deref(),
+            Some("A\n前の文\n2つめ")
+        );
+        assert_eq!(section_text(&[&after], a).as_deref(), Some("A\n今の文"));
+        let b = changes
+            .iter()
+            .find(|c| c.anchor.as_deref() == Some("b"))
+            .unwrap();
+        assert_eq!(section_text(&[&before], b), None);
+        assert!(
+            changes.iter().all(|c| c.anchor.is_some()),
+            "導入は変わっていない"
+        );
     }
 
     #[test]

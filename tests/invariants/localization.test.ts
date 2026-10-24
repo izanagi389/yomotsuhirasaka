@@ -1,10 +1,10 @@
-// 多言語の約束: INV-LOC-01, 03, 04（LOC-05 は取り込みと一緒に import.test.ts）
+// 多言語の約束: INV-LOC-01, 02, 03, 04（LOC-05 は取り込みと一緒に import.test.ts）
 
 import { randomUUID } from "node:crypto";
 import { expect } from "vitest";
 import { inv } from "./support/inv.js";
-import type { CmsClient, RegisteredQuery } from "./support/driver.js";
-import { simpleBody } from "./support/body.js";
+import { driver, type CmsClient, type RegisteredQuery } from "./support/driver.js";
+import { doc, heading, paragraph, simpleBody } from "./support/body.js";
 import { expectSuccess } from "./support/assert.js";
 import { lazyWorld, marker, type WorkspaceFixture } from "./support/world.js";
 
@@ -59,6 +59,69 @@ inv("inv_loc_01", "あるロケールの記事を編集・公開・訂正・抹�
   expect(await enDelivered(), "enの公開中の内容が変わった").toBe(enDeliveredBefore);
   // 予約（M2）は、予約公開が入ったときにこのテストで確かめる範囲を広げる
 });
+
+/** 見出し（固定のアンカーID）と本文の段落からなる本文。 */
+const sections = (parts: [anchor: string, text: string][]) =>
+  doc(...parts.flatMap(([anchor, text]) => [driver.body.withAnchor(heading(`見出し ${anchor}`), anchor), paragraph(text)]));
+
+inv(
+  "inv_loc_02",
+  "ある記事が公開されると、その記事を元にした記事にだけ「原文が更新された」状態が付き、前回確認した版からの差分を管理APIで取得できる。確認した版は「原文の更新を反映済み」の操作でだけ元の記事の現在の版に進み、その記事を公開しても進まない",
+  async () => {
+    const { cms, a } = await world();
+    const info = (id: string) => cms.getTranslationInfo(a.editorSession, a.id, id);
+    const latestVersion = async (id: string) => (await cms.listVersions(a.adminSession, a.id, id)).at(-1)!.id;
+
+    // ja（元）を公開し、jaから en を、en から fr を作る
+    const kept = marker("loc02-kept");
+    const old = marker("loc02-old");
+    const ja = await cms.createEntry(a.editorSession, a.id, { title: marker("loc02-ja"), body: sections([["s1", kept], ["s2", old]]), locale: "ja" });
+    await cms.publishEntry(a.editorSession, a.id, ja.id);
+    const jaV1 = await latestVersion(ja.id);
+    const en = await translation(cms, a, ja.id, "en", "loc02-en", true);
+    const fr = await translation(cms, a, en.id, "fr", "loc02-fr", false);
+    for (const [label, id] of [["ja", ja.id], ["en", en.id], ["fr", fr.id]] as const) {
+      expect((await info(id)).sourceUpdated, `${label}: 何も公開していないのに「原文が更新された」状態が付いている`).toBe(false);
+    }
+    expect((await info(en.id)).reflectedSourceVersionId, "enの確認した版が、作成時のjaの版ではない").toBe(jaV1);
+
+    // ja を変えて公開すると、ja を元にした en にだけ付く
+    const changed = marker("loc02-changed");
+    await cms.saveDraft(a.editorSession, a.id, ja.id, { body: sections([["s1", kept], ["s2", changed]]) });
+    await cms.publishEntry(a.editorSession, a.id, ja.id);
+    const jaV2 = await latestVersion(ja.id);
+    expect((await info(en.id)).sourceUpdated, "jaを元にしたenに「原文が更新された」状態が付いていない").toBe(true);
+    expect((await info(ja.id)).sourceUpdated, "公開したja自身に「原文が更新された」状態が付いた").toBe(false);
+    expect((await info(fr.id)).sourceUpdated, "jaを元にしていないfrに「原文が更新された」状態が付いた").toBe(false);
+
+    // 差分: 前回確認した版（jaの1つめの版）から今の版まで。変えたセクションだけが入る
+    const diff = await cms.getSourceDiff(a.editorSession, a.id, en.id);
+    expect(diff.fromVersionId, "差分の比べ元が、前回確認した版ではない").toBe(jaV1);
+    expect(diff.toVersionId, "差分の比べ先が、jaの今の版ではない").toBe(jaV2);
+    expect(diff.available, "差分が出せていない").toBe(true);
+    const s2 = diff.sections.find((x) => x.anchor === "s2");
+    expect(s2, "変えたセクションが差分にない").toBeDefined();
+    expect(s2!.before ?? "", "差分の前の内容に、前の版の文がない").toContain(old);
+    expect(s2!.after ?? "", "差分の後の内容に、今の版の文がない").toContain(changed);
+    expect(diff.sections.some((x) => x.anchor === "s1"), "変えていないセクションが差分に入っている").toBe(false);
+
+    // en を公開しても、確認した版は進まない（en を元にした fr には付く）
+    await cms.saveDraft(a.editorSession, a.id, en.id, { body: simpleBody(marker("loc02-en2")) });
+    await cms.publishEntry(a.editorSession, a.id, en.id);
+    const enAfterPublish = await info(en.id);
+    expect(enAfterPublish.sourceUpdated, "enを公開したら「原文が更新された」状態が消えた").toBe(true);
+    expect(enAfterPublish.reflectedSourceVersionId, "enを公開したら確認した版が進んだ").toBe(jaV1);
+    expect((await info(fr.id)).sourceUpdated, "enを元にしたfrに「原文が更新された」状態が付いていない").toBe(true);
+
+    // 「原文の更新を反映済み」（執筆者でもできる）で、確認した版が ja の今の版に進む
+    const author = await cms.createMember(a.adminSession, a.id, "author");
+    await cms.markSourceReflected(await cms.login(author), a.id, en.id);
+    const enReflected = await info(en.id);
+    expect(enReflected.reflectedSourceVersionId, "反映済みにしても、確認した版がjaの今の版に進まない").toBe(jaV2);
+    expect(enReflected.sourceUpdated, "反映済みにしても「原文が更新された」状態が消えない").toBe(false);
+    expect((await info(fr.id)).sourceUpdated, "enの反映済みの操作で、frの状態が変わった").toBe(true);
+  },
+);
 
 inv("inv_loc_03", "配信APIが返す他のロケールへのリンクには、公開中の記事だけが含まれる", async () => {
   const { cms, a } = await world();
