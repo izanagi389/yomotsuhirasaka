@@ -154,24 +154,24 @@ pub(super) async fn publisher_people(
 #[serde(rename_all = "camelCase")]
 pub struct RequestView {
     id: Uuid,
-    entry_id: Uuid,
+    pub(super) entry_id: Uuid,
     state: ReviewState,
     requested_by: Option<Person>,
     /// 見てほしい人（指定なし、または公開できなくなった人なら null）。
     reviewer: Option<Person>,
     /// 自分が見てほしい人に指定されているか。
-    assigned_to_me: bool,
+    pub(super) assigned_to_me: bool,
     requested_revision: i64,
     /// 依頼の後に下書きが編集されたか（開いている依頼のときだけ）。
     changed_since_request: bool,
     comment: Option<String>,
-    created_at: String,
-    closed_at: Option<String>,
+    pub(super) created_at: String,
+    pub(super) closed_at: Option<String>,
     closed_by: Option<Person>,
 }
 
 /// 依頼の一覧を、応答の形にする（人の名前は、見せてよい人だけ）。
-async fn views(
+pub(super) async fn views(
     state: &AppState,
     ws: Uuid,
     current: &Current,

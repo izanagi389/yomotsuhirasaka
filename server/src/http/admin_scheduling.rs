@@ -56,12 +56,12 @@ fn can_publish(access: &Access) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct ScheduleView {
     #[serde(flatten)]
-    schedule: Schedule,
+    pub(super) schedule: Schedule,
     /// 予約した人（いまも公開できる人のときだけ。それ以外は null）。
     scheduled_by_person: Option<Person>,
 }
 
-async fn views(
+pub(super) async fn views(
     state: &AppState,
     ws: Uuid,
     list: Vec<Schedule>,

@@ -48,6 +48,8 @@ pub struct Member {
     pub published: bool,
 }
 
+const RFC3339: &str = r#"'YYYY-MM-DD"T"HH24:MI:SS"Z"'"#;
+
 /// 原文の更新。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,6 +97,43 @@ async fn source_update(
         latest_version_id: latest,
         corrected,
     }))
+}
+
+/// 原文の更新がある記事（「やること」の一覧。元の記事の今の版が古い順）。
+#[derive(Debug, Clone)]
+pub struct Updated {
+    pub entry_id: Uuid,
+    pub corrected: bool,
+    /// 元の記事のいちばん新しい版を公開した時刻。
+    pub published_at: String,
+}
+
+/// ワークスペースの、原文の更新がある記事（判定は `source_update` と同じ）。
+pub async fn updated(conn: &mut PgConnection) -> Result<Vec<Updated>> {
+    let rows: Vec<(Uuid, bool, String)> = sqlx::query_as(crate::sql!(
+        "SELECT e.id,
+                EXISTS (
+                  SELECT 1 FROM versions v
+                  WHERE v.entry_id = s.id AND v.correction
+                    AND v.number > COALESCE((SELECT number FROM versions WHERE id = e.reflected_source_version_id AND entry_id = s.id), 0)),
+                to_char(lv.published_at AT TIME ZONE 'UTC', {RFC3339})
+         FROM entries e
+         JOIN entries s ON s.id = e.source_entry_id AND s.deleted_at IS NULL
+         JOIN LATERAL (SELECT id, published_at FROM versions WHERE entry_id = s.id ORDER BY number DESC LIMIT 1) lv ON true
+         WHERE e.deleted_at IS NULL AND lv.id IS DISTINCT FROM e.reflected_source_version_id
+         ORDER BY lv.published_at, e.id
+         LIMIT 500"
+    ))
+    .fetch_all(conn)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(entry_id, corrected, published_at)| Updated {
+            entry_id,
+            corrected,
+            published_at,
+        })
+        .collect())
 }
 
 /// 記事の原文の更新（公開の確認画面で使う。元なし・記事がなければ None）。
