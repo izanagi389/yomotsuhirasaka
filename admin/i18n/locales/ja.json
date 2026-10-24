@@ -698,7 +698,14 @@
     "reviewWaiting": "レビュー待ち",
     "reviewWaitingHelp": "レビューを依頼された記事です。あなたが指定されたものが先に並びます。",
     "reviewRejected": "差し戻された記事",
-    "reviewRejectedHelp": "あなたが依頼して差し戻された記事です。直してから、もう一度依頼してください。"
+    "reviewRejectedHelp": "あなたが依頼して差し戻された記事です。直してから、もう一度依頼してください。",
+    "scheduleRetrying": "公開を待っている予約",
+    "scheduleRetryingHelp": "予約の時刻を過ぎても公開できず、やり直している記事です。理由を取り除くか、予約し直してください。",
+    "scheduleAttention": "取り消し・失敗した予約",
+    "scheduleAttentionHelp": "あなたが予約して、訂正による取り消しか失敗になった記事です（30日間表示します）。",
+    "scheduledAt": "予約: {at}",
+    "scheduleFailed": "失敗",
+    "scheduleCorrected": "訂正で取り消し"
   },
   "correctionTemplates": {
     "help": "訂正として公開するときに選べる説明の文と、説明を書いていない訂正に表示する文を、ロケールごとに決めます。選んだ文はその時点で説明に写されるため、ここを変えても過去の説明は変わりません。",
@@ -752,7 +759,29 @@
       "open": "レビュー待ち",
       "rejected": "差し戻し",
       "withdrawn": "取り下げ",
-      "published": "公開済み"
+      "published": "公開済み",
+      "scheduled": "予約済み"
+    }
+  },
+  "schedule": {
+    "menu": "予約公開…",
+    "title": "予約公開",
+    "description": "いまの下書きを予約版として固定し、指定した時刻に公開します。予約の後に下書きを編集しても、予約版は変わりません。",
+    "at": "公開する時刻",
+    "atHelp": "{zone} の時刻です。時刻を過ぎてから数秒以内に公開されます（1年以内）。",
+    "confirm": "予約する",
+    "pending": "{at} に公開する予約があります（{who}）。",
+    "draftChanged": "予約中の版とは異なる編集があります。この編集も公開するには、予約し直してください。",
+    "retrying": "公開を待っています: {reason}。次は {at} にやり直します。",
+    "reschedule": "予約し直す",
+    "cancel": "予約を取り消す",
+    "failed": "{at} の予約公開は、公開できないまま24時間たったため失敗しました（{reason}）。",
+    "cancelledByCorrection": "訂正として公開したため、{at} の予約は取り消されました。",
+    "errors": {
+      "url_taken": "公開URLが、公開中の別の記事と重なっています",
+      "schema_migration_pending": "スキーマの移行を待っています",
+      "entry_not_found": "記事が見つかりません",
+      "cannot_publish": "公開できません"
     }
   }
 }

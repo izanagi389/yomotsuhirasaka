@@ -6,6 +6,9 @@
 // 判定はサーバー（publish-check）が、公開と同じコードで行う。確認した下書きのリビジョン番号で公開するので、
 // 確認の後に誰かが下書きを変えていれば公開されない（409）。
 // 訂正として公開するときは、訂正の説明を定型文と自由記述で書ける（任意。後から版のタブで書き直せる。Q63）。
+// 予約公開（Q78）では、同じ確認の後に公開の時刻を選ぶ。予約のときにサーバーが公開と同じ検査と計算を済ませ、その時点の下書きを
+// 予約版として固定する（訂正は予約できない）。時刻はブラウザのタイムゾーンで入力し、UTC で送る。
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -20,11 +23,24 @@ const props = defineProps<{
   locale: string;
   /** 訂正として公開するか。 */
   correction: boolean;
+  /** 予約公開か（訂正とは一緒に使わない）。 */
+  schedule?: boolean;
   /** 未保存の変更を保存する（保存できなければ false）。 */
   flush: () => Promise<boolean>;
 }>();
 const open = defineModel<boolean>("open", { required: true });
-const emit = defineEmits<{ published: [result: Published] }>();
+const emit = defineEmits<{ published: [result: Published]; scheduled: [] }>();
+
+// 予約の時刻（datetime-local の値。既定は1時間後の分の切り捨て）
+const when = ref("");
+const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+function defaultWhen(): string {
+  const d = new Date(Date.now() + 60 * 60 * 1000);
+  d.setSeconds(0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+watch(open, (v) => v && props.schedule && (when.value = defaultWhen()), { immediate: true });
 const { t } = useI18n();
 const api = useApi();
 
@@ -87,6 +103,12 @@ async function publish() {
   publishing.value = true;
   error.value = null;
   try {
+    if (props.schedule) {
+      await api.put(`${base.value}/schedule`, { revision: check.value.revision, publishAt: new Date(when.value).toISOString() });
+      open.value = false;
+      emit("scheduled");
+      return;
+    }
     const result = await api.post<Published>(`${base.value}/publish`, {
       revision: check.value.revision,
       correction: props.correction,
@@ -123,8 +145,8 @@ function sectionName(s: { anchor: string | null; title: string | null; field: st
   <Dialog v-model:open="open">
     <DialogContent class="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
       <DialogHeader>
-        <DialogTitle>{{ correction ? t("publish.correctionTitle") : t("publish.title") }}</DialogTitle>
-        <DialogDescription>{{ correction ? t("publish.correctionDescription") : t("publish.description") }}</DialogDescription>
+        <DialogTitle>{{ schedule ? t("schedule.title") : correction ? t("publish.correctionTitle") : t("publish.title") }}</DialogTitle>
+        <DialogDescription>{{ schedule ? t("schedule.description") : correction ? t("publish.correctionDescription") : t("publish.description") }}</DialogDescription>
       </DialogHeader>
 
       <p v-if="loading" class="text-sm text-muted-foreground">{{ t("publish.checking") }}</p>
@@ -190,10 +212,16 @@ function sectionName(s: { anchor: string | null; title: string | null; field: st
         </section>
       </div>
 
+      <section v-if="schedule && check" class="grid gap-1.5 text-sm" data-testid="schedule-time">
+        <Label for="schedule-at">{{ t("schedule.at") }}</Label>
+        <Input id="schedule-at" v-model="when" type="datetime-local" class="w-fit" required />
+        <p class="text-muted-foreground">{{ t("schedule.atHelp", { zone: timeZone }) }}</p>
+      </section>
+
       <DialogFooter>
         <Button variant="outline" @click="open = false">{{ t("common.cancel") }}</Button>
-        <Button :disabled="blocked || publishing" data-testid="confirm-publish" @click="publish">
-          {{ correction ? t("publish.confirmCorrection") : t("publish.confirm") }}
+        <Button :disabled="blocked || publishing || (schedule && !when)" data-testid="confirm-publish" @click="publish">
+          {{ schedule ? t("schedule.confirm") : correction ? t("publish.confirmCorrection") : t("publish.confirm") }}
         </Button>
       </DialogFooter>
     </DialogContent>

@@ -318,3 +318,36 @@ export function personLabel(p: ReviewPerson | null | undefined, other: string): 
   if (!p) return other;
   return p.email ? `${p.name} (${p.email})` : p.name;
 }
+
+/** 予約公開（server/src/http/admin_scheduling.rs）。 */
+export interface ScheduleView {
+  id: string;
+  entryId: string;
+  publishAt: string;
+  draftRevision: number;
+  scheduledBy: string;
+  createdAt: string;
+  state: "pending" | "published" | "cancelled" | "failed";
+  reason: "cancelled" | "replaced" | "corrected" | "published" | "deleted" | null;
+  /** 公開できなかった理由（やり直している間と、失敗したとき）。 */
+  lastError: string | null;
+  nextAttemptAt: string | null;
+  closedAt: string | null;
+  closedBy: string | null;
+  /** 予約の後に下書きが編集されたか。 */
+  draftChanged: boolean;
+  /** 予約した人（いまも公開できる人のときだけ）。 */
+  scheduledByPerson: ReviewPerson | null;
+}
+
+/** GET .../entries/{id}/schedule */
+export interface EntrySchedule {
+  open: ScheduleView | null;
+  latest: ScheduleView | null;
+}
+
+/** GET /workspaces/{ws}/schedules */
+export interface ScheduleLists {
+  retrying: { schedule: ScheduleView; entry: EntrySummary }[];
+  attention: { schedule: ScheduleView; entry: EntrySummary }[];
+}
