@@ -56,6 +56,9 @@ pub struct WorkspaceInfo {
     /// 自分が持つ重い権限（1件の取得のときだけ。管理画面が操作を出し分ける。権限の照合は操作のたびにサーバーで行う）。
     #[serde(skip_serializing_if = "Option::is_none")]
     permissions: Option<Vec<&'static str>>,
+    /// 編集の引き継ぎを誰ができるか（`anyone` か `permission`。1件の取得のときだけ）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    take_over_policy: Option<String>,
 }
 
 type WorkspaceRow = (
@@ -80,6 +83,7 @@ fn workspace_info(
         schema_version,
         schema_state,
         permissions: None,
+        take_over_policy: None,
     }
 }
 
@@ -136,6 +140,7 @@ pub async fn get_workspace(
     let access = access::member(&state.pool, &current, id).await??;
     let mut info = fetch_workspace(&state, &current, id).await?;
     info.permissions = Some(access.heavy_permissions());
+    info.take_over_policy = Some(super::admin_locks::take_over_policy_of(&state.pool, id).await?);
     Ok(Json(info))
 }
 

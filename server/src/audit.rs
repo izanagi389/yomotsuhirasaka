@@ -59,6 +59,10 @@ pub mod action {
     pub const REVIEW_REQUESTED: &str = "review.requested";
     /// 予約公開（Q78）。対象は記事と予約のID。訂正による自動の取り消しは分けて記録する（Q133）。
     pub const ENTRY_SCHEDULED: &str = "entry.scheduled";
+    /// 編集を引き継いだ（同時編集、Q73）。対象は記事と、引き継がれた人のID。
+    pub const EDIT_TAKEN_OVER: &str = "entry.edit_taken_over";
+    /// ワークスペースの設定（編集の引き継ぎを誰ができるか）を変えた。
+    pub const WORKSPACE_SETTINGS_CHANGED: &str = "workspace.settings_changed";
     pub const SCHEDULE_CANCELLED: &str = "entry.schedule_cancelled";
     pub const SCHEDULE_CANCELLED_BY_CORRECTION: &str = "entry.schedule_cancelled_by_correction";
     pub const SCHEDULE_FAILED: &str = "entry.schedule_failed";

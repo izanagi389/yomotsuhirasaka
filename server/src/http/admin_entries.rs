@@ -281,6 +281,9 @@ pub struct SaveDraft {
     /// 変えるフィールドだけ（null で空にする）。
     #[serde(default)]
     fields: Map<String, Value>,
+    /// 編集のロック（記事の画面を開いたときに取ったもの）。APIから直接保存するときは付けない。
+    #[serde(default)]
+    lock_id: Option<Uuid>,
 }
 
 pub(super) fn revision_conflict() -> ApiError {
@@ -330,6 +333,13 @@ pub async fn save_draft(
     .await;
     let columns = fields::convert_all(manifest, ct, &changes).map_err(invalid)?;
     check_against_data(&mut tx, ct, id, &before.locale, &columns).await??;
+    // ほかの画面が編集中なら保存しない（INV-LOCK-01。保存ではロックを取らない）
+    if crate::content::locks::blocking_save(&mut tx, id, req.lock_id)
+        .await?
+        .is_some()
+    {
+        return Err(super::admin_locks::entry_locked());
+    }
     match entries::save(&mut tx, ct, id, req.revision, &columns).await? {
         Saved::Ok(_) => {}
         Saved::Conflict => return Err(revision_conflict()),
