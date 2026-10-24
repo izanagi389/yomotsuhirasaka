@@ -8,6 +8,7 @@
     "cli",
     "packages/editor-schema",
     "packages/converter",
+    "packages/preview",
     "packages/nuxt"
   ],
   "overrides": {
