@@ -1,6 +1,6 @@
 //! レビュー依頼（03-content-and-editing.md「レビュー（Q77）」、計画の8番）。ワークスペースのロールのトランザクションの中で呼ぶ。
 //!
-//! - 1段階だけ: 依頼 → 差し戻し（コメント必須）・取り下げ・公開のどれかで閉じる。承認という段階は作らない。
+//! - 1段階だけ: 依頼 → 差し戻し（コメント必須）・取り下げ・公開・予約公開のどれかで閉じる。承認という段階は作らない。
 //! - 開いている依頼は記事ごとに1つ。依頼した時点の下書きのリビジョンを残す（その後の編集で依頼は消えない）。
 //! - 見てほしい人（reviewer）は目印だけ。だれが差し戻し・公開できるかは、HTTPの層でロールを照合する。
 
@@ -24,6 +24,8 @@ pub enum State {
     Rejected,
     Withdrawn,
     Published,
+    /// 予約公開した（予約した時点で閉じる）。
+    Scheduled,
 }
 
 impl State {
@@ -33,6 +35,7 @@ impl State {
             State::Rejected => "rejected",
             State::Withdrawn => "withdrawn",
             State::Published => "published",
+            State::Scheduled => "scheduled",
         }
     }
 
@@ -41,6 +44,7 @@ impl State {
             "rejected" => State::Rejected,
             "withdrawn" => State::Withdrawn,
             "published" => State::Published,
+            "scheduled" => State::Scheduled,
             _ => State::Open,
         }
     }
@@ -296,6 +300,7 @@ mod tests {
             State::Rejected,
             State::Withdrawn,
             State::Published,
+            State::Scheduled,
         ] {
             assert_eq!(State::parse(s.as_str()), s);
         }

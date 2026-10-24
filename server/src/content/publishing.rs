@@ -13,7 +13,7 @@
 //! - 版のメタデータ（番号、日時、URL、アンカーID、訂正の記録）は、本文を抹消しても残す（Q134）。
 
 use anyhow::Result;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -413,6 +413,66 @@ pub async fn check_before_publish(
     }))
 }
 
+/// 公開の準備（検査と計算）が済んだ下書き。その場の公開と、予約公開（Q78。予約のときに作って保存する）で使う。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Prepared {
+    /// 公開するフィールドのスナップショット。
+    pub fields: Map<String, Value>,
+    pub url: String,
+    /// URL生成関数が読んだ記事。
+    pub dependencies: Vec<Uuid>,
+    /// 本文の変換結果。
+    pub rendered: Value,
+    /// 本文のアンカーID。
+    pub anchors: Vec<String>,
+}
+
+/// 下書きを検査し、公開に要るものを計算する（スキーマの検査、公開前のフック、URL生成関数、URLの重なり、本文の変換）。
+async fn prepare(
+    conn: &mut PgConnection,
+    manifest: &Manifest,
+    scripts: &Scripts<'_>,
+    entry_id: Uuid,
+    draft: &Draft,
+) -> Result<Result<Prepared, Refused>> {
+    let Some(ct) = manifest.content_type(&draft.content_type) else {
+        return Ok(Err(Refused::NotFound));
+    };
+    if let Err(r) = check(manifest, ct, draft) {
+        return Ok(Err(r));
+    }
+    match before_publish(scripts, ct, draft).await {
+        Ok(reasons) if reasons.is_empty() => {}
+        Ok(reasons) => return Ok(Err(Refused::HookRejected(reasons))),
+        Err(f) => return Ok(Err(Refused::HookFailed(f))),
+    }
+    // スラッグは公開に必須なので、check を通っていれば空でない
+    let (url, dependencies) =
+        match compute_url(scripts, ct, draft.id, &draft.locale, &draft.fields).await {
+            Ok(url) => url.unwrap_or_default(),
+            Err(f) => return Ok(Err(Refused::UrlFunctionFailed(f))),
+        };
+    if url_taken(conn, &url, entry_id).await? {
+        return Ok(Err(Refused::UrlTaken));
+    }
+    let rendered = match render(scripts, manifest, ct, &draft.fields).await {
+        Ok(r) => r,
+        Err(f) => return Ok(Err(Refused::ConversionFailed(f))),
+    };
+    let anchors: Vec<String> = rich_texts(ct, &draft.fields)
+        .into_iter()
+        .flat_map(sections::anchors)
+        .collect();
+    Ok(Ok(Prepared {
+        fields: draft.fields.clone(),
+        url,
+        dependencies,
+        rendered,
+        anchors,
+    }))
+}
+
 /// 下書きを公開する。
 #[allow(clippy::too_many_arguments)]
 pub async fn publish(
@@ -441,45 +501,107 @@ pub async fn publish(
     let Some(ct) = manifest.content_type(&draft.content_type) else {
         return Ok(Err(Refused::NotFound));
     };
-    if let Err(r) = check(manifest, ct, &draft) {
-        return Ok(Err(r));
-    }
-    match before_publish(scripts, ct, &draft).await {
-        Ok(reasons) if reasons.is_empty() => {}
-        Ok(reasons) => return Ok(Err(Refused::HookRejected(reasons))),
-        Err(f) => return Ok(Err(Refused::HookFailed(f))),
-    }
-    // スラッグは公開に必須なので、check を通っていれば空でない
-    let (url, dependencies) =
-        match compute_url(scripts, ct, draft.id, &draft.locale, &draft.fields).await {
-            Ok(url) => url.unwrap_or_default(),
-            Err(f) => return Ok(Err(Refused::UrlFunctionFailed(f))),
-        };
-    if url_taken(conn, &url, entry_id).await? {
-        return Ok(Err(Refused::UrlTaken));
-    }
-
-    let rendered = match render(scripts, manifest, ct, &draft.fields).await {
-        Ok(r) => r,
-        Err(f) => return Ok(Err(Refused::ConversionFailed(f))),
+    let prepared = match prepare(conn, manifest, scripts, entry_id, &draft).await? {
+        Ok(p) => p,
+        Err(r) => return Ok(Err(r)),
     };
-    let snapshot = Value::Object(draft.fields.clone());
-    let anchors: Vec<String> = rich_texts(ct, &draft.fields)
-        .into_iter()
-        .flat_map(sections::anchors)
-        .collect();
     // 訂正: 前の版と比べて影響したセクション。前の版の本文が抹消されていれば求められない（NULL）
-    let (affected_anchors, affects_lead) = match (&latest, correction) {
+    let affected = match (&latest, correction) {
         (Some((_, Some(Value::Object(before)))), true) => {
             let a = sections::affected(&rich_texts(ct, before), &rich_texts(ct, &draft.fields));
-            (
-                Some(a.anchors.into_iter().collect::<Vec<_>>()),
-                Some(a.lead),
-            )
+            Some((a.anchors.into_iter().collect::<Vec<_>>(), a.lead))
         }
-        _ => (None, None),
+        _ => None,
     };
     let number = latest.as_ref().map_or(1, |(n, _)| n + 1);
+    insert_version(
+        conn,
+        entry_id,
+        number,
+        schema_version,
+        &prepared,
+        correction,
+        affected,
+        published_by,
+        current.is_some(),
+        previous_url,
+    )
+    .await
+    .map(Ok)
+}
+
+/// 予約公開の準備（Q78）: 下書きのリビジョンを確かめ、公開と同じ検査と計算を済ませる。訂正は予約できない（呼び出し側で拒む）。
+pub async fn prepare_scheduled(
+    conn: &mut PgConnection,
+    manifest: &Manifest,
+    scripts: &Scripts<'_>,
+    entry_id: Uuid,
+    expected_revision: i64,
+) -> Result<Result<Prepared, Refused>> {
+    let Some((revision, _, _)) = lock(conn, entry_id).await? else {
+        return Ok(Err(Refused::NotFound));
+    };
+    if revision != expected_revision {
+        return Ok(Err(Refused::RevisionConflict));
+    }
+    let Some(draft) = entries::draft(conn, manifest, entry_id).await? else {
+        return Ok(Err(Refused::NotFound));
+    };
+    prepare(conn, manifest, scripts, entry_id, &draft).await
+}
+
+/// 準備済みの予約版を公開する（予約の時刻に）。公開日時は実際に公開した日時。URLの重なりはこの時点でも確かめる。
+pub async fn publish_prepared(
+    conn: &mut PgConnection,
+    schema_version: i32,
+    entry_id: Uuid,
+    prepared: &Prepared,
+    published_by: Uuid,
+) -> Result<Result<Published, Refused>> {
+    let Some((_, current, previous_url)) = lock(conn, entry_id).await? else {
+        return Ok(Err(Refused::NotFound));
+    };
+    if url_taken(conn, &prepared.url, entry_id).await? {
+        return Ok(Err(Refused::UrlTaken));
+    }
+    let number = latest_version(conn, entry_id)
+        .await?
+        .map_or(1, |(n, _)| n + 1);
+    insert_version(
+        conn,
+        entry_id,
+        number,
+        schema_version,
+        prepared,
+        false,
+        None,
+        published_by,
+        current.is_some(),
+        previous_url,
+    )
+    .await
+    .map(Ok)
+}
+
+/// 版を作り、記事の公開中の版とURLを切り替え、URLの依存と変更履歴を記録する。
+#[allow(clippy::too_many_arguments)]
+async fn insert_version(
+    conn: &mut PgConnection,
+    entry_id: Uuid,
+    number: i32,
+    schema_version: i32,
+    prepared: &Prepared,
+    correction: bool,
+    affected: Option<(Vec<String>, bool)>,
+    published_by: Uuid,
+    was_published: bool,
+    previous_url: Option<String>,
+) -> Result<Published> {
+    let url = prepared.url.clone();
+    let (affected_anchors, affects_lead) = match affected {
+        Some((a, lead)) => (Some(a), Some(lead)),
+        None => (None, None),
+    };
     let version_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO versions (id, entry_id, number, schema_version, fields, published_by, correction,
@@ -490,14 +612,14 @@ pub async fn publish(
     .bind(entry_id)
     .bind(number)
     .bind(schema_version)
-    .bind(snapshot.to_string())
+    .bind(Value::Object(prepared.fields.clone()).to_string())
     .bind(published_by)
     .bind(correction)
     .bind(&url)
-    .bind(&anchors)
+    .bind(&prepared.anchors)
     .bind(affected_anchors.as_deref())
     .bind(affects_lead)
-    .bind(rendered.to_string())
+    .bind(prepared.rendered.to_string())
     .bind(crate::script::CONVERTER_VERSION)
     .execute(&mut *conn)
     .await?;
@@ -507,7 +629,7 @@ pub async fn publish(
         .bind(&url)
         .execute(&mut *conn)
         .await?;
-    super::urls::record_dependencies(conn, entry_id, &dependencies).await?;
+    super::urls::record_dependencies(conn, entry_id, &prepared.dependencies).await?;
     let previous_url = previous_url.filter(|p| *p != url);
     if let Some(from) = &previous_url {
         sqlx::query(
@@ -521,14 +643,14 @@ pub async fn publish(
         .execute(&mut *conn)
         .await?;
     }
-    Ok(Ok(Published {
+    Ok(Published {
         version_id,
         number,
         url,
         is_correction: correction,
         previous_url,
-        was_published: current.is_some(),
-    }))
+        was_published,
+    })
 }
 
 /// 非公開にする。記事がなければ None、公開中だったかを返す。

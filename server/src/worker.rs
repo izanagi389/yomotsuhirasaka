@@ -48,6 +48,14 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
                     Outcome::Retry("internal_error")
                 })
         }
+        (Some(payload), crate::http::admin_scheduling::JOB_KIND) => {
+            crate::http::admin_scheduling::run(state, payload, job.attempts)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(job_id = %job.id, "scheduled publication: {e:#}");
+                    Outcome::Retry("internal_error")
+                })
+        }
         (Some(payload), crate::content::rerender::JOB_KIND) => {
             crate::content::rerender::run(&state.pool, &state.scripts, payload)
                 .await

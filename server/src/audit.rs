@@ -57,6 +57,11 @@ pub mod action {
     pub const ENTRY_VERIFIED: &str = "entry.verified";
     /// レビュー依頼（計画の8番）。対象は記事と依頼のID。差し戻しのコメントは書かない。
     pub const REVIEW_REQUESTED: &str = "review.requested";
+    /// 予約公開（Q78）。対象は記事と予約のID。訂正による自動の取り消しは分けて記録する（Q133）。
+    pub const ENTRY_SCHEDULED: &str = "entry.scheduled";
+    pub const SCHEDULE_CANCELLED: &str = "entry.schedule_cancelled";
+    pub const SCHEDULE_CANCELLED_BY_CORRECTION: &str = "entry.schedule_cancelled_by_correction";
+    pub const SCHEDULE_FAILED: &str = "entry.schedule_failed";
     pub const REVIEW_REVIEWER_CHANGED: &str = "review.reviewer_changed";
     pub const REVIEW_REJECTED: &str = "review.rejected";
     pub const REVIEW_WITHDRAWN: &str = "review.withdrawn";

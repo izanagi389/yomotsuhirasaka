@@ -134,6 +134,21 @@ impl Names {
     }
 }
 
+/// 公開できる人だけの名前（予約した人などの表示に使う。公開できなくなった人は入らない）。
+pub(super) async fn publisher_people(
+    state: &AppState,
+    ws: Uuid,
+    ids: &[Uuid],
+) -> Result<HashMap<Uuid, Person>, ApiError> {
+    let who = who(state, ws, ids).await?;
+    let visible: HashSet<Uuid> = ids
+        .iter()
+        .copied()
+        .filter(|id| is_publisher(who.get(id)))
+        .collect();
+    Ok(Names::build(&who, &visible).people)
+}
+
 /// 応答の依頼。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

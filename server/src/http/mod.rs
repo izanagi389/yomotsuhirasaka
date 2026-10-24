@@ -13,6 +13,7 @@ pub mod admin_oidc;
 pub mod admin_publishing;
 pub mod admin_resets;
 pub mod admin_reviews;
+pub mod admin_scheduling;
 pub mod admin_templates;
 pub mod admin_tokens;
 pub mod admin_translations;
@@ -361,6 +362,13 @@ pub fn router(state: AppState) -> Router {
             post(admin_reviews::withdraw),
         )
         .route("/workspaces/{ws}/reviewers", get(admin_reviews::reviewers))
+        .route(
+            "/workspaces/{ws}/entries/{id}/schedule",
+            get(admin_scheduling::get_schedule)
+                .put(admin_scheduling::put_schedule)
+                .delete(admin_scheduling::delete_schedule),
+        )
+        .route("/workspaces/{ws}/schedules", get(admin_scheduling::lists))
         .route(
             "/workspaces/{ws}/review-requests",
             get(admin_reviews::lists),
