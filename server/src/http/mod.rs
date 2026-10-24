@@ -16,6 +16,7 @@ pub mod admin_resets;
 pub mod admin_reviews;
 pub mod admin_scheduling;
 pub mod admin_templates;
+pub mod admin_todo;
 pub mod admin_tokens;
 pub mod admin_translations;
 pub mod admin_ui;
@@ -407,6 +408,7 @@ pub fn router(state: AppState) -> Router {
                 .delete(admin_scheduling::delete_schedule),
         )
         .route("/workspaces/{ws}/schedules", get(admin_scheduling::lists))
+        .route("/workspaces/{ws}/todo", get(admin_todo::todo))
         .route(
             "/workspaces/{ws}/review-requests",
             get(admin_reviews::lists),
