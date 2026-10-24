@@ -419,3 +419,23 @@ export interface ScheduleLists {
   retrying: { schedule: ScheduleView; entry: EntrySummary }[];
   attention: { schedule: ScheduleView; entry: EntrySummary }[];
 }
+
+/** 「やること」の1件（GET /workspaces/{ws}/todo。server/src/http/admin_todo.rs）。並びは優先度の順。 */
+export interface TodoItem {
+  kind:
+    | "scheduleFailed"
+    | "scheduleRetrying"
+    | "reviewWaiting"
+    | "unwrittenCorrection"
+    | "reviewRejected"
+    | "sourceCorrected"
+    | "reviewExpired"
+    | "sourceUpdated"
+    | "scheduleCancelled";
+  entry: EntrySummary;
+  /** 並べるときに使った時刻（依頼・差し戻し・予約・訂正・確認期限・原文の公開）。 */
+  at: string;
+  request?: ReviewRequest;
+  schedule?: ScheduleView;
+  versionId?: string;
+}

@@ -14,6 +14,7 @@ import EntryField from "~/components/entry/EntryField.vue";
 import FreshnessPanel from "~/components/entry/FreshnessPanel.vue";
 import PublishDialog from "~/components/entry/PublishDialog.vue";
 import EditLockBanner from "~/components/entry/EditLockBanner.vue";
+import EntryTodoNotice from "~/components/entry/EntryTodoNotice.vue";
 import ReviewPanel from "~/components/entry/ReviewPanel.vue";
 import ScheduleNotice from "~/components/entry/ScheduleNotice.vue";
 import SourceDiffDialog from "~/components/entry/SourceDiffDialog.vue";
@@ -144,7 +145,7 @@ async function runConfirmed() {
     } else if (confirm.value === "delete") {
       await api.del(base);
       autosave.reset(0);
-      await navigateTo(`/w/${ws}`);
+      await navigateTo(`/w/${ws}/entries`);
     }
     confirm.value = null;
   } catch (e) {
@@ -166,7 +167,7 @@ onBeforeRouteLeave(async () => {
     <template v-if="draft && manifest && contentType">
       <div class="flex flex-wrap items-start gap-3">
         <div class="min-w-0 flex-1">
-          <NuxtLink :to="`/w/${ws}`" class="text-sm text-muted-foreground hover:text-foreground">{{ workspace?.name }}</NuxtLink>
+          <NuxtLink :to="`/w/${ws}/entries`" class="text-sm text-muted-foreground hover:text-foreground">{{ workspace?.name }}</NuxtLink>
           <h1 class="truncate text-2xl font-semibold">{{ title ?? t("entries.untitled") }}</h1>
           <div class="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <Badge variant="outline">{{ draft.contentType }}</Badge>
@@ -223,6 +224,7 @@ onBeforeRouteLeave(async () => {
       <FormError :error="lock.error.value" />
       <ScheduleNotice :key="published" :workspace-id="ws" :entry-id="id" :can-publish="canPublish(workspace)" @reschedule="openPublish(false, true)" />
       <SourceUpdateNotice :workspace-id="ws" :entry-id="id" @show-diff="sourceDiffOpen = true" />
+      <EntryTodoNotice v-if="hasPermission(workspace, 'corrections')" :key="published" :workspace-id="ws" :entry-id="id" @open-tab="(name) => (tab = name)" />
       <p v-if="schema?.state === 'pending'" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">
         {{ t("entries.migrationPending") }}
       </p>
