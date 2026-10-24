@@ -7,16 +7,23 @@ export interface QueryTarget {
   workspaceId: string;
   /** 読むためのAPIキー（read の範囲）。 */
   readKey: string;
+  /** プレビュー用トークン（プレビュー中だけ。対象の記事だけが下書きで返る）。 */
+  previewToken?: string;
 }
 
 export class QueryError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** CMSが返した理由のコード（`invalid_preview_token` など）。 */
+    readonly code?: string,
   ) {
     super(message);
   }
 }
+
+/** プレビュー用トークンのヘッダー（server/src/http/delivery.rs）。 */
+export const PREVIEW_HEADER = "X-Cms-Preview-Token";
 
 /** 変数（JSON）の大きさの上限。登録したクエリの変数だけなので、大きなものは要らない。 */
 export const MAX_VARIABLES_CHARS = 4096;
@@ -48,7 +55,11 @@ export async function fetchQuery(
   let res: Response;
   try {
     res = await fetchImpl(u, {
-      headers: { Authorization: `Bearer ${target.readKey}`, Accept: "application/json" },
+      headers: {
+        Authorization: `Bearer ${target.readKey}`,
+        Accept: "application/json",
+        ...(target.previewToken ? { [PREVIEW_HEADER]: target.previewToken } : {}),
+      },
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
@@ -65,7 +76,7 @@ export async function fetchQuery(
   if (!res.ok) {
     // CMSの認証・認可の失敗は、サイトの設定の誤り。訪問者には 502 として返す（キーの状態を外に知らせない）
     const code = typeof body?.error === "string" ? body.error : `HTTP ${res.status}`;
-    throw new QueryError(res.status === 429 ? 503 : 502, `the CMS refused the query (${code})`);
+    throw new QueryError(res.status === 429 ? 503 : 502, `the CMS refused the query (${code})`, typeof body?.error === "string" ? body.error : undefined);
   }
   if (body?.errors && body.errors.length > 0) {
     throw new QueryError(502, `the query failed: ${body.errors.map((e) => String(e.message ?? "")).join("; ")}`);

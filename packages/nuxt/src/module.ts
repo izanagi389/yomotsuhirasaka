@@ -17,11 +17,14 @@
 // - 削除済みアンカーの案内: <CmsDeletedAnchorNotice :anchors="post.deletedAnchors">
 // - AI向けの素材（ai を設定したとき。siteUrl が要る）: `<記事のURL>.md`、/llms.txt、（設定すれば）/robots.txt。
 //   サーバーのルートが返し、nuxt generate ではビルドのときに書き出す。学習拒否のメタタグは useCmsAiMeta(post)
+// - プレビュー（preview を設定したとき）: `<preview.route>?token=…` がCMSのプレビュー用トークンを確かめてクッキーに替え、
+//   記事のページへリダイレクトする。クエリのルートは、クッキーがあればトークンを付けて取る（対象の記事だけが下書きになる）。
+//   管理画面の iframe の中では、CMSからの「読み直して」の知らせで取り直す（ライブプレビュー）。SSG でもサイトのサーバーが要る
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { addComponent, addImports, addServerHandler, createResolver, defineNuxtModule, useLogger } from "nuxt/kit";
+import { addComponent, addImports, addPlugin, addServerHandler, createResolver, defineNuxtModule, useLogger } from "nuxt/kit";
 
 import { RegisterError, checkUrl, readQueries, registerQueries } from "./register.ts";
 import { type AiConfig, type AiOptions, checkAiConfig, markdownPath } from "./runtime/server/ai.ts";
@@ -63,6 +66,11 @@ export interface ModuleOptions {
    * locales: ロケール → llms.txt に書く名前と説明。robotsTxt: 設定すると /robots.txt 全体をモジュールが返す。
    */
   ai: false | AiOptions;
+  /**
+   * プレビュー（下書きの表示とライブプレビュー）。route はトークンを受け取るサイトのパス（既定は /_cms/preview。
+   * CMSの管理画面には `<サイトのURL><route>` を設定する）。CMSの管理画面のオリジン（cms.url）からのメッセージだけを受け付ける。
+   */
+  preview: false | { route?: string };
 }
 
 /** 訂正フィードの設定（キーはロケール）。 */
@@ -84,9 +92,9 @@ export type { CmsAiCatalogItem } from "./runtime/server/ai.ts";
 export { DEFAULT_AI_TRAINING_CRAWLERS } from "./runtime/server/ai.ts";
 export type { CmsDeletedAnchor } from "./runtime/deleted-anchor.ts";
 
-/** CMSのAPIキー（`cms_key_`）か個人トークン（`cms_pat_`）らしい文字列を含むか。 */
+/** CMSのAPIキー（`cms_key_`）・個人トークン（`cms_pat_`）・プレビュー用トークン（`cms_prv_`）らしい文字列を含むか。 */
 export function containsSecret(value: unknown): boolean {
-  if (typeof value === "string") return /^cms_(key|pat)_/.test(value);
+  if (typeof value === "string") return /^cms_(key|pat|prv)_/.test(value);
   if (Array.isArray(value)) return value.some(containsSecret);
   if (value && typeof value === "object") return Object.values(value).some(containsSecret);
   return false;
@@ -94,7 +102,7 @@ export function containsSecret(value: unknown): boolean {
 
 export default defineNuxtModule<ModuleOptions>({
   meta: { name: "@new-cms/nuxt", configKey: "cms" },
-  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q", siteUrl: "", webhookRoute: "/_cms/webhook", corrections: false, ai: false },
+  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q", siteUrl: "", webhookRoute: "/_cms/webhook", corrections: false, ai: false, preview: false },
   async setup(options, nuxt) {
     const logger = useLogger("cms");
     const resolver = createResolver(import.meta.url);
@@ -117,7 +125,11 @@ export default defineNuxtModule<ModuleOptions>({
       throw new RegisterError("cms.ai.robotsTxt: remove public/robots.txt (the module serves /robots.txt; put your own lines in cms.ai.robotsTxt.extra)");
     }
     nuxt.options.runtimeConfig.cms = { url, workspaceId: options.workspaceId, readKey: "", siteUrl, webhookSecret: "", correctionFeeds: feeds, ai };
-    nuxt.options.runtimeConfig.public.cms = { routePrefix: options.routePrefix };
+    const previewRoute = options.preview ? (options.preview.route ?? "/_cms/preview") : "";
+    if (previewRoute && (!url || !previewRoute.startsWith("/") || previewRoute.startsWith("//"))) {
+      throw new RegisterError("cms.preview: set cms.url, and make cms.preview.route a path that starts with /");
+    }
+    nuxt.options.runtimeConfig.public.cms = { routePrefix: options.routePrefix, cmsOrigin: previewRoute ? new URL(url).origin : "" };
 
     // クエリの登録（nuxt prepare では行わない）
     const queries = readQueries(resolve(nuxt.options.rootDir, options.queriesDir));
@@ -197,6 +209,12 @@ export default defineNuxtModule<ModuleOptions>({
       }
     }
     addServerHandler({ route: options.webhookRoute, method: "post", handler: resolver.resolve("./runtime/server/webhook.js") });
+    if (previewRoute) {
+      for (const route of [previewRoute, `${previewRoute}/exit`]) {
+        addServerHandler({ route, method: "get", handler: resolver.resolve("./runtime/server/preview.js") });
+      }
+      addPlugin({ src: resolver.resolve("./runtime/live-preview.js"), mode: "client" });
+    }
 
     addServerHandler({ route: `${options.routePrefix}/:name`, method: "get", handler: resolver.resolve("./runtime/server/query.js") });
     addImports([

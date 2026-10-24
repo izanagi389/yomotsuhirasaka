@@ -83,6 +83,12 @@ jobs:
               run: |
                   npm run typecheck -w @new-cms/converter
                   npm test -w @new-cms/converter
+            # ライブプレビューのメッセージの決まり（管理画面とNuxtモジュールが使う。約束のテストが dist を読む。INV-PRV-03）
+            - name: Build and test the live preview messages
+              run: |
+                  npm run typecheck -w @new-cms/preview
+                  npm test -w @new-cms/preview
+                  npm run build -w @new-cms/preview
             - name: Build and test the Nuxt module
               run: |
                   npm run typecheck -w @new-cms/nuxt
