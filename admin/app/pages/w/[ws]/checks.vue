@@ -2,17 +2,20 @@
 // 対応が必要な記事の一覧（06-corrections-and-freshness.md）: 説明を書いていない訂正と、確認期限が切れた公開中の記事。
 // 一覧から記事を開いて、版のタブで説明を書き、鮮度のタブで「確認済み」を記録する（一括の操作は作らない。Q46）。
 // レビュー依頼（計画の8番）: 公開できる人には「レビュー待ち」（自分が指定されたものが先）、依頼した人には「差し戻された記事」。
+// 予約公開（計画の9番）: 公開できる人には「公開を待っている予約」（やり直し中）、予約した人には「取り消し・失敗した予約」。
 import { Badge } from "@/components/ui/badge";
-import { type ExpiredReview, type ReviewLists, type UnwrittenCorrection, entryTitle, personLabel } from "~/utils/content";
+import { type ExpiredReview, type ReviewLists, type ScheduleLists, type UnwrittenCorrection, entryTitle, personLabel } from "~/utils/content";
 
 const route = useRoute();
 const ws = route.params.ws as string;
-const { t, locale } = useI18n();
+const { t, te, locale } = useI18n();
 const api = useApi();
 const { workspace, manifest, error } = await useWorkspace(ws);
 const { data: reviews, error: reviewsError } = await useAsyncData(`review-requests:${ws}`, () =>
   api.get<ReviewLists>(`/workspaces/${ws}/review-requests`),
 );
+const { data: schedules, error: schedulesError } = await useAsyncData(`schedules:${ws}`, () => api.get<ScheduleLists>(`/workspaces/${ws}/schedules`));
+const scheduleError = (code: string | null) => (code && te(`schedule.errors.${code}`) ? t(`schedule.errors.${code}`) : (code ?? ""));
 const titleOf = (e: ReviewLists["waiting"][number]["entry"]) =>
   entryTitle(manifest.value?.contentTypes.find((c) => c.name === e.contentType), e.fields);
 const { data: unwritten, error: unwrittenError } = await useAsyncData(`unwritten:${ws}`, () =>
@@ -26,7 +29,39 @@ const { data: expired, error: expiredError } = await useAsyncData(`expired:${ws}
 <template>
   <div class="grid gap-6">
     <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" />
-    <FormError :error="error ?? reviewsError ?? unwrittenError ?? expiredError" />
+    <FormError :error="error ?? reviewsError ?? schedulesError ?? unwrittenError ?? expiredError" />
+
+    <section v-if="schedules && schedules.retrying.length > 0" class="grid gap-2 text-sm" data-testid="schedule-retrying-list">
+      <h2 class="text-lg font-medium">{{ t("checks.scheduleRetrying") }}</h2>
+      <p class="text-muted-foreground">{{ t("checks.scheduleRetryingHelp") }}</p>
+      <ul class="grid gap-2">
+        <li v-for="i in schedules.retrying" :key="i.schedule.id">
+          <NuxtLink :to="`/w/${ws}/entries/${i.entry.id}`" class="flex flex-wrap items-center gap-2 rounded-md border p-3 hover:bg-muted">
+            <span class="font-medium">{{ titleOf(i.entry) || t("entries.untitled") }}</span>
+            <span class="text-muted-foreground">{{ i.entry.locale }}</span>
+            <span class="text-destructive">{{ scheduleError(i.schedule.lastError) }}</span>
+            <span class="ml-auto text-muted-foreground">{{ t("checks.scheduledAt", { at: formatDateTime(i.schedule.publishAt, locale) }) }}</span>
+          </NuxtLink>
+        </li>
+      </ul>
+    </section>
+
+    <section v-if="schedules && schedules.attention.length > 0" class="grid gap-2 text-sm" data-testid="schedule-attention-list">
+      <h2 class="text-lg font-medium">{{ t("checks.scheduleAttention") }}</h2>
+      <p class="text-muted-foreground">{{ t("checks.scheduleAttentionHelp") }}</p>
+      <ul class="grid gap-2">
+        <li v-for="i in schedules.attention" :key="i.schedule.id">
+          <NuxtLink :to="`/w/${ws}/entries/${i.entry.id}`" class="flex flex-wrap items-center gap-2 rounded-md border p-3 hover:bg-muted">
+            <span class="font-medium">{{ titleOf(i.entry) || t("entries.untitled") }}</span>
+            <span class="text-muted-foreground">{{ i.entry.locale }}</span>
+            <Badge :variant="i.schedule.state === 'failed' ? 'destructive' : 'outline'">
+              {{ i.schedule.state === "failed" ? t("checks.scheduleFailed") : t("checks.scheduleCorrected") }}
+            </Badge>
+            <span class="ml-auto text-muted-foreground">{{ t("checks.scheduledAt", { at: formatDateTime(i.schedule.publishAt, locale) }) }}</span>
+          </NuxtLink>
+        </li>
+      </ul>
+    </section>
 
     <section v-if="canPublish(workspace)" class="grid gap-2 text-sm" data-testid="review-waiting">
       <h2 class="text-lg font-medium">{{ t("checks.reviewWaiting") }}</h2>

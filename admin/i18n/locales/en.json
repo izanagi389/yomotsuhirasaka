@@ -698,7 +698,14 @@
     "reviewWaiting": "Waiting for review",
     "reviewWaitingHelp": "Entries whose review was requested. Those assigned to you come first.",
     "reviewRejected": "Sent back to you",
-    "reviewRejectedHelp": "Entries you requested a review for that were sent back. Fix them and request again."
+    "reviewRejectedHelp": "Entries you requested a review for that were sent back. Fix them and request again.",
+    "scheduleRetrying": "Scheduled publications waiting",
+    "scheduleRetryingHelp": "Entries that could not be published at their scheduled time and are being retried. Remove the cause or schedule again.",
+    "scheduleAttention": "Cancelled or failed schedules",
+    "scheduleAttentionHelp": "Entries you scheduled that were cancelled by a correction or failed (shown for 30 days).",
+    "scheduledAt": "Scheduled: {at}",
+    "scheduleFailed": "Failed",
+    "scheduleCorrected": "Cancelled by a correction"
   },
   "correctionTemplates": {
     "help": "Per locale, set the notes editors can pick when publishing a correction, and the text shown for corrections without a note. A picked note is copied at that moment, so changing it here does not change past notes.",
@@ -752,7 +759,29 @@
       "open": "Waiting",
       "rejected": "Sent back",
       "withdrawn": "Withdrawn",
-      "published": "Published"
+      "published": "Published",
+      "scheduled": "Scheduled"
+    }
+  },
+  "schedule": {
+    "menu": "Schedule…",
+    "title": "Schedule publication",
+    "description": "Freeze the current draft as the scheduled version and publish it at the chosen time. Editing the draft afterwards does not change the scheduled version.",
+    "at": "Publish at",
+    "atHelp": "Time in {zone}. Publication happens within seconds after that time (up to a year ahead).",
+    "confirm": "Schedule",
+    "pending": "Scheduled to publish at {at} ({who}).",
+    "draftChanged": "The draft has changes that are not in the scheduled version. Schedule again to include them.",
+    "retrying": "Waiting to publish: {reason}. Next attempt at {at}.",
+    "reschedule": "Schedule again",
+    "cancel": "Cancel the schedule",
+    "failed": "The publication scheduled for {at} failed after 24 hours of retrying ({reason}).",
+    "cancelledByCorrection": "The publication scheduled for {at} was cancelled because a correction was published.",
+    "errors": {
+      "url_taken": "Another published entry uses the same URL",
+      "schema_migration_pending": "Waiting for a schema migration",
+      "entry_not_found": "The entry was not found",
+      "cannot_publish": "Cannot publish"
     }
   }
 }

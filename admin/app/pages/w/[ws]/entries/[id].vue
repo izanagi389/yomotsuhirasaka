@@ -14,6 +14,7 @@ import EntryField from "~/components/entry/EntryField.vue";
 import FreshnessPanel from "~/components/entry/FreshnessPanel.vue";
 import PublishDialog from "~/components/entry/PublishDialog.vue";
 import ReviewPanel from "~/components/entry/ReviewPanel.vue";
+import ScheduleNotice from "~/components/entry/ScheduleNotice.vue";
 import SettingsPanel from "~/components/entry/SettingsPanel.vue";
 import TranslationsPanel from "~/components/entry/TranslationsPanel.vue";
 import UrlHistoryPanel from "~/components/entry/UrlHistoryPanel.vue";
@@ -76,15 +77,23 @@ const published = ref(0);
 // 公開
 const publishOpen = ref(false);
 const asCorrection = ref(false);
+const asSchedule = ref(false);
 const lastPublished = ref<Published | null>(null);
-function openPublish(correction: boolean) {
+function openPublish(correction: boolean, schedule = false) {
   asCorrection.value = correction;
+  asSchedule.value = schedule;
   publishOpen.value = true;
 }
 async function onPublished(result: Published) {
   lastPublished.value = result;
   published.value++;
   await refreshDraft();
+  // その場の公開と訂正は、予約を取り消す
+  await refreshNuxtData([`schedule:${id}`, `review:${id}`]);
+}
+async function onScheduled() {
+  // 予約すると、開いているレビュー依頼は「予約済み」で閉じる
+  await refreshNuxtData([`schedule:${id}`, `review:${id}`]);
 }
 
 // 非公開・削除
@@ -147,6 +156,8 @@ onBeforeRouteLeave(async () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem data-testid="publish-schedule" @select="openPublish(false, true)">{{ t("schedule.menu") }}</DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <template v-if="hasPermission(workspace, 'corrections')">
                   <DropdownMenuItem data-testid="publish-correction" @select="openPublish(true)">{{ t("publish.asCorrection") }}</DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -168,6 +179,7 @@ onBeforeRouteLeave(async () => {
         <Button size="sm" variant="outline" @click="reload">{{ t("entries.reload") }}</Button>
       </div>
       <FormError v-else-if="autosave.status.value === 'error'" :error="autosave.error.value" />
+      <ScheduleNotice :key="published" :workspace-id="ws" :entry-id="id" :can-publish="canPublish(workspace)" @reschedule="openPublish(false, true)" />
       <p v-if="schema?.state === 'pending'" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">
         {{ t("entries.migrationPending") }}
       </p>
@@ -237,8 +249,10 @@ onBeforeRouteLeave(async () => {
         :entry-id="id"
         :locale="draft.locale"
         :correction="asCorrection"
+        :schedule="asSchedule"
         :flush="autosave.flush"
         @published="onPublished"
+        @scheduled="onScheduled"
       />
 
       <Dialog :open="confirm !== null" @update:open="(v) => !v && (confirm = null)">
