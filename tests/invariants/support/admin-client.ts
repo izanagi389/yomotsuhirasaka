@@ -434,6 +434,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         return `query($locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $limit: Int) { ${LIST}(locale: $locale, limit: $limit) { ${selection(spec.fields)} } }`;
       case "byId":
         return `query($id: ID!, $locale: String) { ${SINGLE}(id: $id, locale: $locale) { ${[selection(spec.fields), ...(spec.include ?? []).map((i) => INCLUDES[i])].join(" ")} } }`;
+      case "bySlug":
+        return `query($slug: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}) { ${SINGLE}BySlug(slug: $slug, locale: $locale) { ${[selection(spec.fields), ...(spec.include ?? []).map((i) => INCLUDES[i])].join(" ")} } }`;
       case "deep":
         return `{ ${LIST}(locale: ${JSON.stringify(DEFAULT_LOCALE)}) { ${"related { ".repeat(spec.depth)}id${" }".repeat(spec.depth)} } }`;
       case "wide":
@@ -451,6 +453,13 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     }
   };
   const deliveryAuth = (apiKey: string | null): Auth => (apiKey === null ? { kind: "none" } : { kind: "bearer", token: apiKey });
+  // プレビュー用トークンは専用のヘッダーで送る（APIキーの Authorization とは別。server/src/delivery）
+  const PREVIEW_HEADER = "X-Cms-Preview-Token";
+  const previewTokensPath = (workspaceId: string, entryId: string) => `${ADMIN}/workspaces/${workspaceId}/entries/${entryId}/preview-tokens`;
+  const issuePreviewTokenRaw = (auth: Auth, workspaceId: string, entryId: string, ttlSeconds?: number, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", previewTokensPath(workspaceId, entryId), { auth, extras, body: ttlSeconds === undefined ? {} : { ttlSeconds } });
+  const revokePreviewTokenRaw = (auth: Auth, workspaceId: string, entryId: string, tokenId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("DELETE", `${previewTokensPath(workspaceId, entryId)}/${tokenId}`, { auth, extras });
   const registerQueryRaw = (workspaceIdInUrl: string, apiKey: string | null, spec: QuerySpec): Promise<HttpResponse> =>
     request("POST", `/ws/${workspaceIdInUrl}/graphql/queries`, { auth: deliveryAuth(apiKey), body: { query: queryText(spec) } });
 
@@ -540,6 +549,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       createTranslationRaw(auth, t.workspaceId, t.entryId, BASE_TEMPLATE.locales[BASE_TEMPLATE.locales.length - 1]!, extras),
     ),
     op("getTranslationInfo", false, "workspace", (auth, t, extras) => translationInfoRaw(auth, t.workspaceId, t.entryId, extras)),
+    op("issuePreviewToken", true, "workspace", (auth, t, extras) => issuePreviewTokenRaw(auth, t.workspaceId, t.entryId, undefined, extras)),
+    // 対象は存在しないトークン
+    op("revokePreviewToken", true, "workspace", (auth, t, extras) => revokePreviewTokenRaw(auth, t.workspaceId, t.entryId, randomUUID(), extras)),
     op("getTodo", false, "workspace", (auth, t, extras) => todoRaw(auth, t.workspaceId, extras)),
     op("getSourceDiff", false, "workspace", (auth, t, extras) => sourceDiffRaw(auth, t.workspaceId, t.entryId, extras)),
     op("markSourceReflected", true, "workspace", (auth, t, extras) => markSourceReflectedRaw(auth, t.workspaceId, t.entryId, extras)),
@@ -878,6 +890,27 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         auth: deliveryAuth(apiKey),
         extras: { ...extras, query: { ...(extras?.query ?? {}), id: query.ref, variables: JSON.stringify(variables) } },
       });
+    },
+    deliveryPreviewRaw(
+      workspaceIdInUrl: string,
+      apiKey: string | null,
+      previewToken: string,
+      query: RegisteredQuery,
+      variables: Record<string, unknown> = {},
+    ): Promise<HttpResponse> {
+      return request("GET", `/ws/${workspaceIdInUrl}/graphql`, {
+        auth: deliveryAuth(apiKey),
+        extras: { headers: { [PREVIEW_HEADER]: previewToken }, query: { id: query.ref, variables: JSON.stringify(variables) } },
+      });
+    },
+    async issuePreviewToken(s: Session, workspaceId: string, entryId: string, options?: { ttlSeconds?: number }): Promise<{ id: string; token: string }> {
+      const res = ensure("プレビュー用トークンの発行", await issuePreviewTokenRaw(session(s), workspaceId, entryId, options?.ttlSeconds));
+      const { id, token } = JSON.parse(res.text) as { id?: unknown; token?: unknown };
+      if (typeof id !== "string" || typeof token !== "string") throw new SetupError("プレビュー用トークンの読み取り", res);
+      return { id, token };
+    },
+    async revokePreviewToken(s: Session, workspaceId: string, entryId: string, tokenId: string): Promise<void> {
+      ensure("プレビュー用トークンの失効", await revokePreviewTokenRaw(session(s), workspaceId, entryId, tokenId));
     },
     deliveryAdHocRaw(workspaceIdInUrl: string, apiKey: string, spec: QuerySpec, variables: Record<string, unknown> = {}): Promise<HttpResponse> {
       return request("POST", `/ws/${workspaceIdInUrl}/graphql`, { auth: deliveryAuth(apiKey), body: { query: queryText(spec), variables } });

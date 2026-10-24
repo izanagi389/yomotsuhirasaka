@@ -254,7 +254,9 @@ pub async fn resolve(pool: &PgPool, presented: &str) -> Result<Option<Current>> 
 /// パーセントエンコードされていても見つけられるよう、`%5F`（`_`）を戻してから探す。
 pub fn credential_in_query(query: &str) -> bool {
     let lower = query.to_ascii_lowercase().replace("%5f", "_");
-    lower.contains(PREFIX) || lower.contains(API_KEY_PREFIX)
+    lower.contains(PREFIX)
+        || lower.contains(API_KEY_PREFIX)
+        || lower.contains(crate::content::previews::PREFIX)
 }
 
 #[cfg(test)]

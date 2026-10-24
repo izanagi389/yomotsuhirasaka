@@ -65,6 +65,7 @@ pub async fn check(schema: &Schema, query: &str) -> Result<(), Vec<String>> {
         tx: Mutex::new(None),
         workspace_id: Uuid::nil(),
         media_base: String::new(),
+        preview: None,
     });
     let request = async_graphql::Request::new(query.to_owned())
         .variables(async_graphql::Variables::from_json(Value::Object(
