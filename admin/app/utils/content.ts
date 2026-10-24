@@ -103,6 +103,8 @@ export interface PublishCheck {
   urlTaken: boolean;
   comparedWith: number | null;
   sections: SectionChange[] | null;
+  /** 原文に未確認の更新があれば、その情報（公開は止めない。Q162, Q164）。 */
+  sourceUpdate: SourceUpdate | null;
 }
 
 export interface Published {
@@ -155,7 +157,71 @@ export interface TranslationInfo {
   sourceEntryId: string | null;
   sourceLocale: string | null;
   reflectedSourceVersionId: string | null;
+  /** 原文の更新（反映済みの版より後に元の記事の版がある）。なければ null。 */
+  sourceUpdate: SourceUpdate | null;
   members: { entryId: string; locale: string; published: boolean }[];
+}
+
+export interface SourceUpdate {
+  latestVersionId: string;
+  /** 反映済みの版より後に「訂正として公開」した版がある。 */
+  corrected: boolean;
+}
+
+/** GET .../entries/{id}/translation/source-diff */
+export interface SourceDiff {
+  sourceEntryId: string | null;
+  fromVersionId: string | null;
+  toVersionId: string | null;
+  diff: {
+    changedFields: string[];
+    sections: { anchor: string | null; field?: string; title: string | null; kind: "changed" | "added" | "removed"; before: string | null; after: string | null }[];
+  } | null;
+  /** 差分を出せない理由。 */
+  unavailable?: "no_source" | "no_version" | "not_reflected" | "erased";
+}
+
+/** 行単位の比較の1行。 */
+export interface DiffLine {
+  text: string;
+  kind: "same" | "removed" | "added";
+}
+
+/**
+ * 2つの文字列を行単位で比べる（最長共通部分列）。前の列（same と removed）と後の列（same と added）を返す。
+ * セクションの中の比較に使うので、行数は多くない前提（多すぎるときは比べずに全部を変わった行とする）。
+ */
+export function lineDiff(before: string | null, after: string | null): { before: DiffLine[]; after: DiffLine[] } {
+  const a = before === null ? [] : before.split("\n");
+  const b = after === null ? [] : after.split("\n");
+  if (a.length * b.length > 250_000) {
+    return { before: a.map((text) => ({ text, kind: "removed" })), after: b.map((text) => ({ text, kind: "added" })) };
+  }
+  // lcs[i][j]: a[i..] と b[j..] の最長共通部分列の長さ
+  const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i]![j] = a[i] === b[j] ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
+    }
+  }
+  const out = { before: [] as DiffLine[], after: [] as DiffLine[] };
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      out.before.push({ text: a[i]!, kind: "same" });
+      out.after.push({ text: b[j]!, kind: "same" });
+      i++;
+      j++;
+    } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) {
+      out.before.push({ text: a[i++]!, kind: "removed" });
+    } else {
+      out.after.push({ text: b[j++]!, kind: "added" });
+    }
+  }
+  while (i < a.length) out.before.push({ text: a[i++]!, kind: "removed" });
+  while (j < b.length) out.after.push({ text: b[j++]!, kind: "added" });
+  return out;
 }
 
 export interface VersionInfo {

@@ -8,12 +8,14 @@
 // 訂正として公開するときは、訂正の説明を定型文と自由記述で書ける（任意。後から版のタブで書き直せる。Q63）。
 // 予約公開（Q78）では、同じ確認の後に公開の時刻を選ぶ。予約のときにサーバーが公開と同じ検査と計算を済ませ、その時点の下書きを
 // 予約版として固定する（訂正は予約できない）。時刻はブラウザのタイムゾーンで入力し、UTC で送る。
+// 翻訳の記事で原文に未確認の更新があれば知らせ、その場で差分を見て「反映済み」にできる。公開は止めない（Q162, Q164）。
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import SourceDiffDialog from "~/components/entry/SourceDiffDialog.vue";
 import type { CorrectionTemplate, PublishCheck, Published } from "~/utils/content";
 
 const props = defineProps<{
@@ -27,6 +29,8 @@ const props = defineProps<{
   schedule?: boolean;
   /** 未保存の変更を保存する（保存できなければ false）。 */
   flush: () => Promise<boolean>;
+  /** 「原文の更新を反映済み」にできるか（執筆者以上）。 */
+  canReflect?: boolean;
 }>();
 const open = defineModel<boolean>("open", { required: true });
 const emit = defineEmits<{ published: [result: Published]; scheduled: [] }>();
@@ -45,6 +49,10 @@ const { t } = useI18n();
 const api = useApi();
 
 const check = ref<PublishCheck | null>(null);
+const diffOpen = ref(false);
+function onReflected() {
+  if (check.value) check.value = { ...check.value, sourceUpdate: null };
+}
 const loading = ref(false);
 const publishing = ref(false);
 const error = ref<unknown>(null);
@@ -193,6 +201,13 @@ function sectionName(s: { anchor: string | null; title: string | null; field: st
         </section>
         <p v-else class="text-muted-foreground">{{ t("publish.firstTime") }}</p>
 
+        <section v-if="check.sourceUpdate" class="grid gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3" data-testid="publish-source-update">
+          <p>{{ check.sourceUpdate.corrected ? t("sourceUpdate.publishCorrected") : t("sourceUpdate.publishUpdated") }}</p>
+          <div>
+            <Button size="sm" variant="outline" @click="diffOpen = true">{{ t("sourceUpdate.showDiff") }}</Button>
+          </div>
+        </section>
+
         <p v-if="correction && !check.canCorrect" class="text-destructive">{{ t("errors.nothing_to_correct") }}</p>
 
         <section v-if="correction && check.canCorrect" class="grid gap-3" data-testid="correction-note">
@@ -224,6 +239,8 @@ function sectionName(s: { anchor: string | null; title: string | null; field: st
           {{ schedule ? t("schedule.confirm") : correction ? t("publish.confirmCorrection") : t("publish.confirm") }}
         </Button>
       </DialogFooter>
+      <!-- 差分のダイアログは、確認画面のダイアログの中に入れ子にする（フォーカスの扱いのため） -->
+      <SourceDiffDialog v-model:open="diffOpen" :workspace-id="workspaceId" :entry-id="entryId" :can-reflect="canReflect ?? false" @reflected="onReflected" />
     </DialogContent>
   </Dialog>
 </template>

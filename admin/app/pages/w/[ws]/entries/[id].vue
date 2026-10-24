@@ -16,6 +16,8 @@ import PublishDialog from "~/components/entry/PublishDialog.vue";
 import EditLockBanner from "~/components/entry/EditLockBanner.vue";
 import ReviewPanel from "~/components/entry/ReviewPanel.vue";
 import ScheduleNotice from "~/components/entry/ScheduleNotice.vue";
+import SourceDiffDialog from "~/components/entry/SourceDiffDialog.vue";
+import SourceUpdateNotice from "~/components/entry/SourceUpdateNotice.vue";
 import SettingsPanel from "~/components/entry/SettingsPanel.vue";
 import TranslationsPanel from "~/components/entry/TranslationsPanel.vue";
 import UrlHistoryPanel from "~/components/entry/UrlHistoryPanel.vue";
@@ -98,6 +100,9 @@ const TABS = ["content", "translations", "versions", "review", "freshness", "set
 const tab = ref(TABS.includes(String(route.query["tab"])) ? String(route.query["tab"]) : "content");
 // レビュー待ちの印（レビューの欄と同じデータ）
 const { data: review } = useAsyncData(`review:${id}`, () => api.get<EntryReview>(`${base}/review-request`));
+// 翻訳の情報（原文の更新の知らせとタブの印。翻訳タブと共有する）
+const { data: translation } = useTranslationInfo(ws, id);
+const sourceDiffOpen = ref(false);
 // 公開・非公開の後に、版とURLの履歴を読み直すための番号
 const published = ref(0);
 
@@ -217,6 +222,7 @@ onBeforeRouteLeave(async () => {
       />
       <FormError :error="lock.error.value" />
       <ScheduleNotice :key="published" :workspace-id="ws" :entry-id="id" :can-publish="canPublish(workspace)" @reschedule="openPublish(false, true)" />
+      <SourceUpdateNotice :workspace-id="ws" :entry-id="id" @show-diff="sourceDiffOpen = true" />
       <p v-if="schema?.state === 'pending'" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">
         {{ t("entries.migrationPending") }}
       </p>
@@ -227,7 +233,10 @@ onBeforeRouteLeave(async () => {
       <Tabs v-model="tab">
         <TabsList>
           <TabsTrigger value="content">{{ t("entryTabs.content") }}</TabsTrigger>
-          <TabsTrigger value="translations">{{ t("entryTabs.translations") }}</TabsTrigger>
+          <TabsTrigger value="translations" data-testid="tab-translations">
+            {{ t("entryTabs.translations") }}
+            <span v-if="translation?.sourceUpdate" class="ml-1 inline-block size-2 rounded-full bg-amber-500" :aria-label="t('sourceUpdate.updated')" />
+          </TabsTrigger>
           <TabsTrigger value="versions">{{ t("entryTabs.versions") }}</TabsTrigger>
           <TabsTrigger value="review" data-testid="tab-review">
             {{ t("entryTabs.review") }}
@@ -260,7 +269,9 @@ onBeforeRouteLeave(async () => {
             :entry-id="id"
             :locales="manifest.locales"
             :can-create="editable"
+            :can-set-source="canPublish(workspace)"
             :flush="autosave.flush"
+            @show-diff="sourceDiffOpen = true"
           />
         </TabsContent>
         <TabsContent value="versions" class="mt-4">
@@ -288,9 +299,12 @@ onBeforeRouteLeave(async () => {
         :correction="asCorrection"
         :schedule="asSchedule"
         :flush="autosave.flush"
+        :can-reflect="canEdit(workspace)"
         @published="onPublished"
         @scheduled="onScheduled"
       />
+
+      <SourceDiffDialog v-model:open="sourceDiffOpen" :workspace-id="ws" :entry-id="id" :can-reflect="canEdit(workspace)" />
 
       <Dialog :open="confirm !== null" @update:open="(v) => !v && (confirm = null)">
         <DialogContent>

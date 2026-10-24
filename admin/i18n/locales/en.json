@@ -303,14 +303,19 @@
   "translations": {
     "source": "Source entry",
     "noSource": "No source entry (this is the source, or there is none).",
-    "reflected": "The version at the time of creation is reflected",
-    "reflectedNone": "The source was not published when this was created",
+    "reflected": "A reflected version is recorded",
+    "reflectedNone": "No reflected version is recorded",
     "members": "Entries in the same translation group",
     "thisEntry": "This entry",
     "open": "Open",
     "create": "Create a translation",
     "createHelp": "Copies this entry's draft into a new entry in another locale.",
-    "createFor": "Create {locale} translation"
+    "createFor": "Create {locale} translation",
+    "setSource": "Change source entry",
+    "chooseSource": "Choose an entry",
+    "setSourceButton": "Use as source",
+    "setSourceTitle": "Change the source entry?",
+    "setSourceDescription": "The {locale} entry becomes the source. The reflected version becomes its current version."
   },
   "settings": {
     "note": "Changes to these switches are announced by webhook. Materials for external AI and the AI-training opt-out are applied by the site integration. The effect on the chatbot comes in a later version.",
@@ -799,5 +804,30 @@
     "takeOverHelp": "Choose who can take over an entry someone else is editing. Take-overs are recorded in the audit log.",
     "anyone": "Anyone who can edit entries (default)",
     "permission": "Only people with the take over editing permission (administrators and editors by default, plus individual grants)"
+  },
+  "sourceUpdate": {
+    "updated": "The source entry has been updated.",
+    "corrected": "The source entry has been corrected.",
+    "upToDate": "All source updates have been reflected.",
+    "showDiff": "Show changes",
+    "publishUpdated": "The source entry has updates you have not reviewed. You can still publish, but review the changes and mark them as reflected.",
+    "publishCorrected": "The source entry has corrections you have not reviewed. You can still publish, but review the changes and mark them as reflected."
+  },
+  "sourceDiff": {
+    "title": "Source changes",
+    "description": "Changes to the source entry since the version last marked as reflected. Nothing is applied automatically.",
+    "loading": "Loading changes…",
+    "noChanges": "No content changes.",
+    "changedFields": "Changed fields other than the body",
+    "before": "Last reflected version",
+    "after": "Current version",
+    "none": "(none)",
+    "reflect": "Mark source updates as reflected",
+    "unavailable": {
+      "no_source": "This entry has no source entry.",
+      "no_version": "The source entry has not been published yet.",
+      "not_reflected": "No reflected version is recorded, so changes cannot be shown.",
+      "erased": "The body of a compared version has been erased, so changes cannot be shown."
+    }
   }
 }
