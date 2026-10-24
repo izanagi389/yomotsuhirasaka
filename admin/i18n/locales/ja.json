@@ -296,7 +296,8 @@
     "versions": "版",
     "settings": "公開設定",
     "urls": "URLの履歴",
-    "freshness": "鮮度"
+    "freshness": "鮮度",
+    "review": "レビュー"
   },
   "translations": {
     "source": "元の記事",
@@ -693,7 +694,11 @@
     "expiredHelp": "公開中の記事のうち、確認期限を過ぎたものです。内容を確かめて、鮮度のタブで「確認済み」を記録してください。",
     "none": "ありません。",
     "correctedAt": "訂正: {at}",
-    "dueAt": "期限: {at}"
+    "dueAt": "期限: {at}",
+    "reviewWaiting": "レビュー待ち",
+    "reviewWaitingHelp": "レビューを依頼された記事です。あなたが指定されたものが先に並びます。",
+    "reviewRejected": "差し戻された記事",
+    "reviewRejectedHelp": "あなたが依頼して差し戻された記事です。直してから、もう一度依頼してください。"
   },
   "correctionTemplates": {
     "help": "訂正として公開するときに選べる説明の文と、説明を書いていない訂正に表示する文を、ロケールごとに決めます。選んだ文はその時点で説明に写されるため、ここを変えても過去の説明は変わりません。",
@@ -723,6 +728,31 @@
     "takeOverEditing": {
       "label": "編集の引き継ぎ",
       "help": "他の人が編集中の記事の編集を引き継げます。"
+    }
+  },
+  "review": {
+    "help": "公開できない人は、レビューを依頼して公開できる人に頼みます。公開できる人は、依頼がなくても公開できます。公開すると、開いている依頼は閉じます。",
+    "waiting": "レビュー待ち",
+    "request": "レビューを依頼する",
+    "requestButton": "依頼する",
+    "reviewer": "見てほしい人",
+    "noReviewer": "指定なし",
+    "assignedToMe": "あなたに依頼",
+    "requestedBy": "{who} が依頼（{at}）",
+    "closedBy": "{who}（{at}）",
+    "otherMember": "他の所属者",
+    "changedSinceRequest": "依頼後に変更あり",
+    "rejectComment": "差し戻しのコメント",
+    "rejectHelp": "差し戻すときは、直してほしいことを書いてください。コメントは、この記事のレビューの履歴に残ります。",
+    "reject": "差し戻す",
+    "withdraw": "依頼を取り下げる",
+    "history": "レビューの履歴",
+    "noHistory": "まだありません。",
+    "state": {
+      "open": "レビュー待ち",
+      "rejected": "差し戻し",
+      "withdrawn": "取り下げ",
+      "published": "公開済み"
     }
   }
 }

@@ -296,7 +296,8 @@
     "versions": "Versions",
     "settings": "Publish settings",
     "urls": "URL history",
-    "freshness": "Freshness"
+    "freshness": "Freshness",
+    "review": "Review"
   },
   "translations": {
     "source": "Source entry",
@@ -693,7 +694,11 @@
     "expiredHelp": "Published entries past their review deadline. Check the content and record it as verified in the Freshness tab.",
     "none": "None.",
     "correctedAt": "Corrected: {at}",
-    "dueAt": "Due: {at}"
+    "dueAt": "Due: {at}",
+    "reviewWaiting": "Waiting for review",
+    "reviewWaitingHelp": "Entries whose review was requested. Those assigned to you come first.",
+    "reviewRejected": "Sent back to you",
+    "reviewRejectedHelp": "Entries you requested a review for that were sent back. Fix them and request again."
   },
   "correctionTemplates": {
     "help": "Per locale, set the notes editors can pick when publishing a correction, and the text shown for corrections without a note. A picked note is copied at that moment, so changing it here does not change past notes.",
@@ -723,6 +728,31 @@
     "takeOverEditing": {
       "label": "Take over editing",
       "help": "Take over editing an entry someone else is editing."
+    }
+  },
+  "review": {
+    "help": "People who cannot publish ask someone who can by requesting a review. People who can publish may publish without a request. Publishing closes the open request.",
+    "waiting": "Waiting for review",
+    "request": "Request a review",
+    "requestButton": "Request",
+    "reviewer": "Reviewer",
+    "noReviewer": "Anyone",
+    "assignedToMe": "Assigned to you",
+    "requestedBy": "Requested by {who} ({at})",
+    "closedBy": "{who} ({at})",
+    "otherMember": "Another member",
+    "changedSinceRequest": "Changed since the request",
+    "rejectComment": "Comment for sending back",
+    "rejectHelp": "Say what should be fixed. The comment stays in this entry's review history.",
+    "reject": "Send back",
+    "withdraw": "Withdraw the request",
+    "history": "Review history",
+    "noHistory": "None yet.",
+    "state": {
+      "open": "Waiting",
+      "rejected": "Sent back",
+      "withdrawn": "Withdrawn",
+      "published": "Published"
     }
   }
 }

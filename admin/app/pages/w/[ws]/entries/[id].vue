@@ -13,11 +13,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import EntryField from "~/components/entry/EntryField.vue";
 import FreshnessPanel from "~/components/entry/FreshnessPanel.vue";
 import PublishDialog from "~/components/entry/PublishDialog.vue";
+import ReviewPanel from "~/components/entry/ReviewPanel.vue";
 import SettingsPanel from "~/components/entry/SettingsPanel.vue";
 import TranslationsPanel from "~/components/entry/TranslationsPanel.vue";
 import UrlHistoryPanel from "~/components/entry/UrlHistoryPanel.vue";
 import VersionsPanel from "~/components/entry/VersionsPanel.vue";
-import type { Draft, EntrySummary, FieldValue, Published, SavedDraft } from "~/utils/content";
+import type { Draft, EntryReview, EntrySummary, FieldValue, Published, SavedDraft } from "~/utils/content";
 
 const route = useRoute();
 const ws = route.params.ws as string;
@@ -64,7 +65,11 @@ const statusText = computed(() => t(`entries.save.${autosave.status.value}`));
 const title = computed(() => (draft.value ? entryTitle(contentType.value, values) : null));
 
 // タブ（内容のタブは、エディタの状態を保つため、ほかのタブを開いている間も残しておく）
-const tab = ref("content");
+// ?tab=review などで、開くタブを選べる（「要対応」の一覧から）
+const TABS = ["content", "translations", "versions", "review", "freshness", "settings", "urls"];
+const tab = ref(TABS.includes(String(route.query["tab"])) ? String(route.query["tab"]) : "content");
+// レビュー待ちの印（レビューの欄と同じデータ）
+const { data: review } = useAsyncData(`review:${id}`, () => api.get<EntryReview>(`${base}/review-request`));
 // 公開・非公開の後に、版とURLの履歴を読み直すための番号
 const published = ref(0);
 
@@ -175,6 +180,10 @@ onBeforeRouteLeave(async () => {
           <TabsTrigger value="content">{{ t("entryTabs.content") }}</TabsTrigger>
           <TabsTrigger value="translations">{{ t("entryTabs.translations") }}</TabsTrigger>
           <TabsTrigger value="versions">{{ t("entryTabs.versions") }}</TabsTrigger>
+          <TabsTrigger value="review" data-testid="tab-review">
+            {{ t("entryTabs.review") }}
+            <span v-if="review?.open" class="ml-1 inline-block size-2 rounded-full bg-amber-500" :aria-label="t('review.waiting')" />
+          </TabsTrigger>
           <TabsTrigger value="freshness">{{ t("entryTabs.freshness") }}</TabsTrigger>
           <TabsTrigger value="settings">{{ t("entryTabs.settings") }}</TabsTrigger>
           <TabsTrigger value="urls">{{ t("entryTabs.urls") }}</TabsTrigger>
@@ -207,6 +216,9 @@ onBeforeRouteLeave(async () => {
         </TabsContent>
         <TabsContent value="versions" class="mt-4">
           <VersionsPanel :key="published" :workspace-id="ws" :entry-id="id" :content-type="contentType" :can-erase="canErase(workspace)" :can-write-note="hasPermission(workspace, 'corrections')" :custom-nodes="manifest?.body.customNodes ?? []" />
+        </TabsContent>
+        <TabsContent value="review" class="mt-4">
+          <ReviewPanel :key="published" :workspace-id="ws" :entry-id="id" :can-edit="canEdit(workspace)" :can-publish="canPublish(workspace)" />
         </TabsContent>
         <TabsContent value="freshness" class="mt-4">
           <FreshnessPanel :key="published" :workspace-id="ws" :entry-id="id" :editable="canPublish(workspace)" :can-verify="hasPermission(workspace, 'corrections')" />

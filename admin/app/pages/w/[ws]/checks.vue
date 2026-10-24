@@ -1,13 +1,20 @@
 <script setup lang="ts">
 // 対応が必要な記事の一覧（06-corrections-and-freshness.md）: 説明を書いていない訂正と、確認期限が切れた公開中の記事。
 // 一覧から記事を開いて、版のタブで説明を書き、鮮度のタブで「確認済み」を記録する（一括の操作は作らない。Q46）。
-import type { ExpiredReview, UnwrittenCorrection } from "~/utils/content";
+// レビュー依頼（計画の8番）: 公開できる人には「レビュー待ち」（自分が指定されたものが先）、依頼した人には「差し戻された記事」。
+import { Badge } from "@/components/ui/badge";
+import { type ExpiredReview, type ReviewLists, type UnwrittenCorrection, entryTitle, personLabel } from "~/utils/content";
 
 const route = useRoute();
 const ws = route.params.ws as string;
 const { t, locale } = useI18n();
 const api = useApi();
-const { workspace, error } = await useWorkspace(ws);
+const { workspace, manifest, error } = await useWorkspace(ws);
+const { data: reviews, error: reviewsError } = await useAsyncData(`review-requests:${ws}`, () =>
+  api.get<ReviewLists>(`/workspaces/${ws}/review-requests`),
+);
+const titleOf = (e: ReviewLists["waiting"][number]["entry"]) =>
+  entryTitle(manifest.value?.contentTypes.find((c) => c.name === e.contentType), e.fields);
 const { data: unwritten, error: unwrittenError } = await useAsyncData(`unwritten:${ws}`, () =>
   api.get<UnwrittenCorrection[]>(`/workspaces/${ws}/corrections/unwritten`),
 );
@@ -19,7 +26,45 @@ const { data: expired, error: expiredError } = await useAsyncData(`expired:${ws}
 <template>
   <div class="grid gap-6">
     <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" />
-    <FormError :error="error ?? unwrittenError ?? expiredError" />
+    <FormError :error="error ?? reviewsError ?? unwrittenError ?? expiredError" />
+
+    <section v-if="canPublish(workspace)" class="grid gap-2 text-sm" data-testid="review-waiting">
+      <h2 class="text-lg font-medium">{{ t("checks.reviewWaiting") }}</h2>
+      <p class="text-muted-foreground">{{ t("checks.reviewWaitingHelp") }}</p>
+      <p v-if="reviews && reviews.waiting.length === 0" class="text-muted-foreground">{{ t("checks.none") }}</p>
+      <ul v-else class="grid gap-2">
+        <li v-for="i in reviews?.waiting ?? []" :key="i.request.id">
+          <NuxtLink :to="`/w/${ws}/entries/${i.entry.id}?tab=review`" class="flex flex-wrap items-center gap-2 rounded-md border p-3 hover:bg-muted">
+            <span class="font-medium">{{ titleOf(i.entry) || t("entries.untitled") }}</span>
+            <span class="text-muted-foreground">{{ i.entry.locale }}</span>
+            <Badge v-if="i.request.assignedToMe" variant="secondary">{{ t("review.assignedToMe") }}</Badge>
+            <Badge v-if="i.request.changedSinceRequest" variant="outline">{{ t("review.changedSinceRequest") }}</Badge>
+            <span class="ml-auto text-muted-foreground">
+              {{ t("review.requestedBy", { who: personLabel(i.request.requestedBy, t("review.otherMember")), at: formatDateTime(i.request.createdAt, locale) }) }}
+            </span>
+          </NuxtLink>
+        </li>
+      </ul>
+    </section>
+
+    <section v-if="reviews && reviews.rejected.length > 0" class="grid gap-2 text-sm" data-testid="review-rejected">
+      <h2 class="text-lg font-medium">{{ t("checks.reviewRejected") }}</h2>
+      <p class="text-muted-foreground">{{ t("checks.reviewRejectedHelp") }}</p>
+      <ul class="grid gap-2">
+        <li v-for="i in reviews.rejected" :key="i.request.id">
+          <NuxtLink :to="`/w/${ws}/entries/${i.entry.id}?tab=review`" class="grid gap-1 rounded-md border p-3 hover:bg-muted">
+            <span class="flex flex-wrap items-center gap-2">
+              <span class="font-medium">{{ titleOf(i.entry) || t("entries.untitled") }}</span>
+              <span class="text-muted-foreground">{{ i.entry.locale }}</span>
+              <span class="ml-auto text-muted-foreground">
+                {{ t("review.closedBy", { who: personLabel(i.request.closedBy, t("review.otherMember")), at: formatDateTime(i.request.closedAt ?? "", locale) }) }}
+              </span>
+            </span>
+            <span class="line-clamp-2 whitespace-pre-wrap text-muted-foreground">{{ i.request.comment }}</span>
+          </NuxtLink>
+        </li>
+      </ul>
+    </section>
 
     <section class="grid gap-2 text-sm" data-testid="unwritten-corrections">
       <h2 class="text-lg font-medium">{{ t("checks.unwritten") }}</h2>
