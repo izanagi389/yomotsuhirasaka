@@ -8,6 +8,7 @@ import CorrectionTemplatesPanel from "~/components/admin/CorrectionTemplatesPane
 import InvitationsPanel from "~/components/admin/InvitationsPanel.vue";
 import MembersPanel from "~/components/admin/MembersPanel.vue";
 import WebhooksPanel from "~/components/admin/WebhooksPanel.vue";
+import WorkspaceSettingsPanel from "~/components/admin/WorkspaceSettingsPanel.vue";
 import type { MemberInfo } from "~/utils/admin";
 
 const route = useRoute();
@@ -43,8 +44,10 @@ watch(tab, async (v) => {
         <TabsTrigger value="webhooks">{{ t("adminTabs.webhooks") }}</TabsTrigger>
         <TabsTrigger value="correctionTemplates">{{ t("adminTabs.correctionTemplates") }}</TabsTrigger>
         <TabsTrigger value="audit">{{ t("adminTabs.audit") }}</TabsTrigger>
+        <TabsTrigger value="settings">{{ t("adminTabs.settings") }}</TabsTrigger>
       </TabsList>
       <TabsContent value="members" class="mt-4"><MembersPanel :workspace-id="ws" /></TabsContent>
+      <TabsContent value="settings" class="mt-4"><WorkspaceSettingsPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="invitations" class="mt-4"><InvitationsPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="apiKeys" class="mt-4"><ApiKeysPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="webhooks" class="mt-4"><WebhooksPanel :workspace-id="ws" /></TabsContent>

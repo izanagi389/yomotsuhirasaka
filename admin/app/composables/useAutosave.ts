@@ -7,7 +7,7 @@
 
 import type { Draft, FieldValue } from "~/utils/content";
 
-export type SaveStatus = "saved" | "dirty" | "saving" | "conflict" | "error";
+export type SaveStatus = "saved" | "dirty" | "saving" | "conflict" | "locked" | "error";
 
 const DELAY_MS = 2000;
 const RETRY_MS = 10000;
@@ -28,7 +28,7 @@ export function useAutosave(save: (revision: number, fields: Record<string, Fiel
   /** フィールドの値が変わった。 */
   function set(name: string, value: FieldValue) {
     pending.set(name, value);
-    if (status.value === "conflict") return;
+    if (status.value === "conflict" || status.value === "locked") return;
     status.value = inFlight ? "saving" : "dirty";
     schedule();
   }
@@ -51,6 +51,12 @@ export function useAutosave(save: (revision: number, fields: Record<string, Fiel
         clearTimeout(timer);
         return;
       }
+      // ほかの画面が編集中（編集を引き継がれた）: 止めて、入力は画面に残す（Q73）
+      if (e instanceof ApiError && e.code === "entry_locked") {
+        status.value = "locked";
+        clearTimeout(timer);
+        return;
+      }
       status.value = "error";
       // 入力の誤り（422 など）は、次の変更を待つ。つながらないときは、しばらくして送り直す
       if (!(e instanceof ApiError)) schedule(RETRY_MS);
@@ -61,7 +67,7 @@ export function useAutosave(save: (revision: number, fields: Record<string, Fiel
   async function flush(): Promise<boolean> {
     clearTimeout(timer);
     while (inFlight) await inFlight;
-    if (status.value === "conflict") return false;
+    if (status.value === "conflict" || status.value === "locked") return false;
     if (pending.size > 0) {
       inFlight = run().finally(() => {
         inFlight = null;
@@ -93,5 +99,12 @@ export function useAutosave(save: (revision: number, fields: Record<string, Fiel
     clearTimeout(timer);
   });
 
-  return { revision, status, error, set, flush, reset, hasUnsaved };
+  /** 編集を引き継ぎ直したあと、止めていた保存を再び始める（入力は残っている）。 */
+  function unlock() {
+    if (status.value !== "locked") return;
+    status.value = pending.size > 0 ? "dirty" : "saved";
+    if (pending.size > 0) schedule(0);
+  }
+
+  return { revision, status, error, set, flush, reset, unlock, hasUnsaved };
 }

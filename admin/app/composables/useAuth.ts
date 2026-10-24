@@ -41,6 +41,7 @@ export function useAuth() {
   function forget(): void {
     me.value = null;
     setCsrfToken(null);
+    closeRealtime();
   }
 
   async function logout(): Promise<void> {

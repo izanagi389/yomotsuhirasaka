@@ -73,10 +73,10 @@ function removeReference(group: string) {
     </Label>
     <p v-if="field.description" class="text-sm text-muted-foreground">{{ field.description }}</p>
 
-    <Input v-if="field.type === 'text'" :id="id" :model-value="text" :disabled="!editable" @update:model-value="setText" />
+    <Input v-if="field.type === 'text'" :id="id" :model-value="text" :readonly="!editable" @update:model-value="setText" />
 
     <template v-else-if="field.type === 'slug'">
-      <Input :id="id" :model-value="text" :disabled="!editable" autocomplete="off" spellcheck="false" @update:model-value="setText" />
+      <Input :id="id" :model-value="text" :readonly="!editable" autocomplete="off" spellcheck="false" @update:model-value="setText" />
       <p class="text-xs text-muted-foreground">{{ t("entries.slugHint") }}</p>
     </template>
 

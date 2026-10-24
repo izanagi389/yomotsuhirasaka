@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import EntryField from "~/components/entry/EntryField.vue";
 import FreshnessPanel from "~/components/entry/FreshnessPanel.vue";
 import PublishDialog from "~/components/entry/PublishDialog.vue";
+import EditLockBanner from "~/components/entry/EditLockBanner.vue";
 import ReviewPanel from "~/components/entry/ReviewPanel.vue";
 import ScheduleNotice from "~/components/entry/ScheduleNotice.vue";
 import SettingsPanel from "~/components/entry/SettingsPanel.vue";
@@ -40,12 +41,38 @@ const generation = ref(0);
 
 // 保存前のフックが失敗したとき（直さずに保存した）の種類。次の保存で消える
 const hookFailure = ref<string | null>(null);
+// 編集のロック（ソフトロック。Q73）。保存にはロックのIDを付ける
+const lock = useEditLock(ws, id, () => canEdit(workspace.value));
 const autosave = useAutosave(async (revision, fields) => {
-  const saved = await api.put<SavedDraft>(`${base}/draft`, { revision, fields });
+  const lockId = lock.lockId.value;
+  const saved = await api.put<SavedDraft>(`${base}/draft`, { revision, fields, ...(lockId ? { lockId } : {}) });
   hookFailure.value = saved.hookFailure ?? null;
   return saved;
 }, draft.value?.revision ?? 0);
-const editable = computed(() => canEdit(workspace.value) && schema.value?.state === "ok" && autosave.status.value !== "conflict");
+const editable = computed(
+  () =>
+    canEdit(workspace.value) &&
+    schema.value?.state === "ok" &&
+    lock.status.value === "mine" &&
+    autosave.status.value !== "conflict" &&
+    autosave.status.value !== "locked",
+);
+// 編集を引き継げるか（表示のため。照合はサーバーがワークスペースの設定と重い権限で行う）
+const canTakeOver = computed(
+  () => canEdit(workspace.value) && (workspace.value?.takeOverPolicy !== "permission" || hasPermission(workspace.value, "takeOverEditing")),
+);
+const takingOver = ref(false);
+async function takeOver() {
+  takingOver.value = true;
+  try {
+    if (!(await lock.takeOver())) return;
+    // 保存できなかった入力があれば、それを保存し直す（リビジョンがずれていれば衝突として知らせる）。なければ最新を読み直す
+    if (autosave.hasUnsaved.value) autosave.unlock();
+    else await reload();
+  } finally {
+    takingOver.value = false;
+  }
+}
 
 function change(name: string, value: FieldValue) {
   values[name] = value;
@@ -179,6 +206,16 @@ onBeforeRouteLeave(async () => {
         <Button size="sm" variant="outline" @click="reload">{{ t("entries.reload") }}</Button>
       </div>
       <FormError v-else-if="autosave.status.value === 'error'" :error="autosave.error.value" />
+      <EditLockBanner
+        :status="lock.status.value"
+        :holder="lock.holder.value"
+        :since="lock.since.value"
+        :can-take-over="canTakeOver"
+        :unsaved="autosave.hasUnsaved.value"
+        :busy="takingOver"
+        @take-over="takeOver"
+      />
+      <FormError :error="lock.error.value" />
       <ScheduleNotice :key="published" :workspace-id="ws" :entry-id="id" :can-publish="canPublish(workspace)" @reschedule="openPublish(false, true)" />
       <p v-if="schema?.state === 'pending'" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">
         {{ t("entries.migrationPending") }}
