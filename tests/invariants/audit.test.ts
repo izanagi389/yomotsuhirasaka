@@ -1,12 +1,14 @@
-// 監査ログと通知の約束: INV-AUD-01, 02, 04, 05, 06, 07
+// 監査ログと通知の約束: INV-AUD-01, 02, 03, 04, 05, 06, 07
 
 import { randomBytes } from "node:crypto";
 import { expect } from "vitest";
 import { inv } from "./support/inv.js";
 import { asSession, driver, type AuditActionKind, type AuditEntry, type Session } from "./support/driver.js";
-import { expectSuccess, expectTextNotLeaked } from "./support/assert.js";
+import { expectRejected, expectSuccess, expectTextNotLeaked } from "./support/assert.js";
 import { simpleBody } from "./support/body.js";
+import { env } from "./support/env.js";
 import { mailCursor, waitForNewMail } from "./support/mail.js";
+import { startReceiver } from "./support/net.js";
 import { operationsOf } from "./support/operations.js";
 import { cloneTemplate } from "./support/template.js";
 import { disposableTarget, lazyWorld, marker, sleep, uniqueIp, type World } from "./support/world.js";
@@ -88,6 +90,55 @@ inv("inv_aud_02", "監査ログは、管理画面や管理APIから編集・削�
   check(before, await cms.readAuditLog(a.adminSession, a.id), "ワークスペースの監査ログ");
   check(instanceBefore, await cms.readAuditLog(w.serverAdminSession, null), "インスタンスの監査ログ");
 }, 180_000);
+
+inv("inv_aud_03", "ワークスペースの管理者は、他のワークスペースやインスタンス全体の監査ログを見られない", async () => {
+  const w = await world();
+  const { cms, a, b } = w;
+  const names = driver.auditActions();
+  const rc = await startReceiver();
+  try {
+    // A の書き出し先（Webhook）を先に作っておく
+    await cms.reauthenticate(a.adminSession, a.admin);
+    await cms.createAuditSink(a.adminSession, a.id, rc.url(env.harnessAllowedHost, "/aud03"));
+
+    // B の記録（APIキーの発行）と、インスタンス全体だけの記録（ワークスペースの作成）と、A の記録（対照）
+    await cms.reauthenticate(b.adminSession, b.admin);
+    const bKey = await cms.createApiKey(b.adminSession, b.id, ["read"]);
+    await cms.reauthenticate(w.serverAdminSession, w.serverAdmin);
+    const instanceOnly = await cms.createWorkspace(w.serverAdminSession, `inv-aud03-${marker("ws").slice(-8)}`);
+    await cms.reauthenticate(a.adminSession, a.admin);
+    const aKey = await cms.createApiKey(a.adminSession, a.id, ["read"]);
+    const hidden = [bKey.id, instanceOnly.id];
+
+    // B の記録とインスタンス全体の記録は、閲覧・絞り込み・ダウンロードのどれでも読めない
+    const asA = asSession(a.adminSession);
+    const filter = { action: names.apiKeyIssued };
+    expectRejected(await cms.auditLogRaw(asA, b.id), "A の管理者による、B の監査ログの閲覧");
+    expectRejected(await cms.auditLogRaw(asA, b.id, filter), "A の管理者による、B の監査ログの絞り込み");
+    expectRejected(await cms.exportAuditLogRaw(asA, b.id), "A の管理者による、B の監査ログのダウンロード");
+    expectRejected(await cms.auditLogRaw(asA, null), "A の管理者による、インスタンス全体の監査ログの閲覧");
+    expectRejected(await cms.exportAuditLogRaw(asA, null), "A の管理者による、インスタンス全体の監査ログのダウンロード");
+
+    // A の閲覧・絞り込み・ダウンロードには、A の記録だけがある
+    const own = [
+      ["閲覧", await cms.auditLogRaw(asA, a.id)],
+      ["絞り込み", await cms.auditLogRaw(asA, a.id, filter)],
+      ["ダウンロード", await cms.exportAuditLogRaw(asA, a.id)],
+    ] as const;
+    for (const [label, res] of own) {
+      expectSuccess(res, `A の監査ログの${label}`);
+      expect(res.text.includes(aKey.id), `A の監査ログの${label}に、A の記録がない`).toBe(true);
+      for (const id of hidden) expectTextNotLeaked(res.text, id, `A の監査ログの${label}（B やインスタンス全体の記録）`);
+    }
+
+    // A の書き出し先には、A の記録だけが届く
+    await rc.waitFor((r) => r.path.startsWith("/aud03") && r.body.includes(aKey.id), 60_000);
+    const delivered = rc.requests.filter((r) => r.path.startsWith("/aud03")).map((r) => r.body).join("\n");
+    for (const id of hidden) expectTextNotLeaked(delivered, id, "A の監査ログの書き出し先に届いたもの（B やインスタンス全体の記録）");
+  } finally {
+    await rc.close();
+  }
+}, 120_000);
 
 inv(
   "inv_aud_04",

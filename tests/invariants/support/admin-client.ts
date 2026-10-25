@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, Auth, CmsClient, Credentials, Draft, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -467,6 +467,19 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const auditPath = (workspaceId: string | null) => (workspaceId === null ? `${ADMIN}/audit-log` : `${ADMIN}/workspaces/${workspaceId}/audit-log`);
   const auditPageRaw = (auth: Auth, workspaceId: string | null, before?: string, extras?: RequestExtras): Promise<HttpResponse> =>
     request("GET", auditPath(workspaceId), { auth, extras: { ...extras, query: { ...(extras?.query ?? {}), limit: "500", ...(before ? { before } : {}) } } });
+  const auditFilterQuery = (f?: AuditFilter): Record<string, string> => ({
+    ...(f?.action ? { action: f.action } : {}),
+    ...(f?.actorUserId ? { actor: f.actorUserId } : {}),
+    ...(f?.from ? { from: f.from.toISOString() } : {}),
+    ...(f?.to ? { to: f.to.toISOString() } : {}),
+  });
+  const auditLogRaw = (auth: Auth, workspaceId: string | null, filter?: AuditFilter, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", auditPath(workspaceId), { auth, extras: { ...extras, query: { ...(extras?.query ?? {}), ...auditFilterQuery(filter) } } });
+  const exportAuditLogRaw = (auth: Auth, workspaceId: string | null, filter?: AuditFilter, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${auditPath(workspaceId)}/export`, { auth, extras: { ...extras, query: { ...(extras?.query ?? {}), ...auditFilterQuery(filter) } } });
+  const auditSinksPath = (workspaceId: string) => `${ADMIN}/workspaces/${workspaceId}/audit-sinks`;
+  const createAuditSinkRaw = (auth: Auth, workspaceId: string, url: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("POST", auditSinksPath(workspaceId), { auth, extras, body: { url } });
 
   // --- Webhook ---
   const webhooksPath = (workspaceId: string) => `${ADMIN}/workspaces/${workspaceId}/webhooks`;
@@ -552,6 +565,12 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("issuePreviewToken", true, "workspace", (auth, t, extras) => issuePreviewTokenRaw(auth, t.workspaceId, t.entryId, undefined, extras)),
     // 対象は存在しないトークン
     op("revokePreviewToken", true, "workspace", (auth, t, extras) => revokePreviewTokenRaw(auth, t.workspaceId, t.entryId, randomUUID(), extras)),
+    op("exportAuditLog", false, "workspace", (auth, t, extras) => exportAuditLogRaw(auth, t.workspaceId, undefined, extras)),
+    op("listAuditSinks", false, "workspace", (auth, t, extras) => request("GET", auditSinksPath(t.workspaceId), { auth, extras })),
+    // 宛先は届かないアドレス（送信はジョブが行い、失敗しても舞台に影響しない）
+    op("createAuditSink", true, "workspace", (auth, t, extras) => createAuditSinkRaw(auth, t.workspaceId, "https://audit-sink.invalid/inv-op", extras)),
+    // 対象は存在しない書き出し先
+    op("deleteAuditSink", true, "workspace", (auth, t, extras) => request("DELETE", `${auditSinksPath(t.workspaceId)}/${randomUUID()}`, { auth, extras })),
     op("getTodo", false, "workspace", (auth, t, extras) => todoRaw(auth, t.workspaceId, extras)),
     op("getSourceDiff", false, "workspace", (auth, t, extras) => sourceDiffRaw(auth, t.workspaceId, t.entryId, extras)),
     op("markSourceReflected", true, "workspace", (auth, t, extras) => markSourceReflectedRaw(auth, t.workspaceId, t.entryId, extras)),
@@ -1099,6 +1118,15 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       ensure("既存の利用者による招待の承諾", await acceptInviteRaw(token, { session }));
     },
     // 新しい順に、続きがなくなるまでページをたどってすべて読む
+    auditLogRaw: (auth: Auth, workspaceId: string | null, filter?: AuditFilter) => auditLogRaw(auth, workspaceId, filter),
+    exportAuditLogRaw: (auth: Auth, workspaceId: string | null, filter?: AuditFilter) => exportAuditLogRaw(auth, workspaceId, filter),
+    createAuditSinkRaw: (auth: Auth, workspaceId: string, url: string) => createAuditSinkRaw(auth, workspaceId, url),
+    async createAuditSink(s: Session, workspaceId: string, url: string): Promise<{ id: string; secret: string }> {
+      const res = ensure("監査ログの書き出し先の作成", await createAuditSinkRaw(session(s), workspaceId, url));
+      const { id, secret } = JSON.parse(res.text) as { id?: unknown; secret?: unknown };
+      if (typeof id !== "string" || typeof secret !== "string") throw new SetupError("監査ログの書き出し先の読み取り", res);
+      return { id, secret };
+    },
     async readAuditLog(s: Session, workspaceId: string | null): Promise<AuditEntry[]> {
       const out: AuditEntry[] = [];
       let before: string | undefined;
