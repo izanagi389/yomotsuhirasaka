@@ -1,4 +1,4 @@
-// 監査ログと通知の約束: INV-AUD-01, 02, 03, 04, 05, 06, 07
+// 監査ログと通知の約束: INV-AUD-01, 02, 03, 04, 05, 06, 07, 08
 
 import { randomBytes } from "node:crypto";
 import { expect } from "vitest";
@@ -296,3 +296,69 @@ inv("inv_aud_07", "ログインの履歴（IPアドレス、ブラウザの種�
     await server.stop();
   }
 }, 120_000);
+
+inv("inv_aud_08", "ワークスペースの管理者への通知には、他のワークスペースやインスタンス全体の事象が含まれない", async () => {
+  const w = await world();
+  const { cms, a, b } = w;
+  const names = driver.auditActions();
+  const rc = await startReceiver();
+  // ログイン失敗の急増を起こしやすい設定（しきい値を小さく）で、インスタンス全体の書き出し先を持つサーバーを別に起動する（同じDB）
+  const server = await driver.startServer({
+    ...(await driver.validServerConfig()),
+    alerts: { loginFailures: 5, windowSeconds: 300, cooldownSeconds: 1 },
+    auditExportWebhooks: [{ url: rc.url(env.harnessAllowedHost, "/aud08-instance"), secret: randomBytes(32).toString("hex") }],
+  });
+  try {
+    expect(server.outcome, `通知の設定のサーバーが起動しない:\n${server.output}`).toBe("ready");
+    const s = server.client!;
+
+    // A のワークスペースの書き出し先（ワークスペースの管理者への通知の経路）
+    await cms.reauthenticate(a.adminSession, a.admin);
+    await cms.createAuditSink(a.adminSession, a.id, rc.url(env.harnessAllowedHost, "/aud08"));
+
+    // B の事象: B の管理者が、B の所属者の多要素認証のリセットを発行する
+    await cms.reauthenticate(b.adminSession, b.admin);
+    const bMember = await cms.createMember(b.adminSession, b.id, "editor", { mfa: true });
+    expectSuccess(await cms.issueMfaResetRaw(b.adminSession, b.id, bMember.userId), "B の多要素認証のリセットの発行");
+    // インスタンス全体の事象: サーバー管理者の作成と、ログイン失敗の急増
+    const newAdmin = await cms.createServerAdmin({ mfa: false });
+    const victim = await cms.createMember(a.adminSession, a.id, "author");
+    for (let i = 0; i < 8; i++) {
+      await s.loginRaw({ email: victim.email, password: "wrong-password-aud08" }, { extras: { clientIp: uniqueIp() } });
+    }
+    // 対照: A の管理者が、A の所属者の多要素認証のリセットを発行する
+    await cms.reauthenticate(a.adminSession, a.admin);
+    const aMember = await cms.createMember(a.adminSession, a.id, "editor", { mfa: true });
+    expectSuccess(await cms.issueMfaResetRaw(a.adminSession, a.id, aMember.userId), "A の多要素認証のリセットの発行");
+
+    // インスタンス全体の書き出し先には、急増の通知が届く（対照）
+    await rc.waitFor((r) => r.path.startsWith("/aud08-instance") && r.body.includes(names.loginFailuresAlert), 60_000);
+    // A の書き出し先には、A のリセットの通知が届く（対照）
+    await rc.waitFor(
+      (r) => r.path.startsWith("/aud08") && !r.path.startsWith("/aud08-instance") && r.body.split("\n").some((l) => l.includes(aMember.userId) && l.includes('"notify":true')),
+      60_000,
+    );
+    const toA = rc.requests.filter((r) => r.path.startsWith("/aud08") && !r.path.startsWith("/aud08-instance")).map((r) => r.body).join("\n");
+    for (const [id, label] of [
+      [bMember.userId, "B の事象"],
+      [newAdmin.userId, "サーバー管理者の作成"],
+      [names.loginFailuresAlert, "ログイン失敗の急増"],
+    ] as const) {
+      expectTextNotLeaked(toA, id, `A の管理者への通知（${label}）`);
+    }
+
+    // A の管理者の「やること」には、A のリセットの通知だけが出る
+    const todo = (await cms.getTodo(a.adminSession, a.id)).filter((i) => i.kind === "notification");
+    expect(
+      todo.some((i) => i.notification?.action === names.mfaResetIssued && i.notification.targetIds.includes(aMember.userId)),
+      "A の管理者の「やること」に、A のリセットの通知がない",
+    ).toBe(true);
+    const shown = JSON.stringify(todo);
+    for (const id of [bMember.userId, newAdmin.userId, names.loginFailuresAlert]) {
+      expectTextNotLeaked(shown, id, "A の管理者の「やること」の通知（B やインスタンス全体の事象）");
+    }
+  } finally {
+    await server.stop();
+    await rc.close();
+  }
+}, 180_000);

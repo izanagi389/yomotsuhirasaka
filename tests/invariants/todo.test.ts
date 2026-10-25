@@ -64,6 +64,6 @@ inv("inv_todo_01", "「やること」の一覧には、その利用者が対応
   const bTodo = await todo(b.editorSession, b.id);
   expect(has(bTodo, "unwrittenCorrection", correctedInB), "B の編集者の「やること」に B の項目がない").toBe(true);
   const aIds = [reviewed.id, corrected, source.id, translation.id];
-  expect(bTodo.filter((i) => aIds.includes(i.entryId)), "B の「やること」に A の記事がある").toEqual([]);
+  expect(bTodo.filter((i) => i.entryId !== null && aIds.includes(i.entryId)), "B の「やること」に A の記事がある").toEqual([]);
   expect(editorTodo.filter((i) => i.entryId === correctedInB), "A の「やること」に B の記事がある").toEqual([]);
 });

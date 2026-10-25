@@ -855,10 +855,18 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     async getTodo(s: Session, workspaceId: string): Promise<TodoItem[]> {
       const res = ensure("やることの取得", await todoRaw(session(s), workspaceId));
-      const body = JSON.parse(res.text) as { items?: { kind?: unknown; entry?: { id?: unknown } }[] };
+      const body = JSON.parse(res.text) as {
+        items?: { kind?: unknown; entry?: { id?: unknown } | null; notification?: { action?: unknown; targetIds?: unknown } }[];
+      };
       if (!Array.isArray(body.items)) throw new SetupError("やることの読み取り", res);
       return body.items.map((i) => {
-        if (typeof i.kind !== "string" || typeof i.entry?.id !== "string") throw new SetupError("やることの項目の読み取り", res);
+        if (typeof i.kind !== "string") throw new SetupError("やることの項目の読み取り", res);
+        if (i.kind === "notification") {
+          const n = i.notification;
+          if (typeof n?.action !== "string" || !Array.isArray(n.targetIds)) throw new SetupError("やることの通知の読み取り", res);
+          return { kind: "notification", entryId: null, notification: { action: n.action, targetIds: n.targetIds.map(String) } };
+        }
+        if (typeof i.entry?.id !== "string") throw new SetupError("やることの項目の読み取り", res);
         return { kind: i.kind as TodoItem["kind"], entryId: i.entry.id };
       });
     },
