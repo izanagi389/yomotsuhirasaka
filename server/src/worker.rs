@@ -107,7 +107,7 @@ pub fn spawn(state: AppState) -> Vec<tokio::task::JoinHandle<()>> {
         .collect()
 }
 
-/// 保存期間を過ぎたログインの履歴を、設定の間隔で削除する常駐の処理（INV-AUD-07）。
+/// 保存期間を過ぎたログインの履歴と監査ログを、設定の間隔で削除する常駐の処理（INV-AUD-07、計画の14番）。
 pub fn spawn_sweeper(state: AppState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let every = Duration::from_secs(state.config.login_history.sweep_interval_seconds.into());
@@ -125,6 +125,19 @@ pub fn spawn_sweeper(state: AppState) -> tokio::task::JoinHandle<()> {
             }
             if let Err(e) = crate::auth::passkeys::sweep_challenges(&state.pool).await {
                 tracing::error!("passkey challenge sweeper: {e:#}");
+            }
+            // 保存期間を過ぎた監査ログ（専用のロールの関数だけが消せる。送り終えていない記録は残す）
+            match sqlx::query_scalar::<_, i64>("SELECT cms.purge_audit_log($1)")
+                .bind(state.config.audit.retention_days)
+                .fetch_one(&state.pool)
+                .await
+            {
+                Ok(n) if n > 0 => tracing::info!(
+                    deleted = n,
+                    "audit log: removed records past the retention period"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::error!("audit log purge: {e:#}"),
             }
         }
     })

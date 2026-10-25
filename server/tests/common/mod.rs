@@ -105,6 +105,13 @@ impl Scratch {
                 .execute(db::trusted(format!("DROP ROLE IF EXISTS \"{r}\"")))
                 .await;
         }
+        // 監査ログの削除の専用のロール（移行が普段用のロールの名前から作る。migrate::audit_purger_role）
+        let _ = su
+            .execute(db::trusted(format!(
+                "DROP ROLE IF EXISTS \"{}_audit_purger\"",
+                self.app_role.trim_matches('"')
+            )))
+            .await;
         let _ = su
             .execute(db::trusted(format!(
                 "DROP ROLE IF EXISTS {}",

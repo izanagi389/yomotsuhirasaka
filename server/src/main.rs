@@ -288,6 +288,7 @@ fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()>
         },
         scripts: config::ScriptsConfig::default(),
         audit_export: config::AuditExportConfig::default(),
+        audit: config::AuditConfig::default(),
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,

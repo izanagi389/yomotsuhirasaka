@@ -261,6 +261,12 @@ pub fn check_config(config: &Config) -> Report {
     report
         .problems
         .extend(check_audit_export(&config.audit_export));
+    if config.audit.retention_days < crate::migrate::MIN_AUDIT_RETENTION_DAYS {
+        report.problems.push(Problem::fatal(format!(
+            "`audit.retention_days` must be at least {}",
+            crate::migrate::MIN_AUDIT_RETENTION_DAYS
+        )));
+    }
     match &config.encryption_key_file {
         None => report
             .problems

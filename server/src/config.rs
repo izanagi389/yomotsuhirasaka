@@ -69,6 +69,25 @@ pub struct Config {
     /// 監査ログの外部への書き出し（11-permissions-and-audit.md「外部への書き出し」、Q81）。インスタンス全体の記録が出る。
     #[serde(default)]
     pub audit_export: AuditExportConfig,
+    /// 監査ログの保存期間（11-permissions-and-audit.md「保護と保存期間」）。
+    #[serde(default)]
+    pub audit: AuditConfig,
+}
+
+/// 監査ログの保存期間。過ぎたものは自動で削除する（専用のロールの関数で。書き出し先に送り終えていないものは残す）。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct AuditConfig {
+    /// 保存する日数（既定は365、30以上）。インスタンス全体で1つ。
+    pub retention_days: i32,
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        Self {
+            retention_days: 365,
+        }
+    }
 }
 
 /// 監査ログの外部への書き出し（インスタンス全体。運用者が決める）。1行1件の JSON。
