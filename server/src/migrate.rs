@@ -105,6 +105,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "preview_origins",
         include_str!("../migrations/0022_preview_origins.sql"),
     ),
+    (
+        23,
+        "preview_path",
+        include_str!("../migrations/0023_preview_path.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
