@@ -293,6 +293,7 @@
   },
   "entryTabs": {
     "content": "Content",
+    "preview": "Preview",
     "translations": "Translations",
     "versions": "Versions",
     "settings": "Publish settings",
@@ -783,7 +784,14 @@
     "takeOver": "Taking over editing",
     "takeOverHelp": "Choose who can take over an entry someone else is editing. Take-overs are recorded in the audit log.",
     "anyone": "Anyone who can edit entries (default)",
-    "permission": "Only people with the take over editing permission (administrators and editors by default, plus individual grants)"
+    "permission": "Only people with the take over editing permission (administrators and editors by default, plus individual grants)",
+    "preview": "Preview",
+    "previewHelp": "Sites where entry previews open. A preview opens only when the origin of the entry's public URL is listed here. The live preview frame and messages from the site are also limited to these sites.",
+    "previewOrigins": "Sites allowed to show previews",
+    "previewOriginsHelp": "One per line, like https://example.com (up to 10; http only for localhost).",
+    "previewPath": "Preview path on the site",
+    "previewPathHelp": "The official Nuxt module uses /_cms/preview by default. Match the site's cms.preview.route.",
+    "saved": "Saved."
   },
   "sourceUpdate": {
     "updated": "The source entry has been updated.",
@@ -834,5 +842,16 @@
     "scheduledAt": "Scheduled: {at}",
     "correctedAt": "Corrected: {at}",
     "dueAt": "Due: {at}"
+  },
+  "preview": {
+    "noUrl": "The preview cannot open because the entry has no public URL yet. Enter a slug.",
+    "notAllowed": "The site of this entry's public URL is not in the list of sites allowed to show previews.",
+    "openSettings": "Open settings",
+    "openInNewTab": "Open in a new tab",
+    "reload": "Reload",
+    "live": "Updates on every save",
+    "connecting": "Connecting to the site…",
+    "frameTitle": "Entry preview",
+    "cookieNote": "If the preview does not update or shows the published content, your browser is blocking cookies in this frame. Use \"Open in a new tab\"."
   }
 }

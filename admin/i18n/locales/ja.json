@@ -293,6 +293,7 @@
   },
   "entryTabs": {
     "content": "内容",
+    "preview": "プレビュー",
     "translations": "翻訳",
     "versions": "版",
     "settings": "公開設定",
@@ -783,7 +784,14 @@
     "takeOver": "編集の引き継ぎ",
     "takeOverHelp": "ほかの人が編集中の記事の編集を、誰が引き継げるかを選びます。引き継ぎは監査ログに残ります。",
     "anyone": "記事を編集できる人なら誰でも（既定）",
-    "permission": "「編集の引き継ぎ」の権限を持つ人だけ（管理者・編集者の既定と、個人への付与）"
+    "permission": "「編集の引き継ぎ」の権限を持つ人だけ（管理者・編集者の既定と、個人への付与）",
+    "preview": "プレビュー",
+    "previewHelp": "記事のプレビューを開くサイトです。記事の公開URLのオリジンがここにあるときだけ、プレビューを開けます。ライブプレビューの iframe と、サイトからのメッセージもこのサイトだけを許します。",
+    "previewOrigins": "プレビューを許すサイト",
+    "previewOriginsHelp": "1行に1つ、https://example.com の形で（最大10件。http は localhost だけ）。",
+    "previewPath": "サイトのプレビュー用のパス",
+    "previewPathHelp": "公式のNuxtモジュールの既定は /_cms/preview です。サイトの設定（cms.preview.route）に合わせます。",
+    "saved": "保存しました。"
   },
   "sourceUpdate": {
     "updated": "原文が更新されました。",
@@ -834,5 +842,16 @@
     "scheduledAt": "予約: {at}",
     "correctedAt": "訂正: {at}",
     "dueAt": "期限: {at}"
+  },
+  "preview": {
+    "noUrl": "公開URLを作れないため、プレビューを開けません。スラッグを入力してください。",
+    "notAllowed": "この記事の公開URLのサイトは、プレビューを許すサイトに設定されていません。",
+    "openSettings": "設定を開く",
+    "openInNewTab": "別タブで開く",
+    "reload": "開き直す",
+    "live": "保存のたびに更新します",
+    "connecting": "サイトにつないでいます…",
+    "frameTitle": "記事のプレビュー",
+    "cookieNote": "表示が更新されない、または公開中の内容が出る場合は、ブラウザがこの枠の中のクッキーを止めています。「別タブで開く」を使ってください。"
   }
 }
