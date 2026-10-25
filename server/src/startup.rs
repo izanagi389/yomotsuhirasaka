@@ -258,6 +258,9 @@ pub fn check_config(config: &Config) -> Report {
              protection against DNS rebinding now depends on the proxy"
         );
     }
+    report
+        .problems
+        .extend(check_audit_export(&config.audit_export));
     match &config.encryption_key_file {
         None => report
             .problems
@@ -271,6 +274,32 @@ pub fn check_config(config: &Config) -> Report {
         }
     }
     report
+}
+
+/// 監査ログの外部への書き出しの検査。Webhook は https だけ（本番）。秘密のファイルは読めて、十分に強いこと。
+fn check_audit_export(export: &crate::config::AuditExportConfig) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    for (i, hook) in export.webhooks.iter().enumerate() {
+        let name = format!("audit_export.webhooks[{i}]");
+        match url::Url::parse(&hook.url) {
+            Ok(u) if u.scheme() == "https" => {}
+            Ok(u) if u.scheme() == "http" => problems.push(Problem::config(format!(
+                "`{name}.url` is not https; audit records would be sent unencrypted"
+            ))),
+            _ => problems.push(Problem::fatal(format!(
+                "`{name}.url` is not an http(s) URL"
+            ))),
+        }
+        match std::fs::read_to_string(&hook.secret_file) {
+            Ok(secret) => {
+                problems.extend(check_secret(&format!("{name}.secret_file"), secret.trim()))
+            }
+            Err(_) => problems.push(Problem::fatal(format!(
+                "`{name}.secret_file` cannot be read"
+            ))),
+        }
+    }
+    problems
 }
 
 /// SMTPの設定の検査。

@@ -84,6 +84,10 @@ pub mod action {
     pub const MEDIA_DELETED: &str = "media.deleted";
     pub const WORKSPACE_LIMITS_CHANGED: &str = "workspace.limits_changed";
     pub const WEBHOOK_CREATED: &str = "webhook.created";
+    /// 監査ログの書き出し先（ワークスペース）の作成・削除・再開（計画の14番）。
+    pub const AUDIT_SINK_CREATED: &str = "audit_sink.created";
+    pub const AUDIT_SINK_DELETED: &str = "audit_sink.deleted";
+    pub const AUDIT_SINK_RESUMED: &str = "audit_sink.resumed";
     pub const WEBHOOK_DELETED: &str = "webhook.deleted";
     pub const WEBHOOK_SECRET_ROTATED: &str = "webhook.secret_rotated";
 }

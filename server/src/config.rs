@@ -66,6 +66,30 @@ pub struct Config {
     /// 組み込みJS（04-hooks.md、Q89）。
     #[serde(default)]
     pub scripts: ScriptsConfig,
+    /// 監査ログの外部への書き出し（11-permissions-and-audit.md「外部への書き出し」、Q81）。インスタンス全体の記録が出る。
+    #[serde(default)]
+    pub audit_export: AuditExportConfig,
+}
+
+/// 監査ログの外部への書き出し（インスタンス全体。運用者が決める）。1行1件の JSON。
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct AuditExportConfig {
+    /// 標準出力に書く（サーバーのログは標準エラー出力なので混ざらない）。
+    pub stdout: bool,
+    /// 追記するファイル。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<PathBuf>,
+    /// 送るWebhook（署名付き）。
+    pub webhooks: Vec<AuditWebhookConfig>,
+}
+
+/// 監査ログを送るWebhook。署名の秘密は別のファイルに置く（設定ファイルに直接書かない）。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuditWebhookConfig {
+    pub url: String,
+    pub secret_file: PathBuf,
 }
 
 /// 組み込みJSの1回の実行あたりの上限（Q89）。

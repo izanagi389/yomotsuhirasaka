@@ -110,6 +110,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "preview_path",
         include_str!("../migrations/0023_preview_path.sql"),
     ),
+    (
+        24,
+        "audit_export",
+        include_str!("../migrations/0024_audit_export.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -146,6 +151,8 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("workspace_settings", "SELECT, INSERT, UPDATE"),
     // 管理者が削除する（送信の記録も一緒に消える）
     ("webhooks", "SELECT, INSERT, UPDATE, DELETE"),
+    ("audit_sinks", "SELECT, INSERT, UPDATE, DELETE"),
+    ("audit_export_cursors", "SELECT, INSERT, UPDATE, DELETE"),
     ("webhook_deliveries", "SELECT, INSERT, UPDATE"),
     // 本人がひも付けを外せるようにする（OIDCとともに）
     ("external_identities", "SELECT, INSERT, UPDATE, DELETE"),
