@@ -62,6 +62,9 @@ pub struct WorkspaceInfo {
     /// プレビューを許すサイトのオリジン（1件の取得のときだけ）。
     #[serde(skip_serializing_if = "Option::is_none")]
     preview_origins: Option<Vec<String>>,
+    /// サイトのプレビュー用ルートのパス（1件の取得のときだけ）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview_path: Option<String>,
 }
 
 type WorkspaceRow = (
@@ -88,6 +91,7 @@ fn workspace_info(
         permissions: None,
         take_over_policy: None,
         preview_origins: None,
+        preview_path: None,
     }
 }
 
@@ -147,6 +151,7 @@ pub async fn get_workspace(
     info.take_over_policy =
         Some(super::admin_settings::take_over_policy_of(&state.pool, id).await?);
     info.preview_origins = Some(super::admin_settings::preview_origins_of(&state.pool, id).await?);
+    info.preview_path = Some(super::admin_settings::preview_path_of(&state.pool, id).await?);
     Ok(Json(info))
 }
 
