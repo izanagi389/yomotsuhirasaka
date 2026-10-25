@@ -12,6 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import EntryField from "~/components/entry/EntryField.vue";
 import FreshnessPanel from "~/components/entry/FreshnessPanel.vue";
+import PreviewPanel from "~/components/entry/PreviewPanel.vue";
 import PublishDialog from "~/components/entry/PublishDialog.vue";
 import EditLockBanner from "~/components/entry/EditLockBanner.vue";
 import EntryTodoNotice from "~/components/entry/EntryTodoNotice.vue";
@@ -97,8 +98,11 @@ const title = computed(() => (draft.value ? entryTitle(contentType.value, values
 
 // タブ（内容のタブは、エディタの状態を保つため、ほかのタブを開いている間も残しておく）
 // ?tab=review などで、開くタブを選べる（「要対応」の一覧から）
-const TABS = ["content", "translations", "versions", "review", "freshness", "settings", "urls"];
+const TABS = ["content", "preview", "translations", "versions", "review", "freshness", "settings", "urls"];
 const tab = ref(TABS.includes(String(route.query["tab"])) ? String(route.query["tab"]) : "content");
+// プレビューのタブを一度でも開いたか（開いたら、ほかのタブに移っても iframe を残す）
+const previewOpened = ref(tab.value === "preview");
+watch(tab, (v) => v === "preview" && (previewOpened.value = true));
 // レビュー待ちの印（レビューの欄と同じデータ）
 const { data: review } = useAsyncData(`review:${id}`, () => api.get<EntryReview>(`${base}/review-request`));
 // 翻訳の情報（原文の更新の知らせとタブの印。翻訳タブと共有する）
@@ -235,6 +239,7 @@ onBeforeRouteLeave(async () => {
       <Tabs v-model="tab">
         <TabsList>
           <TabsTrigger value="content">{{ t("entryTabs.content") }}</TabsTrigger>
+          <TabsTrigger v-if="canEdit(workspace)" value="preview" data-testid="tab-preview">{{ t("entryTabs.preview") }}</TabsTrigger>
           <TabsTrigger value="translations" data-testid="tab-translations">
             {{ t("entryTabs.translations") }}
             <span v-if="translation?.sourceUpdate" class="ml-1 inline-block size-2 rounded-full bg-amber-500" :aria-label="t('sourceUpdate.updated')" />
@@ -264,6 +269,10 @@ onBeforeRouteLeave(async () => {
             />
           </form>
           <p class="text-xs text-muted-foreground">{{ t("entries.updated", { at: formatDateTime(draft.updatedAt, locale) }) }}</p>
+        </TabsContent>
+        <!-- 一度開いたら、ほかのタブにいる間も残す（編集中も、保存のたびにサイトが取り直す） -->
+        <TabsContent v-if="canEdit(workspace) && previewOpened" value="preview" force-mount class="mt-4 data-[state=inactive]:hidden">
+          <PreviewPanel :workspace-id="ws" :entry-id="id" :workspace="workspace" :revision="autosave.revision.value" :flush="autosave.flush" />
         </TabsContent>
         <TabsContent value="translations" class="mt-4">
           <TranslationsPanel

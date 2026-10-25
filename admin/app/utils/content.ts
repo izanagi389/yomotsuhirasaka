@@ -51,6 +51,10 @@ export interface WorkspaceInfo {
   permissions?: HeavyPermission[];
   /** 編集の引き継ぎを誰ができるか（1件の取得のときだけ）。 */
   takeOverPolicy?: "anyone" | "permission";
+  /** プレビューを許すサイトのオリジン（1件の取得のときだけ）。 */
+  previewOrigins?: string[];
+  /** サイトのプレビュー用ルートのパス（1件の取得のときだけ）。 */
+  previewPath?: string;
 }
 
 export type FieldValue = string | string[] | JSONContent | null;
@@ -438,4 +442,13 @@ export interface TodoItem {
   request?: ReviewRequest;
   schedule?: ScheduleView;
   versionId?: string;
+}
+
+/** POST .../entries/{id}/preview-tokens */
+export interface PreviewToken {
+  id: string;
+  token: string;
+  expiresAt: string;
+  /** 下書きから作った公開URL（作れなければ null）。 */
+  url: string | null;
 }
