@@ -507,7 +507,9 @@
         "rotated": "APIキーを一斉に入れ替え"
       },
       "auth": {
-        "login": "ログイン"
+        "login": "ログイン",
+        "identity_linked": "外部のアカウントのひも付け",
+        "user_provisioned": "SSOによる利用者の作成"
       },
       "emergency": {
         "sessions_revoked": "全セッションを一斉に失効"
@@ -525,7 +527,13 @@
         "published": "記事を公開",
         "published_as_correction": "訂正として公開",
         "settings_changed": "公開設定を変更",
-        "unpublished": "記事を非公開"
+        "unpublished": "記事を非公開",
+        "edit_taken_over": "編集の引き継ぎ",
+        "schedule_cancelled": "予約の取り消し",
+        "schedule_cancelled_by_correction": "訂正による予約の取り消し",
+        "schedule_failed": "予約公開の失敗",
+        "scheduled": "予約公開",
+        "verified": "確認済みの記録"
       },
       "invitation": {
         "revoked": "招待を取り消し"
@@ -571,10 +579,40 @@
       },
       "workspace": {
         "created": "ワークスペースを作成",
-        "limits_changed": "容量の上限を変更"
+        "limits_changed": "容量の上限を変更",
+        "settings_changed": "ワークスペースの設定の変更"
+      },
+      "audit_sink": {
+        "created": "監査ログの書き出し先の作成",
+        "deleted": "監査ログの書き出し先の削除",
+        "resumed": "監査ログの書き出し先の再開"
+      },
+      "correction": {
+        "note_edited": "訂正の説明の記入",
+        "templates_changed": "訂正の定型文の変更"
+      },
+      "review": {
+        "rejected": "レビューの差し戻し",
+        "requested": "レビューの依頼",
+        "reviewer_changed": "レビューする人の変更",
+        "withdrawn": "レビューの依頼の取り下げ"
+      },
+      "translation": {
+        "source_changed": "翻訳の元の記事の変更",
+        "source_reflected": "原文の更新を反映済み"
+      },
+      "user": {
+        "display_name_changed": "表示名の変更"
       }
     },
-    "you": "あなた"
+    "you": "あなた",
+    "all": "すべて",
+    "from": "開始日",
+    "to": "終了日",
+    "filter": "絞り込む",
+    "clear": "解除",
+    "download": "ダウンロード",
+    "downloadHelp": "絞り込んだ結果を、新しい順に最大1万件、1行1件の JSON（.jsonl）でダウンロードします。"
   },
   "server": {
     "title": "サーバーの管理",
@@ -853,5 +891,20 @@
     "connecting": "サイトにつないでいます…",
     "frameTitle": "記事のプレビュー",
     "cookieNote": "表示が更新されない、または公開中の内容が出る場合は、ブラウザがこの枠の中のクッキーを止めています。「別タブで開く」を使ってください。"
+  },
+  "auditSinks": {
+    "title": "書き出し先（Webhook）",
+    "help": "このワークスペースの監査ログを、1行1件の JSON で送ります。作った時点より後の記録だけが届きます。記事の Webhook と同じ形式の署名が付きます。7日間続けて届かなければ停止します。",
+    "url": "送信先のURL",
+    "create": "追加",
+    "created": "{url} を追加しました。署名用の秘密は今だけ表示されます。",
+    "none": "書き出し先はありません。",
+    "ok": "送信中",
+    "failing": "送れていません",
+    "stopped": "停止",
+    "stoppedAt": "{at} に停止しました。再開すると、続きから送ります。",
+    "failingSince": "{at} から送れていません",
+    "resume": "再開",
+    "delete": "削除"
   }
 }

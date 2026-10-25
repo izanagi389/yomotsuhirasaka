@@ -4,6 +4,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ApiKeysPanel from "~/components/admin/ApiKeysPanel.vue";
 import AuditPanel from "~/components/admin/AuditPanel.vue";
+import AuditSinksPanel from "~/components/admin/AuditSinksPanel.vue";
 import CorrectionTemplatesPanel from "~/components/admin/CorrectionTemplatesPanel.vue";
 import InvitationsPanel from "~/components/admin/InvitationsPanel.vue";
 import MembersPanel from "~/components/admin/MembersPanel.vue";
@@ -54,7 +55,10 @@ watch(tab, async (v) => {
       <TabsContent value="correctionTemplates" class="mt-4">
         <CorrectionTemplatesPanel :workspace-id="ws" :locales="manifest?.locales ?? []" />
       </TabsContent>
-      <TabsContent value="audit" class="mt-4"><AuditPanel :workspace-id="ws" :people="people" /></TabsContent>
+      <TabsContent value="audit" class="mt-4 grid gap-8">
+        <AuditPanel :workspace-id="ws" :people="people" />
+        <AuditSinksPanel :workspace-id="ws" />
+      </TabsContent>
     </Tabs>
   </div>
 </template>

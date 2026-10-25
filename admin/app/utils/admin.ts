@@ -88,6 +88,18 @@ export interface AuditEntry {
   createdAt: string;
 }
 
+/** 監査ログの書き出し先（ワークスペースの Webhook）。 */
+export interface AuditSink {
+  id: string;
+  url: string;
+  createdAt: string;
+  /** 送れなくなった時刻（送れていれば null）。 */
+  failingSince: string | null;
+  lastError: string | null;
+  /** 停止した時刻（7日間続けて送れなかったとき）。 */
+  stoppedAt: string | null;
+}
+
 export interface AuditPage {
   entries: AuditEntry[];
   nextBefore: string | null;
