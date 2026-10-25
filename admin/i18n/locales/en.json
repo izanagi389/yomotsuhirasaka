@@ -507,7 +507,9 @@
         "rotated": "API keys rotated"
       },
       "auth": {
-        "login": "Signed in"
+        "login": "Signed in",
+        "identity_linked": "External account linked",
+        "user_provisioned": "User created by SSO"
       },
       "emergency": {
         "sessions_revoked": "All sessions revoked"
@@ -525,7 +527,13 @@
         "published": "Entry published",
         "published_as_correction": "Published as correction",
         "settings_changed": "Publish settings changed",
-        "unpublished": "Entry unpublished"
+        "unpublished": "Entry unpublished",
+        "edit_taken_over": "Editing taken over",
+        "schedule_cancelled": "Schedule cancelled",
+        "schedule_cancelled_by_correction": "Schedule cancelled by a correction",
+        "schedule_failed": "Scheduled publish failed",
+        "scheduled": "Publish scheduled",
+        "verified": "Marked as verified"
       },
       "invitation": {
         "revoked": "Invitation revoked"
@@ -571,10 +579,40 @@
       },
       "workspace": {
         "created": "Workspace created",
-        "limits_changed": "Storage limit changed"
+        "limits_changed": "Storage limit changed",
+        "settings_changed": "Workspace settings changed"
+      },
+      "audit_sink": {
+        "created": "Audit log destination created",
+        "deleted": "Audit log destination deleted",
+        "resumed": "Audit log destination resumed"
+      },
+      "correction": {
+        "note_edited": "Correction note written",
+        "templates_changed": "Correction templates changed"
+      },
+      "review": {
+        "rejected": "Review sent back",
+        "requested": "Review requested",
+        "reviewer_changed": "Reviewer changed",
+        "withdrawn": "Review request withdrawn"
+      },
+      "translation": {
+        "source_changed": "Translation source changed",
+        "source_reflected": "Source updates marked as reflected"
+      },
+      "user": {
+        "display_name_changed": "Display name changed"
       }
     },
-    "you": "You"
+    "you": "You",
+    "all": "All",
+    "from": "From",
+    "to": "To",
+    "filter": "Filter",
+    "clear": "Clear",
+    "download": "Download",
+    "downloadHelp": "Downloads the filtered records, newest first, up to 10,000, as JSON Lines (.jsonl)."
   },
   "server": {
     "title": "Server administration",
@@ -853,5 +891,20 @@
     "connecting": "Connecting to the site…",
     "frameTitle": "Entry preview",
     "cookieNote": "If the preview does not update or shows the published content, your browser is blocking cookies in this frame. Use \"Open in a new tab\"."
+  },
+  "auditSinks": {
+    "title": "Destinations (webhooks)",
+    "help": "Sends this workspace's audit log as JSON Lines. Only records after the destination is added are sent, signed like entry webhooks. A destination that fails for 7 days in a row is stopped.",
+    "url": "Destination URL",
+    "create": "Add",
+    "created": "Added {url}. The signing secret is shown only now.",
+    "none": "No destinations.",
+    "ok": "Sending",
+    "failing": "Not delivering",
+    "stopped": "Stopped",
+    "stoppedAt": "Stopped at {at}. Resume to continue from where it stopped.",
+    "failingSince": "Not delivering since {at}",
+    "resume": "Resume",
+    "delete": "Delete"
   }
 }
