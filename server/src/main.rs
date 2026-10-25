@@ -287,6 +287,7 @@ fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()>
             dist_dir: admin_dist_dir,
         },
         scripts: config::ScriptsConfig::default(),
+        audit_export: config::AuditExportConfig::default(),
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,
@@ -742,6 +743,7 @@ async fn serve(config: Config) -> Result<()> {
     cms_server::http::realtime::spawn_listener(state.clone());
     worker::spawn(state.clone());
     worker::spawn_sweeper(state.clone());
+    cms_server::audit_export::spawn(state.clone());
     let app = http::router(state);
     let listener = tokio::net::TcpListener::bind(&listen)
         .await

@@ -2,6 +2,7 @@
 
 pub mod admin_api_keys;
 pub mod admin_audit;
+pub mod admin_audit_sinks;
 pub mod admin_auth;
 pub mod admin_corrections;
 pub mod admin_entries;
@@ -510,6 +511,18 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/audit-log/export",
             get(admin_audit::workspace_export),
+        )
+        .route(
+            "/workspaces/{ws}/audit-sinks",
+            get(admin_audit_sinks::list).post(admin_audit_sinks::create),
+        )
+        .route(
+            "/workspaces/{ws}/audit-sinks/{id}",
+            delete(admin_audit_sinks::delete),
+        )
+        .route(
+            "/workspaces/{ws}/audit-sinks/{id}/resume",
+            post(admin_audit_sinks::resume),
         )
         .route(
             "/workspaces/{ws}/webhooks",
