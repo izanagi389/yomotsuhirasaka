@@ -499,6 +499,7 @@ pub fn router(state: AppState) -> Router {
             delete(admin_api_keys::revoke),
         )
         .route("/audit-log", get(admin_audit::instance))
+        .route("/audit-log/export", get(admin_audit::instance_export))
         .route(
             "/workspaces/{ws}/imports",
             // まとめて送るので、本文の上限を大きくする（画像は別にアップロードする）
@@ -506,6 +507,10 @@ pub fn router(state: AppState) -> Router {
                 .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024)),
         )
         .route("/workspaces/{ws}/audit-log", get(admin_audit::workspace))
+        .route(
+            "/workspaces/{ws}/audit-log/export",
+            get(admin_audit::workspace_export),
+        )
         .route(
             "/workspaces/{ws}/webhooks",
             get(admin_webhooks::list).post(admin_webhooks::create),

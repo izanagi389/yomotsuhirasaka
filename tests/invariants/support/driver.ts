@@ -341,6 +341,14 @@ export interface AuditEntry {
   raw: unknown;
 }
 
+/** 監査ログの絞り込み（M2）。action はドライバーの auditActions の値。 */
+export interface AuditFilter {
+  action?: string;
+  actorUserId?: string;
+  from?: Date;
+  to?: Date;
+}
+
 export type AuditActionKind =
   | "login"
   | "roleChanged"
@@ -564,6 +572,13 @@ export interface CmsClient {
   // --- 監査ログ ---
   /** 監査ログを読む。workspaceId が null ならインスタンス全体のログ。 */
   readAuditLog(session: Session, workspaceId: string | null): Promise<AuditEntry[]>;
+  /** 監査ログの1ページ（workspaceId が null ならインスタンス全体）。filter は絞り込み（M2）。 */
+  auditLogRaw(auth: Auth, workspaceId: string | null, filter?: AuditFilter): Promise<HttpResponse>;
+  /** 監査ログのダウンロード（1行1件の JSON。M2）。 */
+  exportAuditLogRaw(auth: Auth, workspaceId: string | null, filter?: AuditFilter): Promise<HttpResponse>;
+  /** ワークスペースの監査ログの書き出し先（Webhook）を作る（M2）。 */
+  createAuditSink(session: Session, workspaceId: string, url: string): Promise<{ id: string; secret: string }>;
+  createAuditSinkRaw(auth: Auth, workspaceId: string, url: string): Promise<HttpResponse>;
 
   // --- その他 ---
   /** 管理画面（SPA）の配信。 */

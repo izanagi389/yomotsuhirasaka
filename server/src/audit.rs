@@ -133,6 +133,33 @@ pub struct Entry {
     pub created_at: String,
 }
 
+/// 外部への書き出しとダウンロードの1行（内容は入らない。INV-AUD-01）。名前は受け手が使うので変えない。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Line<'a> {
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    pub id: Uuid,
+    pub at: &'a str,
+    pub workspace_id: Option<Uuid>,
+    pub actor_user_id: Option<Uuid>,
+    pub action: &'a str,
+    pub target_ids: &'a [String],
+}
+
+/// 記録を1行の形にする。
+pub fn line(e: &Entry) -> Line<'_> {
+    Line {
+        kind: "audit",
+        id: e.id,
+        at: &e.created_at,
+        workspace_id: e.workspace_id,
+        actor_user_id: e.actor_user_id,
+        action: &e.action,
+        target_ids: &e.target_ids,
+    }
+}
+
 type Row = (
     Uuid,
     Option<Uuid>,
@@ -142,11 +169,23 @@ type Row = (
     String,
 );
 
+/// 絞り込み（どれも省略できる）。時刻は確かめ済みの RFC 3339。
+#[derive(Debug, Clone, Default)]
+pub struct Filter {
+    pub action: Option<String>,
+    pub actor_user_id: Option<Uuid>,
+    /// この時刻から（含む）。
+    pub from: Option<String>,
+    /// この時刻まで（含まない）。
+    pub to: Option<String>,
+}
+
 /// 新しい順に読む。`before` を渡すと、その記録より古いものから読む（同じ範囲の記録のIDに限る）。
 /// 範囲の外の `before` は、範囲の中に無いのと同じに扱う（何も返さない）。
 pub async fn list(
     pool: &PgPool,
     scope: Scope,
+    filter: &Filter,
     before: Option<Uuid>,
     limit: i64,
 ) -> Result<Vec<Entry>> {
@@ -162,12 +201,20 @@ pub async fn list(
              AND ($2::uuid IS NULL OR (a.created_at, a.id) < (
                    SELECT b.created_at, b.id FROM cms.audit_log b
                    WHERE b.id = $2 AND b.workspace_id IS NOT DISTINCT FROM $1))
+             AND ($4::text IS NULL OR a.action = $4)
+             AND ($5::uuid IS NULL OR a.actor_user_id = $5)
+             AND ($6::timestamptz IS NULL OR a.created_at >= $6::timestamptz)
+             AND ($7::timestamptz IS NULL OR a.created_at < $7::timestamptz)
            ORDER BY a.created_at DESC, a.id DESC
            LIMIT $3"#,
     )
     .bind(workspace)
     .bind(before)
     .bind(limit)
+    .bind(&filter.action)
+    .bind(filter.actor_user_id)
+    .bind(&filter.from)
+    .bind(&filter.to)
     .fetch_all(pool)
     .await?;
     Ok(rows
