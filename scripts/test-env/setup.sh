@@ -36,6 +36,7 @@ create_roles() {
   for db in $isolated; do psql "$url" -v ON_ERROR_STOP=1 -q -c "DROP DATABASE \"$db\"" ; done
   psql "$url" -v ON_ERROR_STOP=1 -q <<SQL
 DROP DATABASE IF EXISTS cms;
+DROP ROLE IF EXISTS cms_app_audit_purger;
 DROP ROLE IF EXISTS cms_app;
 DROP ROLE IF EXISTS cms_migrate;
 CREATE ROLE cms_migrate LOGIN CREATEROLE PASSWORD '${mig_pw}';

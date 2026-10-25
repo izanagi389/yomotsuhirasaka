@@ -194,3 +194,101 @@ async fn grants_refuse_tables_without_policy() {
     drop((migration, app));
     s.drop().await;
 }
+
+#[tokio::test]
+async fn audit_log_is_purged_only_through_the_dedicated_function() {
+    let Some(url) = superuser_url() else {
+        eprintln!("skipped: CMS_TEST_PG_SUPERUSER_URL is not set");
+        return;
+    };
+    let s = Scratch::new(&url).await;
+    let (app_cfg, migration_cfg) = (s.app.clone(), s.migration.clone());
+    let result = async move {
+        let migration = db::migration_pool(&migration_cfg).await.unwrap();
+        let app = db::app_pool(&app_cfg).await.unwrap();
+        let app_role = db::current_role(&app).await.unwrap();
+        migrate::run(&migration).await.unwrap();
+        // 2回目も同じ結果になる（起動のたびに作り直す）
+        migrate::apply_grants(&migration, &app_role).await.unwrap();
+        migrate::apply_grants(&migration, &app_role).await.unwrap();
+
+        // 古い記録（400日前）と新しい記録
+        let insert = |days: i32, action: &str| {
+            format!(
+                "INSERT INTO cms.audit_log (id, action, created_at) VALUES (gen_random_uuid(), '{action}', now() - interval '{days} days')"
+            )
+        };
+        for (days, action) in [(400, "old1"), (400, "old2"), (1, "new")] {
+            migration
+                .execute(db::trusted(insert(days, action)))
+                .await
+                .unwrap();
+        }
+        let actions = || async {
+            let mut v: Vec<String> =
+                sqlx::query_scalar("SELECT action FROM cms.audit_log ORDER BY action")
+                    .fetch_all(&app)
+                    .await
+                    .unwrap();
+            v.sort();
+            v
+        };
+
+        // 普段用のロールは、行を直接は消せない。30日より短い指定は受け付けない
+        expect_denied(
+            &app,
+            "DELETE FROM cms.audit_log",
+            "delete audit log directly",
+        )
+        .await;
+        assert!(
+            sqlx::query_scalar::<_, i64>("SELECT cms.purge_audit_log(10)")
+                .fetch_one(&app)
+                .await
+                .is_err()
+        );
+
+        // 送り終えていないインスタンス全体の書き出し先があれば、その記録は消さない
+        migration
+            .execute("INSERT INTO cms.audit_export_cursors (sink_key, cursor_at) VALUES ('stdout', now() - interval '500 days')")
+            .await
+            .unwrap();
+        let n: i64 = sqlx::query_scalar("SELECT cms.purge_audit_log(365)")
+            .fetch_one(&app)
+            .await
+            .unwrap();
+        assert_eq!(n, 0);
+        // 停止した書き出し先は止めない
+        migration
+            .execute("UPDATE cms.audit_export_cursors SET stopped_at = now()")
+            .await
+            .unwrap();
+        let n: i64 = sqlx::query_scalar("SELECT cms.purge_audit_log(365)")
+            .fetch_one(&app)
+            .await
+            .unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(actions().await, vec!["new".to_owned()]);
+
+        // 専用のロールは、ログインできず、普段用のロールはそのロールになれない
+        let purger = migrate::audit_purger_role(&app_role).unwrap();
+        let can_login: bool =
+            sqlx::query_scalar("SELECT rolcanlogin FROM pg_roles WHERE rolname = $1")
+                .bind(purger.as_str())
+                .fetch_one(&migration)
+                .await
+                .unwrap();
+        assert!(!can_login);
+        expect_denied(
+            &app,
+            &format!("SET ROLE {purger}"),
+            "become the purger role",
+        )
+        .await;
+    };
+    let outcome = tokio::spawn(result).await;
+    s.drop().await;
+    if let Err(e) = outcome {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}

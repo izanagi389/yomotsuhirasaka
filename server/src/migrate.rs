@@ -265,6 +265,119 @@ pub async fn apply_grants(migration: &PgPool, app_role: &Ident) -> Result<()> {
         .await?;
     }
     tx.commit().await?;
+    apply_audit_purge(migration, app_role).await?;
+    Ok(())
+}
+
+/// 監査ログの保存期間の下限（日）。
+pub const MIN_AUDIT_RETENTION_DAYS: i32 = 30;
+
+/// 監査ログの削除の専用のロール（ログインできない）の名前。普段用のロールの名前から作る（インスタンスごとに別）。
+pub fn audit_purger_role(app_role: &Ident) -> Result<Ident> {
+    Ok(Ident::new(&format!("{}_audit_purger", app_role.as_str()))?)
+}
+
+/// 保存期間を過ぎた監査ログの削除（11-permissions-and-audit.md「保護と保存期間」、Q111、計画の14番）。
+///
+/// - 削除できるのは、ログインできない専用のロールだけ。そのロールが持つ関数 `cms.purge_audit_log(日数)` を、
+///   普段用のロールは呼べる（行を直接消す権限は持たない）。関数の中身は固定で、保存期間より古い行しか消さず、
+///   30日より短い指定は受け付けない。
+/// - 書き出し先に送り終えていない記録は消さない（停止した書き出し先は除く）。インスタンス全体の書き出し先は
+///   すべての記録を、ワークスペースの書き出し先はそのワークスペースの記録を待つ。
+/// - 何度実行しても同じ結果になる（起動のたびに作り直す）。
+async fn apply_audit_purge(migration: &PgPool, app_role: &Ident) -> Result<()> {
+    let schema = Ident::new(SHARED_SCHEMA)?;
+    let purger = audit_purger_role(app_role)?;
+    let me = crate::db::current_role(migration).await?;
+    let mut tx = migration.begin().await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)")
+            .bind(purger.as_str())
+            .fetch_one(&mut *tx)
+            .await?;
+    if !exists {
+        sqlx::query(crate::sql!("CREATE ROLE {purger} NOLOGIN NOINHERIT"))
+            .execute(&mut *tx)
+            .await?;
+    }
+    // 関数の持ち主を変えるため、移行のロールが一時的にこのロールになれるようにする
+    sqlx::query(crate::sql!(
+        "GRANT {purger} TO {me} WITH INHERIT TRUE, SET TRUE"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(crate::sql!(
+        "GRANT USAGE, CREATE ON SCHEMA {schema} TO {purger}"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(crate::sql!(
+        "REVOKE ALL ON {schema}.audit_log FROM {purger}"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(crate::sql!(
+        "GRANT SELECT, DELETE ON {schema}.audit_log TO {purger}"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(crate::sql!(
+        "GRANT SELECT ON {schema}.audit_export_cursors, {schema}.audit_sinks TO {purger}"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    // 中身は固定（引数は日数だけ）。search_path を固定し、SECURITY DEFINER で持ち主（専用のロール）として動く
+    sqlx::query(crate::sql!(
+        r#"CREATE OR REPLACE FUNCTION {schema}.purge_audit_log(retention_days integer) RETURNS bigint
+           LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+           DECLARE
+             boundary timestamptz;
+             instance_cursor timestamptz;
+             deleted bigint;
+           BEGIN
+             IF retention_days IS NULL OR retention_days < {MIN_AUDIT_RETENTION_DAYS} THEN
+               RAISE EXCEPTION 'retention_days must be at least {MIN_AUDIT_RETENTION_DAYS}';
+             END IF;
+             boundary := now() - make_interval(days => retention_days);
+             SELECT min(cursor_at) INTO instance_cursor FROM {schema}.audit_export_cursors WHERE stopped_at IS NULL;
+             DELETE FROM {schema}.audit_log a
+             WHERE a.created_at < boundary
+               AND (instance_cursor IS NULL OR a.created_at < instance_cursor)
+               AND NOT EXISTS (
+                 SELECT 1 FROM {schema}.audit_sinks s
+                 WHERE s.workspace_id = a.workspace_id AND s.stopped_at IS NULL AND s.cursor_at <= a.created_at);
+             GET DIAGNOSTICS deleted = ROW_COUNT;
+             RETURN deleted;
+           END
+           $fn$"#
+    ))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(crate::sql!(
+        "ALTER FUNCTION {schema}.purge_audit_log(integer) OWNER TO {purger}"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(crate::sql!(
+        "REVOKE ALL ON FUNCTION {schema}.purge_audit_log(integer) FROM PUBLIC"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(crate::sql!(
+        "GRANT EXECUTE ON FUNCTION {schema}.purge_audit_log(integer) TO {app_role}"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    // 持ち主を変えた後は、スキーマに物を作る権限と、移行のロールのなりすましを外す
+    sqlx::query(crate::sql!(
+        "REVOKE CREATE ON SCHEMA {schema} FROM {purger}"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(crate::sql!("REVOKE {purger} FROM {me}"))
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     Ok(())
 }
 
