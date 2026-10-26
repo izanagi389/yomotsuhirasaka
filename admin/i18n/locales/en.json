@@ -603,6 +603,13 @@
       },
       "user": {
         "display_name_changed": "Display name changed"
+      },
+      "alert": {
+        "login_failures": "Spike in failed sign-ins",
+        "rate_limited": "Spike in rate-limited requests"
+      },
+      "server_admin": {
+        "created": "Server administrator created"
       }
     },
     "you": "You",
@@ -861,6 +868,7 @@
     "none": "Nothing to do right now.",
     "sourcePublishedAt": "Source published: {at}",
     "kind": {
+      "notification": "Notice",
       "scheduleFailed": "Scheduled publish failed",
       "scheduleRetrying": "Scheduled publish waiting",
       "reviewWaiting": "Waiting for review",
@@ -906,5 +914,16 @@
     "failingSince": "Not delivering since {at}",
     "resume": "Resume",
     "delete": "Delete"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "badge": "Notice",
+    "read": "Mark as read",
+    "none": "No unread notifications.",
+    "serverHelp": "Instance-wide events (spikes in failed sign-ins, new server administrators, emergency operations, and so on) from the last 7 days. Marking as read removes it only from your list; the record stays in the audit log.",
+    "targets": "Targets: {targets}",
+    "spike": "{count} in {minutes} minutes",
+    "topIps": "Most frequent IP addresses",
+    "topUsers": "Most targeted accounts"
   }
 }

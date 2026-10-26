@@ -603,6 +603,13 @@
       },
       "user": {
         "display_name_changed": "表示名の変更"
+      },
+      "alert": {
+        "login_failures": "ログイン失敗の急増",
+        "rate_limited": "回数制限への到達の急増"
+      },
+      "server_admin": {
+        "created": "サーバー管理者の作成"
       }
     },
     "you": "あなた",
@@ -861,6 +868,7 @@
     "none": "いま対応することはありません。",
     "sourcePublishedAt": "原文の公開: {at}",
     "kind": {
+      "notification": "通知",
       "scheduleFailed": "予約の失敗",
       "scheduleRetrying": "公開を待っている予約",
       "reviewWaiting": "レビュー待ち",
@@ -906,5 +914,16 @@
     "failingSince": "{at} から送れていません",
     "resume": "再開",
     "delete": "削除"
+  },
+  "notifications": {
+    "title": "通知",
+    "badge": "通知",
+    "read": "確認した",
+    "none": "確認していない通知はありません。",
+    "serverHelp": "インスタンス全体の事象（ログイン失敗の急増、サーバー管理者の作成、緊急停止など）を、直近7日の分だけ出します。「確認した」はあなたの一覧からだけ消えます（記録は監査ログに残ります）。",
+    "targets": "対象: {targets}",
+    "spike": "{minutes}分間に {count} 件",
+    "topIps": "件数の多いIPアドレス",
+    "topUsers": "件数の多いアカウント"
   }
 }

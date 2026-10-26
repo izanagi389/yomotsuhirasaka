@@ -86,6 +86,18 @@ export interface AuditEntry {
   action: string;
   targetIds: string[];
   createdAt: string;
+  /** 管理者に知らせる記録か（計画の15番）。 */
+  notify?: boolean;
+  /** 急増の通知の詳細（インスタンス単位の alert.* だけ）。 */
+  details?: AlertDetails;
+}
+
+/** 急増の通知の詳細（server/src/alerts.rs）。 */
+export interface AlertDetails {
+  count: number;
+  windowSeconds: number;
+  topIps: { ip: string; count: number }[];
+  topUsers: { userId: string; email: string | null; count: number }[];
 }
 
 /** 監査ログの書き出し先（ワークスペースの Webhook）。 */
