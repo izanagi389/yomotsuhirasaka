@@ -45,6 +45,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         scripts: Default::default(),
         audit_export: Default::default(),
         audit: Default::default(),
+        alerts: Default::default(),
     }
 }
 

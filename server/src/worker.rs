@@ -126,6 +126,9 @@ pub fn spawn_sweeper(state: AppState) -> tokio::task::JoinHandle<()> {
             if let Err(e) = crate::auth::passkeys::sweep_challenges(&state.pool).await {
                 tracing::error!("passkey challenge sweeper: {e:#}");
             }
+            if let Err(e) = crate::notifications::sweep(&state.pool).await {
+                tracing::error!("notification reads sweeper: {e:#}");
+            }
             // 保存期間を過ぎた監査ログ（専用のロールの関数だけが消せる。送り終えていない記録は残す）
             match sqlx::query_scalar::<_, i64>("SELECT cms.purge_audit_log($1)")
                 .bind(state.config.audit.retention_days)

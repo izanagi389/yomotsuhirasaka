@@ -258,9 +258,10 @@ pub fn check_config(config: &Config) -> Report {
              protection against DNS rebinding now depends on the proxy"
         );
     }
-    report
-        .problems
-        .extend(check_audit_export(&config.audit_export));
+    report.problems.extend(check_audit_export(
+        &config.audit_export,
+        &config.egress.internal_destination_exceptions,
+    ));
     if config.audit.retention_days < crate::migrate::MIN_AUDIT_RETENTION_DAYS {
         report.problems.push(Problem::fatal(format!(
             "`audit.retention_days` must be at least {}",
@@ -282,13 +283,20 @@ pub fn check_config(config: &Config) -> Report {
     report
 }
 
-/// 監査ログの外部への書き出しの検査。Webhook は https だけ（本番）。秘密のファイルは読めて、十分に強いこと。
-fn check_audit_export(export: &crate::config::AuditExportConfig) -> Vec<Problem> {
+/// 監査ログの外部への書き出しの検査。Webhook は https だけ（本番）。ただし、外部への送信の例外として許した内部の宛先には
+/// http も許す（Q139）。秘密のファイルは読めて、十分に強いこと。
+fn check_audit_export(
+    export: &crate::config::AuditExportConfig,
+    exceptions: &[String],
+) -> Vec<Problem> {
     let mut problems = Vec::new();
     for (i, hook) in export.webhooks.iter().enumerate() {
         let name = format!("audit_export.webhooks[{i}]");
         match url::Url::parse(&hook.url) {
             Ok(u) if u.scheme() == "https" => {}
+            Ok(u)
+                if u.host_str()
+                    .is_some_and(|h| exceptions.iter().any(|e| e.eq_ignore_ascii_case(h))) => {}
             Ok(u) if u.scheme() == "http" => problems.push(Problem::config(format!(
                 "`{name}.url` is not https; audit records would be sent unencrypted"
             ))),

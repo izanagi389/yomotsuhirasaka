@@ -72,6 +72,32 @@ pub struct Config {
     /// 監査ログの保存期間（11-permissions-and-audit.md「保護と保存期間」）。
     #[serde(default)]
     pub audit: AuditConfig,
+    /// 管理者への通知の急増のしきい値（13-security.md「管理者への通知」、計画の15番）。
+    #[serde(default)]
+    pub alerts: AlertsConfig,
+}
+
+/// 急増のしきい値。window_seconds の間の件数が、しきい値以上になったら知らせる。同じ種類は cooldown_seconds に1回まで。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct AlertsConfig {
+    /// ログインの失敗（パスワードと2段目の両方）の件数。
+    pub login_failures: i64,
+    /// 回数制限への到達（429）の件数。
+    pub rate_limited: i64,
+    pub window_seconds: i64,
+    pub cooldown_seconds: i64,
+}
+
+impl Default for AlertsConfig {
+    fn default() -> Self {
+        Self {
+            login_failures: 30,
+            rate_limited: 100,
+            window_seconds: 300,
+            cooldown_seconds: 1800,
+        }
+    }
 }
 
 /// 監査ログの保存期間。過ぎたものは自動で削除する（専用のロールの関数で。書き出し先に送り終えていないものは残す）。
