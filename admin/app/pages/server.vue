@@ -1,10 +1,11 @@
 <script setup lang="ts">
-// サーバー管理者の画面: 利用者（リセットの発行）とインスタンス全体の監査ログ。権限の判断はサーバー。
+// サーバー管理者の画面: インスタンス単位の通知、利用者（リセットの発行）とインスタンス全体の監査ログ。権限の判断はサーバー。
 // サーバー管理者自身のリセットは、どの経路でもできない（サーバーのCLIで行う。INV-AUTH-10）。
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import AuditPanel from "~/components/admin/AuditPanel.vue";
+import ServerNotificationsPanel from "~/components/admin/ServerNotificationsPanel.vue";
 import type { Issued } from "~/utils/admin";
 
 interface UserInfo {
@@ -45,6 +46,7 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
     <Tabs v-else v-model="tab">
       <TabsList>
         <TabsTrigger value="users">{{ t("server.users") }}</TabsTrigger>
+        <TabsTrigger value="notifications" data-testid="tab-notifications">{{ t("notifications.title") }}</TabsTrigger>
         <TabsTrigger value="audit">{{ t("adminTabs.audit") }}</TabsTrigger>
       </TabsList>
       <TabsContent value="users" class="mt-4 grid gap-4">
@@ -74,6 +76,7 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
           </li>
         </ul>
       </TabsContent>
+      <TabsContent value="notifications" class="mt-4"><ServerNotificationsPanel :people="people" /></TabsContent>
       <TabsContent value="audit" class="mt-4"><AuditPanel :people="people" /></TabsContent>
     </Tabs>
   </div>

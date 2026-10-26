@@ -427,6 +427,7 @@ export interface ScheduleLists {
 /** 「やること」の1件（GET /workspaces/{ws}/todo。server/src/http/admin_todo.rs）。並びは優先度の順。 */
 export interface TodoItem {
   kind:
+    | "notification"
     | "scheduleFailed"
     | "scheduleRetrying"
     | "reviewWaiting"
@@ -436,12 +437,15 @@ export interface TodoItem {
     | "reviewExpired"
     | "sourceUpdated"
     | "scheduleCancelled";
-  entry: EntrySummary;
+  /** 記事（通知の項目は null）。 */
+  entry: EntrySummary | null;
   /** 並べるときに使った時刻（依頼・差し戻し・予約・訂正・確認期限・原文の公開）。 */
   at: string;
   request?: ReviewRequest;
   schedule?: ScheduleView;
   versionId?: string;
+  /** 管理者への通知（監査ログの記録。計画の15番）。 */
+  notification?: import("~/utils/admin").AuditEntry;
 }
 
 /** POST .../entries/{id}/preview-tokens */
