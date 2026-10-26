@@ -201,10 +201,15 @@ async fn publish_settings_are_saved_and_announced() {
         let (root, token) = root_with_deploy_token(&server).await;
         assert_eq!(deploy(&server, &token, "blog", &blog_manifest(), "").await.status, 200);
         let ws = workspace_with_template(&server, &root, "A", "blog").await;
-        for (email, role) in [("editor@example.test", "editor"), ("author@example.test", "author")] {
+        for (email, role) in [
+            ("admin@example.test", "admin"),
+            ("editor@example.test", "editor"),
+            ("author@example.test", "author"),
+        ] {
             create_user(&server.pool, email, false).await;
             add_member(&server, ws, email, role).await;
         }
+        let admin = login(&server, "admin@example.test", PASSWORD).await;
         let editor = login(&server, "editor@example.test", PASSWORD).await;
         let author = login(&server, "author@example.test", PASSWORD).await;
         let (port, seen) = receiver().await;
@@ -221,17 +226,19 @@ async fn publish_settings_are_saved_and_announced() {
         let res = get(&server, &path, &author).await;
         assert_eq!(res.status, 200, "{}", res.body);
         assert_eq!(parse(&res), json!({"useForChatbot": true, "includeInAiMaterials": true, "optOutOfAiTraining": false}));
-        // 変えられるのは公開できる人（執筆者はできない）
+        // 変えられるのは重い権限 policySwitches を持つ人（既定は管理者だけ。編集者・執筆者はできない）
         let change = json!({"includeInAiMaterials": false, "optOutOfAiTraining": true}).to_string();
         assert_eq!(send(&server, "PATCH", &path, &author, Some(&change)).await.status, 403);
-        assert_eq!(send(&server, "PATCH", &path, &editor, Some("{}")).await.status, 400);
-        assert_eq!(send(&server, "PATCH", &path, &editor, Some("{\"unknown\":true}")).await.status, 400);
-        let res = send(&server, "PATCH", &path, &editor, Some(&change)).await;
+        assert_eq!(send(&server, "PATCH", &path, &editor, Some(&change)).await.status, 403);
+        assert_eq!(parse(&get(&server, &path, &editor).await)["optOutOfAiTraining"], false);
+        assert_eq!(send(&server, "PATCH", &path, &admin, Some("{}")).await.status, 400);
+        assert_eq!(send(&server, "PATCH", &path, &admin, Some("{\"unknown\":true}")).await.status, 400);
+        let res = send(&server, "PATCH", &path, &admin, Some(&change)).await;
         assert_eq!(res.status, 200, "{}", res.body);
         assert_eq!(parse(&res), json!({"useForChatbot": true, "includeInAiMaterials": false, "optOutOfAiTraining": true}));
         assert_eq!(parse(&get(&server, &path, &editor).await)["optOutOfAiTraining"], true);
         // 同じ値をもう一度送っても、イベントは増えない
-        assert_eq!(send(&server, "PATCH", &path, &editor, Some(&change)).await.status, 200);
+        assert_eq!(send(&server, "PATCH", &path, &admin, Some(&change)).await.status, 200);
         while worker::run_once(&server.state).await.unwrap() {}
         let got = seen.lock().unwrap().clone();
         assert_eq!(got.len(), 1, "{got:?}");
