@@ -129,6 +129,22 @@ export function renderConfig(config: ServerConfig, listen: string): string {
       `async_time_limit_ms = ${config.scriptLimits.asyncTimeMs}`,
     );
   }
+  // 管理者への通知の急増のしきい値（server/src/config.rs の AlertsConfig）
+  if (config.alerts) {
+    const a = config.alerts;
+    const alerts: string[] = [];
+    if (a.loginFailures !== undefined) alerts.push(`login_failures = ${a.loginFailures}`);
+    if (a.rateLimited !== undefined) alerts.push(`rate_limited = ${a.rateLimited}`);
+    if (a.windowSeconds !== undefined) alerts.push(`window_seconds = ${a.windowSeconds}`);
+    if (a.cooldownSeconds !== undefined) alerts.push(`cooldown_seconds = ${a.cooldownSeconds}`);
+    lines.push("", "[alerts]", ...alerts);
+  }
+  // インスタンス全体の監査ログの書き出し先（server/src/config.rs の AuditExportConfig）。秘密はファイルに書いて渡す
+  for (const hook of config.auditExportWebhooks ?? []) {
+    const secretFile = join(tmpdir(), `cms-audit-secret-${Math.random().toString(36).slice(2)}`);
+    writeFileSync(secretFile, hook.secret, { mode: 0o600 });
+    lines.push("", "[[audit_export.webhooks]]", `url = ${tomlString(hook.url)}`, `secret_file = ${tomlString(secretFile)}`);
+  }
   // 管理画面: ビルドした SPA（admin/.output/public。scripts/test-env/setup.sh が CMS_TEST_ADMIN_DIST に書く）
   const adminDist = process.env["CMS_TEST_ADMIN_DIST"];
   if (adminDist) lines.push("", "[admin]", `dist_dir = ${tomlString(adminDist)}`);

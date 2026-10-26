@@ -61,51 +61,29 @@ enum Cursor<'a> {
 /// 進み具合（記録の時刻とID）。時刻は文字列のまま DB の比較に戻す（Rust 側では解釈しない）。
 type CursorRow = (String, Uuid);
 
-/// 監査ログの行（ID, ワークスペース, 操作した人, 操作の種類, 対象, 時刻）。
-type LogRow = (
-    Uuid,
-    Option<Uuid>,
-    Option<Uuid>,
-    String,
-    Vec<String>,
-    String,
-);
-
 /// 送る記録（進み具合より後で、5秒より前のもの）。
 async fn next_batch(
     tx: &mut Transaction<'_, Postgres>,
     workspace: Option<Uuid>,
     cursor: &CursorRow,
 ) -> Result<Vec<Entry>> {
-    let rows: Vec<LogRow> = sqlx::query_as(
-        r#"SELECT id, workspace_id, actor_user_id, action, target_ids,
-                  to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
-           FROM cms.audit_log
-           WHERE ($1::uuid IS NULL OR workspace_id = $1)
-             AND (created_at, id) > ($2::timestamptz, $3)
-             AND created_at < now() - interval '5 seconds'
-           ORDER BY created_at, id
+    let rows: Vec<audit::Row> = sqlx::query_as(crate::sql!(
+        r#"SELECT {}
+           FROM cms.audit_log a
+           WHERE ($1::uuid IS NULL OR a.workspace_id = $1)
+             AND (a.created_at, a.id) > ($2::timestamptz, $3)
+             AND a.created_at < now() - interval '5 seconds'
+           ORDER BY a.created_at, a.id
            LIMIT $4"#,
-    )
+        audit::COLUMNS
+    ))
     .bind(workspace)
     .bind(&cursor.0)
     .bind(cursor.1)
     .bind(BATCH)
     .fetch_all(&mut **tx)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(
-            |(id, workspace_id, actor_user_id, action, target_ids, created_at)| Entry {
-                id,
-                workspace_id,
-                actor_user_id,
-                action,
-                target_ids,
-                created_at,
-            },
-        )
-        .collect())
+    Ok(rows.into_iter().map(audit::entry).collect())
 }
 
 /// 1行1件の JSON。

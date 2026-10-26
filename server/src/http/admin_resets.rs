@@ -319,7 +319,28 @@ async fn issue_reset(
         Kind::Password => action::PASSWORD_RESET_ISSUED,
         Kind::Mfa => action::MFA_RESET_ISSUED,
     };
-    audit::record(&mut *tx, workspace, Some(current.user_id), what, &[target]).await?;
+    // 管理者への通知（計画の15番）: 管理者のパスワードのリセット（多要素認証のリセットはいつでも知らせる。audit::NOTIFY）
+    let admin_in = |ws: Uuid| {
+        let pool = state.pool.clone();
+        async move {
+            Ok::<bool, ApiError>(
+                access::role_in(&pool, ws, target).await? == Some(crate::access::Role::Admin),
+            )
+        }
+    };
+    let notify_in_workspace = match workspace {
+        Some(ws) => kind == Kind::Password && admin_in(ws).await?,
+        None => false,
+    };
+    audit::record_notify(
+        &mut *tx,
+        workspace,
+        Some(current.user_id),
+        what,
+        &[target],
+        notify_in_workspace,
+    )
+    .await?;
     // サーバー管理者がインスタンスの操作として発行したときも、対象が所属するワークスペースの監査ログに残す（Q122、INV-AUD-05）
     if workspace.is_none() {
         let member_of: Vec<Uuid> =
@@ -329,7 +350,16 @@ async fn issue_reset(
                 .await
                 .map_err(anyhow::Error::from)?;
         for ws in member_of {
-            audit::record(&mut *tx, Some(ws), Some(current.user_id), what, &[target]).await?;
+            let notify = kind == Kind::Password && admin_in(ws).await?;
+            audit::record_notify(
+                &mut *tx,
+                Some(ws),
+                Some(current.user_id),
+                what,
+                &[target],
+                notify,
+            )
+            .await?;
         }
     }
     tx.commit().await.map_err(anyhow::Error::from)?;

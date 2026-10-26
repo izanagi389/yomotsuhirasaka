@@ -417,15 +417,32 @@ pub async fn change_member_role(
     .execute(&mut *tx)
     .await
     .map_err(anyhow::Error::from)?;
-    for (changed, what) in [
-        (role.is_some(), action::MEMBER_ROLE_CHANGED),
+    // 管理者への通知（計画の15番）: 管理者のロールへの変更と、重い権限の付与
+    let granted_heavy = Permission::ALL
+        .into_iter()
+        .any(|p| p.is_heavy() && after.contains(p) && !before.contains(p));
+    for (changed, what, notify) in [
+        (
+            role.is_some(),
+            action::MEMBER_ROLE_CHANGED,
+            role == Some(Role::Admin),
+        ),
         (
             req.can_view_members.is_some() || req.grants.is_some(),
             action::MEMBER_PERMISSION_CHANGED,
+            granted_heavy,
         ),
     ] {
         if changed {
-            audit::record(&mut *tx, Some(ws), Some(current.user_id), what, &[user]).await?;
+            audit::record_notify(
+                &mut *tx,
+                Some(ws),
+                Some(current.user_id),
+                what,
+                &[user],
+                notify,
+            )
+            .await?;
         }
     }
     tx.commit().await.map_err(anyhow::Error::from)?;

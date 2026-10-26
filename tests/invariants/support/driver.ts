@@ -203,13 +203,17 @@ export interface TodoItem {
     | "scheduleFailed"
     | "scheduleRetrying"
     | "reviewWaiting"
+    | "notification"
     | "unwrittenCorrection"
     | "reviewRejected"
     | "sourceCorrected"
     | "reviewExpired"
     | "sourceUpdated"
     | "scheduleCancelled";
-  entryId: string;
+  /** 記事の項目の記事（通知の項目は null）。 */
+  entryId: string | null;
+  /** 通知の項目の、監査ログの記録の操作の種類と対象のID（M2）。 */
+  notification?: { action: string; targetIds: string[] };
 }
 
 /** 元の記事の、反映済みの版から今の版までの差分（M2）。 */
@@ -360,6 +364,7 @@ export type AuditActionKind =
   | "versionErased"
   | "passwordResetIssued"
   | "mfaResetIssued"
+  | "loginFailuresAlert"
   | "schemaDeployed";
 
 export interface MailMessage {
@@ -645,6 +650,10 @@ export interface ServerConfig {
   scriptLimits?: { memoryBytes: number; timeMs: number; asyncTimeMs: number };
   /** ログの詳しさ。 */
   logLevel?: "error" | "warn" | "info" | "debug" | "trace";
+  /** 管理者への通知の急増のしきい値（M2）。undefined ならサーバーの既定。 */
+  alerts?: { loginFailures?: number; rateLimited?: number; windowSeconds?: number; cooldownSeconds?: number };
+  /** インスタンス全体の監査ログの書き出し先（Webhook。M2）。secret はドライバーがファイルに書いて渡す。 */
+  auditExportWebhooks?: { url: string; secret: string }[];
 }
 
 export interface StartedServer {
@@ -873,6 +882,7 @@ export const driver = {
     versionErased: "version.erased",
     passwordResetIssued: "password_reset.issued",
     mfaResetIssued: "mfa_reset.issued",
+    loginFailuresAlert: "alert.login_failures",
     schemaDeployed: "template.deployed",
   }),
 

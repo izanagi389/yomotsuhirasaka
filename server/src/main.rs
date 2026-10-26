@@ -289,6 +289,7 @@ fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()>
         scripts: config::ScriptsConfig::default(),
         audit_export: config::AuditExportConfig::default(),
         audit: config::AuditConfig::default(),
+        alerts: config::AlertsConfig::default(),
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,
@@ -391,6 +392,15 @@ fn create_server_admin_main(config_path: &Path, email: &str, password_stdin: boo
             migration.close().await;
             let hash = auth::password::hash(password.clone()).await?;
             let id = auth::users::create(&pool, &email, &hash, true).await?;
+            // インスタンス単位の記録（管理者への通知。計画の15番）
+            audit::record(
+                &pool,
+                None,
+                None,
+                audit::action::SERVER_ADMIN_CREATED,
+                &[id],
+            )
+            .await?;
             println!("Created server administrator {email} (id {id}).");
             if generated {
                 println!("Password (shown only once): {password}");
@@ -745,6 +755,7 @@ async fn serve(config: Config) -> Result<()> {
     worker::spawn(state.clone());
     worker::spawn_sweeper(state.clone());
     cms_server::audit_export::spawn(state.clone());
+    cms_server::alerts::spawn(state.pool.clone(), state.config.alerts.clone());
     let app = http::router(state);
     let listener = tokio::net::TcpListener::bind(&listen)
         .await

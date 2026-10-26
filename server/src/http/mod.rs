@@ -11,6 +11,7 @@ pub mod admin_invitations;
 pub mod admin_locks;
 pub mod admin_media;
 pub mod admin_mfa;
+pub mod admin_notifications;
 pub mod admin_oidc;
 pub mod admin_previews;
 pub mod admin_publishing;
@@ -222,7 +223,25 @@ async fn not_found() -> ApiError {
     ApiError::not_found()
 }
 
+/// 回数制限で断った応答（429）を、管理者への通知の急増の検知に数える（計画の15番）。
+async fn count_rate_limited(
+    axum::extract::State(trusted): axum::extract::State<std::sync::Arc<Vec<std::net::IpAddr>>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let ip = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|c| extract::client_ip(c.0.ip(), req.headers(), &trusted));
+    let res = next.run(req).await;
+    if res.status() == axum::http::StatusCode::TOO_MANY_REQUESTS {
+        crate::alerts::note(crate::alerts::Kind::RateLimited, ip, None);
+    }
+    res
+}
+
 pub fn router(state: AppState) -> Router {
+    let trusted = std::sync::Arc::new(state.config.trusted_proxies.clone());
     let admin = Router::new()
         .route(
             "/session",
@@ -501,6 +520,15 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/audit-log", get(admin_audit::instance))
         .route("/audit-log/export", get(admin_audit::instance_export))
+        .route("/notifications", get(admin_notifications::instance))
+        .route(
+            "/notifications/{id}/read",
+            post(admin_notifications::read_instance),
+        )
+        .route(
+            "/workspaces/{ws}/notifications/{id}/read",
+            post(admin_notifications::read_workspace),
+        )
         .route(
             "/workspaces/{ws}/imports",
             // まとめて送るので、本文の上限を大きくする（画像は別にアップロードする）
@@ -573,6 +601,10 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/{*rel}", get(admin_ui::serve))
         .fallback(not_found)
         .with_state(state)
+        .layer(axum::middleware::from_fn_with_state(
+            trusted,
+            count_rate_limited,
+        ))
         .layer(axum::middleware::from_fn(reject_credentials_in_url))
         .layer(axum::middleware::map_response(security_headers))
 }

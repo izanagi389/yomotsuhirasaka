@@ -356,7 +356,10 @@ pub async fn login(
         Some(email) => users::find_for_login(&state.pool, &email).await?,
         None => None,
     };
+    let attempted = record.as_ref().map(|r| r.id);
     let Some(record) = check_password(&state, record, req.password).await? else {
+        // 管理者への通知の急増の検知（計画の15番）。存在しないアドレスへの試行は、利用者なしで数える
+        crate::alerts::note(crate::alerts::Kind::LoginFailure, Some(ip), attempted);
         return Err(ApiError::invalid_credentials());
     };
 
@@ -417,6 +420,7 @@ pub async fn login_mfa(
     )
     .await?
     {
+        crate::alerts::note(crate::alerts::Kind::LoginFailure, Some(ip), Some(user_id));
         return Err(invalid_mfa_code());
     }
     session::revoke(&state.pool, pending_id).await?;

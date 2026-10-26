@@ -9,7 +9,10 @@
 //!   - 予約の失敗・訂正による取り消し: 予約した本人。差し戻し: 依頼した本人
 //!   - 未記入の訂正・確認期限切れ: 「訂正と鮮度」の権限を持つ人
 //!   - 原文の更新: 記事を編集できる人（執筆者以上）
-//! - 優先度（上ほど先）: 予約の失敗・やり直し中 → 自分が指定されたレビュー待ち → その他のレビュー待ち → 未記入の訂正 →
+//!   - 管理者への通知（計画の15番）: そのワークスペースの管理者とサーバー管理者。そのワークスペースの、知らせる記録
+//!     （`audit_log.notify`）の直近7日の分で、その人がまだ「確認した」にしていないもの。インスタンス単位の通知は出さない
+//!     （サーバー管理者の画面に出す。INV-AUD-08）
+//! - 優先度（上ほど先）: 管理者への通知 → 予約の失敗・やり直し中 → 自分が指定されたレビュー待ち → その他のレビュー待ち → 未記入の訂正 →
 //!   差し戻し → 原文の訂正 → 確認期限切れ → 原文の更新 → 訂正による予約の取り消し。同じ優先度の中では古いものが先。
 //! - 読むだけで、監査ログには残さない。
 
@@ -27,14 +30,17 @@ use super::admin_scheduling::{self, ScheduleView};
 use super::error::ApiError;
 use super::extract::AuthSession;
 use crate::access::{Access, Permission, Role};
+use crate::audit::Entry;
 use crate::content::entries::{self, Summary};
 use crate::content::{corrections, freshness, reviews, scheduling, translations};
+use crate::notifications;
 use crate::workspace_db;
 
 /// 項目の種類（宣言の順が優先度の順）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
+    Notification,
     ScheduleFailed,
     ScheduleRetrying,
     ReviewWaiting,
@@ -50,14 +56,15 @@ impl Kind {
     /// 優先度（小さいほど先）。予約の失敗とやり直し中は同じ。
     fn priority(self) -> u8 {
         match self {
-            Kind::ScheduleFailed | Kind::ScheduleRetrying => 0,
-            Kind::ReviewWaiting => 1,
-            Kind::UnwrittenCorrection => 2,
-            Kind::ReviewRejected => 3,
-            Kind::SourceCorrected => 4,
-            Kind::ReviewExpired => 5,
-            Kind::SourceUpdated => 6,
-            Kind::ScheduleCancelled => 7,
+            Kind::Notification => 0,
+            Kind::ScheduleFailed | Kind::ScheduleRetrying => 1,
+            Kind::ReviewWaiting => 2,
+            Kind::UnwrittenCorrection => 3,
+            Kind::ReviewRejected => 4,
+            Kind::SourceCorrected => 5,
+            Kind::ReviewExpired => 6,
+            Kind::SourceUpdated => 7,
+            Kind::ScheduleCancelled => 8,
         }
     }
 }
@@ -67,7 +74,8 @@ impl Kind {
 #[serde(rename_all = "camelCase")]
 pub struct Item {
     kind: Kind,
-    entry: Summary,
+    /// 記事（通知の項目は null）。
+    entry: Option<Summary>,
     /// 並べるときに使う時刻（依頼・差し戻し・予約・訂正・確認期限・原文の公開の時刻）。
     at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,6 +85,9 @@ pub struct Item {
     /// 未記入の訂正の版。
     #[serde(skip_serializing_if = "Option::is_none")]
     version_id: Option<Uuid>,
+    /// 管理者への通知（監査ログの記録）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notification: Option<Entry>,
 }
 
 #[derive(Serialize)]
@@ -228,19 +239,34 @@ pub async fn todo(
             b.kind,
         ))
     });
-    let items = raw
-        .into_iter()
-        .filter_map(|r| {
-            // 削除された記事（一覧にない記事）の項目は出さない
-            summaries.get(&r.entry_id).cloned().map(|entry| Item {
-                kind: r.kind,
-                entry,
-                at: r.at,
-                request: r.request,
-                schedule: r.schedule,
-                version_id: r.version_id,
+    let mut items: Vec<Item> = if access.server_admin || access.role == Some(Role::Admin) {
+        notifications::unread(&state.pool, Some(ws), current.user_id)
+            .await?
+            .into_iter()
+            .map(|n| Item {
+                kind: Kind::Notification,
+                entry: None,
+                at: n.created_at.clone(),
+                request: None,
+                schedule: None,
+                version_id: None,
+                notification: Some(n),
             })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    items.extend(raw.into_iter().filter_map(|r| {
+        // 削除された記事（一覧にない記事）の項目は出さない
+        summaries.get(&r.entry_id).cloned().map(|entry| Item {
+            kind: r.kind,
+            entry: Some(entry),
+            at: r.at,
+            request: r.request,
+            schedule: r.schedule,
+            version_id: r.version_id,
+            notification: None,
         })
-        .collect();
+    }));
     Ok(Json(Todo { items }))
 }

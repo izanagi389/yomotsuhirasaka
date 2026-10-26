@@ -88,6 +88,11 @@ pub mod action {
     pub const AUDIT_SINK_CREATED: &str = "audit_sink.created";
     pub const AUDIT_SINK_DELETED: &str = "audit_sink.deleted";
     pub const AUDIT_SINK_RESUMED: &str = "audit_sink.resumed";
+    /// 管理者への通知（計画の15番）: ログイン失敗の急増・回数制限への到達の急増（インスタンス単位）。
+    pub const ALERT_LOGIN_FAILURES: &str = "alert.login_failures";
+    pub const ALERT_RATE_LIMITED: &str = "alert.rate_limited";
+    /// サーバー管理者の作成（サーバー上のCLI。Q100）。
+    pub const SERVER_ADMIN_CREATED: &str = "server_admin.created";
     pub const WEBHOOK_DELETED: &str = "webhook.deleted";
     pub const WEBHOOK_SECRET_ROTATED: &str = "webhook.secret_rotated";
 }
@@ -101,16 +106,76 @@ pub async fn record<'e>(
     action: &str,
     target_ids: &[Uuid],
 ) -> Result<()> {
+    record_full(
+        executor,
+        workspace_id,
+        actor_user_id,
+        action,
+        target_ids,
+        NOTIFY.contains(&action),
+        None,
+    )
+    .await
+}
+
+/// 管理者に知らせる操作（13-security.md「管理者への通知」、Q174、計画の15番）。どの記録でも知らせるもの。
+/// 管理者のロールへの変更・重い権限の付与・管理者のパスワードのリセットは、場合によるので記録する側が決める（`record_notify`）。
+pub const NOTIFY: &[&str] = &[
+    action::ALERT_LOGIN_FAILURES,
+    action::ALERT_RATE_LIMITED,
+    action::SERVER_ADMIN_CREATED,
+    action::EMERGENCY_SESSIONS_REVOKED,
+    action::API_KEYS_ROTATED,
+    action::ENCRYPTION_KEY_ADDED,
+    action::ENCRYPTION_KEY_REMOVED,
+    action::MFA_RESET_ISSUED,
+    action::MFA_RESET_COMPLETED,
+    action::AUDIT_SINK_DELETED,
+];
+
+/// 知らせるかを記録する側が決める記録。
+pub async fn record_notify<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: Option<Uuid>,
+    actor_user_id: Option<Uuid>,
+    action: &str,
+    target_ids: &[Uuid],
+    notify: bool,
+) -> Result<()> {
+    record_full(
+        executor,
+        workspace_id,
+        actor_user_id,
+        action,
+        target_ids,
+        notify || NOTIFY.contains(&action),
+        None,
+    )
+    .await
+}
+
+/// 記録する。`details` は急増の通知（alert.*。インスタンス単位）だけが使う（13-security.md、計画の15番）。
+pub async fn record_full<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: Option<Uuid>,
+    actor_user_id: Option<Uuid>,
+    action: &str,
+    target_ids: &[Uuid],
+    notify: bool,
+    details: Option<&serde_json::Value>,
+) -> Result<()> {
     let targets: Vec<String> = target_ids.iter().map(Uuid::to_string).collect();
     sqlx::query(
-        "INSERT INTO cms.audit_log (id, workspace_id, actor_user_id, action, target_ids)
-         VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO cms.audit_log (id, workspace_id, actor_user_id, action, target_ids, notify, details)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
     )
     .bind(Uuid::new_v4())
     .bind(workspace_id)
     .bind(actor_user_id)
     .bind(action)
     .bind(targets)
+    .bind(notify)
+    .bind(details.map(serde_json::Value::to_string))
     .execute(executor)
     .await?;
     Ok(())
@@ -135,6 +200,11 @@ pub struct Entry {
     pub action: String,
     pub target_ids: Vec<String>,
     pub created_at: String,
+    /// 管理者に知らせる記録か（計画の15番）。
+    pub notify: bool,
+    /// 急増の通知の詳細（件数・期間・件数の多いIPアドレスや利用者）。それ以外の記録は null。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 /// 外部への書き出しとダウンロードの1行（内容は入らない。INV-AUD-01）。名前は受け手が使うので変えない。
@@ -149,6 +219,10 @@ pub struct Line<'a> {
     pub actor_user_id: Option<Uuid>,
     pub action: &'a str,
     pub target_ids: &'a [String],
+    /// 管理者に知らせる記録か。
+    pub notify: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<&'a serde_json::Value>,
 }
 
 /// 記録を1行の形にする。
@@ -161,17 +235,41 @@ pub fn line(e: &Entry) -> Line<'_> {
         actor_user_id: e.actor_user_id,
         action: &e.action,
         target_ids: &e.target_ids,
+        notify: e.notify,
+        details: e.details.as_ref(),
     }
 }
 
-type Row = (
+/// 読み出す列（`Row` の順）。表の別名は `a`。
+pub const COLUMNS: &str = r#"a.id, a.workspace_id, a.actor_user_id, a.action, a.target_ids,
+       to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), a.notify, a.details::text"#;
+
+/// 読み出した行（ID, ワークスペース, 操作した人, 操作の種類, 対象, 時刻, 通知か, 詳細）。
+pub type Row = (
     Uuid,
     Option<Uuid>,
     Option<Uuid>,
     String,
     Vec<String>,
     String,
+    bool,
+    Option<String>,
 );
+
+/// 行を記録にする。
+pub fn entry(row: Row) -> Entry {
+    let (id, workspace_id, actor_user_id, action, target_ids, created_at, notify, details) = row;
+    Entry {
+        id,
+        workspace_id,
+        actor_user_id,
+        action,
+        target_ids,
+        created_at,
+        notify,
+        details: details.and_then(|d| serde_json::from_str(&d).ok()),
+    }
+}
 
 /// 絞り込み（どれも省略できる）。時刻は確かめ済みの RFC 3339。
 #[derive(Debug, Clone, Default)]
@@ -197,9 +295,8 @@ pub async fn list(
         Scope::Workspace(ws) => Some(ws),
         Scope::Instance => None,
     };
-    let rows: Vec<Row> = sqlx::query_as(
-        r#"SELECT a.id, a.workspace_id, a.actor_user_id, a.action, a.target_ids,
-                  to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+    let rows: Vec<Row> = sqlx::query_as(crate::sql!(
+        r#"SELECT {COLUMNS}
            FROM cms.audit_log a
            WHERE a.workspace_id IS NOT DISTINCT FROM $1
              AND ($2::uuid IS NULL OR (a.created_at, a.id) < (
@@ -210,8 +307,8 @@ pub async fn list(
              AND ($6::timestamptz IS NULL OR a.created_at >= $6::timestamptz)
              AND ($7::timestamptz IS NULL OR a.created_at < $7::timestamptz)
            ORDER BY a.created_at DESC, a.id DESC
-           LIMIT $3"#,
-    )
+           LIMIT $3"#
+    ))
     .bind(workspace)
     .bind(before)
     .bind(limit)
@@ -221,17 +318,5 @@ pub async fn list(
     .bind(&filter.to)
     .fetch_all(pool)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(
-            |(id, workspace_id, actor_user_id, action, target_ids, created_at)| Entry {
-                id,
-                workspace_id,
-                actor_user_id,
-                action,
-                target_ids,
-                created_at,
-            },
-        )
-        .collect())
+    Ok(rows.into_iter().map(entry).collect())
 }
