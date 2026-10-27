@@ -4,6 +4,7 @@
 # 使い方: scripts/test-env/setup.sh <PG16のスーパーユーザーのURL> <PG15のスーパーユーザーのURL または ""> <出力先のディレクトリ>
 #
 # - PG16 に、普段用のロール cms_app と、移行・ロールの作成用のロール cms_migrate（CREATEROLE）と、DB cms を作る
+#   （DB cms には pgvector の拡張 vector を作る。PG16 には pgvector が入っていること）
 # - cms-server init で、設定ファイルと暗号化の鍵を作り、生成されたパスワードをロールに設定する
 # - PG15 にも同じロールとDBを作る（起動を拒否されることの確認用）
 # - テストの実行環境（ハーネス）のTLSの証明書（CAと、*.inv.test・127.0.0.1 の証明書）を作る
@@ -69,6 +70,9 @@ PY
 APP_PW="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["database"]["password"])' "$OUT/config.toml")"
 MIG_PW="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["migration_database"]["password"])' "$OUT/config.toml")"
 create_roles "$PG16_URL" "$APP_PW" "$MIG_PW"
+# 検索用データのベクトル（pgvector）。拡張はスーパーユーザーが前もって作る（CMSは作らない。08-search-and-related.md）。
+# 日本語のキーワード検索の拡張（pg_bigm）は入れない（拡張がない環境の約束 INV-SRC-05 を確かめるため）
+psql "$(with_database "$PG16_URL" cms)" -v ON_ERROR_STOP=1 -q -c "CREATE EXTENSION IF NOT EXISTS vector"
 
 {
   echo "export CMS_TEST_SERVER_BIN='$BIN'"

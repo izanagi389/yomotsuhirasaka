@@ -42,7 +42,15 @@ export function validServerConfigFromEnv(): ServerConfig {
 /** テストの舞台のCMSが使う、擬似LLMへの接続（決まったキー）。 */
 export const STAGE_LLM_API_KEY = "inv-stage";
 function stageLlm(baseUrl: string): NonNullable<ServerConfig["llm"]> {
-  return { baseUrl, apiKey: STAGE_LLM_API_KEY, embeddingModel: "mock-embed-64", embeddingDimensions: 64 };
+  // 検索の約束のテストが埋め込みを作れるよう、天井の既定値を十分に大きくする（予算の約束は別のインスタンスで確かめる）
+  return {
+    baseUrl,
+    apiKey: STAGE_LLM_API_KEY,
+    embeddingModel: "mock-embed-64",
+    embeddingDimensions: 64,
+    defaultWorkspaceTokensPerMonth: 50_000_000,
+    defaultWorkspaceTokensPerDay: 5_000_000,
+  };
 }
 
 /** URLにパスワードが入っていれば取り出す（設定ファイルでは、パスワードは別の項目に書く）。 */
@@ -139,6 +147,12 @@ export function renderConfig(config: ServerConfig, listen: string): string {
       `embedding_dimensions = ${config.llm.embeddingDimensions}`,
     );
     if (config.llm.pricePerMillionTokens !== undefined) lines.push(`embedding_price_per_million_tokens = ${config.llm.pricePerMillionTokens}`);
+    if (config.llm.defaultWorkspaceTokensPerMonth !== undefined) {
+      lines.push(`default_workspace_embedding_tokens_per_month = ${config.llm.defaultWorkspaceTokensPerMonth}`);
+    }
+    if (config.llm.defaultWorkspaceTokensPerDay !== undefined) {
+      lines.push(`default_workspace_embedding_tokens_per_day = ${config.llm.defaultWorkspaceTokensPerDay}`);
+    }
   }
   if (config.scriptLimits) {
     lines.push(

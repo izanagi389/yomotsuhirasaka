@@ -14,8 +14,9 @@ jobs:
     server:
         runs-on: ubuntu-24.04
         services:
+            # 検索用データのベクトルに pgvector が要る（scripts/test-env/setup.sh が拡張 vector を作る）
             pg16:
-                image: postgres:16
+                image: pgvector/pgvector:pg16
                 env:
                     POSTGRES_PASSWORD: ci-only-superuser-pw-16
                 ports: ["5432:5432"]
@@ -42,8 +43,9 @@ jobs:
     invariants:
         runs-on: ubuntu-24.04
         services:
+            # 検索用データのベクトルに pgvector が要る（scripts/test-env/setup.sh が拡張 vector を作る）
             pg16:
-                image: postgres:16
+                image: pgvector/pgvector:pg16
                 env:
                     POSTGRES_PASSWORD: ci-only-superuser-pw-16
                 ports: ["5432:5432"]
