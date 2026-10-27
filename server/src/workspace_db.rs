@@ -77,6 +77,7 @@ pub async fn provision(
     tx.commit().await?;
     let mut conn = migration.acquire().await?;
     upgrade_base(&mut conn, &db).await?;
+    crate::search::ensure_keyword_index(&mut conn, &db).await?;
     Ok(db)
 }
 
@@ -130,6 +131,10 @@ pub const BASE_MIGRATIONS: &[(i32, &str)] = &[
     (
         15,
         include_str!("../migrations/workspace/0015_search_fields_key.sql"),
+    ),
+    (
+        16,
+        include_str!("../migrations/workspace/0016_search_chunks_without_embedding.sql"),
     ),
 ];
 

@@ -68,6 +68,9 @@ pub async fn start(config: Config) -> Server {
     cms_server::workspace_db::upgrade_all(&migration)
         .await
         .unwrap();
+    cms_server::search::ensure_keyword_indexes(&migration)
+        .await
+        .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     // 鍵のファイルを指定していればそれを使う（鍵の入れ替えのテスト）。なければその場で作る

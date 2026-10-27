@@ -26,13 +26,16 @@ use super::names::{
     self, AI_CATALOG_FIELD, AI_CATALOG_ITEM_TYPE, AI_MARKDOWN_BY_URL_FIELD, AI_MARKDOWN_FIELD,
     AI_TRAINING_OPT_OUTS_FIELD, ALTERNATE_TYPE, CORRECTION_FEED_ITEM_TYPE, CORRECTION_TYPE,
     CORRECTIONS_FIELD, DELETED_ANCHOR_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE,
-    REDIRECTS_FIELD, SEARCH_AVAILABILITY_TYPE, SEARCH_FIELD, SEARCH_HIT_TYPE, SEARCH_RESULT_TYPE,
+    REDIRECTS_FIELD, SEARCH_AVAILABILITY_TYPE, SEARCH_FIELD, SEARCH_HIT_TYPE, SEARCH_MATCH_TYPE,
+    SEARCH_MODE_TYPE, SEARCH_RESULT_TYPE,
 };
 use crate::content::corrections::{self, Correction, DeletedAnchor, FeedItem};
 use crate::content::freshness::{self, Freshness};
 use crate::content::redirects::{self, Rule};
 use crate::schema::manifest::{ContentType, FieldType, Manifest};
-use crate::search::query::{self as search, Availability, Hit, Outcome as SearchOutcome};
+use crate::search::query::{
+    self as search, Availability, Hit, Match, Mode as SearchMode, Outcome as SearchOutcome,
+};
 
 /// 一覧の `offset` の上限。
 const MAX_OFFSET: i64 = 100_000;
@@ -523,6 +526,15 @@ fn search_result_type() -> Object {
         )
 }
 
+/// 抜粋の中で、検索語と一致した箇所。
+fn search_match_type() -> Object {
+    let int = |v: usize| Some(GqlValue::from(i64::try_from(v).unwrap_or(i64::MAX)));
+    Object::new(SEARCH_MATCH_TYPE)
+        .description("A part of the excerpt that matches a keyword. Offsets and lengths are in UTF-16 code units, like JavaScript strings.")
+        .field(value_field::<Match, _>("start", TypeRef::named_nn(TypeRef::INT), move |m| int(m.start)))
+        .field(value_field::<Match, _>("length", TypeRef::named_nn(TypeRef::INT), move |m| int(m.length)))
+}
+
 /// サイト内検索の1件（1つの記事から、いちばん似たチャンク）。
 fn search_hit_type() -> Object {
     Object::new(SEARCH_HIT_TYPE)
@@ -552,11 +564,25 @@ fn search_hit_type() -> Object {
             TypeRef::named_nn(TypeRef::STRING),
             |h| Some(GqlValue::from(h.excerpt.clone())),
         ))
-        .field(value_field::<Hit, _>(
-            "score",
-            TypeRef::named_nn(TypeRef::FLOAT),
-            |h| Some(GqlValue::from(h.score)),
-        ))
+        .field(
+            Field::new("matches", TypeRef::named_nn_list_nn(SEARCH_MATCH_TYPE), |ctx| {
+                let matches = ctx.parent_value.try_downcast_ref::<Hit>().map(|h| h.matches.clone());
+                FieldFuture::new(async move {
+                    Ok(Some(FieldValue::list(matches?.into_iter().map(FieldValue::owned_any))))
+                })
+            })
+            .description("Where the excerpt matches the keywords (empty when the entry was found by vector search only)."),
+        )
+        .field(
+            value_field::<Hit, _>(
+                "score",
+                TypeRef::named_nn(TypeRef::FLOAT),
+                |h| Some(GqlValue::from(h.score)),
+            )
+            .description(
+                "For ordering within one response only: the RRF score (HYBRID), cosine similarity (VECTOR) or keyword similarity (KEYWORD).",
+            ),
+        )
 }
 
 fn search_availability_type() -> Enum {
@@ -564,6 +590,15 @@ fn search_availability_type() -> Enum {
         .item(EnumItem::new(Availability::Available.name()))
         .item(EnumItem::new(Availability::BudgetExhausted.name()))
         .item(EnumItem::new(Availability::Disabled.name()))
+}
+
+fn search_mode_type() -> Enum {
+    SearchMode::ALL
+        .into_iter()
+        .fold(Enum::new(SEARCH_MODE_TYPE), |e, m| {
+            e.item(EnumItem::new(m.name()))
+        })
+        .description("How to search: HYBRID mixes vector and keyword search (default).")
 }
 
 /// サイト内検索（M3、08-search-and-related.md）。見せてよいかは、検索のたびに今の状態と照合する（`search::access`）。
@@ -578,6 +613,11 @@ fn search_field(manifest: Arc<Manifest>) -> Field {
                 .get("first")
                 .and_then(|v| v.i64().ok())
                 .unwrap_or(search::DEFAULT_FIRST);
+            let mode = match ctx.args.get("mode").filter(|v| !v.is_null()) {
+                Some(v) => SearchMode::from_name(v.enum_name()?)
+                    .ok_or_else(|| async_graphql::Error::new("unknown search mode"))?,
+                None => SearchMode::Hybrid,
+            };
             let req = request(&ctx)?;
             let mut guard = req.tx.lock().await;
             let (Some(tx), Some(app)) = (guard.as_mut(), req.app.as_ref()) else {
@@ -594,7 +634,7 @@ fn search_field(manifest: Arc<Manifest>) -> Field {
                 egress: app.egress.as_ref(),
                 cache: &app.search_cache,
             };
-            match search::search(&services, tx, req.workspace_id, &manifest, &text, &locale, first).await {
+            match search::search(&services, tx, req.workspace_id, &manifest, &text, &locale, first, mode).await {
                 Ok(out) => Ok(Some(FieldValue::owned_any(out))),
                 Err(e) => match e.downcast_ref::<search::Unavailable>() {
                     // 埋め込みを作れなかった（LLMの接続先の障害など）。理由の種類だけを返す
@@ -607,8 +647,9 @@ fn search_field(manifest: Arc<Manifest>) -> Field {
     .argument(InputValue::new("text", TypeRef::named_nn(TypeRef::STRING)))
     .argument(InputValue::new("locale", TypeRef::named_nn(TypeRef::STRING)))
     .argument(InputValue::new("first", TypeRef::named(TypeRef::INT)))
+    .argument(InputValue::new("mode", TypeRef::named(SEARCH_MODE_TYPE)))
     .description(
-        "Search published entries in the locale by meaning. At most 50 results, one per entry, best match first.",
+        "Search published entries in the locale by meaning and keywords. At most 50 results, one per entry, best match first.",
     )
 }
 
@@ -1009,6 +1050,8 @@ pub fn build(
         .register(search_result_type())
         .register(search_hit_type())
         .register(search_availability_type())
+        .register(search_mode_type())
+        .register(search_match_type())
         .limit_depth(limits.depth)
         .limit_complexity(limits.complexity)
         .disable_suggestions();

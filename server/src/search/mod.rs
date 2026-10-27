@@ -3,6 +3,9 @@
 //! - 検索用データ（チャンクと埋め込み）は、ワークスペースのスキーマの `search_chunks` に置く。作るのは [`index`] のジョブ。
 //! - ベクトルの比べ方には pgvector を使う。拡張はスーパーユーザーが前もって作る（CMSは作らない。ロールがスーパーユーザーでないため）。
 //!   ワークスペースの SQL は search_path がそのワークスペースのスキーマだけなので、型と演算子は拡張のスキーマの名前を付けて書く。
+//! - 日本語のキーワード検索には pg_bigm を使う（M3。PGroonga は使わない）。これもスーパーユーザーが前もって作る。
+//!   なければ、キーワード検索だけを無効にする（INV-SRC-05）。あれば、CMSが移行用の接続で、各ワークスペースの本文に
+//!   GIN の索引（gin_bigm_ops）を作る（起動のときと、ワークスペースを作ったとき）。
 
 pub mod access;
 pub mod chunk;
@@ -10,25 +13,78 @@ pub mod index;
 pub mod query;
 
 use anyhow::{Result, bail};
-use sqlx::PgExecutor;
+use sqlx::{PgConnection, PgExecutor, PgPool};
+use uuid::Uuid;
 
 use crate::db::Ident;
+use crate::workspace_db::WorkspaceDb;
 
-/// pgvector の拡張 `vector` のあるスキーマ（なければ None）。
-pub async fn vector_schema<'e>(executor: impl PgExecutor<'e>) -> Result<Option<Ident>> {
+/// 拡張のあるスキーマ（なければ None）。
+async fn extension_schema<'e>(
+    executor: impl PgExecutor<'e>,
+    extension: &str,
+) -> Result<Option<Ident>> {
     let name: Option<String> = sqlx::query_scalar(
         "SELECT n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
-         WHERE e.extname = 'vector'",
+         WHERE e.extname = $1",
     )
+    .bind(extension)
     .fetch_optional(executor)
     .await?;
     match name {
         None => Ok(None),
         Some(n) => match Ident::new(&n) {
             Ok(i) => Ok(Some(i)),
-            Err(_) => bail!("the schema of the extension `vector` has an unsupported name"),
+            Err(_) => bail!("the schema of the extension `{extension}` has an unsupported name"),
         },
     }
+}
+
+/// pgvector の拡張 `vector` のあるスキーマ（なければ None）。
+pub async fn vector_schema<'e>(executor: impl PgExecutor<'e>) -> Result<Option<Ident>> {
+    extension_schema(executor, "vector").await
+}
+
+/// pg_bigm の拡張 `pg_bigm` のあるスキーマ。拡張がない、またはそのスキーマをどのロールも使えるのでなければ None
+/// （キーワード検索は無効）。
+pub async fn keyword_schema(conn: &mut PgConnection) -> Result<Option<Ident>> {
+    let Some(schema) = extension_schema(&mut *conn, "pg_bigm").await? else {
+        return Ok(None);
+    };
+    Ok(usable_by_every_role(&mut *conn, &schema)
+        .await?
+        .then_some(schema))
+}
+
+/// pg_bigm があれば、ワークスペースのチャンクの本文に GIN の索引を作る（既にあれば何もしない）。移行・ロールの作成用の接続で呼ぶ。
+/// 大文字・小文字を区別せずに探すため、索引は `lower(content)` に作る（検索の側も同じ式を使う。`query.rs`）。
+pub async fn ensure_keyword_index(conn: &mut PgConnection, db: &WorkspaceDb) -> Result<()> {
+    let Some(bs) = keyword_schema(&mut *conn).await? else {
+        return Ok(());
+    };
+    let schema = &db.schema;
+    sqlx::query(crate::sql!(
+        "CREATE INDEX IF NOT EXISTS search_chunks_bigm ON {schema}.search_chunks
+         USING gin (lower(content) {bs}.gin_bigm_ops)"
+    ))
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// すべてのワークスペースに [`ensure_keyword_index`] を行う（サーバーの起動時。後から pg_bigm を入れた環境のため）。
+pub async fn ensure_keyword_indexes(migration: &PgPool) -> Result<()> {
+    let mut conn = migration.acquire().await?;
+    if keyword_schema(&mut conn).await?.is_none() {
+        return Ok(());
+    }
+    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM cms.workspaces ORDER BY created_at")
+        .fetch_all(&mut *conn)
+        .await?;
+    for id in ids {
+        ensure_keyword_index(&mut conn, &WorkspaceDb::names_for(id)).await?;
+    }
+    Ok(())
 }
 
 /// 拡張のスキーマを、どのロール（ワークスペースのロールを含む）も使えるか（PUBLIC に USAGE があるか）。

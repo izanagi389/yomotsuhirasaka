@@ -67,18 +67,32 @@ pub fn current_keys(manifest: &Manifest) -> (Vec<String>, Vec<String>) {
 }
 
 /// 見せてよいチャンクの条件。`c` は search_chunks、`e` は entries。
-/// 引数: `{types}`・`{keys}` に今のスキーマの並び（[`current_keys`]）、`{locale}` にロケール、
-/// `{model}`・`{dims}` に今の埋め込みのモデルと次元数のパラメーターの番号を入れて使う（[`visible`]）。
-pub fn visible(types: usize, keys: usize, locale: usize, model: usize, dims: usize) -> String {
+/// 引数: `{types}`・`{keys}` に今のスキーマの並び（[`current_keys`]）、`{locale}` にロケールのパラメーターの番号を入れて使う。
+/// キーワード検索はこれだけを使い、ベクトル検索は [`visible_embedded`] を使う。
+pub fn visible(types: usize, keys: usize, locale: usize) -> String {
     format!(
         "e.id = c.entry_id
          AND e.deleted_at IS NULL
          AND e.published_version_id = c.version_id
          AND e.use_for_chatbot
          AND e.locale = ${locale} AND c.locale = ${locale}
-         AND c.model = ${model} AND c.dimensions = ${dims}
          AND (e.content_type, c.fields_key) IN (SELECT * FROM unnest(${types}::text[], ${keys}::text[]))
          AND EXISTS (SELECT 1 FROM versions v WHERE v.id = c.version_id AND v.erased_at IS NULL)"
+    )
+}
+
+/// [`visible`] に加えて、今の埋め込みのモデルと次元数（`{model}`・`{dims}` のパラメーターの番号）で埋め込みを作ったチャンク。
+pub fn visible_embedded(
+    types: usize,
+    keys: usize,
+    locale: usize,
+    model: usize,
+    dims: usize,
+) -> String {
+    format!(
+        "{}
+         AND c.embedding IS NOT NULL AND c.model = ${model} AND c.dimensions = ${dims}",
+        visible(types, keys, locale)
     )
 }
 
@@ -103,7 +117,7 @@ mod tests {
 
     #[test]
     fn visible_uses_only_numbered_parameters() {
-        let sql = visible(1, 2, 3, 4, 5);
+        let sql = visible_embedded(1, 2, 3, 4, 5);
         assert!(sql.contains("$1::text[]") && sql.contains("$2::text[]"));
         assert!(
             sql.contains("e.locale = $3")
@@ -112,5 +126,10 @@ mod tests {
         );
         assert!(sql.contains("e.published_version_id = c.version_id"));
         assert!(sql.contains("e.use_for_chatbot"));
+        assert!(sql.contains("c.embedding IS NOT NULL"));
+        // キーワード検索の条件は、モデルによらない（同じ照合を含む）
+        let text = visible(1, 2, 3);
+        assert!(sql.starts_with(&text));
+        assert!(!text.contains("c.model"));
     }
 }
