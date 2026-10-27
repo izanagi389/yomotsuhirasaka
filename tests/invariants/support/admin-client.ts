@@ -401,8 +401,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const uploadMediaRaw = (auth: Auth, workspaceId: string, file: UploadFile, extras?: RequestExtras): Promise<HttpResponse> =>
     request("POST", mediaPath(workspaceId), { auth, extras, rawBody: { contentType: file.contentType, bytes: file.bytes } });
   const setWorkspaceLimitsRaw = (auth: Auth, workspaceId: string, limits: WorkspaceLimits, extras?: RequestExtras): Promise<HttpResponse> => {
-    // 埋め込みの予算の天井は、指定したときだけ送る
-    const body: Record<string, number | null> = { mediaBytes: limits.mediaBytes ?? null };
+    // 書いた項目だけを送る（サーバーは、書いた項目だけを変える）
+    const body: Record<string, number | null> = {};
+    if ("mediaBytes" in limits) body["mediaBytes"] = limits.mediaBytes ?? null;
     if ("embeddingTokensPerMonth" in limits) body["embeddingTokensPerMonth"] = limits.embeddingTokensPerMonth ?? null;
     if ("embeddingTokensPerDay" in limits) body["embeddingTokensPerDay"] = limits.embeddingTokensPerDay ?? null;
     return request("PUT", `${ADMIN}/workspaces/${workspaceId}/limits`, { auth, extras, body });
