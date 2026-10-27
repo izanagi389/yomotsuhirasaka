@@ -165,7 +165,8 @@ async fn uploading_serving_and_deleting_media() {
             .fetch_one(&server.pool)
             .await
             .unwrap();
-        assert_eq!(n, 1);
+        // 容量の上限の変更と、天井だけの変更の2回（変更のたびに残る）
+        assert_eq!(n, 2);
         // 既定値に戻す
         let res = send(&server, "PUT", &limits, &root, Some("{\"mediaBytes\":null}")).await;
         assert_eq!(parse(&res)["mediaBytes"], 5_i64 * 1024 * 1024 * 1024);
