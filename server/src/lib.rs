@@ -6,6 +6,7 @@ pub mod api_keys;
 pub mod audit;
 pub mod audit_export;
 pub mod auth;
+pub mod budget;
 pub mod config;
 pub mod content;
 pub mod db;

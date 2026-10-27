@@ -511,6 +511,8 @@ mod tests {
             embedding_model: "text-embedding-3-small".into(),
             embedding_dimensions: 1536,
             embedding_price_per_million_tokens: Some(0.02),
+            default_workspace_embedding_tokens_per_month: None,
+            default_workspace_embedding_tokens_per_day: None,
         };
         let none: &[String] = &[];
         assert!(check_llm(&ok, none).is_empty());

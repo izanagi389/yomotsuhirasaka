@@ -4,6 +4,7 @@ pub mod admin_api_keys;
 pub mod admin_audit;
 pub mod admin_audit_sinks;
 pub mod admin_auth;
+pub mod admin_budgets;
 pub mod admin_corrections;
 pub mod admin_entries;
 pub mod admin_import;
@@ -587,6 +588,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/limits",
             get(admin_media::get_limits).put(admin_media::set_limits),
+        )
+        .route(
+            "/workspaces/{ws}/budgets/embedding",
+            get(admin_budgets::get_embedding).put(admin_budgets::set_embedding),
         )
         .fallback(not_found);
     Router::new()
