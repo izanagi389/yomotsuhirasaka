@@ -3,7 +3,8 @@
 # - pg_bigm: PGDG にないため、公開されているソースを決まったコミットでビルドする
 # 拡張を使う機能（検索・埋め込み）はM3から。初期化のスクリプト（deploy/init.sh）が、拡張を cms のDBに作る。
 
-FROM postgres:16-trixie
+# 外部のイメージは digest で固定する（13-security.md）。postgres:16-trixie のタグの、マルチアーキテクチャの一覧の digest
+FROM postgres:16-trixie@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
 
 # pg_bigm v1.2-20250903（https://github.com/pgbigm/pg_bigm、PostgreSQL License）
 ARG PG_BIGM_COMMIT=735dceba0ecdd8ac1aaaaa207226a7102b6bbd71
