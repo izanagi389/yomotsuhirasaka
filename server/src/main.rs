@@ -877,6 +877,10 @@ async fn serve(config: Config) -> Result<()> {
     if let Err(e) = cms_server::content::rerender::schedule_all(&state.pool, &state.keys).await {
         tracing::error!("cannot queue re-rendering: {e:#}");
     }
+    // 検索用データを今の状態と設定にそろえる（LLMの接続先やモデルが変わっていれば、作り直す・消す）
+    if let Err(e) = cms_server::search::index::schedule_all(&state.pool, &state.keys).await {
+        tracing::error!("cannot queue search indexing: {e:#}");
+    }
     cms_server::http::realtime::spawn_listener(state.clone());
     worker::spawn(state.clone());
     worker::spawn_sweeper(state.clone());

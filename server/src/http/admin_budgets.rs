@@ -138,5 +138,7 @@ pub async fn set_embedding(
         &[ws],
     )
     .await?;
+    // 予算で止まっていた検索用データの作成を、すぐにやり直す
+    super::admin_publishing::schedule_search(&state, ws).await;
     Ok(Json(view(&state, ws).await?))
 }

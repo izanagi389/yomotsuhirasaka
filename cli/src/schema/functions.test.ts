@@ -65,6 +65,18 @@ test("template.json refers to files; inline sources are refused", async () => {
   await assert.rejects(bundleFunctions(dir, { contentTypes: [{ urlFunction: { source: "export default 1" } }] }), /refer to it with "file"/);
 });
 
+test("only text and richtext fields can be searchable (same rule as the server)", () => {
+  const fields = [
+    { name: "title", type: "text", searchable: true },
+    { name: "body", type: "richtext", searchable: true },
+    { name: "slug", type: "slug", searchable: true },
+    { name: "related", type: "reference", searchable: false },
+  ];
+  assert.deepEqual(checkTemplateFunctions({ contentTypes: [{ fields }] }), [
+    "contentTypes[0].fields[2].searchable: only text and richtext fields can be searchable",
+  ]);
+});
+
 test("the CLI checks the same rules as the server", () => {
   assert.deepEqual(checkTemplateFunctions({ body: { customNodes: [{ name: "a", toMarkdown: { file: "./a.ts" } }] } }), []);
   const problems = checkTemplateFunctions({

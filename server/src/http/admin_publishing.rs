@@ -140,6 +140,13 @@ fn url_taken() -> ApiError {
     )
 }
 
+/// 検索用データをそろえるジョブを積む（記事が変わった後に呼ぶ）。積めなくても操作は確定しているので、記録して続ける。
+pub(super) async fn schedule_search(state: &AppState, ws: Uuid) {
+    if let Err(e) = crate::search::index::schedule(&state.pool, &state.keys, ws, 0.0).await {
+        tracing::error!(workspace_id = %ws, "cannot queue search indexing: {e:#}");
+    }
+}
+
 /// 公開URLの一意の索引の違反か（同時に同じURLで公開したとき）。
 fn is_url_conflict(e: &anyhow::Error) -> bool {
     e.downcast_ref::<sqlx::Error>()
@@ -147,14 +154,16 @@ fn is_url_conflict(e: &anyhow::Error) -> bool {
         .is_some_and(|d| d.constraint() == Some("entries_published_url"))
 }
 
-/// 記事のイベントのWebhookを送る（操作を確定した後に呼ぶ。Q146、INV-WH-06）。
+/// 記事のイベントのWebhookを送り、検索用データをそろえるジョブを積む（操作を確定した後に呼ぶ。Q146、INV-WH-06）。
 /// 送信の準備に失敗しても、確定した操作は取り消せないので、記録して成功を返す。
+/// 検索は毎回いまの状態と照合するので、ジョブが遅れても、見せてはいけない記事は出ない（INV-SRC-01）。
 pub(super) async fn notify_webhooks(
     state: &AppState,
     ws: Uuid,
     events: &[EntryEvent],
     entry: Option<EntryRef>,
 ) {
+    schedule_search(state, ws).await;
     let Some(entry) = entry else { return };
     if let Err(e) = webhooks::emit(&state.pool, &state.keys, ws, events, &entry).await {
         tracing::error!(workspace_id = %ws, entry_id = %entry.id, "cannot queue webhooks: {e:#}");

@@ -424,6 +424,8 @@ pub async fn set_limits(
     tx.commit().await.map_err(anyhow::Error::from)?;
     if req.embedding_tokens_per_month.is_some() || req.embedding_tokens_per_day.is_some() {
         crate::budget::resumed(&state.pool, ws, crate::budget::Kind::Embedding).await?;
+        // 予算で止まっていた検索用データの作成を、すぐにやり直す
+        super::admin_publishing::schedule_search(&state, ws).await;
     }
     audit::record(
         &state.pool,
