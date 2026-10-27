@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchResult, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -458,6 +458,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       // サイト内検索（M3。server/src/delivery）
       case "search":
         return `query($text: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $first: Int) { search(text: $text, locale: $locale, first: $first) { vectorSearch keywordSearch hits { entryId locale anchor breadcrumb excerpt score } } }`;
+      case "searchWithMode":
+        return `query($text: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $first: Int, $mode: CmsSearchMode) { search(text: $text, locale: $locale, first: $first, mode: $mode) { vectorSearch keywordSearch hits { entryId locale anchor breadcrumb excerpt score } } }`;
       case "text":
         return spec.text;
     }
@@ -934,12 +936,15 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         extras: { ...extras, query: { ...(extras?.query ?? {}), id: query.ref, variables: JSON.stringify(variables) } },
       });
     },
-    async search(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { text: string; locale?: string; first?: number }): Promise<SearchResult> {
+    async search(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { text: string; locale?: string; first?: number; mode?: SearchMode }): Promise<SearchResult> {
+      // 検索の方法は GraphQL の列挙の値（HYBRID・VECTOR・KEYWORD）で渡す
+      const { mode, ...rest } = input;
+      const variables = mode === undefined ? rest : { ...rest, mode: mode.toUpperCase() };
       const res = ensure(
         "サイト内検索",
         await request("GET", `/ws/${workspaceId}/graphql`, {
           auth: deliveryAuth(apiKey),
-          extras: { query: { id: query.ref, variables: JSON.stringify(input) } },
+          extras: { query: { id: query.ref, variables: JSON.stringify(variables) } },
         }),
       );
       const body = JSON.parse(res.text) as { data?: { search?: Record<string, unknown> }; errors?: unknown };

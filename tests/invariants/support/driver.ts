@@ -296,6 +296,8 @@ export type QuerySpec =
   | { kind: "aiMarkdownByUrl" }
   /** サイト内検索（M3、08-search-and-related.md）。変数は text・locale・first。 */
   | { kind: "search" }
+  /** サイト内検索で、検索の方法（mode）も指定するもの（M3）。変数は text・locale・first・mode。 */
+  | { kind: "searchWithMode" }
   | { kind: "text"; text: string };
 
 /** サイト内検索の1件（1つの記事から、いちばん似たチャンクを1件）。 */
@@ -320,6 +322,9 @@ export interface SearchResult {
   /** キーワード検索が使えるか（日本語の拡張がなければ disabled）。 */
   keywordSearch: "available" | "disabled";
 }
+
+/** サイト内検索の方法。hybrid はベクトル検索とキーワード検索の結果を混ぜる（既定）。 */
+export type SearchMode = "hybrid" | "vector" | "keyword";
 
 /** 登録済みクエリの参照。 */
 export interface RegisteredQuery {
@@ -596,8 +601,11 @@ export interface CmsClient {
     variables?: Record<string, unknown>,
     extras?: RequestExtras,
   ): Promise<HttpResponse>;
-  /** 登録済みのサイト内検索のクエリ（`{ kind: "search" }`）を実行し、応答を読む。成功しなければ失敗する。 */
-  search(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { text: string; locale?: string; first?: number }): Promise<SearchResult>;
+  /**
+   * 登録済みのサイト内検索のクエリ（`{ kind: "search" }` または `{ kind: "searchWithMode" }`）を実行し、応答を読む。
+   * 成功しなければ失敗する。`mode` は `searchWithMode` のクエリにだけ渡す。
+   */
+  search(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { text: string; locale?: string; first?: number; mode?: SearchMode }): Promise<SearchResult>;
   /** 登録していないクエリを、文のまま送る。 */
   deliveryAdHocRaw(workspaceIdInUrl: string, apiKey: string, spec: QuerySpec, variables?: Record<string, unknown>): Promise<HttpResponse>;
   /** 1回のリクエストで複数のクエリを送る（バッチ）。 */

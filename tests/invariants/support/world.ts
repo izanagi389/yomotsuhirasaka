@@ -127,6 +127,8 @@ export interface SearchWorkspace {
   editor: Member;
   editorSession: Session;
   readKey: IssuedSecret;
+  /** クエリを登録するためのキー。 */
+  registerKey: IssuedSecret;
   /** 登録済みのサイト内検索のクエリ。 */
   searchQuery: RegisteredQuery;
 }
@@ -148,7 +150,7 @@ async function makeSearchWorkspace(cms: CmsClient, serverAdmin: Credentials, ser
   const readKey = await cms.createApiKey(adminSession, id, ["read"]);
   const registerKey = await cms.createApiKey(adminSession, id, ["register"]);
   const searchQuery = await cms.registerQuery(id, registerKey.secret, { kind: "search" });
-  return { id, admin, adminSession, editor, editorSession, readKey, searchQuery };
+  return { id, admin, adminSession, editor, editorSession, readKey, registerKey, searchQuery };
 }
 
 /**
