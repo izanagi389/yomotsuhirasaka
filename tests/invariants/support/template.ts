@@ -42,6 +42,11 @@ export interface FieldSpec {
   multiple?: boolean;
   description?: string;
   devNote?: string;
+  /**
+   * 検索・質問応答の対象にするか（M3、08-search-and-related.md、Q16）。既定は対象外。
+   * 対象のフィールドの内容から、チャンクと埋め込みを作る。
+   */
+  searchable?: boolean;
 }
 
 export interface ContentTypeSpec {
@@ -149,3 +154,11 @@ export function postType(t: TemplateSpec): ContentTypeSpec {
   if (!post) throw new Error("post がない");
   return post;
 }
+
+/**
+ * 記事の本文（body）を検索・質問応答の対象にしたテンプレート（M3）。BASE_TEMPLATE は対象のフィールドを持たないので、
+ * 埋め込みを作る約束のテストは、これをデプロイしたインスタンスで確かめる。
+ */
+export const SEARCHABLE_TEMPLATE: TemplateSpec = cloneTemplate("inv-searchable", (t) => {
+  for (const f of postType(t).fields) if (f.name === "body") f.searchable = true;
+});

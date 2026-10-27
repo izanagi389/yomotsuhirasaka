@@ -99,11 +99,64 @@ async function control(apiKey: string, method: string, path: string, body?: unkn
   return text;
 }
 
+/** 擬似LLMのトークン数の数え方（tools/mock-llm の usage と同じ: 文字数 ÷ 4 の切り上げ、少なくとも 1）。 */
+export function mockUsageTokens(inputs: readonly string[]): number {
+  return inputs.reduce((sum, s) => sum + Math.max(1, Math.ceil([...s].length / 4)), 0);
+}
+
+/** 文字数（Unicode のコードポイント）の合計。 */
+export function characterCount(inputs: readonly string[]): number {
+  return inputs.reduce((sum, s) => sum + [...s].length, 0);
+}
+
+/** 受け取った埋め込みのリクエストの入力（すべてのリクエストの分を、届いた順に）。 */
+export function embeddingInputs(requests: readonly MockLlmRequest[]): string[] {
+  return requests
+    .filter((r) => r.endpoint === "embeddings")
+    .flatMap((r) => {
+      const input = (r.body as { input?: unknown } | undefined)?.input;
+      return typeof input === "string" ? [input] : Array.isArray(input) ? input.filter((x): x is string => typeof x === "string") : [];
+    });
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /** 擬似LLMの操作。どれも、指定したAPIキーの状態だけを変える。 */
 export const mockLlm = {
   /** CMSに設定する接続先。 */
   get baseUrl(): string {
     return env.mockLlmUrl;
+  },
+  /** このキーで擬似LLMにつなぐ、サーバーの設定の LLM の接続先（埋め込みのモデルは 64 次元）。 */
+  connection(apiKey: string): { baseUrl: string; apiKey: string; embeddingModel: string; embeddingDimensions: number } {
+    return { baseUrl: env.mockLlmUrl, apiKey, embeddingModel: "mock-embed-64", embeddingDimensions: 64 };
+  },
+  /** 条件に合うまで、受け取ったリクエストを読み直す。時間内に合わなければ失敗する。 */
+  async waitForRequests(apiKey: string, predicate: (requests: MockLlmRequest[]) => boolean, timeoutMs = 60_000): Promise<MockLlmRequest[]> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const list = await mockLlm.requests(apiKey);
+      if (predicate(list)) return list;
+      if (Date.now() > deadline) throw new Error(`擬似LLMに、待っていたリクエストが ${timeoutMs}ms 以内に届かない（届いた数: ${list.length}）`);
+      await sleep(500);
+    }
+  },
+  /** 受け取ったリクエストの数が quietMs の間増えなくなるまで待ち、その時点の一覧を返す。 */
+  async waitUntilQuiet(apiKey: string, quietMs = 8_000, timeoutMs = 120_000): Promise<MockLlmRequest[]> {
+    const deadline = Date.now() + timeoutMs;
+    let list = await mockLlm.requests(apiKey);
+    let since = Date.now();
+    for (;;) {
+      await sleep(500);
+      const next = await mockLlm.requests(apiKey);
+      if (next.length !== list.length) {
+        list = next;
+        since = Date.now();
+      } else if (Date.now() - since >= quietMs) {
+        return list;
+      }
+      if (Date.now() > deadline) throw new Error(`擬似LLMへのリクエストが ${timeoutMs}ms たっても止まらない（届いた数: ${list.length}）`);
+    }
   },
   async setFaults(apiKey: string, faults: MockLlmFault[]): Promise<void> {
     await control(apiKey, "PUT", "/_mock/faults", { faults });

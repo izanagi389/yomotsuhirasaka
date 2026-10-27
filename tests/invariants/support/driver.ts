@@ -57,6 +57,20 @@ export interface Credentials {
  * - corrections: 訂正としての公開と、確認済みの記録
  * - takeOverEditing: 編集の引き継ぎ
  */
+/** サーバー管理者が決めるワークスペースの上限。書いた項目だけを変える。 */
+export interface WorkspaceLimits {
+  mediaBytes?: number;
+  /** 埋め込みの作成の予算の天井（トークン数）。null は設定ファイルの既定値。 */
+  embeddingTokensPerMonth?: number | null;
+  embeddingTokensPerDay?: number | null;
+}
+
+/** ワークスペースの埋め込みの作成の予算（トークン数）。null は上限なし（サーバー管理者の天井の範囲で）。 */
+export interface EmbeddingBudget {
+  tokensPerMonth: number | null;
+  tokensPerDay: number | null;
+}
+
 export type HeavyPermission = "viewQuestionLog" | "manageLlm" | "policySwitches" | "corrections" | "takeOverEditing";
 
 export interface Member extends Credentials {
@@ -447,7 +461,16 @@ export interface CmsClient {
   removeMember(session: Session, workspaceId: string, userId: string): Promise<void>;
   /** サーバー管理者を新しく作る（サーバー上のCLIで）。 */
   createServerAdmin(options: { mfa: boolean }): Promise<Member>;
-  setWorkspaceLimits(serverAdminSession: Session, workspaceId: string, limits: { mediaBytes?: number }): Promise<void>;
+  /**
+   * サーバー管理者が、ワークスペースの上限を決める。埋め込みの予算は、ワークスペースが決める上限の天井（M3、Q70）。
+   * null は設定ファイルの既定値に戻す。
+   */
+  setWorkspaceLimits(serverAdminSession: Session, workspaceId: string, limits: WorkspaceLimits): Promise<void>;
+  /**
+   * ワークスペースの埋め込みの作成の予算（トークン数、UTCの暦の月・日。null は上限なし（天井の範囲で））を決める（応答をそのまま返す）。
+   * 重い権限（manageLlm）の操作で、再認証が要る。
+   */
+  setEmbeddingBudgetRaw(auth: Auth, workspaceId: string, budget: EmbeddingBudget): Promise<HttpResponse>;
 
   // --- パスワードと多要素認証の回復 ---
   requestPasswordResetRaw(email: string, extras?: RequestExtras): Promise<HttpResponse>;
