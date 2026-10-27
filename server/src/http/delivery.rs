@@ -328,6 +328,7 @@ async fn execute(
         workspace_id: ws,
         media_base: super::admin_media::media_base(state),
         preview,
+        app: Some(state.clone()),
     });
     let request = async_graphql::Request::new(query)
         .variables(async_graphql::Variables::from_json(variables))

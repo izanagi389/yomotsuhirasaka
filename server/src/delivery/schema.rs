@@ -12,7 +12,8 @@ use std::sync::{Arc, RwLock};
 
 use async_graphql::Value as GqlValue;
 use async_graphql::dynamic::{
-    Field, FieldFuture, FieldValue, InputValue, Object, ResolverContext, Scalar, Schema, TypeRef,
+    Enum, EnumItem, Field, FieldFuture, FieldValue, InputValue, Object, ResolverContext, Scalar,
+    Schema, TypeRef,
 };
 use serde_json::Value;
 use sqlx::{Postgres, Transaction};
@@ -25,12 +26,13 @@ use super::names::{
     self, AI_CATALOG_FIELD, AI_CATALOG_ITEM_TYPE, AI_MARKDOWN_BY_URL_FIELD, AI_MARKDOWN_FIELD,
     AI_TRAINING_OPT_OUTS_FIELD, ALTERNATE_TYPE, CORRECTION_FEED_ITEM_TYPE, CORRECTION_TYPE,
     CORRECTIONS_FIELD, DELETED_ANCHOR_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE,
-    REDIRECTS_FIELD,
+    REDIRECTS_FIELD, SEARCH_AVAILABILITY_TYPE, SEARCH_FIELD, SEARCH_HIT_TYPE, SEARCH_RESULT_TYPE,
 };
 use crate::content::corrections::{self, Correction, DeletedAnchor, FeedItem};
 use crate::content::freshness::{self, Freshness};
 use crate::content::redirects::{self, Rule};
 use crate::schema::manifest::{ContentType, FieldType, Manifest};
+use crate::search::query::{self as search, Availability, Hit, Outcome as SearchOutcome};
 
 /// 一覧の `offset` の上限。
 const MAX_OFFSET: i64 = 100_000;
@@ -46,6 +48,8 @@ pub struct RequestData {
     /// プレビューする記事（プレビュー用トークンが有効なときだけ）。1件を取るクエリ（IDとスラッグ）でだけ、公開中の版の代わりに
     /// これを返す。一覧や参照の解決には使わない（INV-PRV-01）。
     pub preview: Option<Entry>,
+    /// サイト内検索に要る、ワークスペースの外のもの（予算・埋め込みの呼び出し・キャッシュ）。検証だけのとき（登録）は None。
+    pub app: Option<crate::http::AppState>,
 }
 
 /// 深さと複雑さの上限。
@@ -481,6 +485,133 @@ fn catalog_field(manifest: Arc<Manifest>) -> Field {
     )
 }
 
+/// サイト内検索の結果の型。
+fn search_result_type() -> Object {
+    let availability = |get: fn(&SearchOutcome) -> Availability| {
+        move |o: &SearchOutcome| Some(GqlValue::Enum(async_graphql::Name::new(get(o).name())))
+    };
+    Object::new(SEARCH_RESULT_TYPE)
+        .description("Site search results. Entries come from the searchable fields of published entries only.")
+        .field(Field::new(
+            "hits",
+            TypeRef::named_nn_list_nn(SEARCH_HIT_TYPE),
+            |ctx| {
+                let hits = ctx
+                    .parent_value
+                    .try_downcast_ref::<SearchOutcome>()
+                    .map(|o| o.hits.clone());
+                FieldFuture::new(async move {
+                    Ok(Some(FieldValue::list(hits?.into_iter().map(FieldValue::owned_any))))
+                })
+            },
+        ))
+        .field(
+            value_field::<SearchOutcome, _>(
+                "vectorSearch",
+                TypeRef::named_nn(SEARCH_AVAILABILITY_TYPE),
+                availability(|o| o.vector),
+            )
+            .description("Whether vector (semantic) search could run (BUDGET_EXHAUSTED when the embedding budget is used up)."),
+        )
+        .field(
+            value_field::<SearchOutcome, _>(
+                "keywordSearch",
+                TypeRef::named_nn(SEARCH_AVAILABILITY_TYPE),
+                availability(|o| o.keyword),
+            )
+            .description("Whether keyword search is available (DISABLED without the Japanese full-text extension)."),
+        )
+}
+
+/// サイト内検索の1件（1つの記事から、いちばん似たチャンク）。
+fn search_hit_type() -> Object {
+    Object::new(SEARCH_HIT_TYPE)
+        .description("The best matching section of one entry.")
+        .field(value_field::<Hit, _>(
+            "entryId",
+            TypeRef::named_nn(TypeRef::ID),
+            |h| Some(GqlValue::from(h.entry_id.to_string())),
+        ))
+        .field(value_field::<Hit, _>(
+            "locale",
+            TypeRef::named_nn(TypeRef::STRING),
+            |h| Some(GqlValue::from(h.locale.clone())),
+        ))
+        .field(value_field::<Hit, _>(
+            "anchor",
+            TypeRef::named(TypeRef::STRING),
+            |h| h.anchor.clone().map(GqlValue::from),
+        ))
+        .field(value_field::<Hit, _>(
+            "breadcrumb",
+            TypeRef::named_nn_list_nn(TypeRef::STRING),
+            |h| sections_value(&h.breadcrumb),
+        ))
+        .field(value_field::<Hit, _>(
+            "excerpt",
+            TypeRef::named_nn(TypeRef::STRING),
+            |h| Some(GqlValue::from(h.excerpt.clone())),
+        ))
+        .field(value_field::<Hit, _>(
+            "score",
+            TypeRef::named_nn(TypeRef::FLOAT),
+            |h| Some(GqlValue::from(h.score)),
+        ))
+}
+
+fn search_availability_type() -> Enum {
+    Enum::new(SEARCH_AVAILABILITY_TYPE)
+        .item(EnumItem::new(Availability::Available.name()))
+        .item(EnumItem::new(Availability::BudgetExhausted.name()))
+        .item(EnumItem::new(Availability::Disabled.name()))
+}
+
+/// サイト内検索（M3、08-search-and-related.md）。見せてよいかは、検索のたびに今の状態と照合する（`search::access`）。
+fn search_field(manifest: Arc<Manifest>) -> Field {
+    Field::new(SEARCH_FIELD, TypeRef::named_nn(SEARCH_RESULT_TYPE), move |ctx| {
+        let manifest = manifest.clone();
+        FieldFuture::new(async move {
+            let text = ctx.args.try_get("text")?.string()?.to_owned();
+            let locale = ctx.args.try_get("locale")?.string()?.to_owned();
+            let first = ctx
+                .args
+                .get("first")
+                .and_then(|v| v.i64().ok())
+                .unwrap_or(search::DEFAULT_FIRST);
+            let req = request(&ctx)?;
+            let mut guard = req.tx.lock().await;
+            let (Some(tx), Some(app)) = (guard.as_mut(), req.app.as_ref()) else {
+                // 検証だけのとき（登録）は、データを読まない
+                return Ok(Some(FieldValue::owned_any(SearchOutcome {
+                    hits: Vec::new(),
+                    vector: Availability::Disabled,
+                    keyword: Availability::Disabled,
+                })));
+            };
+            let services = search::Services {
+                pool: &app.pool,
+                config: &app.config,
+                egress: app.egress.as_ref(),
+                cache: &app.search_cache,
+            };
+            match search::search(&services, tx, req.workspace_id, &manifest, &text, &locale, first).await {
+                Ok(out) => Ok(Some(FieldValue::owned_any(out))),
+                Err(e) => match e.downcast_ref::<search::Unavailable>() {
+                    // 埋め込みを作れなかった（LLMの接続先の障害など）。理由の種類だけを返す
+                    Some(u) => Err(async_graphql::Error::new(u.to_string())),
+                    None => Err(internal(e)),
+                },
+            }
+        })
+    })
+    .argument(InputValue::new("text", TypeRef::named_nn(TypeRef::STRING)))
+    .argument(InputValue::new("locale", TypeRef::named_nn(TypeRef::STRING)))
+    .argument(InputValue::new("first", TypeRef::named(TypeRef::INT)))
+    .description(
+        "Search published entries in the locale by meaning. At most 50 results, one per entry, best match first.",
+    )
+}
+
 /// 公開URLで、記事のMarkdown版（素材にならない記事・公開中でないURLでは null。INV-AIX-01）。
 fn markdown_by_url_field(manifest: Arc<Manifest>) -> Field {
     Field::new(AI_MARKDOWN_BY_URL_FIELD, TypeRef::named(TypeRef::STRING), move |ctx| {
@@ -860,7 +991,8 @@ pub fn build(
         .field(corrections_feed_field(shared.clone()))
         .field(catalog_field(shared.clone()))
         .field(markdown_by_url_field(shared.clone()))
-        .field(training_opt_outs_field());
+        .field(training_opt_outs_field())
+        .field(search_field(shared.clone()));
     for ct in &manifest.content_types {
         query = root_fields(query, ct);
     }
@@ -874,6 +1006,9 @@ pub fn build(
         .register(deleted_anchor_type())
         .register(correction_feed_item_type())
         .register(catalog_item_type())
+        .register(search_result_type())
+        .register(search_hit_type())
+        .register(search_availability_type())
         .limit_depth(limits.depth)
         .limit_complexity(limits.complexity)
         .disable_suggestions();
