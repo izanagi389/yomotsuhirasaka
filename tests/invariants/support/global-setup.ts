@@ -60,6 +60,12 @@ async function setupCms(): Promise<void> {
   const totpSecret = await cms.enrollTotp(session, { email, password });
   const creds = { email, password, totpSecret };
 
+  // 擬似LLMに届くこと（CLIの llm-check。舞台の準備の確認）
+  if (config.llm) {
+    const llmCheck = await runServerCli(config, ["llm-check"]);
+    if (llmCheck.exitCode !== 0) throw new Error(`テストの舞台のCMSから擬似LLMに届かない:\n${llmCheck.output}`);
+  }
+
   // BASE_TEMPLATE のデプロイ
   const admin = await cms.login(creds);
   const token = await cms.deployToken(admin, creds);

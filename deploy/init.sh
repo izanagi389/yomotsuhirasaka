@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # 公式の Docker Compose の初期化（13-security.md「安全な初期設定」、Q168, Q172, Q173）。最初に1回だけ実行する。
 #
-# 使い方: deploy/init.sh https://cms.example.com
+# 使い方: deploy/init.sh [--dev] https://cms.example.com
+#
+# --dev: 開発用（docker-compose.dev.yml を重ねて使う）。擬似LLM（mock-llm）を LLM の接続先にし、
+#        外部への送信の内部宛先の例外に mock-llm を入れる（Q139）。本番では付けない。
 #
 # - cms-server init で、設定ファイル（秘密の値を含む）と暗号化の鍵を ./data/cms に作る（秘密の値に初期値はない）
 # - PostgreSQL の初回の起動で、普段用のロール cms_app・移行用のロール cms_migrate（CREATEROLE、スーパーユーザーでない）・
@@ -11,9 +14,14 @@
 # 暗号化の鍵（./data/cms/encryption.key）は、DBのバックアップとは別の場所に保管すること。
 set -euo pipefail
 
+DEV=0
+if [ "${1:-}" = "--dev" ]; then
+  DEV=1
+  shift
+fi
 PUBLIC_URL="${1:-}"
 if [[ ! "$PUBLIC_URL" =~ ^https:// ]]; then
-  echo "usage: deploy/init.sh https://<public host of the CMS>" >&2
+  echo "usage: deploy/init.sh [--dev] https://<public host of the CMS>" >&2
   exit 2
 fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -30,8 +38,20 @@ chmod 700 "$DATA"
 # コンテナの CMS は、この利用者で動かす（./data/cms をホストの利用者のまま読み書きできるように）
 printf 'CMS_UID=%s\nCMS_GID=%s\n' "$(id -u)" "$(id -g)" > "$HERE/.env"
 
+# 擬似LLMはどんなキーでも受け付ける。キーはコマンドの引数に載せず、標準入力で渡す
+DEV_ARGS=()
+if [ "$DEV" = 1 ]; then
+  DEV_ARGS=(
+    --llm-base-url "http://mock-llm:8080/v1"
+    --llm-embedding-model "mock-embed-64"
+    --llm-embedding-dimensions 64
+    --llm-api-key-stdin
+    --internal-destination-exception mock-llm
+  )
+fi
+
 docker compose build
-docker compose run --rm --no-deps -T --user "$(id -u):$(id -g)" cms init \
+head -c 24 /dev/urandom | base64 | tr -d '/+=\n' | docker compose run --rm --no-deps -T --user "$(id -u):$(id -g)" cms init \
   --config /data/config.toml \
   --key-file /data/encryption.key \
   --public-url "$PUBLIC_URL" \
@@ -39,7 +59,8 @@ docker compose run --rm --no-deps -T --user "$(id -u):$(id -g)" cms init \
   --migration-database-url "postgres://cms_migrate@db:5432/cms" \
   --listen "0.0.0.0:8080" \
   --media-root /data/media \
-  --admin-dist-dir /usr/share/cms-admin
+  --admin-dist-dir /usr/share/cms-admin \
+  ${DEV_ARGS[@]+"${DEV_ARGS[@]}"}
 
 # 設定ファイルから、生成されたDBのパスワードを読む（[database] と [migration_database] の password）
 password_of() {

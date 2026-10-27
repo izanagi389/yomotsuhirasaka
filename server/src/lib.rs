@@ -17,6 +17,7 @@ pub mod http;
 pub mod invitations;
 pub mod jobs;
 pub mod keys;
+pub mod llm;
 pub mod locale;
 pub mod mail;
 pub mod media;

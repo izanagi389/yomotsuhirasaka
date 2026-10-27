@@ -41,6 +41,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         ),
         delivery: Default::default(),
         egress: Default::default(),
+        llm: None,
         admin: Default::default(),
         scripts: Default::default(),
         audit_export: Default::default(),

@@ -634,6 +634,12 @@ export interface ServerConfig {
   sharedCache?: boolean;
   /** 出口のプロキシ（Q128）。 */
   egressProxy?: { url: string };
+  /**
+   * LLMの接続先（インスタンスの既定値。M3は埋め込みだけ）。なければ埋め込みを作らない。
+   * テストの舞台のCMSは、擬似LLM（support/mock-llm.ts）に決まったキーでつなぐ。
+   * 呼び出しを細かく確かめるテストは、専用のキーで別のサーバーを起動する（擬似LLMの記録はキーごと）。
+   */
+  llm?: { baseUrl: string; apiKey: string; embeddingModel: string; embeddingDimensions: number; pricePerMillionTokens?: number };
   /** 漏えいしたパスワードの照会先（Have I Been Pwned の range API と同じ形）。null なら無効。 */
   breachedPasswordApi?: { baseUrl: string } | null;
   /**
