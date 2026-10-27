@@ -14,9 +14,10 @@ jobs:
     server:
         runs-on: ubuntu-24.04
         services:
-            # 検索用データのベクトルに pgvector が要る（scripts/test-env/setup.sh が拡張 vector を作る）
+            # 検索用データのベクトルに pgvector が要る（scripts/test-env/setup.sh が拡張 vector を作る）。
+            # 外部のイメージは digest で固定する（外部のアクションと同じ。13-security.md）。pg16 のタグの、マルチアーキテクチャの一覧の digest
             pg16:
-                image: pgvector/pgvector:pg16
+                image: pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
                 env:
                     POSTGRES_PASSWORD: ci-only-superuser-pw-16
                 ports: ["5432:5432"]
@@ -43,9 +44,10 @@ jobs:
     invariants:
         runs-on: ubuntu-24.04
         services:
-            # 検索用データのベクトルに pgvector が要る（scripts/test-env/setup.sh が拡張 vector を作る）
+            # 検索用データのベクトルに pgvector が要る（scripts/test-env/setup.sh が拡張 vector を作る）。
+            # 外部のイメージは digest で固定する（外部のアクションと同じ。13-security.md）。pg16 のタグの、マルチアーキテクチャの一覧の digest
             pg16:
-                image: pgvector/pgvector:pg16
+                image: pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
                 env:
                     POSTGRES_PASSWORD: ci-only-superuser-pw-16
                 ports: ["5432:5432"]
