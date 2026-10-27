@@ -83,6 +83,10 @@ pub mod action {
     pub const MEDIA_UPLOADED: &str = "media.uploaded";
     pub const MEDIA_DELETED: &str = "media.deleted";
     pub const WORKSPACE_LIMITS_CHANGED: &str = "workspace.limits_changed";
+    /// ワークスペースのLLMの予算の上限を変えた（重い権限 manageLlm）。
+    pub const BUDGET_CHANGED: &str = "budget.changed";
+    /// 予算が足りずにLLMの呼び出しを断った（期間ごとに1回。ワークスペースの管理者に知らせる）。
+    pub const BUDGET_EXHAUSTED: &str = "budget.exhausted";
     pub const WEBHOOK_CREATED: &str = "webhook.created";
     /// 監査ログの書き出し先（ワークスペース）の作成・削除・再開（計画の14番）。
     pub const AUDIT_SINK_CREATED: &str = "audit_sink.created";
@@ -131,6 +135,7 @@ pub const NOTIFY: &[&str] = &[
     action::MFA_RESET_ISSUED,
     action::MFA_RESET_COMPLETED,
     action::AUDIT_SINK_DELETED,
+    action::BUDGET_EXHAUSTED,
 ];
 
 /// 知らせるかを記録する側が決める記録。

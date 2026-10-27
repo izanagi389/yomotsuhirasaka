@@ -592,6 +592,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("getWorkspaceLimits", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/limits`, { auth, extras })),
     // 上限は既定値のまま（null）にする
     op("setWorkspaceLimits", true, "instance", (auth, t, extras) => setWorkspaceLimitsRaw(auth, t.workspaceId, {}, extras)),
+    // 埋め込みの作成の予算（重い権限 manageLlm）。値は天井の範囲に必ず収まる 0
+    op("getEmbeddingBudget", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/budgets/embedding`, { auth, extras })),
+    op("setEmbeddingBudget", true, "workspace", (auth, t, extras) => setEmbeddingBudgetRaw(auth, t.workspaceId, { tokensPerMonth: 0, tokensPerDay: 0 }, extras)),
     // 対象は存在しない版（舞台の版を壊さないため）
     op("eraseVersion", true, "workspace", (auth, t, extras) => eraseVersionRaw(auth, t.workspaceId, t.entryId, randomUUID(), [], extras)),
     op("getEraseCandidates", false, "workspace", async (auth, t, extras) => {

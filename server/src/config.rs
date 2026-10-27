@@ -423,6 +423,13 @@ pub struct LlmConfig {
     /// 埋め込みの単価（100万トークンあたり。任意）。あれば見積もりで費用も出す（Q138）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedding_price_per_million_tokens: Option<f64>,
+    /// ワークスペースの埋め込みの作成の予算の天井の既定値（トークン数、UTCの暦の月）。
+    /// サーバー管理者がワークスペースごとに決めていなければ、これが効く。なければ 0（埋め込みを作らない）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_workspace_embedding_tokens_per_month: Option<u64>,
+    /// 同じく、UTCの暦の日。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_workspace_embedding_tokens_per_day: Option<u64>,
 }
 
 /// APIキーは出さない（設定をログなどに出したときに漏れないように）。
@@ -436,6 +443,14 @@ impl std::fmt::Debug for LlmConfig {
             .field(
                 "embedding_price_per_million_tokens",
                 &self.embedding_price_per_million_tokens,
+            )
+            .field(
+                "default_workspace_embedding_tokens_per_month",
+                &self.default_workspace_embedding_tokens_per_month,
+            )
+            .field(
+                "default_workspace_embedding_tokens_per_day",
+                &self.default_workspace_embedding_tokens_per_day,
             )
             .finish()
     }

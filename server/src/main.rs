@@ -330,6 +330,8 @@ fn init_llm(
         embedding_model,
         embedding_dimensions,
         embedding_price_per_million_tokens: None,
+        default_workspace_embedding_tokens_per_month: None,
+        default_workspace_embedding_tokens_per_day: None,
     }))
 }
 
