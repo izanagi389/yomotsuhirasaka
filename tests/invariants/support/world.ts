@@ -2,7 +2,8 @@
 // テストのファイルごとに新しく作るので、他のファイルの結果に左右されない。
 
 import { randomUUID } from "node:crypto";
-import { driver, type CmsClient, type Credentials, type IssuedSecret, type Member, type OperationTarget, type RegisteredQuery, type Session } from "./driver.js";
+import { asBearer, driver, type CmsClient, type Credentials, type IssuedSecret, type Member, type OperationTarget, type RegisteredQuery, type Session } from "./driver.js";
+import { SEARCHABLE_TEMPLATE } from "./template.js";
 import { simpleBody } from "./body.js";
 import { env } from "./env.js";
 
@@ -112,4 +113,63 @@ export async function createWorld(): Promise<World> {
 export function lazyWorld(): () => Promise<World> {
   let promise: Promise<World> | null = null;
   return () => (promise ??= createWorld());
+}
+
+// ---------------------------------------------------------------------------
+// サイト内検索の舞台（M3）
+// ---------------------------------------------------------------------------
+
+/** 本文（body）を検索の対象にしたテンプレートのワークスペース。記事は入っていない。 */
+export interface SearchWorkspace {
+  id: string;
+  admin: Member;
+  adminSession: Session;
+  editor: Member;
+  editorSession: Session;
+  readKey: IssuedSecret;
+  /** 登録済みのサイト内検索のクエリ。 */
+  searchQuery: RegisteredQuery;
+}
+
+export interface SearchWorld {
+  cms: CmsClient;
+  a: SearchWorkspace;
+  b: SearchWorkspace;
+}
+
+async function makeSearchWorkspace(cms: CmsClient, serverAdmin: Credentials, serverAdminSession: Session, label: string): Promise<SearchWorkspace> {
+  await cms.reauthenticate(serverAdminSession, serverAdmin);
+  const { id } = await cms.createWorkspace(serverAdminSession, `inv-${label}-${randomUUID().slice(0, 8)}`, { template: SEARCHABLE_TEMPLATE.name });
+  const admin = await cms.createMember(serverAdminSession, id, "admin");
+  const adminSession = await cms.login(admin);
+  const editor = await cms.createMember(adminSession, id, "editor");
+  const editorSession = await cms.login(editor);
+  await cms.reauthenticate(adminSession, admin);
+  const readKey = await cms.createApiKey(adminSession, id, ["read"]);
+  const registerKey = await cms.createApiKey(adminSession, id, ["register"]);
+  const searchQuery = await cms.registerQuery(id, registerKey.secret, { kind: "search" });
+  return { id, admin, adminSession, editor, editorSession, readKey, searchQuery };
+}
+
+/**
+ * 検索の舞台: テスト環境のCMSに SEARCHABLE_TEMPLATE をデプロイし、それを使う2つのワークスペース（A・B）を作る。
+ * テスト環境のCMSは擬似LLMにつながっていて、埋め込みの予算の天井の既定値は十分に大きい（server-process.ts）。
+ */
+export async function createSearchWorld(): Promise<SearchWorld> {
+  const cms = driver.connect(env.cmsUrl);
+  const serverAdmin = env.serverAdmin;
+  const serverAdminSession = await cms.login(serverAdmin);
+  await cms.reauthenticate(serverAdminSession, serverAdmin);
+  const token = await cms.deployToken(serverAdminSession, serverAdmin);
+  const res = await cms.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE);
+  if (res.status < 200 || res.status >= 300) throw new Error(`SEARCHABLE_TEMPLATE をデプロイできない（${res.status}）: ${res.text}`);
+  const a = await makeSearchWorkspace(cms, serverAdmin, serverAdminSession, "SA");
+  const b = await makeSearchWorkspace(cms, serverAdmin, serverAdminSession, "SB");
+  return { cms, a, b };
+}
+
+/** 最初に呼ばれたときに検索の舞台を作り、以降は同じ舞台を返す（ファイルごとに1つ）。 */
+export function lazySearchWorld(): () => Promise<SearchWorld> {
+  let promise: Promise<SearchWorld> | null = null;
+  return () => (promise ??= createSearchWorld());
 }

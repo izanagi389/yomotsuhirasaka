@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchResult, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -455,6 +455,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         return "query($url: String!) { aiMarkdownByUrl(url: $url) }";
       case "aiCatalog":
         return "query($locale: String!, $limit: Int) { aiCatalog(locale: $locale, limit: $limit) { entryId contentType url title locale updatedAt } }";
+      // サイト内検索（M3。server/src/delivery）
+      case "search":
+        return `query($text: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $first: Int) { search(text: $text, locale: $locale, first: $first) { vectorSearch keywordSearch hits { entryId locale anchor breadcrumb excerpt score } } }`;
       case "text":
         return spec.text;
     }
@@ -930,6 +933,25 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         auth: deliveryAuth(apiKey),
         extras: { ...extras, query: { ...(extras?.query ?? {}), id: query.ref, variables: JSON.stringify(variables) } },
       });
+    },
+    async search(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { text: string; locale?: string; first?: number }): Promise<SearchResult> {
+      const res = ensure(
+        "サイト内検索",
+        await request("GET", `/ws/${workspaceId}/graphql`, {
+          auth: deliveryAuth(apiKey),
+          extras: { query: { id: query.ref, variables: JSON.stringify(input) } },
+        }),
+      );
+      const body = JSON.parse(res.text) as { data?: { search?: Record<string, unknown> }; errors?: unknown };
+      const r = body.data?.search;
+      if (!r || body.errors) throw new SetupError("サイト内検索の応答の読み取り", res);
+      // GraphQL の列挙の値（AVAILABLE・BUDGET_EXHAUSTED・DISABLED）を、ドライバーの値にする
+      const VALUES: Record<string, string> = { AVAILABLE: "available", BUDGET_EXHAUSTED: "budgetExhausted", DISABLED: "disabled" };
+      return {
+        hits: r["hits"] as SearchHit[],
+        vectorSearch: VALUES[String(r["vectorSearch"])] as SearchResult["vectorSearch"],
+        keywordSearch: VALUES[String(r["keywordSearch"])] as SearchResult["keywordSearch"],
+      };
     },
     deliveryPreviewRaw(
       workspaceIdInUrl: string,

@@ -5,11 +5,6 @@
 
 import type { CustomNodeSpec, ScriptPermission, ScriptSpec, TemplateSpec } from "./template.js";
 
-/** 書式がまだ決まっていない指定。黙って無視せずに失敗させる（driver.ts の NotImplementedError と同じ文）。 */
-const notYet = (what: string): never => {
-  throw new Error(`ドライバーが未実装です: ${what}（tests/invariants/support/manifest.ts）`);
-};
-
 interface NodeDef {
   children: string[];
   attrs: string[];
@@ -108,8 +103,8 @@ export function toManifest(t: TemplateSpec): unknown {
       description: ct.description,
       devNote: ct.devNote,
       fields: ct.fields.map((f) => ({
-        // 検索・質問応答の対象の指定の書式は、検索の基盤（M3の作業4）で決める。それまでは黙って無視せずに失敗させる
-        ...(f.searchable ? notYet(`テンプレートの検索の対象の指定（${ct.name}.${f.name}）`) : {}),
+        // 検索・質問応答の対象（M3、Q16）。既定は対象外なので、対象のときだけ書く
+        ...(f.searchable ? { searchable: true } : {}),
         name: f.name,
         type: f.type,
         required: f.required ?? false,

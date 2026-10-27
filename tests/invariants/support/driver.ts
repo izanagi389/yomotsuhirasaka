@@ -294,7 +294,32 @@ export type QuerySpec =
   | { kind: "correctionFeed" }
   | { kind: "aiCatalog" }
   | { kind: "aiMarkdownByUrl" }
+  /** サイト内検索（M3、08-search-and-related.md）。変数は text・locale・first。 */
+  | { kind: "search" }
   | { kind: "text"; text: string };
+
+/** サイト内検索の1件（1つの記事から、いちばん似たチャンクを1件）。 */
+export interface SearchHit {
+  entryId: string;
+  locale: string;
+  /** そのチャンクのセクションのアンカーID（見出しがなければ null）。 */
+  anchor: string | null;
+  /** 「タイトル ＞ 大見出し ＞ 小見出し」。 */
+  breadcrumb: string[];
+  /** 抜粋（プレーンテキスト、200文字まで）。 */
+  excerpt: string;
+  /** 類似度。 */
+  score: number;
+}
+
+/** サイト内検索の応答。 */
+export interface SearchResult {
+  hits: SearchHit[];
+  /** ベクトル検索が使えるか（予算切れ・LLMの接続先がない、なら使えない）。 */
+  vectorSearch: "available" | "budgetExhausted" | "disabled";
+  /** キーワード検索が使えるか（日本語の拡張がなければ disabled）。 */
+  keywordSearch: "available" | "disabled";
+}
 
 /** 登録済みクエリの参照。 */
 export interface RegisteredQuery {
@@ -571,6 +596,8 @@ export interface CmsClient {
     variables?: Record<string, unknown>,
     extras?: RequestExtras,
   ): Promise<HttpResponse>;
+  /** 登録済みのサイト内検索のクエリ（`{ kind: "search" }`）を実行し、応答を読む。成功しなければ失敗する。 */
+  search(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { text: string; locale?: string; first?: number }): Promise<SearchResult>;
   /** 登録していないクエリを、文のまま送る。 */
   deliveryAdHocRaw(workspaceIdInUrl: string, apiKey: string, spec: QuerySpec, variables?: Record<string, unknown>): Promise<HttpResponse>;
   /** 1回のリクエストで複数のクエリを送る（バッチ）。 */
@@ -662,7 +689,16 @@ export interface ServerConfig {
    * テストの舞台のCMSは、擬似LLM（support/mock-llm.ts）に決まったキーでつなぐ。
    * 呼び出しを細かく確かめるテストは、専用のキーで別のサーバーを起動する（擬似LLMの記録はキーごと）。
    */
-  llm?: { baseUrl: string; apiKey: string; embeddingModel: string; embeddingDimensions: number; pricePerMillionTokens?: number };
+  llm?: {
+    baseUrl: string;
+    apiKey: string;
+    embeddingModel: string;
+    embeddingDimensions: number;
+    pricePerMillionTokens?: number;
+    /** ワークスペースの埋め込みの予算の天井の既定値（トークン数、月・日）。なければ 0。 */
+    defaultWorkspaceTokensPerMonth?: number;
+    defaultWorkspaceTokensPerDay?: number;
+  };
   /** 漏えいしたパスワードの照会先（Have I Been Pwned の range API と同じ形）。null なら無効。 */
   breachedPasswordApi?: { baseUrl: string } | null;
   /**
@@ -956,6 +992,12 @@ async function createIsolatedInstance(): Promise<IsolatedInstance> {
   await withClient(env.dbSuperuserUrl, async (c) => {
     await c.query(`CREATE DATABASE ${ident(dbName)} OWNER ${ident(roleOf(base.migrationDatabaseUrl))}`);
     await c.query(`GRANT CONNECT ON DATABASE ${ident(dbName)} TO ${ident(roleOf(base.databaseUrl))}`);
+  });
+  // 検索用データのベクトルの拡張は、スーパーユーザーが前もって作る（scripts/test-env/setup.sh と同じ）
+  const isolatedSuperuserUrl = new URL(env.dbSuperuserUrl);
+  isolatedSuperuserUrl.pathname = `/${dbName}`;
+  await withClient(isolatedSuperuserUrl.toString(), async (c) => {
+    await c.query("CREATE EXTENSION IF NOT EXISTS vector");
   });
   const withDb = (url: string) => {
     const u = new URL(url);
