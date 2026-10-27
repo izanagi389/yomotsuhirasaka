@@ -12,7 +12,8 @@
 //!   - 管理者への通知（計画の15番）: そのワークスペースの管理者とサーバー管理者。そのワークスペースの、知らせる記録
 //!     （`audit_log.notify`）の直近7日の分で、その人がまだ「確認した」にしていないもの。インスタンス単位の通知は出さない
 //!     （サーバー管理者の画面に出す。INV-AUD-08）
-//! - 優先度（上ほど先）: 管理者への通知 → 予約の失敗・やり直し中 → 自分が指定されたレビュー待ち → その他のレビュー待ち → 未記入の訂正 →
+//!   - 予算切れ（M3）: 重い権限 manageLlm を持つ人。今の期間に、予算が足りずに埋め込みの作成を断った（上限を変えるまで）
+//! - 優先度（上ほど先）: 管理者への通知 → 予算切れ → 予約の失敗・やり直し中 → 自分が指定されたレビュー待ち → その他のレビュー待ち → 未記入の訂正 →
 //!   差し戻し → 原文の訂正 → 確認期限切れ → 原文の更新 → 訂正による予約の取り消し。同じ優先度の中では古いものが先。
 //! - 読むだけで、監査ログには残さない。
 
@@ -41,6 +42,7 @@ use crate::workspace_db;
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
     Notification,
+    BudgetExhausted,
     ScheduleFailed,
     ScheduleRetrying,
     ReviewWaiting,
@@ -56,7 +58,7 @@ impl Kind {
     /// 優先度（小さいほど先）。予約の失敗とやり直し中は同じ。
     fn priority(self) -> u8 {
         match self {
-            Kind::Notification => 0,
+            Kind::Notification | Kind::BudgetExhausted => 0,
             Kind::ScheduleFailed | Kind::ScheduleRetrying => 1,
             Kind::ReviewWaiting => 2,
             Kind::UnwrittenCorrection => 3,
@@ -88,6 +90,9 @@ pub struct Item {
     /// 管理者への通知（監査ログの記録）。
     #[serde(skip_serializing_if = "Option::is_none")]
     notification: Option<Entry>,
+    /// 予算切れの予算の種類（`embedding`）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    budget: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -251,11 +256,27 @@ pub async fn todo(
                 schedule: None,
                 version_id: None,
                 notification: Some(n),
+                budget: None,
             })
             .collect()
     } else {
         Vec::new()
     };
+    if state.config.llm.is_some() && access.has(Permission::ManageLlm) {
+        let usage = crate::budget::usage(&state.pool, ws, crate::budget::Kind::Embedding).await?;
+        if let Some(at) = usage.exhausted_at {
+            items.push(Item {
+                kind: Kind::BudgetExhausted,
+                entry: None,
+                at,
+                request: None,
+                schedule: None,
+                version_id: None,
+                notification: None,
+                budget: Some(crate::budget::Kind::Embedding.as_str()),
+            });
+        }
+    }
     items.extend(raw.into_iter().filter_map(|r| {
         // 削除された記事（一覧にない記事）の項目は出さない
         summaries.get(&r.entry_id).cloned().map(|entry| Item {
@@ -266,6 +287,7 @@ pub async fn todo(
             schedule: r.schedule,
             version_id: r.version_id,
             notification: None,
+            budget: None,
         })
     }));
     Ok(Json(Todo { items }))

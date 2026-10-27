@@ -3,8 +3,9 @@
 // 重い権限は、ロールの既定に加えて、管理者が個人に追加で付与できる（11-permissions-and-audit.md、Q76）。
 // 所属者が持つ権限は管理APIの所属者の応答で読み、操作できるかどうかは実際に操作して確かめる。
 // 拒否の確認が「何でも拒否する」実装で通らないよう、付与したら操作できることも対照として確かめる。
-// 質問ログ（M4）とLLMの接続設定・予算（M3以降）の操作はまだないため、M2で確かめる重い操作は、
-// 方針に関わるスイッチ・訂正としての公開・確認済みの記録。LLMの操作は、入ったときにここへ足す。
+// 確かめる重い操作は、方針に関わるスイッチ・訂正としての公開・確認済みの記録（M2）と、
+// 埋め込みの作成の予算の変更（M3）。質問ログ（M4）とワークスペースのLLMの接続設定（M4）は、入ったときにここへ足す。
+// 重い操作には再認証が要るので、拒否を確かめる前に再認証しておく（再認証の不足で断られたのではないことを確かめるため）。
 
 import { expect } from "vitest";
 import { inv } from "./support/inv.js";
@@ -80,4 +81,17 @@ inv("inv_perm_03", "重い権限（LLMの接続設定と予算の変更など）
   expectSuccess(await cms.publishRaw(asSession(authorSession), a.id, id, { correction: true, note: "訂正" }), "訂正の権限を付与された執筆者が、訂正として公開する");
   await grant(author.userId, []);
   expectRejected(await cms.markVerifiedRaw(asSession(authorSession), a.id, id, "確認"), "訂正の権限の付与を取り消された執筆者が、確認済みを記録する");
+
+  // --- 埋め込みの作成の予算の変更（LLMの接続設定と予算の権限。既定では管理者だけ） ---
+  // 値は、サーバー管理者の天井の範囲に必ず収まる 0 にする（天井を超える値として断られたのではないことを確かめるため）
+  const budget = { tokensPerMonth: 0, tokensPerDay: 0 };
+  await cms.reauthenticate(a.editorSession, a.editor);
+  await cms.reauthenticate(authorSession, author);
+  expectRejected(await cms.setEmbeddingBudgetRaw(asSession(a.editorSession), a.id, budget), "LLMの権限のない編集者が、埋め込みの予算を変える");
+  expectRejected(await cms.setEmbeddingBudgetRaw(asSession(authorSession), a.id, budget), "LLMの権限のない執筆者が、埋め込みの予算を変える");
+  expectSuccess(await cms.setEmbeddingBudgetRaw(asSession(a.adminSession), a.id, budget), "管理者が埋め込みの予算を変える");
+  await grant(a.editor.userId, ["manageLlm"]);
+  expectSuccess(await cms.setEmbeddingBudgetRaw(asSession(a.editorSession), a.id, budget), "LLMの権限を付与された編集者が、埋め込みの予算を変える");
+  await grant(a.editor.userId, []);
+  expectRejected(await cms.setEmbeddingBudgetRaw(asSession(a.editorSession), a.id, budget), "LLMの権限の付与を取り消された編集者が、埋め込みの予算を変える");
 });

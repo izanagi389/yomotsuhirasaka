@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -400,8 +400,15 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const mediaPath = (workspaceId: string) => `${ADMIN}/workspaces/${workspaceId}/media`;
   const uploadMediaRaw = (auth: Auth, workspaceId: string, file: UploadFile, extras?: RequestExtras): Promise<HttpResponse> =>
     request("POST", mediaPath(workspaceId), { auth, extras, rawBody: { contentType: file.contentType, bytes: file.bytes } });
-  const setWorkspaceLimitsRaw = (auth: Auth, workspaceId: string, limits: { mediaBytes?: number }, extras?: RequestExtras): Promise<HttpResponse> =>
-    request("PUT", `${ADMIN}/workspaces/${workspaceId}/limits`, { auth, extras, body: { mediaBytes: limits.mediaBytes ?? null } });
+  const setWorkspaceLimitsRaw = (auth: Auth, workspaceId: string, limits: WorkspaceLimits, extras?: RequestExtras): Promise<HttpResponse> => {
+    // 埋め込みの予算の天井は、指定したときだけ送る
+    const body: Record<string, number | null> = { mediaBytes: limits.mediaBytes ?? null };
+    if ("embeddingTokensPerMonth" in limits) body["embeddingTokensPerMonth"] = limits.embeddingTokensPerMonth ?? null;
+    if ("embeddingTokensPerDay" in limits) body["embeddingTokensPerDay"] = limits.embeddingTokensPerDay ?? null;
+    return request("PUT", `${ADMIN}/workspaces/${workspaceId}/limits`, { auth, extras, body });
+  };
+  const setEmbeddingBudgetRaw = (auth: Auth, workspaceId: string, budget: EmbeddingBudget, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("PUT", `${ADMIN}/workspaces/${workspaceId}/budgets/embedding`, { auth, extras, body: budget });
   // 操作の一覧で使う小さな画像（1×1のPNG）
   const TINY_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
@@ -585,6 +592,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     op("getWorkspaceLimits", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/limits`, { auth, extras })),
     // 上限は既定値のまま（null）にする
     op("setWorkspaceLimits", true, "instance", (auth, t, extras) => setWorkspaceLimitsRaw(auth, t.workspaceId, {}, extras)),
+    // 埋め込みの作成の予算（重い権限 manageLlm）。値は天井の範囲に必ず収まる 0
+    op("getEmbeddingBudget", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/budgets/embedding`, { auth, extras })),
+    op("setEmbeddingBudget", true, "workspace", (auth, t, extras) => setEmbeddingBudgetRaw(auth, t.workspaceId, { tokensPerMonth: 0, tokensPerDay: 0 }, extras)),
     // 対象は存在しない版（舞台の版を壊さないため）
     op("eraseVersion", true, "workspace", (auth, t, extras) => eraseVersionRaw(auth, t.workspaceId, t.entryId, randomUUID(), [], extras)),
     op("getEraseCandidates", false, "workspace", async (auth, t, extras) => {
@@ -888,7 +898,10 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       const bytes = Buffer.from(await res.arrayBuffer());
       return { status: res.status, headers: res.headers, setCookies: res.headers.getSetCookie(), text: bytes.toString("latin1"), bytes };
     },
-    async setWorkspaceLimits(s: Session, workspaceId: string, limits: { mediaBytes?: number }): Promise<void> {
+    setEmbeddingBudgetRaw(auth: Auth, workspaceId: string, budget: EmbeddingBudget): Promise<HttpResponse> {
+      return setEmbeddingBudgetRaw(auth, workspaceId, budget);
+    },
+    async setWorkspaceLimits(s: Session, workspaceId: string, limits: WorkspaceLimits): Promise<void> {
       ensure("ワークスペースの上限の変更", await setWorkspaceLimitsRaw(session(s), workspaceId, limits));
     },
     async eraseCandidates(s: Session, workspaceId: string, entryId: string, versionId: string): Promise<string[]> {

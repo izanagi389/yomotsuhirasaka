@@ -32,6 +32,8 @@
 | `corrections.test.ts` | 訂正履歴・削除済みアンカー・訂正フィード・鮮度（COR-02〜04, FRS-01） |
 | `redirects.test.ts` | リダイレクト一覧（RED-01, 02） |
 | `converter.test.ts` | 変換器とカスタムノード（NODE-01, CNV-01） |
+| `permissions.test.ts` | 重い権限（PERM-02, 03） |
+| `budget.test.ts` | 予算（BUD-01） |
 | `meta.test.ts` | 約束の一覧・テスト・`pending.txt` の整合。CMSなしで動く |
 
 | 部品（`support/`） | 役割 |
