@@ -163,6 +163,7 @@ pub async fn import(
         )
         .await;
     }
+    super::admin_publishing::schedule_search(&state, ws).await;
     Ok((
         StatusCode::CREATED,
         Json(ImportResult { entries: imported }),

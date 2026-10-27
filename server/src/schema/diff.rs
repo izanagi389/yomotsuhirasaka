@@ -151,6 +151,7 @@ mod tests {
             multiple: false,
             description: None,
             dev_note: None,
+            searchable: false,
         });
         new.locales.push("fr".into());
         new.content_types[0].description = Some("changed".into());
@@ -179,6 +180,7 @@ mod tests {
             multiple: false,
             description: None,
             dev_note: None,
+            searchable: false,
         });
         new.locales.retain(|l| l != "en");
         new.body.marks.retain(|m| m.name != "bold");

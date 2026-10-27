@@ -1,4 +1,4 @@
-// テンプレートの関数の、サーバーと同じ規則による早めの検査（13-security.md「デプロイ」: 判定はサーバーが行い、ここは早く知らせるだけ）。
+// テンプレートの関数（と検索の対象の指定）の、サーバーと同じ規則による早めの検査（13-security.md「デプロイ」: 判定はサーバーが行い、ここは早く知らせるだけ）。
 // サーバーの検査は server/src/schema/manifest.rs（INV-NODE-01、INV-HOOK-01）。
 
 type Json = Record<string, unknown>;
@@ -40,6 +40,12 @@ export function checkTemplateFunctions(template: Json): string[] {
   }
   for (const [i, ct] of list(template["contentTypes"]).entries()) {
     if (!isObject(ct)) continue;
+    // 検索・質問応答の対象にできるのは text と richtext だけ（server/src/schema/manifest.rs と同じ規則）
+    for (const [j, f] of list(ct["fields"]).entries()) {
+      if (isObject(f) && f["searchable"] === true && f["type"] !== "text" && f["type"] !== "richtext") {
+        problems.push(`contentTypes[${i}].fields[${j}].searchable: only text and richtext fields can be searchable`);
+      }
+    }
     checkFunction(`contentTypes[${i}].urlFunction`, ct["urlFunction"], "sync", problems);
     const hooks = isObject(ct["hooks"]) ? ct["hooks"] : {};
     for (const k of SYNC_HOOKS) checkFunction(`contentTypes[${i}].hooks.${k}`, hooks[k], "sync", problems);

@@ -123,6 +123,10 @@ pub const BASE_MIGRATIONS: &[(i32, &str)] = &[
         13,
         include_str!("../migrations/workspace/0013_preview_tokens.sql"),
     ),
+    (
+        14,
+        include_str!("../migrations/workspace/0014_search_chunks.sql"),
+    ),
 ];
 
 /// 1つのワークスペースの土台のテーブルを、最新の版にそろえる。移行・ロールの作成用の接続で呼ぶ。

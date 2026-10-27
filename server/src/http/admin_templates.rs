@@ -145,6 +145,8 @@ pub async fn deploy_template(
                 {
                     tracing::error!(workspace_id = %ws.workspace_id, "cannot queue re-rendering: {e:#}");
                 }
+                // 検索の対象のフィールドが変わったかもしれないので、検索用データを見直す
+                super::admin_publishing::schedule_search(&state, ws.workspace_id).await;
                 for ct in &outcome.url_rule_changes {
                     if let Err(e) = crate::content::urls::schedule_content_type(
                         &state.pool,

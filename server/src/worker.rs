@@ -64,6 +64,18 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
                     Outcome::Retry("internal_error")
                 })
         }
+        (Some(payload), crate::search::index::JOB_KIND) => crate::search::index::run(
+            &state.pool,
+            &state.keys,
+            &state.config,
+            state.egress.as_ref(),
+            payload,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!(job_id = %job.id, "search indexing: {e:#}");
+            Outcome::Retry("internal_error")
+        }),
         (Some(payload), hooks::JOB_KIND) => {
             hooks::run(&state.pool, &state.scripts, state.egress.as_ref(), payload)
                 .await

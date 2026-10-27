@@ -471,7 +471,48 @@ pub async fn check_databases(config: &Config) -> Report {
             }
         }
     }
+    if config.llm.is_some() {
+        report
+            .problems
+            .extend(check_vector_extension(&config.database).await);
+    }
     report
+}
+
+/// LLMの接続先（`[llm]`）があるときは、検索用データのベクトルに pgvector の拡張 `vector` が要る（08-search-and-related.md）。
+/// 拡張はスーパーユーザーが前もって作る（CMSのロールはスーパーユーザーでないため、CMSは作らない）。
+/// ワークスペースのロールも使えるよう、拡張のスキーマは PUBLIC が USAGE を持つこと（public スキーマなら、もとからそう）。
+async fn check_vector_extension(db: &DatabaseConfig) -> Vec<Problem> {
+    let checked = async {
+        let options = crate::db::connect_options(db)?;
+        let mut conn: PgConnection =
+            tokio::time::timeout(Duration::from_secs(15), options.connect())
+                .await
+                .map_err(|_| anyhow::anyhow!("timed out"))??;
+        let schema = crate::search::vector_schema(&mut conn).await?;
+        let usable = match &schema {
+            Some(s) => crate::search::usable_by_every_role(&mut conn, s).await?,
+            None => false,
+        };
+        conn.close().await?;
+        anyhow::Ok((schema, usable))
+    }
+    .await;
+    match checked {
+        Err(e) => vec![Problem::fatal(format!(
+            "cannot check the PostgreSQL extension `vector`: {e}"
+        ))],
+        Ok((None, _)) => vec![Problem::fatal(
+            "`[llm]` is set, but the PostgreSQL extension `vector` (pgvector) is not installed in the database. \
+             Create it as a superuser: CREATE EXTENSION vector;",
+        )],
+        Ok((Some(schema), false)) => vec![Problem::fatal(format!(
+            "the schema `{}` of the extension `vector` must be usable by every role: GRANT USAGE ON SCHEMA {} TO PUBLIC;",
+            schema.as_str(),
+            schema
+        ))],
+        Ok((Some(_), true)) => Vec::new(),
+    }
 }
 
 /// DBのエラーを、秘密の値を含まない短い文にする。

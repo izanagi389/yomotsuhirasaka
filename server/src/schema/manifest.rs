@@ -58,6 +58,10 @@ pub struct Field {
     /// 開発者向けのメモ。どのAPIにも出さない（Q51、INV-SCH-01）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dev_note: Option<String>,
+    /// 検索・質問応答の対象か（M3、08-search-and-related.md「対象の制御」、Q16）。既定は対象外。
+    /// 使えるのは text と richtext だけ。対象でないフィールドの内容は、検索用データにも検索結果にも入れない（INV-SRC-03）。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub searchable: bool,
 }
 
 /// 関数の書き方（型の引数）: マニフェストではJSのソース（[`crate::script::Script`]）、
@@ -841,6 +845,11 @@ pub fn validate(m: &Manifest) -> Vec<String> {
                     "{fpath}.multiple: only reference fields can be multiple"
                 ));
             }
+            if f.searchable && !matches!(f.kind, FieldType::Text | FieldType::Richtext) {
+                problems.push(format!(
+                    "{fpath}.searchable: only text and richtext fields can be searchable"
+                ));
+            }
             check_text(
                 &mut problems,
                 &format!("{fpath}.description"),
@@ -1014,6 +1023,32 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn only_text_and_richtext_fields_can_be_searchable() {
+        let mut m = sample();
+        for f in &mut m.content_types[0].fields {
+            f.searchable = true;
+        }
+        let problems = validate(&m);
+        let searchable: Vec<&String> = problems
+            .iter()
+            .filter(|p| p.contains(".searchable"))
+            .collect();
+        // 例のコンテンツタイプのうち、text と richtext 以外（スラッグなど）だけが問題になる
+        let others = m.content_types[0]
+            .fields
+            .iter()
+            .filter(|f| !matches!(f.kind, FieldType::Text | FieldType::Richtext))
+            .count();
+        assert!(others > 0);
+        assert_eq!(searchable.len(), others, "{problems:?}");
+        m.content_types[0]
+            .fields
+            .iter_mut()
+            .for_each(|f| f.searchable = matches!(f.kind, FieldType::Text | FieldType::Richtext));
+        assert!(!validate(&m).iter().any(|p| p.contains(".searchable")));
+    }
+
+    #[test]
     fn invalid_manifests_are_reported() {
         let mut m = sample();
         m.content_types[0].name = "Post".into();
@@ -1025,6 +1060,7 @@ pub(crate) mod tests {
             multiple: true,
             description: None,
             dev_note: None,
+            searchable: false,
         });
         m.default_locale = "fr".into();
         m.body.nodes.retain(|n| n.name != "text");

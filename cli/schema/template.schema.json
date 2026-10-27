@@ -443,6 +443,10 @@
             "string",
             "null"
           ]
+        },
+        "searchable": {
+          "description": "検索・質問応答の対象か（M3、08-search-and-related.md「対象の制御」、Q16）。既定は対象外。\n使えるのは text と richtext だけ。対象でないフィールドの内容は、検索用データにも検索結果にも入れない（INV-SRC-03）。",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
