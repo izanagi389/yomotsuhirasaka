@@ -20,13 +20,13 @@ use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use super::access::{Plan, fields_key, plans};
 use super::chunk::{self, Source};
 use crate::budget::{self, Embedded};
 use crate::config::Config;
 use crate::jobs::Outcome;
 use crate::keys::KeyRing;
 use crate::llm::Llm;
-use crate::schema::manifest::{FieldType, Manifest};
 use crate::script::CONVERTER_VERSION;
 use crate::workspace_db;
 
@@ -41,7 +41,8 @@ const PAGE: i64 = 50;
 /// 1回の埋め込みの呼び出しに入れるチャンクの数。
 const INPUTS_PER_CALL: usize = 32;
 /// チャンクの決まりの版（`chunk.rs` の出力が変わる変更をしたら上げる）。
-const CHUNKER_VERSION: &str = "1";
+/// 2: チャンクに「検索の対象のフィールド」の決め方の要約（fields_key）を残すようにした（既にある行を書き直すため）。
+const CHUNKER_VERSION: &str = "2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,37 +80,6 @@ pub async fn schedule_all(pool: &PgPool, keys: &KeyRing) -> Result<()> {
         schedule(pool, keys, id, 0.0).await?;
     }
     Ok(())
-}
-
-/// コンテンツタイプごとの、検索の対象のフィールド（テンプレートの順）と、パンくずに使うタイトルのフィールド。
-#[derive(Debug, Serialize)]
-struct Plan {
-    fields: Vec<(String, bool)>,
-    /// タイトルのフィールド（検索の対象のときだけ。INV-SRC-03）。
-    title: Option<String>,
-}
-
-fn plans(manifest: &Manifest) -> Vec<(String, Plan)> {
-    manifest
-        .content_types
-        .iter()
-        .filter_map(|ct| {
-            let fields: Vec<(String, bool)> = ct
-                .fields
-                .iter()
-                .filter(|f| f.searchable)
-                .map(|f| (f.name.clone(), f.kind == FieldType::Richtext))
-                .collect();
-            if fields.is_empty() {
-                return None;
-            }
-            let title = ct
-                .title_field
-                .clone()
-                .filter(|t| ct.fields.iter().any(|f| &f.name == t && f.searchable));
-            Some((ct.name.clone(), Plan { fields, title }))
-        })
-        .collect()
 }
 
 fn sha256_hex(s: &str) -> String {
@@ -334,8 +304,9 @@ async fn index_entry(
 
     // 今のチャンクと同じなら、書き直さない
     let mut tx = workspace_db::begin(pool, db).await?;
-    let current: Vec<(String, Uuid)> = sqlx::query_as(
-        "SELECT content_hash, version_id FROM search_chunks
+    let key = fields_key(plan);
+    let current: Vec<(String, Uuid, String)> = sqlx::query_as(
+        "SELECT content_hash, version_id, fields_key FROM search_chunks
          WHERE entry_id = $1 AND model = $2 AND dimensions = $3 ORDER BY seq",
     )
     .bind(c.entry_id)
@@ -344,8 +315,10 @@ async fn index_entry(
     .fetch_all(&mut *tx)
     .await?;
     if !current.is_empty()
-        && current.iter().all(|(_, v)| *v == c.version_id)
-        && current.iter().map(|(h, _)| h).eq(hashes.iter())
+        && current
+            .iter()
+            .all(|(_, v, k)| *v == c.version_id && *k == key)
+        && current.iter().map(|(h, _, _)| h).eq(hashes.iter())
     {
         return Ok(Step::Done);
     }
@@ -396,8 +369,9 @@ async fn index_entry(
     for (seq, (chunk, hash)) in chunks.iter().zip(&hashes).enumerate() {
         sqlx::query(
             "INSERT INTO search_chunks
-               (id, entry_id, version_id, locale, seq, anchor, breadcrumb, content, content_hash, model, dimensions, embedding)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+               (id, entry_id, version_id, locale, seq, anchor, breadcrumb, content, content_hash, model, dimensions, embedding,
+                fields_key)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind(Uuid::new_v4())
         .bind(c.entry_id)
@@ -411,6 +385,7 @@ async fn index_entry(
         .bind(model)
         .bind(dims)
         .bind(&vectors[hash])
+        .bind(&key)
         .execute(&mut *tx)
         .await?;
     }
@@ -421,6 +396,7 @@ async fn index_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::manifest::Manifest;
 
     #[test]
     fn title_is_used_only_when_its_field_is_searchable() {

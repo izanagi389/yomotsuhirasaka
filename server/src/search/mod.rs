@@ -4,8 +4,10 @@
 //! - ベクトルの比べ方には pgvector を使う。拡張はスーパーユーザーが前もって作る（CMSは作らない。ロールがスーパーユーザーでないため）。
 //!   ワークスペースの SQL は search_path がそのワークスペースのスキーマだけなので、型と演算子は拡張のスキーマの名前を付けて書く。
 
+pub mod access;
 pub mod chunk;
 pub mod index;
+pub mod query;
 
 use anyhow::{Result, bail};
 use sqlx::PgExecutor;
