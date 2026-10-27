@@ -428,6 +428,7 @@ export interface ScheduleLists {
 export interface TodoItem {
   kind:
     | "notification"
+    | "budgetExhausted"
     | "scheduleFailed"
     | "scheduleRetrying"
     | "reviewWaiting"
@@ -446,6 +447,29 @@ export interface TodoItem {
   versionId?: string;
   /** 管理者への通知（監査ログの記録。計画の15番）。 */
   notification?: import("~/utils/admin").AuditEntry;
+  /** 予算切れの予算の種類。 */
+  budget?: "embedding";
+}
+
+/** GET/PUT /workspaces/{ws}/budgets/embedding（埋め込みの作成の予算。トークン数、UTCの暦の月・日）。 */
+export interface EmbeddingBudget {
+  /** LLMの接続先が設定されているか。なければ埋め込みは作らない。 */
+  llmConfigured: boolean;
+  /** ワークスペースが決めた上限（null は上限なし＝天井）。 */
+  tokensPerMonth: number | null;
+  tokensPerDay: number | null;
+  /** サーバー管理者の天井。 */
+  ceilingTokensPerMonth: number;
+  ceilingTokensPerDay: number;
+  /** 効く上限（ワークスペースの上限と天井の小さいほう）。 */
+  effectiveTokensPerMonth: number;
+  effectiveTokensPerDay: number;
+  usedThisMonth: number;
+  usedToday: number;
+  /** 今の期間に、予算が足りずに初めて断った時刻（上限を変えるまで）。 */
+  exhaustedAt: string | null;
+  pricePerMillionTokens: number | null;
+  costThisMonth: number | null;
 }
 
 /** POST .../entries/{id}/preview-tokens */
