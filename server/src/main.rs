@@ -5,6 +5,7 @@
 //! - `cms-server create-server-admin`: サーバー管理者を作る（サーバー上でだけ行える。Q100）
 //! - `cms-server reset-password` / `reset-mfa`: 利用者のパスワードを決め直す・多要素認証を解除する。
 //!   サーバー管理者の回復は、ネットワーク越しではなくこれで行う（INV-AUTH-10）
+//! - `cms-server llm-check`: LLMの接続先（`[llm]`）に埋め込みを1回頼み、届くかを確かめる
 
 use cms_server::{audit, auth, config, db, http, keys, migrate, startup, worker};
 use uuid::Uuid;
@@ -55,6 +56,8 @@ enum Command {
         /// Directory of the built admin UI (`nuxt generate` output) to serve at /admin/.
         #[arg(long)]
         admin_dist_dir: Option<PathBuf>,
+        #[command(flatten)]
+        llm: Box<InitLlmArgs>,
     },
     /// Check the configuration and start serving.
     Serve {
@@ -136,6 +139,13 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// Check the LLM connection (`[llm]`): request one embedding and print whether it worked.
+    ///
+    /// Prints only the outcome and the status code, never the response body.
+    LlmCheck {
+        #[arg(long)]
+        config: PathBuf,
+    },
     /// Create a server administrator account.
     ///
     /// By default a strong password is generated and printed once.
@@ -149,6 +159,28 @@ enum Command {
         #[arg(long)]
         password_stdin: bool,
     },
+}
+
+/// `init` の、LLMと外部への送信の例外の指定（`Command` の大きさをそろえるため、別にまとめて Box にする）。
+#[derive(clap::Args)]
+struct InitLlmArgs {
+    /// OpenAI-compatible API base URL for embeddings (writes an `[llm]` section).
+    /// Requires --llm-embedding-model, --llm-embedding-dimensions and --llm-api-key-stdin.
+    #[arg(long)]
+    llm_base_url: Option<String>,
+    /// Embedding model name.
+    #[arg(long, requires = "llm_base_url")]
+    llm_embedding_model: Option<String>,
+    /// Number of dimensions of the embedding model.
+    #[arg(long, requires = "llm_base_url")]
+    llm_embedding_dimensions: Option<u32>,
+    /// Read the LLM API key from the first line of standard input.
+    #[arg(long, requires = "llm_base_url")]
+    llm_api_key_stdin: bool,
+    /// Internal destination (host name or IP address) that outgoing requests may reach, over http too.
+    /// For a local LLM or the mock LLM. May be given more than once.
+    #[arg(long)]
+    internal_destination_exception: Vec<String>,
 }
 
 /// 起動時の検査に通らなかったときの終了コード。
@@ -166,7 +198,27 @@ fn main() -> ExitCode {
             listen,
             media_root,
             admin_dist_dir,
+            llm: llm_args,
         } => {
+            let InitLlmArgs {
+                llm_base_url,
+                llm_embedding_model,
+                llm_embedding_dimensions,
+                llm_api_key_stdin,
+                internal_destination_exception,
+            } = *llm_args;
+            let llm = match init_llm(
+                llm_base_url,
+                llm_embedding_model,
+                llm_embedding_dimensions,
+                llm_api_key_stdin,
+            ) {
+                Ok(llm) => llm,
+                Err(e) => {
+                    eprintln!("error: {e:#}");
+                    return ExitCode::FAILURE;
+                }
+            };
             match init(
                 &config,
                 &key_file,
@@ -177,6 +229,8 @@ fn main() -> ExitCode {
                     listen,
                     media_root,
                     admin_dist_dir,
+                    llm,
+                    internal_destination_exceptions: internal_destination_exception,
                 },
             ) {
                 Ok(()) => ExitCode::SUCCESS,
@@ -187,6 +241,7 @@ fn main() -> ExitCode {
             }
         }
         Command::Serve { config } => serve_main(&config),
+        Command::LlmCheck { config } => llm_check_main(&config),
         Command::CreateServerAdmin {
             config,
             email,
@@ -244,6 +299,38 @@ struct InitOptions {
     listen: String,
     media_root: PathBuf,
     admin_dist_dir: Option<PathBuf>,
+    llm: Option<config::LlmConfig>,
+    internal_destination_exceptions: Vec<String>,
+}
+
+/// `init` の `[llm]`。接続先を指定したら、モデル名・次元数・APIキー（標準入力）も要る。
+fn init_llm(
+    base_url: Option<String>,
+    model: Option<String>,
+    dimensions: Option<u32>,
+    api_key_stdin: bool,
+) -> Result<Option<config::LlmConfig>> {
+    let Some(base_url) = base_url else {
+        return Ok(None);
+    };
+    let (Some(embedding_model), Some(embedding_dimensions)) = (model, dimensions) else {
+        bail!("--llm-base-url needs --llm-embedding-model and --llm-embedding-dimensions");
+    };
+    if !api_key_stdin {
+        bail!("--llm-base-url needs --llm-api-key-stdin (the API key is read from standard input)");
+    }
+    let mut line = String::new();
+    std::io::stdin()
+        .lock()
+        .read_line(&mut line)
+        .context("cannot read the LLM API key from stdin")?;
+    Ok(Some(config::LlmConfig {
+        base_url,
+        api_key: line.trim_end_matches(['\r', '\n']).to_owned(),
+        embedding_model,
+        embedding_dimensions,
+        embedding_price_per_million_tokens: None,
+    }))
 }
 
 fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()> {
@@ -254,6 +341,8 @@ fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()>
         listen,
         media_root,
         admin_dist_dir,
+        llm,
+        internal_destination_exceptions,
     } = options;
     if config_path.exists() || key_path.exists() {
         bail!("refusing to overwrite an existing config or key file");
@@ -282,7 +371,11 @@ fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()>
         login_history: config::LoginHistoryConfig::default(),
         media: config::MediaConfig::at(media_root),
         delivery: config::DeliveryConfig::default(),
-        egress: config::EgressConfig::default(),
+        egress: config::EgressConfig {
+            internal_destination_exceptions,
+            ..config::EgressConfig::default()
+        },
+        llm,
         admin: config::AdminConfig {
             dist_dir: admin_dist_dir,
         },
@@ -295,7 +388,11 @@ fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()>
         encryption_key_file: None,
         ..config.clone()
     });
-    if let Some(p) = report.problems.iter().find(|p| p.message.contains(".url")) {
+    if let Some(p) = report
+        .problems
+        .iter()
+        .find(|p| p.message.contains(".url") || (p.fatal && p.message.starts_with("`llm.")))
+    {
         bail!("{}", p.message);
     }
     create_new_private(key_path, &keys::generate_key_file())?;
@@ -349,6 +446,33 @@ where
                 tracing::error!("{what}: {e:#}");
                 ExitCode::FAILURE
             }
+        }
+    })
+}
+
+fn llm_check_main(config_path: &Path) -> ExitCode {
+    with_checked_config(config_path, "LLM check failed", |config| async move {
+        let Some(llm_config) = config.llm.clone() else {
+            bail!("no `[llm]` section in the config; embeddings are disabled");
+        };
+        let egress = cms_server::egress::Egress::from_config(&config.egress)?;
+        let llm = cms_server::llm::Llm::new(egress, llm_config);
+        // 相手の応答の本文は出さない（状態コードと、失敗の種類だけ）
+        match llm.embed(&["connection check".to_owned()]).await {
+            Ok(e) => {
+                println!(
+                    "LLM embeddings: ok ({} dimensions, {} tokens{})",
+                    e.vectors.first().map_or(0, Vec::len),
+                    e.tokens,
+                    if e.tokens_estimated {
+                        ", estimated"
+                    } else {
+                        ""
+                    }
+                );
+                Ok(())
+            }
+            Err(e) => bail!("LLM embeddings: failed ({e})"),
         }
     })
 }

@@ -60,6 +60,10 @@ pub struct Config {
     /// 外部へのHTTPの送信（13-security.md「外部への送信」）。
     #[serde(default)]
     pub egress: EgressConfig,
+    /// LLMの接続先のインスタンスの既定値（10-llm-and-budget.md）。なければ埋め込みを作らない。
+    /// 管理画面や管理APIからは変えられない（ワークスペースごとの上書きはM4）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm: Option<LlmConfig>,
     /// 管理画面（Nuxt の SPA）の配信。
     #[serde(default)]
     pub admin: AdminConfig,
@@ -402,6 +406,43 @@ impl std::fmt::Debug for OidcConfig {
 fn default_oidc_display_name() -> String {
     "SSO".to_owned()
 }
+
+/// LLMの接続先（OpenAI互換のAPI）。M3は埋め込みだけ。送信は外部への送信の共通の仕組みを通す。
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LlmConfig {
+    /// OpenAI互換のAPIの接続先（例: `https://api.openai.com/v1`）。本番では https。
+    /// 外部への送信の例外として許した内部の宛先（擬似LLMやローカルのLLM）だけ http も許す。
+    pub base_url: String,
+    /// APIキー（秘密の値）。空にはできない。
+    pub api_key: String,
+    /// 埋め込みのモデル名。
+    pub embedding_model: String,
+    /// 埋め込みの次元数（1〜2000。pgvector の HNSW の索引の上限）。応答のベクトルの長さと照合する。
+    pub embedding_dimensions: u32,
+    /// 埋め込みの単価（100万トークンあたり。任意）。あれば見積もりで費用も出す（Q138）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_price_per_million_tokens: Option<f64>,
+}
+
+/// APIキーは出さない（設定をログなどに出したときに漏れないように）。
+impl std::fmt::Debug for LlmConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LlmConfig")
+            .field("base_url", &self.base_url)
+            .field("api_key", &"<redacted>")
+            .field("embedding_model", &self.embedding_model)
+            .field("embedding_dimensions", &self.embedding_dimensions)
+            .field(
+                "embedding_price_per_million_tokens",
+                &self.embedding_price_per_million_tokens,
+            )
+            .finish()
+    }
+}
+
+/// 埋め込みの次元数の上限（pgvector の `vector` 型の HNSW の索引の上限）。
+pub const MAX_EMBEDDING_DIMENSIONS: u32 = 2000;
 
 /// 漏えいしたパスワードの照会先（Have I Been Pwned の range API と同じ形）。
 #[derive(Debug, Clone, Deserialize, Serialize)]

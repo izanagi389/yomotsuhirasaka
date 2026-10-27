@@ -30,8 +30,28 @@ docker compose exec cms cms-server create-server-admin --config /data/config.tom
 
 ## 開発用（擬似LLM）
 
-開発では、`docker-compose.dev.yml` を重ねると、擬似LLM（`tools/mock-llm`）も内部のネットワークで起動します。本番では使いません。CMS から擬似LLMにつなぐ設定は、LLMの接続設定と一緒に入れます。
+開発では、`init.sh --dev` で初期化し、`docker-compose.dev.yml` を重ねて起動すると、擬似LLM（`tools/mock-llm`）も内部のネットワークで起動し、CMS の埋め込みの接続先になります。本番では使いません。
 
 ```sh
+./init.sh --dev https://cms.example.test
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.dev.yml exec cms cms-server llm-check --config /data/config.toml
 ```
+
+- `--dev` は、設定ファイルに `[llm]`（`http://mock-llm:8080/v1`、`mock-embed-64`）と、外部への送信の内部宛先の例外 `mock-llm` を書きます。
+
+## LLM（埋め込み）
+
+`./data/cms/config.toml` に `[llm]` の節を書くと、その接続先で記事の埋め込みを作ります（なければ作りません）。管理画面からは変えられません。
+
+```toml
+[llm]
+base_url = "https://api.openai.com/v1"   # OpenAI互換のAPI。https だけ（例外の内部宛先だけ http も可）
+api_key = "..."                          # 必須
+embedding_model = "text-embedding-3-small"
+embedding_dimensions = 1536              # 1〜2000
+# embedding_price_per_million_tokens = 0.02   # 任意。見積もりで費用も出す
+```
+
+- ローカルの LLM（Ollama など）は、そのホストを `[egress] internal_destination_exceptions` に入れてください。
+- 書いたら `cms-server llm-check --config /data/config.toml` で、届くかを確かめられます（結果と状態コードだけを出し、相手の応答の本文は出しません）。

@@ -262,6 +262,12 @@ pub fn check_config(config: &Config) -> Report {
         &config.audit_export,
         &config.egress.internal_destination_exceptions,
     ));
+    if let Some(llm) = &config.llm {
+        report.problems.extend(check_llm(
+            llm,
+            &config.egress.internal_destination_exceptions,
+        ));
+    }
     if config.audit.retention_days < crate::migrate::MIN_AUDIT_RETENTION_DAYS {
         report.problems.push(Problem::fatal(format!(
             "`audit.retention_days` must be at least {}",
@@ -312,6 +318,48 @@ fn check_audit_export(
                 "`{name}.secret_file` cannot be read"
             ))),
         }
+    }
+    problems
+}
+
+/// LLMの接続先の検査。接続先は https だけ（本番）。ただし、外部への送信の例外として許した内部の宛先には
+/// http も許す（Q139。擬似LLMやローカルのLLM）。APIキーは空にできない（値そのものは問題の文に含めない）。
+fn check_llm(llm: &crate::config::LlmConfig, exceptions: &[String]) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    match url::Url::parse(&llm.base_url) {
+        Ok(u) if u.host_str().is_none() => {
+            problems.push(Problem::fatal("`llm.base_url` has no host"))
+        }
+        Ok(u) if u.scheme() == "https" => {}
+        Ok(u)
+            if u.scheme() == "http"
+                && u.host_str()
+                    .is_some_and(|h| exceptions.iter().any(|e| e.eq_ignore_ascii_case(h))) => {}
+        Ok(u) if u.scheme() == "http" => problems.push(Problem::config(
+            "`llm.base_url` is not https; article text would be sent unencrypted \
+             (http is allowed only for hosts in `egress.internal_destination_exceptions`)",
+        )),
+        _ => problems.push(Problem::fatal("`llm.base_url` is not an http(s) URL")),
+    }
+    if llm.api_key.trim().is_empty() {
+        problems.push(Problem::fatal("`llm.api_key` is empty"));
+    }
+    if llm.embedding_model.trim().is_empty() {
+        problems.push(Problem::fatal("`llm.embedding_model` is empty"));
+    }
+    if !(1..=crate::config::MAX_EMBEDDING_DIMENSIONS).contains(&llm.embedding_dimensions) {
+        problems.push(Problem::fatal(format!(
+            "`llm.embedding_dimensions` must be between 1 and {}",
+            crate::config::MAX_EMBEDDING_DIMENSIONS
+        )));
+    }
+    if llm
+        .embedding_price_per_million_tokens
+        .is_some_and(|p| !p.is_finite() || p < 0.0)
+    {
+        problems.push(Problem::fatal(
+            "`llm.embedding_price_per_million_tokens` must be a non-negative number",
+        ));
     }
     problems
 }
@@ -452,6 +500,74 @@ mod tests {
         // 問題の文に値が含まれない
         let p = check_secret("database.password", "abc123").unwrap();
         assert!(!p.message.contains("abc123"));
+    }
+
+    #[test]
+    fn llm() {
+        use crate::config::LlmConfig;
+        let ok = LlmConfig {
+            base_url: "https://api.example.com/v1".into(),
+            api_key: "sk-kq3Vd8mZ2pL9xR4tY7".into(),
+            embedding_model: "text-embedding-3-small".into(),
+            embedding_dimensions: 1536,
+            embedding_price_per_million_tokens: Some(0.02),
+        };
+        let none: &[String] = &[];
+        assert!(check_llm(&ok, none).is_empty());
+        // http は、外部への送信の例外に入れたホストだけ
+        let mock = LlmConfig {
+            base_url: "http://mock-llm:8080/v1".into(),
+            ..ok.clone()
+        };
+        let problems = check_llm(&mock, none);
+        assert_eq!(problems.len(), 1);
+        assert!(!problems[0].fatal, "本番の設定でだけ起動を止める");
+        assert!(check_llm(&mock, &["MOCK-LLM".to_owned()]).is_empty());
+        assert!(check_llm(&mock, &["other".to_owned()]).len() == 1);
+        // 致命的なもの（設定によらず起動を止める）
+        for bad in [
+            LlmConfig {
+                base_url: "ftp://x/v1".into(),
+                ..ok.clone()
+            },
+            LlmConfig {
+                api_key: "  ".into(),
+                ..ok.clone()
+            },
+            LlmConfig {
+                embedding_model: "".into(),
+                ..ok.clone()
+            },
+            LlmConfig {
+                embedding_dimensions: 0,
+                ..ok.clone()
+            },
+            LlmConfig {
+                embedding_dimensions: 2001,
+                ..ok.clone()
+            },
+            LlmConfig {
+                embedding_price_per_million_tokens: Some(-1.0),
+                ..ok.clone()
+            },
+        ] {
+            let problems = check_llm(&bad, none);
+            assert_eq!(problems.len(), 1, "{bad:?}");
+            assert!(problems[0].fatal, "{bad:?}");
+        }
+        // キーの値は、問題の文にも Debug の出力にも含まれない
+        let key = "sk-very-secret-value-1234";
+        let with_key = LlmConfig {
+            api_key: key.into(),
+            base_url: "nope".into(),
+            ..ok.clone()
+        };
+        assert!(
+            check_llm(&with_key, none)
+                .iter()
+                .all(|p| !p.message.contains(key))
+        );
+        assert!(!format!("{with_key:?}").contains(key));
     }
 
     #[test]

@@ -34,7 +34,15 @@ export function validServerConfigFromEnv(): ServerConfig {
     internalDestinationExceptions: process.env["CMS_TEST_HARNESS_ALLOWED_IP"] ? [process.env["CMS_TEST_HARNESS_ALLOWED_IP"]] : [],
     // 舞台に多要素認証のない所属者（編集者など）を作るため、全員への必須を無効にする（Q197）
     mfaRequiredForEveryone: false,
+    // 擬似LLM（global-setup.ts が起動する。テストの実行環境のアドレスなので、上の例外で http も届く）
+    ...(process.env["CMS_TEST_MOCK_LLM_URL"] ? { llm: stageLlm(process.env["CMS_TEST_MOCK_LLM_URL"]) } : {}),
   };
+}
+
+/** テストの舞台のCMSが使う、擬似LLMへの接続（決まったキー）。 */
+export const STAGE_LLM_API_KEY = "inv-stage";
+function stageLlm(baseUrl: string): NonNullable<ServerConfig["llm"]> {
+  return { baseUrl, apiKey: STAGE_LLM_API_KEY, embeddingModel: "mock-embed-64", embeddingDimensions: 64 };
 }
 
 /** URLにパスワードが入っていれば取り出す（設定ファイルでは、パスワードは別の項目に書く）。 */
@@ -120,6 +128,18 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (harnessCa) egress.push(`extra_ca_files = [${tomlString(harnessCa)}]`);
   if (egress.length > 0 || config.egressProxy) lines.push("", "[egress]", ...egress);
   if (config.egressProxy) lines.push("", "[egress.proxy]", `url = ${tomlString(config.egressProxy.url)}`);
+  // LLMの接続先（server/src/config.rs の LlmConfig）
+  if (config.llm) {
+    lines.push(
+      "",
+      "[llm]",
+      `base_url = ${tomlString(config.llm.baseUrl)}`,
+      `api_key = ${tomlString(config.llm.apiKey)}`,
+      `embedding_model = ${tomlString(config.llm.embeddingModel)}`,
+      `embedding_dimensions = ${config.llm.embeddingDimensions}`,
+    );
+    if (config.llm.pricePerMillionTokens !== undefined) lines.push(`embedding_price_per_million_tokens = ${config.llm.pricePerMillionTokens}`);
+  }
   if (config.scriptLimits) {
     lines.push(
       "",
