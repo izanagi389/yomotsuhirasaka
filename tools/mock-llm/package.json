@@ -1,0 +1,29 @@
+{
+  "name": "@new-cms/mock-llm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "擬似LLM（OpenAI互換の埋め込みとチャットだけを持つ、開発とテスト用のサーバー。12-dev-environment.md）。本番では使わない",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./format.json": "./src/format.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}

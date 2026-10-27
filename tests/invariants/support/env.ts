@@ -73,6 +73,10 @@ export const env = {
       jitDomain: required("CMS_TEST_OIDC_JIT_DOMAIN"),
     };
   },
+  /** 擬似LLM（support/mock-llm.ts）のOpenAI互換のAPIの接続先（`…/v1`）。 */
+  get mockLlmUrl(): string {
+    return required("CMS_TEST_MOCK_LLM_URL");
+  },
   /** CMSのメディアの保存先を含む、ファイルシステムの上位のディレクトリ（テストの実行環境からも見える）。 */
   get fsRoot(): string {
     return required("CMS_TEST_FS_ROOT");
