@@ -1,0 +1,16 @@
+# 開発用に足すもの（12-dev-environment.md）。公式の docker-compose.yml に重ねて使う。本番では使わない。
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# - 擬似LLM（mock-llm）を、CMS と同じ内部のネットワークで起動する。ホストにポートは開けない。
+# - CMS から擬似LLMにつなぐ設定（LLMの接続先と、外部への送信の内部宛先の例外）は、LLMの接続設定と一緒に入れる。
+
+services:
+  mock-llm:
+    build:
+      context: ..
+      dockerfile: deploy/mock-llm.Dockerfile
+    image: new-cms/mock-llm:local
+    networks:
+      - internal
+    restart: unless-stopped

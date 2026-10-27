@@ -5,6 +5,7 @@
 // - CMS_TEST_SERVER_BIN がなければ何もしない（舞台を使うテストは、環境変数がないことを理由に失敗する）。
 // - CMSはテストの実行環境と同じホストで、HTTPで待ち受ける。公開URLは https のまま（Cookieなどの扱いは本番と同じ）。
 // - メールは、ここで起動するSMTPの受け手（support/smtp-sink.ts）で受ける。
+// - 擬似LLM（support/mock-llm.ts）も、ここで別のプロセスとして起動する（CMS_TEST_MOCK_LLM_URL が設定されていなければ）。
 
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -12,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asBearer, driver, type StartedServer } from "./driver.js";
 import { isSuccess } from "./http.js";
+import { startMockLlmProcess, type StartedMockLlm } from "./mock-llm.js";
 import { runServerCli, validServerConfigFromEnv } from "./server-process.js";
 import { startSmtpSink, type SmtpSink } from "./smtp-sink.js";
 import { BASE_TEMPLATE } from "./template.js";
@@ -19,9 +21,24 @@ import { BASE_TEMPLATE } from "./template.js";
 let server: StartedServer | null = null;
 let smtp: SmtpSink | null = null;
 let mailDir: string | null = null;
+let mockLlm: StartedMockLlm | null = null;
 
 export async function setup(): Promise<void> {
   if (process.env["CMS_TEST_URL"] || !process.env["CMS_TEST_SERVER_BIN"]) return;
+  if (!process.env["CMS_TEST_MOCK_LLM_URL"]) {
+    mockLlm = await startMockLlmProcess();
+    process.env["CMS_TEST_MOCK_LLM_URL"] = mockLlm.baseUrl;
+  }
+  try {
+    await setupCms();
+  } catch (e) {
+    // 途中で失敗したら、起動したもの（擬似LLMなど）を止めてから失敗する
+    await teardown();
+    throw e;
+  }
+}
+
+async function setupCms(): Promise<void> {
   // メールの受け口（招待やリセットのメールを受け取る）
   mailDir = mkdtempSync(join(tmpdir(), "cms-inv-mail-"));
   smtp = await startSmtpSink(mailDir);
@@ -62,4 +79,6 @@ export async function teardown(): Promise<void> {
   smtp = null;
   if (mailDir) rmSync(mailDir, { recursive: true, force: true });
   mailDir = null;
+  await mockLlm?.stop();
+  mockLlm = null;
 }

@@ -27,3 +27,11 @@ docker compose exec cms cms-server create-server-admin --config /data/config.tom
 | `./data/postgres-password` | PostgreSQL のスーパーユーザーのパスワード（CMSは使わない） |
 | `./data/db-init/10-cms.sql` | ロール（`cms_app`・`cms_migrate`）・DB・拡張の作成 |
 | ボリューム `pgdata` | PostgreSQL のデータ |
+
+## 開発用（擬似LLM）
+
+開発では、`docker-compose.dev.yml` を重ねると、擬似LLM（`tools/mock-llm`）も内部のネットワークで起動します。本番では使いません。CMS から擬似LLMにつなぐ設定は、LLMの接続設定と一緒に入れます。
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```

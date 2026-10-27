@@ -9,7 +9,8 @@
     "packages/editor-schema",
     "packages/converter",
     "packages/preview",
-    "packages/nuxt"
+    "packages/nuxt",
+    "tools/mock-llm"
   ],
   "overrides": {
     "esbuild": "0.28.2"

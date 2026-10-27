@@ -1,0 +1,10 @@
+{
+  "$comment": "質問応答のプロンプトと回答の形（判定の先行宣言と [n] 形式の引用。09-qa-chatbot.md）。擬似LLMとCMSの両方がこのファイルを読む（情報源は1か所）。M4でCMSのプロンプトを作るときに見直してよい",
+  "fragmentLine": "^\\[(\\d+)\\] (.+)$",
+  "declarationLine": "^ANSWERABLE: (yes|no); SOURCES: (none|\\d+(?:,\\d+)*)$",
+  "answerableDeclaration": "ANSWERABLE: yes; SOURCES: {sources}",
+  "notAnswerableDeclaration": "ANSWERABLE: no; SOURCES: none",
+  "sourceSeparator": ",",
+  "citation": "\\[(\\d+)\\]",
+  "notAnswerableBody": "The articles do not cover this question."
+}
