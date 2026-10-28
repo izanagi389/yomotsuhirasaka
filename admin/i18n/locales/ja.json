@@ -168,7 +168,8 @@
     "oidc_unavailable": "外部への送信の設定に問題があるため、シングルサインオンを使えません。",
     "idp_unreachable": "IdPにつながらないか、IdPの設定に問題があります。",
     "reauth_method_not_allowed": "この方法では本人を確認できません。",
-    "csrf_already_issued": "ログインし直してください。"
+    "csrf_already_issued": "ログインし直してください。",
+    "budget_exceeds_ceiling": "サーバー管理者が決めた天井を超えています。"
   },
   "editor": {
     "toolbar": "本文の書式",
@@ -381,7 +382,8 @@
     "todo": "やること",
     "entries": "記事",
     "media": "メディア",
-    "admin": "管理"
+    "admin": "管理",
+    "budget": "予算"
   },
   "adminTabs": {
     "members": "所属者",
@@ -579,7 +581,7 @@
       },
       "workspace": {
         "created": "ワークスペースを作成",
-        "limits_changed": "容量の上限を変更",
+        "limits_changed": "ワークスペースの上限を変更",
         "settings_changed": "ワークスペースの設定の変更"
       },
       "audit_sink": {
@@ -610,6 +612,10 @@
       },
       "server_admin": {
         "created": "サーバー管理者の作成"
+      },
+      "budget": {
+        "changed": "LLMの予算を変更",
+        "exhausted": "LLMの予算切れ（埋め込みの作成）"
       }
     },
     "you": "あなた",
@@ -877,7 +883,8 @@
       "sourceCorrected": "原文が訂正された",
       "reviewExpired": "確認期限切れ",
       "sourceUpdated": "原文が更新された",
-      "scheduleCancelled": "訂正で取り消された予約"
+      "scheduleCancelled": "訂正で取り消された予約",
+      "budgetExhausted": "予算切れ"
     },
     "notice": {
       "expired": "確認期限が切れています。内容を確かめて「確認済み」を記録してください。",
@@ -887,7 +894,8 @@
     },
     "scheduledAt": "予約: {at}",
     "correctedAt": "訂正: {at}",
-    "dueAt": "期限: {at}"
+    "dueAt": "期限: {at}",
+    "budgetExhausted": "埋め込みの作成の予算が尽きました。上限を上げるか、次の期間（UTC）になるまで、新しい記事の検索用のデータは作られません。"
   },
   "preview": {
     "noUrl": "公開URLを作れないため、プレビューを開けません。スラッグを入力してください。",
@@ -925,5 +933,34 @@
     "spike": "{minutes}分間に {count} 件",
     "topIps": "件数の多いIPアドレス",
     "topUsers": "件数の多いアカウント"
+  },
+  "budget": {
+    "embeddingTitle": "埋め込みの作成の予算",
+    "help": "検索と関連記事のために、公開した記事から埋め込みを作るときの予算です。トークン数で数え、予算の範囲でだけLLMを呼びます。尽きたら作成を止め、それまでの埋め込みで動き続けます。",
+    "egressNote": "検索の対象のフィールドの内容は、埋め込みを作るために、サーバーに設定したLLMの接続先に送られます。",
+    "noLlm": "LLMの接続先が設定されていないため、埋め込みは作られません（サーバーの設定ファイルの [llm]）。",
+    "exhaustedTitle": "予算が尽きています",
+    "exhaustedHelp": "{at} から、予算が足りないため埋め込みの作成を止めています。上限を上げるか、次の期間（UTC）になると再開します。",
+    "used": {
+      "month": "今月の使用量",
+      "day": "今日の使用量"
+    },
+    "usedOf": "{used} / {limit} トークン",
+    "cost": "今月の費用の目安: {cost}（100万トークンあたり {price}。サーバーに設定した単価）",
+    "utc": "月と日は、UTC の暦で区切ります。",
+    "limitsTitle": "このワークスペースの上限",
+    "limitsHelp": "サーバー管理者が決めた天井の範囲で決められます。「上限なし」にすると、天井がそのまま効きます。",
+    "limit": {
+      "month": "月の上限（トークン数）",
+      "day": "日の上限（トークン数）"
+    },
+    "unlimited": "上限なし",
+    "ceilingIs": "天井: {ceiling}",
+    "invalidNumber": "0 以上の整数を入れてください。",
+    "exceedsCeiling": "天井（{ceiling}）を超えています。",
+    "saved": "保存しました。",
+    "ceilingTitle": "天井（サーバー管理者）",
+    "ceilingHelp": "このワークスペースが決められる上限の天井です。LLMの料金はインスタンスのキーにかかります。「既定値」にすると、サーバーの設定ファイルの既定値（なければ 0）が効きます。",
+    "useDefault": "既定値"
   }
 }

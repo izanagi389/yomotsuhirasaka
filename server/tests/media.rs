@@ -153,6 +153,10 @@ async fn uploading_serving_and_deleting_media() {
         let res = send(&server, "PUT", &limits, &root, Some(&json!({"mediaBytes": size * 2 + 10}).to_string())).await;
         assert_eq!(res.status, 200, "{}", res.body);
         assert_eq!(parse(&res)["mediaBytesUsed"], size);
+        // 天井だけを変えても、容量の上限は変わらない（書いた項目だけを変える）
+        let res = send(&server, "PUT", &limits, &root, Some("{\"embeddingTokensPerMonth\":10}")).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        assert_eq!(parse(&res)["mediaBytes"], size * 2 + 10);
         assert_eq!(upload(&server, &media, &editor, "image/png", &png(60, 60, 3)).await.status, 201);
         let res = upload(&server, &media, &editor, "image/png", &png(60, 60, 3)).await;
         assert_eq!(error(&res), (413, Some("media_quota_exceeded".into())), "{}", res.body);
@@ -161,7 +165,8 @@ async fn uploading_serving_and_deleting_media() {
             .fetch_one(&server.pool)
             .await
             .unwrap();
-        assert_eq!(n, 1);
+        // 容量の上限の変更と、天井だけの変更の2回（変更のたびに残る）
+        assert_eq!(n, 2);
         // 既定値に戻す
         let res = send(&server, "PUT", &limits, &root, Some("{\"mediaBytes\":null}")).await;
         assert_eq!(parse(&res)["mediaBytes"], 5_i64 * 1024 * 1024 * 1024);

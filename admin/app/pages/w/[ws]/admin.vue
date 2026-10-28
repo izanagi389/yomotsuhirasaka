@@ -34,7 +34,7 @@ watch(tab, async (v) => {
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" />
+    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="hasPermission(workspace, 'manageLlm')" />
     <FormError :error="error" />
     <p v-if="workspace && !isWorkspaceAdmin(workspace)" class="text-muted-foreground">{{ t("errors.forbidden") }}</p>
     <Tabs v-else-if="workspace" v-model="tab">
