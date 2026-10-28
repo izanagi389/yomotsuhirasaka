@@ -325,41 +325,98 @@ fn check_audit_export(
 /// LLMの接続先の検査。接続先は https だけ（本番）。ただし、外部への送信の例外として許した内部の宛先には
 /// http も許す（Q139。擬似LLMやローカルのLLM）。APIキーは空にできない（値そのものは問題の文に含めない）。
 fn check_llm(llm: &crate::config::LlmConfig, exceptions: &[String]) -> Vec<Problem> {
+    let mut problems = check_endpoint("llm", &llm.base_url, &llm.api_key, exceptions);
+    problems.extend(check_model(
+        "llm",
+        &llm.embedding_model,
+        llm.embedding_dimensions,
+        llm.embedding_price_per_million_tokens,
+        ("embedding_model", "embedding_dimensions"),
+    ));
+    // 切り替え先のモデル（接続先とキーは、書いたものだけを検査する。省略すれば今のものを使う）
+    if let Some(next) = &llm.next_embedding {
+        const P: &str = "llm.next_embedding";
+        match (&next.base_url, &next.api_key) {
+            (Some(url), Some(key)) => problems.extend(check_endpoint(P, url, key, exceptions)),
+            (Some(_), None) => problems.push(Problem::fatal(format!(
+                "`{P}.api_key` is required when `{P}.base_url` is set \
+                 (the current API key is never sent to another endpoint)"
+            ))),
+            (None, Some(key)) if key.trim().is_empty() => {
+                problems.push(Problem::fatal(format!("`{P}.api_key` is empty")))
+            }
+            _ => {}
+        }
+        problems.extend(check_model(
+            P,
+            &next.model,
+            next.dimensions,
+            next.embedding_price_per_million_tokens,
+            ("model", "dimensions"),
+        ));
+        if next.model == llm.embedding_model && next.dimensions == llm.embedding_dimensions {
+            problems.push(Problem::fatal(format!(
+                "`{P}` is the same model as `llm.embedding_model`"
+            )));
+        }
+    }
+    problems
+}
+
+/// LLMの接続先とキーの検査（`prefix` は設定の場所。問題の文にキーの値を入れない）。
+fn check_endpoint(
+    prefix: &str,
+    base_url: &str,
+    api_key: &str,
+    exceptions: &[String],
+) -> Vec<Problem> {
     let mut problems = Vec::new();
-    match url::Url::parse(&llm.base_url) {
+    match url::Url::parse(base_url) {
         Ok(u) if u.host_str().is_none() => {
-            problems.push(Problem::fatal("`llm.base_url` has no host"))
+            problems.push(Problem::fatal(format!("`{prefix}.base_url` has no host")))
         }
         Ok(u) if u.scheme() == "https" => {}
         Ok(u)
             if u.scheme() == "http"
                 && u.host_str()
                     .is_some_and(|h| exceptions.iter().any(|e| e.eq_ignore_ascii_case(h))) => {}
-        Ok(u) if u.scheme() == "http" => problems.push(Problem::config(
-            "`llm.base_url` is not https; article text would be sent unencrypted \
-             (http is allowed only for hosts in `egress.internal_destination_exceptions`)",
-        )),
-        _ => problems.push(Problem::fatal("`llm.base_url` is not an http(s) URL")),
+        Ok(u) if u.scheme() == "http" => problems.push(Problem::config(format!(
+            "`{prefix}.base_url` is not https; article text would be sent unencrypted \
+             (http is allowed only for hosts in `egress.internal_destination_exceptions`)"
+        ))),
+        _ => problems.push(Problem::fatal(format!(
+            "`{prefix}.base_url` is not an http(s) URL"
+        ))),
     }
-    if llm.api_key.trim().is_empty() {
-        problems.push(Problem::fatal("`llm.api_key` is empty"));
+    if api_key.trim().is_empty() {
+        problems.push(Problem::fatal(format!("`{prefix}.api_key` is empty")));
     }
-    if llm.embedding_model.trim().is_empty() {
-        problems.push(Problem::fatal("`llm.embedding_model` is empty"));
+    problems
+}
+
+/// 埋め込みのモデル・次元数・単価の検査（`names` は設定の中のモデルと次元数の名前）。
+fn check_model(
+    prefix: &str,
+    model: &str,
+    dimensions: u32,
+    price: Option<f64>,
+    names: (&str, &str),
+) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    if model.trim().is_empty() {
+        problems.push(Problem::fatal(format!("`{prefix}.{}` is empty", names.0)));
     }
-    if !(1..=crate::config::MAX_EMBEDDING_DIMENSIONS).contains(&llm.embedding_dimensions) {
+    if !(1..=crate::config::MAX_EMBEDDING_DIMENSIONS).contains(&dimensions) {
         problems.push(Problem::fatal(format!(
-            "`llm.embedding_dimensions` must be between 1 and {}",
+            "`{prefix}.{}` must be between 1 and {}",
+            names.1,
             crate::config::MAX_EMBEDDING_DIMENSIONS
         )));
     }
-    if llm
-        .embedding_price_per_million_tokens
-        .is_some_and(|p| !p.is_finite() || p < 0.0)
-    {
-        problems.push(Problem::fatal(
-            "`llm.embedding_price_per_million_tokens` must be a non-negative number",
-        ));
+    if price.is_some_and(|p| !p.is_finite() || p < 0.0) {
+        problems.push(Problem::fatal(format!(
+            "`{prefix}.embedding_price_per_million_tokens` must be a non-negative number"
+        )));
     }
     problems
 }
@@ -544,6 +601,95 @@ mod tests {
     }
 
     #[test]
+    fn next_embedding() {
+        use crate::config::{LlmConfig, NextEmbeddingConfig};
+        let next = NextEmbeddingConfig {
+            model: "text-embedding-3-large".into(),
+            dimensions: 1024,
+            base_url: None,
+            api_key: None,
+            embedding_price_per_million_tokens: None,
+        };
+        let base = LlmConfig {
+            base_url: "https://api.example.com/v1".into(),
+            api_key: "sk-kq3Vd8mZ2pL9xR4tY7".into(),
+            embedding_model: "text-embedding-3-small".into(),
+            embedding_dimensions: 1536,
+            embedding_price_per_million_tokens: None,
+            default_workspace_embedding_tokens_per_month: None,
+            default_workspace_embedding_tokens_per_day: None,
+            next_embedding: Some(next.clone()),
+        };
+        let none: &[String] = &[];
+        assert!(check_llm(&base, none).is_empty());
+        // 接続先とキーを省略すれば、今のものを使う
+        let n = base.next().unwrap();
+        assert_eq!(
+            (n.base_url.as_str(), n.api_key.as_str()),
+            (base.base_url.as_str(), base.api_key.as_str())
+        );
+        assert_eq!(
+            (n.embedding_model.as_str(), n.embedding_dimensions),
+            ("text-embedding-3-large", 1024)
+        );
+        assert!(base.for_model("text-embedding-3-small", 1536).is_some());
+        assert!(base.for_model("text-embedding-3-large", 1024).is_some());
+        assert!(base.for_model("text-embedding-3-large", 512).is_none());
+        // 接続先だけを書いてキーがなければ、起動しない（今のキーを別の宛先に送らない）
+        let url_only = LlmConfig {
+            next_embedding: Some(NextEmbeddingConfig {
+                base_url: Some("https://other.example.com/v1".into()),
+                ..next.clone()
+            }),
+            ..base.clone()
+        };
+        let problems = check_llm(&url_only, none);
+        assert!(problems.len() == 1 && problems[0].fatal, "{problems:?}");
+        assert!(url_only.next().is_none());
+        // 接続先とキーを書けば、それを使い、今の接続先と同じ検査をする
+        let own = LlmConfig {
+            next_embedding: Some(NextEmbeddingConfig {
+                base_url: Some("http://mock-llm:8080/v1".into()),
+                api_key: Some("other-key".into()),
+                ..next.clone()
+            }),
+            ..base.clone()
+        };
+        assert_eq!(own.next().unwrap().api_key, "other-key");
+        assert_eq!(check_llm(&own, none).len(), 1, "http needs an exception");
+        assert!(check_llm(&own, &["mock-llm".to_owned()]).is_empty());
+        // 致命的なもの
+        for bad in [
+            NextEmbeddingConfig {
+                api_key: Some(" ".into()),
+                ..next.clone()
+            },
+            NextEmbeddingConfig {
+                model: "".into(),
+                ..next.clone()
+            },
+            NextEmbeddingConfig {
+                dimensions: 0,
+                ..next.clone()
+            },
+            NextEmbeddingConfig {
+                model: "text-embedding-3-small".into(),
+                dimensions: 1536,
+                ..next.clone()
+            },
+        ] {
+            let c = LlmConfig {
+                next_embedding: Some(bad),
+                ..base.clone()
+            };
+            let problems = check_llm(&c, none);
+            assert!(problems.len() == 1 && problems[0].fatal, "{problems:?}");
+        }
+        // キーの値は Debug の出力に含まれない
+        assert!(!format!("{own:?}").contains("other-key"));
+    }
+
+    #[test]
     fn llm() {
         use crate::config::LlmConfig;
         let ok = LlmConfig {
@@ -554,6 +700,7 @@ mod tests {
             embedding_price_per_million_tokens: Some(0.02),
             default_workspace_embedding_tokens_per_month: None,
             default_workspace_embedding_tokens_per_day: None,
+            next_embedding: None,
         };
         let none: &[String] = &[];
         assert!(check_llm(&ok, none).is_empty());

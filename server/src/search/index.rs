@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use super::access::{Plan, fields_key, plans};
 use super::chunk::{self, Source};
+use super::switch;
 use crate::budget::{self, Embedded};
 use crate::config::Config;
 use crate::jobs::Outcome;
@@ -135,17 +136,6 @@ pub async fn run(
     ) else {
         return Ok(Outcome::Done);
     };
-    // LLMの接続先（なければ、チャンクだけを作る）
-    let llm = match (&config.llm, egress) {
-        (Some(c), Some(e)) => Some(Llm::new(e.clone(), c.clone())),
-        _ => None,
-    };
-    let embedding = llm.as_ref().map(|l| {
-        (
-            l.config().embedding_model.clone(),
-            i32::try_from(l.config().embedding_dimensions).unwrap_or(i32::MAX),
-        )
-    });
     let plans: HashMap<String, Plan> = plans(&applied.manifest).into_iter().collect();
     let types: Vec<String> = plans.keys().cloned().collect();
     let mut sorted: Vec<(&String, &Plan)> = plans.iter().collect();
@@ -222,15 +212,30 @@ pub async fn run(
         }
     }
 
-    // 3. 埋め込みを作る
-    if let (Some(llm), Some((model, dims))) = (&llm, &embedding) {
-        match embed_chunks(pool, config, llm, &db, ws, model, *dims).await? {
-            Step::Done => {}
-            Step::OverBudget => {
-                schedule(pool, keys, ws, OVER_BUDGET_RETRY_SECONDS).await?;
-                return Ok(Outcome::Done);
+    // 3. 埋め込みを作る（LLMの接続先がなければ、チャンクだけ）。モデルの切り替えの途中なら、旧モデルの分を先に作る（`switch`）
+    if let (Some(llm_config), Some(egress)) = (&config.llm, egress) {
+        let mut tx = workspace_db::begin(pool, &db).await?;
+        let rec = switch::recorded(&mut tx).await?;
+        tx.commit().await?;
+        let started = switch::started(pool).await?;
+        let plan = switch::plan(llm_config, &rec, started.as_ref());
+        prepare_models(pool, &db, llm_config, &rec, &plan).await?;
+        for target in &plan.embed {
+            let llm = Llm::new(egress.clone(), target.clone());
+            let dims = i32::try_from(target.embedding_dimensions).unwrap_or(i32::MAX);
+            match embed_chunks(pool, config, &llm, &db, ws, &target.embedding_model, dims).await? {
+                Step::Done => {}
+                Step::OverBudget => {
+                    set_paused(pool, &db, true).await?;
+                    schedule(pool, keys, ws, OVER_BUDGET_RETRY_SECONDS).await?;
+                    return Ok(Outcome::Done);
+                }
+                Step::Failed(code) => return Ok(Outcome::Retry(code)),
             }
-            Step::Failed(code) => return Ok(Outcome::Retry(code)),
+        }
+        set_paused(pool, &db, false).await?;
+        if !waiting_for_render && let Some(target) = &plan.target {
+            switch_if_complete(pool, &db, ws, target).await?;
         }
     }
     if waiting_for_render {
@@ -348,6 +353,83 @@ async fn index_entry(
     }
     tx.commit().await?;
     Ok(true)
+}
+
+/// ワークスペースのモデルの記録を用意し（なければ今のモデルで作る）、残さないモデルの埋め込みを消す。
+async fn prepare_models(
+    pool: &PgPool,
+    db: &workspace_db::WorkspaceDb,
+    llm: &crate::config::LlmConfig,
+    rec: &switch::Recorded,
+    plan: &switch::Plan,
+) -> Result<()> {
+    let (models, dims): (Vec<String>, Vec<i32>) = switch::kept(llm, rec, plan)
+        .into_iter()
+        .map(|(m, d)| (m, i32::try_from(d).unwrap_or(i32::MAX)))
+        .unzip();
+    let mut tx = workspace_db::begin(pool, db).await?;
+    sqlx::query(
+        "INSERT INTO search_models (id, active_model, active_dimensions) VALUES (true, $1, $2)
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(&plan.active.0)
+    .bind(i32::try_from(plan.active.1).unwrap_or(i32::MAX))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "DELETE FROM search_embeddings x
+         WHERE (x.model, x.dimensions) NOT IN (SELECT * FROM unnest($1::text[], $2::integer[]))",
+    )
+    .bind(&models)
+    .bind(&dims)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// 予算が尽きて止まったか（進んだら消す）を記録する。
+async fn set_paused(pool: &PgPool, db: &workspace_db::WorkspaceDb, paused: bool) -> Result<()> {
+    let mut tx = workspace_db::begin(pool, db).await?;
+    sqlx::query(if paused {
+        "UPDATE search_models SET paused_at = coalesce(paused_at, now())"
+    } else {
+        "UPDATE search_models SET paused_at = NULL WHERE paused_at IS NOT NULL"
+    })
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// 切り替え先のモデルの埋め込みが、すべてのチャンクにそろっていれば切り替える（1つの文で、そろったことの確認と一緒に行う）。
+async fn switch_if_complete(
+    pool: &PgPool,
+    db: &workspace_db::WorkspaceDb,
+    ws: Uuid,
+    target: &switch::ModelId,
+) -> Result<()> {
+    let mut tx = workspace_db::begin(pool, db).await?;
+    let switched = sqlx::query(
+        "UPDATE search_models
+         SET previous_model = active_model, previous_dimensions = active_dimensions,
+             active_model = $1, active_dimensions = $2, switched_at = now(), paused_at = NULL
+         WHERE (active_model, active_dimensions) <> ($1, $2)
+           AND NOT EXISTS (
+             SELECT 1 FROM search_chunks c
+             WHERE NOT EXISTS (SELECT 1 FROM search_embeddings x
+                               WHERE x.content_hash = c.content_hash AND x.model = $1 AND x.dimensions = $2))",
+    )
+    .bind(&target.0)
+    .bind(i32::try_from(target.1).unwrap_or(i32::MAX))
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    tx.commit().await?;
+    if switched > 0 {
+        tracing::info!(workspace = %ws, "switched the embedding model of the workspace");
+    }
+    Ok(())
 }
 
 /// 埋め込みを作る対象のテキストの行（テキストの要約・アンカー・パンくず・本文）。

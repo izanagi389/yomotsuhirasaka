@@ -430,6 +430,77 @@ pub struct LlmConfig {
     /// 同じく、UTCの暦の日。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_workspace_embedding_tokens_per_day: Option<u64>,
+    /// 切り替え先の埋め込みのモデル（08-search-and-related.md「モデルの変更」、Q30）。書いただけでは何もしない。
+    /// サーバー管理者が見積もりを見て開始すると、ワークスペースごとに新しい埋め込みを作り、そろった時点で切り替える。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_embedding: Option<NextEmbeddingConfig>,
+}
+
+/// 切り替え先の埋め込みのモデル（`[llm.next_embedding]`）。
+/// 接続先とキーは、省略すれば今のもの（`[llm]`）を使う。接続先を書くときはキーも書く（今のキーを別の宛先に送らないため）。
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NextEmbeddingConfig {
+    pub model: String,
+    pub dimensions: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    /// APIキー（秘密の値）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_price_per_million_tokens: Option<f64>,
+}
+
+impl std::fmt::Debug for NextEmbeddingConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NextEmbeddingConfig")
+            .field("model", &self.model)
+            .field("dimensions", &self.dimensions)
+            .field("base_url", &self.base_url)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field(
+                "embedding_price_per_million_tokens",
+                &self.embedding_price_per_million_tokens,
+            )
+            .finish()
+    }
+}
+
+impl LlmConfig {
+    /// 今のモデルの接続先（切り替え先を外したもの）。
+    pub fn current(&self) -> LlmConfig {
+        LlmConfig {
+            next_embedding: None,
+            ..self.clone()
+        }
+    }
+
+    /// 切り替え先のモデルの接続先（なければ None）。接続先・キーを省略していれば、今のものを使う。
+    /// 接続先だけを書いてキーがない設定は、起動のときの検査で止める（ここでは使わない）。
+    pub fn next(&self) -> Option<LlmConfig> {
+        let n = self.next_embedding.as_ref()?;
+        if n.base_url.is_some() && n.api_key.is_none() {
+            return None;
+        }
+        Some(LlmConfig {
+            base_url: n.base_url.clone().unwrap_or_else(|| self.base_url.clone()),
+            api_key: n.api_key.clone().unwrap_or_else(|| self.api_key.clone()),
+            embedding_model: n.model.clone(),
+            embedding_dimensions: n.dimensions,
+            embedding_price_per_million_tokens: n.embedding_price_per_million_tokens,
+            next_embedding: None,
+            ..self.clone()
+        })
+    }
+
+    /// そのモデルと次元数の接続先（設定の今のモデルか切り替え先のモデル。どちらでもなければ None）。
+    pub fn for_model(&self, model: &str, dimensions: u32) -> Option<LlmConfig> {
+        [Some(self.current()), self.next()]
+            .into_iter()
+            .flatten()
+            .find(|c| c.embedding_model == model && c.embedding_dimensions == dimensions)
+    }
 }
 
 /// APIキーは出さない（設定をログなどに出したときに漏れないように）。
@@ -452,6 +523,7 @@ impl std::fmt::Debug for LlmConfig {
                 "default_workspace_embedding_tokens_per_day",
                 &self.default_workspace_embedding_tokens_per_day,
             )
+            .field("next_embedding", &self.next_embedding)
             .finish()
     }
 }

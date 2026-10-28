@@ -13,7 +13,9 @@
 //!     （`audit_log.notify`）の直近7日の分で、その人がまだ「確認した」にしていないもの。インスタンス単位の通知は出さない
 //!     （サーバー管理者の画面に出す。INV-AUD-08）
 //!   - 予算切れ（M3）: 重い権限 manageLlm を持つ人。今の期間に、予算が足りずに埋め込みの作成を断った（上限を変えるまで）
-//! - 優先度（上ほど先）: 管理者への通知 → 予算切れ → 予約の失敗・やり直し中 → 自分が指定されたレビュー待ち → その他のレビュー待ち → 未記入の訂正 →
+//!   - 埋め込みのモデルが設定にない（M3）: サーバー管理者。ワークスペースが使っているモデルが設定から消え、ベクトル検索が
+//!     使えない（`search::switch`。切り替えを開始するまで）
+//! - 優先度（上ほど先）: 管理者への通知 → 予算切れ・埋め込みのモデルが設定にない → 予約の失敗・やり直し中 → 自分が指定されたレビュー待ち → その他のレビュー待ち → 未記入の訂正 →
 //!   差し戻し → 原文の訂正 → 確認期限切れ → 原文の更新 → 訂正による予約の取り消し。同じ優先度の中では古いものが先。
 //! - 読むだけで、監査ログには残さない。
 
@@ -43,6 +45,7 @@ use crate::workspace_db;
 pub enum Kind {
     Notification,
     BudgetExhausted,
+    EmbeddingModelMissing,
     ScheduleFailed,
     ScheduleRetrying,
     ReviewWaiting,
@@ -58,7 +61,7 @@ impl Kind {
     /// 優先度（小さいほど先）。予約の失敗とやり直し中は同じ。
     fn priority(self) -> u8 {
         match self {
-            Kind::Notification | Kind::BudgetExhausted => 0,
+            Kind::Notification | Kind::BudgetExhausted | Kind::EmbeddingModelMissing => 0,
             Kind::ScheduleFailed | Kind::ScheduleRetrying => 1,
             Kind::ReviewWaiting => 2,
             Kind::UnwrittenCorrection => 3,
@@ -157,6 +160,24 @@ pub async fn todo(
         Vec::new()
     };
     let rejected = reviews::rejected_for(&mut tx, current.user_id).await?;
+    // 使っているモデルが設定にない（時刻は今。状態が続く間ずっと出す）
+    let model_missing: Option<String> = if access.server_admin
+        && state.config.llm.is_some()
+        && crate::search::switch::serving(&state.config, &mut tx)
+            .await?
+            .is_none()
+    {
+        Some(
+            sqlx::query_scalar(
+                r#"SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"#,
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(anyhow::Error::from)?,
+        )
+    } else {
+        None
+    };
     let (unwritten, expired) = if corrections_holder {
         (
             corrections::unwritten(&mut tx, &applied.manifest).await?,
@@ -276,6 +297,18 @@ pub async fn todo(
                 budget: Some(crate::budget::Kind::Embedding.as_str()),
             });
         }
+    }
+    if let Some(at) = model_missing {
+        items.push(Item {
+            kind: Kind::EmbeddingModelMissing,
+            entry: None,
+            at,
+            request: None,
+            schedule: None,
+            version_id: None,
+            notification: None,
+            budget: None,
+        });
     }
     items.extend(raw.into_iter().filter_map(|r| {
         // 削除された記事（一覧にない記事）の項目は出さない

@@ -616,6 +616,9 @@
       "budget": {
         "changed": "LLMの予算を変更",
         "exhausted": "LLMの予算切れ（埋め込みの作成）"
+      },
+      "embedding_switch": {
+        "started": "埋め込みモデルの切り替えの開始"
       }
     },
     "you": "あなた",
@@ -884,7 +887,8 @@
       "reviewExpired": "確認期限切れ",
       "sourceUpdated": "原文が更新された",
       "scheduleCancelled": "訂正で取り消された予約",
-      "budgetExhausted": "予算切れ"
+      "budgetExhausted": "予算切れ",
+      "embeddingModelMissing": "埋め込みのモデルがない"
     },
     "notice": {
       "expired": "確認期限が切れています。内容を確かめて「確認済み」を記録してください。",
@@ -895,7 +899,9 @@
     "scheduledAt": "予約: {at}",
     "correctedAt": "訂正: {at}",
     "dueAt": "期限: {at}",
-    "budgetExhausted": "埋め込みの作成の予算が尽きました。上限を上げるか、次の期間（UTC）になるまで、新しい記事の検索用のデータは作られません。"
+    "budgetExhausted": "埋め込みの作成の予算が尽きました。上限を上げるか、次の期間（UTC）になるまで、新しい記事の検索用のデータは作られません。",
+    "embeddingModelMissing": "このワークスペースが使っている埋め込みのモデルが、サーバーの設定にありません。切り替えを開始するまで、ベクトル検索は使えません。",
+    "embeddingModelMissingDetail": "サーバーの設定: [llm.next_embedding]"
   },
   "preview": {
     "noUrl": "公開URLを作れないため、プレビューを開けません。スラッグを入力してください。",

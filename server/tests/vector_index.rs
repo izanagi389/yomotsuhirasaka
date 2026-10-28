@@ -21,6 +21,7 @@ fn llm() -> LlmConfig {
         embedding_price_per_million_tokens: None,
         default_workspace_embedding_tokens_per_month: None,
         default_workspace_embedding_tokens_per_day: None,
+        next_embedding: None,
     }
 }
 
@@ -54,16 +55,31 @@ async fn each_workspace_gets_an_hnsw_index_for_the_configured_model() {
             .await
             .unwrap();
         assert_eq!(indexes().await.len(), 1);
-        // モデルを変えれば、そのモデルの索引が足される（古いモデルの索引は、切り替えの仕組みが消す）
-        let mut other = cfg.clone();
-        other.llm.as_mut().unwrap().embedding_model = "embed-large".into();
-        other.llm.as_mut().unwrap().embedding_dimensions = 16;
-        cms_server::search::ensure_vector_indexes(&server.state.migration, &other)
+        // 切り替え先のモデルを足せば、そのモデルの索引も作る
+        let mut with_next = cfg.clone();
+        with_next.llm.as_mut().unwrap().next_embedding = Some(cms_server::config::NextEmbeddingConfig {
+            model: "embed-large".into(),
+            dimensions: 16,
+            base_url: None,
+            api_key: None,
+            embedding_price_per_million_tokens: None,
+        });
+        cms_server::search::ensure_vector_indexes(&server.state.migration, &with_next)
             .await
             .unwrap();
         let defs = indexes().await;
         assert_eq!(defs.len(), 2, "{defs:?}");
         assert!(defs.iter().any(|d| d.contains("vector(16)") && d.contains("'embed-large'")));
+        // 設定からなくなったモデルの索引は消す
+        let mut only_next = cfg.clone();
+        only_next.llm.as_mut().unwrap().embedding_model = "embed-large".into();
+        only_next.llm.as_mut().unwrap().embedding_dimensions = 16;
+        cms_server::search::ensure_vector_indexes(&server.state.migration, &only_next)
+            .await
+            .unwrap();
+        let defs = indexes().await;
+        assert_eq!(defs.len(), 1, "{defs:?}");
+        assert!(defs[0].contains("'embed-large'"));
     })
     .await;
 }

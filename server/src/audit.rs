@@ -87,6 +87,8 @@ pub mod action {
     pub const BUDGET_CHANGED: &str = "budget.changed";
     /// 予算が足りずにLLMの呼び出しを断った（期間ごとに1回。ワークスペースの管理者に知らせる）。
     pub const BUDGET_EXHAUSTED: &str = "budget.exhausted";
+    /// 埋め込みモデルの切り替えを始めた・再開した（サーバー管理者。インスタンス全体の記録）。
+    pub const EMBEDDING_SWITCH_STARTED: &str = "embedding_switch.started";
     pub const WEBHOOK_CREATED: &str = "webhook.created";
     /// 監査ログの書き出し先（ワークスペース）の作成・削除・再開（計画の14番）。
     pub const AUDIT_SINK_CREATED: &str = "audit_sink.created";
