@@ -233,7 +233,15 @@ pub async fn search(
     {
         match query_vector(services, workspace_id, llm_config, egress, &masked).await? {
             Some(vector) => {
-                vector_rows = vector_candidates(tx, &target, vs, llm_config, &vector).await?;
+                // ベクトル検索は HNSW の索引でチャンクのまま近い順に取り、記事ごとに1件にする（索引を使うため、SQL では
+                // 記事ごとにまとめない）
+                let n = (first * 3).max(MIN_CANDIDATES);
+                let rows = vector_candidates(tx, &target, vs, llm_config, &vector, n).await?;
+                vector_rows = if mode == Mode::Vector {
+                    best_per_entry(rows)
+                } else {
+                    rows
+                };
             }
             None => out.vector = Availability::BudgetExhausted,
         }
@@ -369,31 +377,51 @@ async fn query_vector(
     }
 }
 
-/// ベクトル検索の候補（点数はコサイン類似度）。
+/// ベクトル検索の候補（チャンクのまま、点数の順に `limit` 件。点数はコサイン類似度）。
+/// - 埋め込みはワークスペース・モデルごとの HNSW の索引（`super::ensure_vector_index`）で近い順に探す。索引の式と同じ形
+///   （`vector(次元数)` への変換）で並べる。次元数は設定の整数。
+/// - 公開状態などで絞り込んでも件数が欠けないよう、索引をたどり直す設定（`hnsw.iterative_scan = relaxed_order`）にする。
+///   この設定では順番が少し前後しうるので、取った後に点数で並べ直す。
+/// - モデルの条件で部分索引を使えるよう、パラメーターの値で毎回計画を立てる（`plan_cache_mode = force_custom_plan`）。
 async fn vector_candidates(
     tx: &mut Transaction<'static, Postgres>,
     t: &Target<'_>,
     vs: &Ident,
     llm_config: &LlmConfig,
     vector: &[f32],
+    limit: i64,
 ) -> Result<Vec<HitRow>> {
-    let dims = i32::try_from(llm_config.embedding_dimensions).unwrap_or(i32::MAX);
+    let d = llm_config.embedding_dimensions;
+    let dims = i32::try_from(d).unwrap_or(i32::MAX);
+    for setting in [
+        "SET LOCAL hnsw.iterative_scan = relaxed_order",
+        "SET LOCAL plan_cache_mode = force_custom_plan",
+    ] {
+        sqlx::query(setting).execute(&mut **tx).await?;
+    }
     let visible = access::visible_embedded(1, 2, 3, 4, 5);
-    let columns = format!(
-        "{COLUMNS}, 1 - ((c.embedding::{vs}.vector) OPERATOR({vs}.<=>) ($6::real[])::{vs}.vector) AS score"
+    let distance = format!(
+        "(x.embedding::{vs}.vector({d})) OPERATOR({vs}.<=>) (($6::real[])::{vs}.vector({d}))"
     );
-    let from_where = format!("FROM search_chunks c, entries e WHERE {visible}");
-    let sql = ranked(&columns, &from_where, t.per_entry, 7);
-    Ok(sqlx::query_as(crate::db::trusted(sql))
+    let sql = format!(
+        "SELECT {COLUMNS}, (1 - ({distance}))::float8 AS score
+         FROM search_embeddings x, search_chunks c, entries e
+         WHERE {visible}
+         ORDER BY {distance}
+         LIMIT $7"
+    );
+    let mut rows: Vec<HitRow> = sqlx::query_as(crate::db::trusted(sql))
         .bind(t.types)
         .bind(t.keys)
         .bind(t.locale)
         .bind(&llm_config.embedding_model)
         .bind(dims)
         .bind(vector)
-        .bind(t.limit)
+        .bind(limit)
         .fetch_all(&mut **tx)
-        .await?)
+        .await?;
+    rows.sort_by(|a, b| b.5.total_cmp(&a.5).then(a.0.cmp(&b.0)));
+    Ok(rows)
 }
 
 /// キーワード検索の候補（すべての語を含むチャンク。点数は pg_bigm の類似度）。

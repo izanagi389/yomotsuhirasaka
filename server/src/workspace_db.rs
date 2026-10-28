@@ -136,6 +136,10 @@ pub const BASE_MIGRATIONS: &[(i32, &str)] = &[
         16,
         include_str!("../migrations/workspace/0016_search_chunks_without_embedding.sql"),
     ),
+    (
+        17,
+        include_str!("../migrations/workspace/0017_search_embeddings.sql"),
+    ),
 ];
 
 /// 1つのワークスペースの土台のテーブルを、最新の版にそろえる。移行・ロールの作成用の接続で呼ぶ。
