@@ -50,6 +50,7 @@ const scheduleError = (code: string | null | undefined) => (code && te(`schedule
 /** 開くタブ（記事の画面の ?tab=）。 */
 const TAB: Record<TodoItem["kind"], string | null> = {
   notification: null,
+  budgetExhausted: null,
   scheduleFailed: null,
   scheduleRetrying: null,
   reviewWaiting: "review",
@@ -60,14 +61,16 @@ const TAB: Record<TodoItem["kind"], string | null> = {
   sourceUpdated: "translations",
   scheduleCancelled: null,
 };
-const link = (i: TodoItem) => `/w/${ws}/entries/${i.entry?.id}${TAB[i.kind] ? `?tab=${TAB[i.kind]}` : ""}`;
-const urgent = (k: TodoItem["kind"]) => k === "scheduleFailed" || k === "scheduleRetrying" || k === "reviewExpired";
+const link = (i: TodoItem) =>
+  i.kind === "budgetExhausted" ? `/w/${ws}/budget` : `/w/${ws}/entries/${i.entry?.id}${TAB[i.kind] ? `?tab=${TAB[i.kind]}` : ""}`;
+const urgent = (k: TodoItem["kind"]) => k === "budgetExhausted" || k === "scheduleFailed" || k === "scheduleRetrying" || k === "reviewExpired";
 
 /** 種類ごとの補足（誰が・いつ・理由）。 */
 function detail(i: TodoItem): string {
   const at = formatDateTime(i.at, locale.value);
   switch (i.kind) {
     case "notification":
+    case "budgetExhausted":
       return at;
     case "scheduleFailed":
     case "scheduleRetrying":
@@ -91,7 +94,7 @@ function detail(i: TodoItem): string {
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" />
+    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="hasPermission(workspace, 'manageLlm')" />
     <FormError :error="error ?? todoError ?? readError" />
     <p class="text-sm text-muted-foreground">{{ t("todo.help") }}</p>
 
@@ -103,7 +106,7 @@ function detail(i: TodoItem): string {
           <span class="flex flex-wrap items-center gap-2">
             <Badge :variant="urgent(i.kind) ? 'destructive' : 'outline'">{{ t(`todo.kind.${i.kind}`) }}</Badge>
             <Badge v-if="i.request?.assignedToMe && i.kind === 'reviewWaiting'" variant="secondary">{{ t("review.assignedToMe") }}</Badge>
-            <span class="font-medium">{{ titleOf(i) || t("entries.untitled") }}</span>
+            <span class="font-medium">{{ i.kind === "budgetExhausted" ? t("todo.budgetExhausted") : titleOf(i) || t("entries.untitled") }}</span>
             <span class="text-muted-foreground">{{ i.entry?.locale }}</span>
             <span class="ml-auto text-muted-foreground">{{ detail(i) }}</span>
           </span>

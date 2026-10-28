@@ -7,7 +7,7 @@
 //! | GET | /api/admin/workspaces/{ws}/media/{id} | メディアと、使っている記事 |
 //! | DELETE | /api/admin/workspaces/{ws}/media/{id} | 削除（記事で使っていれば 409。`?force=true` で削除する） |
 //! | GET | /api/admin/workspaces/{ws}/limits | 容量の上限と使用量 |
-//! | PUT | /api/admin/workspaces/{ws}/limits | 容量の上限と、埋め込みの作成の予算の天井を変える（サーバー管理者・再認証） |
+//! | PUT | /api/admin/workspaces/{ws}/limits | 容量の上限と、埋め込みの作成の予算の天井を変える（サーバー管理者・再認証。書いた項目だけを変える） |
 //! | GET | /media/{ws}/{file} | 配信（認証なし。名前はランダムで推測できない） |
 //!
 //! - アップロードは管理者・編集者・執筆者とサーバー管理者。削除は管理者・編集者とサーバー管理者（記事の削除と同じ。Q200）。
@@ -351,8 +351,9 @@ pub async fn get_limits(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SetLimits {
-    /// メディアの容量の上限（バイト）。null で設定の既定値に戻す。
-    media_bytes: Option<i64>,
+    /// メディアの容量の上限（バイト）。null で設定の既定値に戻す。項目がなければ変えない（天井だけを変えるときのため）。
+    #[serde(default, deserialize_with = "present")]
+    media_bytes: Option<Option<i64>>,
     /// 埋め込みの作成の予算の天井（トークン数、UTCの暦の月・日。`budget.rs`）。null で設定の既定値に戻す。項目がなければ変えない。
     #[serde(default, deserialize_with = "present")]
     embedding_tokens_per_month: Option<Option<i64>>,
@@ -381,7 +382,7 @@ pub async fn set_limits(
     }
     // ワークスペースがあることを確かめる（なければ 404）
     reader(&state, &current, ws).await?;
-    if req.media_bytes.is_some_and(|b| b < 0) {
+    if req.media_bytes.flatten().is_some_and(|b| b < 0) {
         return Err(ApiError::bad_request("`mediaBytes` must not be negative."));
     }
     if [req.embedding_tokens_per_month, req.embedding_tokens_per_day]
@@ -394,15 +395,22 @@ pub async fn set_limits(
     }
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     sqlx::query(
-        "INSERT INTO cms.workspace_limits (workspace_id, media_bytes, updated_by) VALUES ($1, $2, $3)
-         ON CONFLICT (workspace_id) DO UPDATE SET media_bytes = $2, updated_by = $3, updated_at = now()",
+        "INSERT INTO cms.workspace_limits (workspace_id, updated_by) VALUES ($1, $2)
+         ON CONFLICT (workspace_id) DO UPDATE SET updated_by = $2, updated_at = now()",
     )
     .bind(ws)
-    .bind(req.media_bytes)
     .bind(current.user_id)
     .execute(&mut *tx)
     .await
     .map_err(anyhow::Error::from)?;
+    if let Some(v) = req.media_bytes {
+        sqlx::query("UPDATE cms.workspace_limits SET media_bytes = $2 WHERE workspace_id = $1")
+            .bind(ws)
+            .bind(v)
+            .execute(&mut *tx)
+            .await
+            .map_err(anyhow::Error::from)?;
+    }
     if let Some(v) = req.embedding_tokens_per_month {
         sqlx::query("UPDATE cms.workspace_limits SET embedding_tokens_per_month = $2 WHERE workspace_id = $1")
             .bind(ws)
