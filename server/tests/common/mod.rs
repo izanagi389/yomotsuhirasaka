@@ -134,14 +134,49 @@ where
     F: FnOnce(DatabaseConfig, DatabaseConfig) -> Fut,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
-    let Some(url) = superuser_url() else {
-        eprintln!("skipped: CMS_TEST_PG_SUPERUSER_URL is not set");
+    with_scratch_at("CMS_TEST_PG_SUPERUSER_URL", &[], body).await
+}
+
+/// [`with_scratch`] と同じ。スーパーユーザーの接続先を環境変数 `var` から読み（なければ飛ばす）、
+/// 使い捨てのDBに拡張 `extensions` をスーパーユーザーで作ってから `body` を実行する。
+pub async fn with_scratch_at<F, Fut>(var: &str, extensions: &[&str], body: F)
+where
+    F: FnOnce(DatabaseConfig, DatabaseConfig) -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let Some(url) = std::env::var(var).ok().filter(|s| !s.is_empty()) else {
+        eprintln!("skipped: {var} is not set");
         return;
     };
     let s = Scratch::new(&url).await;
+    if !extensions.is_empty() {
+        let in_db = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&with_database(&url, &s.database))
+            .await
+            .expect("superuser connection to the scratch database");
+        for ext in extensions {
+            in_db
+                .execute(db::trusted(format!("CREATE EXTENSION {ext}")))
+                .await
+                .expect("create extension");
+        }
+        in_db.close().await;
+    }
     let outcome = tokio::spawn(body(s.app.clone(), s.migration.clone())).await;
     s.drop().await;
     if let Err(e) = outcome {
         std::panic::resume_unwind(e.into_panic());
     }
+}
+
+/// 接続先のURLのDB名を `database` にする。
+fn with_database(url: &str, database: &str) -> String {
+    let (scheme, rest) = url.split_once("://").unwrap_or(("postgres", url));
+    let (authority, tail) = match rest.find(['/', '?']) {
+        Some(i) => rest.split_at(i),
+        None => (rest, ""),
+    };
+    let query = tail.find('?').map_or("", |i| &tail[i..]);
+    format!("{scheme}://{authority}/{database}{query}")
 }

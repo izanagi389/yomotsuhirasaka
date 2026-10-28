@@ -26,6 +26,8 @@ jobs:
         env:
             # server/tests/ のDBの結合テストが使う（なければ飛ばされる）
             CMS_TEST_PG_SUPERUSER_URL: postgres://postgres:ci-only-superuser-pw-16@127.0.0.1:5432/postgres
+            # キーワード検索の結合テスト（server/tests/keyword_search.rs）が使う。下の手順で、公式の拡張入りのイメージを起動する
+            CMS_TEST_PG_BIGM_URL: postgres://postgres:ci-only-superuser-pw-bigm@127.0.0.1:5434/postgres
             # 結合テストはファイルごとに実行ファイルができ、デバッグ情報を丸ごと入れるとランナーのディスクが足りなくなる。
             # 失敗したときの行番号だけを残す（手元の Cargo.toml の設定は変えない）
             CARGO_INCREMENTAL: "0"
@@ -39,6 +41,12 @@ jobs:
             - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
             - run: cargo fmt --check
             - run: cargo clippy --locked --all-targets -- -D warnings
+            # pg_bigm と pgvector の入った PostgreSQL（deploy/postgres.Dockerfile。公式の Docker Compose と同じイメージ）
+            - run: |
+                  docker build -q -t cms-postgres-bigm -f deploy/postgres.Dockerfile deploy
+                  docker run -d --name pg-bigm -e POSTGRES_PASSWORD=ci-only-superuser-pw-bigm -p 5434:5432 cms-postgres-bigm
+                  for i in $(seq 1 60); do docker exec pg-bigm pg_isready -h 127.0.0.1 -U postgres && break; sleep 1; done
+                  docker exec pg-bigm pg_isready -h 127.0.0.1 -U postgres
             - run: cargo test --locked
 
     invariants:

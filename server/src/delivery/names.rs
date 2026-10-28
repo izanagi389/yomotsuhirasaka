@@ -36,6 +36,8 @@ pub const SEARCH_FIELD: &str = "search";
 pub const SEARCH_RESULT_TYPE: &str = "CmsSearchResult";
 pub const SEARCH_HIT_TYPE: &str = "CmsSearchHit";
 pub const SEARCH_AVAILABILITY_TYPE: &str = "CmsSearchAvailability";
+pub const SEARCH_MODE_TYPE: &str = "CmsSearchMode";
+pub const SEARCH_MATCH_TYPE: &str = "CmsSearchMatch";
 pub const AI_CATALOG_ITEM_TYPE: &str = "CmsAiCatalogItem";
 /// 記事の型のCMSのフィールド（AI向けのMarkdown版）。本文のフィールド `ai` の `aiMarkdown` とぶつかる。
 pub const AI_MARKDOWN_FIELD: &str = "aiMarkdown";
