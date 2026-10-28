@@ -297,6 +297,19 @@ pub async fn resolve_groups(
         .collect())
 }
 
+/// 記事のIDで、公開中の記事を読む（並びは渡した順。公開中でない・削除済みの記事は含めない）。
+pub async fn by_ids(conn: &mut PgConnection, ids: &[Uuid]) -> Result<Vec<Entry>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<Row> = sqlx::query_as(crate::db::trusted(select("e.id = ANY($1)", "")))
+        .bind(ids)
+        .fetch_all(conn)
+        .await?;
+    let by_id: HashMap<Uuid, Entry> = entries(rows)?.into_iter().map(|e| (e.id, e)).collect();
+    Ok(ids.iter().filter_map(|id| by_id.get(id).cloned()).collect())
+}
+
 /// 変換した本文の画像の参照先（`cms-media:<ID>`）を、その時点のメディアのURLに置き換える。
 /// 削除されたメディアの参照先は空にする（原則3、INV-PUB-06）。
 pub async fn resolve_media_refs(

@@ -17,6 +17,7 @@ pub mod admin_notifications;
 pub mod admin_oidc;
 pub mod admin_previews;
 pub mod admin_publishing;
+pub mod admin_related;
 pub mod admin_resets;
 pub mod admin_reviews;
 pub mod admin_scheduling;
@@ -340,6 +341,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/entries/{id}/unpublish",
             post(admin_publishing::unpublish),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/related",
+            get(admin_related::get).put(admin_related::put),
         )
         .route(
             "/workspaces/{ws}/entries/{id}/publish-settings",

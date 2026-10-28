@@ -535,7 +535,8 @@
         "schedule_cancelled_by_correction": "Schedule cancelled by a correction",
         "schedule_failed": "Scheduled publish failed",
         "scheduled": "Publish scheduled",
-        "verified": "Marked as verified"
+        "verified": "Marked as verified",
+        "related_changed": "Related entries changed"
       },
       "invitation": {
         "revoked": "Invitation revoked"

@@ -535,7 +535,8 @@
         "schedule_cancelled_by_correction": "訂正による予約の取り消し",
         "schedule_failed": "予約公開の失敗",
         "scheduled": "予約公開",
-        "verified": "確認済みの記録"
+        "verified": "確認済みの記録",
+        "related_changed": "関連記事の固定・除外の変更"
       },
       "invitation": {
         "revoked": "招待を取り消し"

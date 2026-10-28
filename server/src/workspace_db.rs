@@ -144,6 +144,10 @@ pub const BASE_MIGRATIONS: &[(i32, &str)] = &[
         18,
         include_str!("../migrations/workspace/0018_search_models.sql"),
     ),
+    (
+        19,
+        include_str!("../migrations/workspace/0019_related_entries.sql"),
+    ),
 ];
 
 /// 1つのワークスペースの土台のテーブルを、最新の版にそろえる。移行・ロールの作成用の接続で呼ぶ。
