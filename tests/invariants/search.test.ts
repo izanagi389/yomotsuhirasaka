@@ -1,14 +1,16 @@
-// サイト内検索の約束: INV-SRC-01〜04（M3、08-search-and-related.md）
+// サイト内検索の約束: INV-SRC-01〜05（M3、08-search-and-related.md）
 //
 // - 検索は配信APIの GraphQL（Persisted Queries）で行う。舞台は、本文（body）を検索の対象にしたテンプレートの
 //   2つのワークスペース（support/world.ts の lazySearchWorld）。テスト環境のCMSは擬似LLMで埋め込みを作る。
 // - 埋め込みは公開の後で非同期に作られるので、「検索に出るようになる」まで待ってから確かめる（対照）。
 // - ベクトル検索は類似度の足切りをしないので、ワークスペースの公開記事は、どの検索語でも結果に出うる。
 //   そのため「出ない」ことは、検索語によらず、結果のどこにも出ないことで確かめる。
+// - テスト環境のPostgreSQLには、日本語のキーワード検索の拡張（pg_bigm・PGroonga）を入れていない（setup.sh、CI）。
+//   INV-SRC-05 は、この環境で確かめる。キーワード検索が動くことは、拡張の入った環境でサーバーの結合テストが確かめる。
 
 import { expect } from "vitest";
 import { inv } from "./support/inv.js";
-import { asSession, type SearchResult } from "./support/driver.js";
+import { asSession, type RegisteredQuery, type SearchMode, type SearchResult } from "./support/driver.js";
 import { expectSuccess } from "./support/assert.js";
 import { simpleBody } from "./support/body.js";
 import { lazySearchWorld, marker, sleep, type SearchWorkspace } from "./support/world.js";
@@ -162,6 +164,41 @@ inv(
       expect(JSON.stringify(r), "Aの検索結果に、Bの記事の内容が含まれる").not.toContain(onlyB);
       expect(idsOf(r), "Aの検索結果に、Aの記事が出ない").toContain(inA);
     }
+  },
+  240_000,
+);
+
+inv(
+  "inv_src_05",
+  "日本語キーワード検索の拡張がない環境でも、ベクトル検索は動作し、キーワード検索だけが無効であることが応答で示される",
+  async () => {
+    const { cms, a } = await world();
+    const word = marker("src05");
+    const entry = await publish(a, `${word} ${BASE_TEXT}`);
+    // 検索の方法（mode）を指定するクエリ
+    const withMode: RegisteredQuery = await cms.registerQuery(a.id, a.registerKey.secret, { kind: "searchWithMode" });
+    const searchBy = (mode: SearchMode): Promise<SearchResult> => cms.search(a.id, a.readKey.secret, withMode, { text: word, first: 50, mode });
+
+    // 方法を指定しない（既定の、2つを混ぜる検索）: ベクトル検索の結果が返り、キーワード検索だけが無効と示される
+    const byDefault = await waitSearchable(a, word, [entry]);
+    expect(byDefault.keywordSearch, "既定の検索で、キーワード検索が無効と示されない").toBe("disabled");
+
+    // 2つを混ぜる検索を指定しても同じ（エラーにならず、ベクトル検索の結果が返る）
+    const hybrid = await searchBy("hybrid");
+    expect(hybrid.vectorSearch, "2つを混ぜる検索で、ベクトル検索が使えない").toBe("available");
+    expect(hybrid.keywordSearch, "2つを混ぜる検索で、キーワード検索が無効と示されない").toBe("disabled");
+    expect(idsOf(hybrid), "2つを混ぜる検索で、公開した記事が結果に出ない").toContain(entry);
+
+    // ベクトル検索だけを指定: 動作する
+    const vector = await searchBy("vector");
+    expect(vector.vectorSearch, "ベクトル検索だけを指定したとき、ベクトル検索が使えない").toBe("available");
+    expect(vector.keywordSearch, "ベクトル検索だけを指定したとき、キーワード検索が無効と示されない").toBe("disabled");
+    expect(idsOf(vector), "ベクトル検索だけを指定したとき、公開した記事が結果に出ない").toContain(entry);
+
+    // キーワード検索だけを指定: エラーにはならず、結果は空で、キーワード検索が無効であることが示される
+    const keyword = await searchBy("keyword");
+    expect(keyword.keywordSearch, "キーワード検索だけを指定したとき、キーワード検索が無効と示されない").toBe("disabled");
+    expect(keyword.hits, "拡張がないのに、キーワード検索の結果が返る").toEqual([]);
   },
   240_000,
 );
