@@ -616,6 +616,9 @@
       "budget": {
         "changed": "LLM budget changed",
         "exhausted": "LLM budget exhausted (embeddings)"
+      },
+      "embedding_switch": {
+        "started": "Embedding model switch started"
       }
     },
     "you": "You",
@@ -884,7 +887,8 @@
       "reviewExpired": "Review overdue",
       "sourceUpdated": "Source updated",
       "scheduleCancelled": "Schedule cancelled by a correction",
-      "budgetExhausted": "Budget exhausted"
+      "budgetExhausted": "Budget exhausted",
+      "embeddingModelMissing": "Embedding model missing"
     },
     "notice": {
       "expired": "This entry is past its review date. Check the content and record it as verified.",
@@ -895,7 +899,9 @@
     "scheduledAt": "Scheduled: {at}",
     "correctedAt": "Corrected: {at}",
     "dueAt": "Due: {at}",
-    "budgetExhausted": "The embedding budget is used up. Search data for new entries is not created until the limit is raised or the next period (UTC) starts."
+    "budgetExhausted": "The embedding budget is used up. Search data for new entries is not created until the limit is raised or the next period (UTC) starts.",
+    "embeddingModelMissing": "The embedding model this workspace uses is no longer in the server config. Vector search is off until the switch is started.",
+    "embeddingModelMissingDetail": "Server configuration: [llm.next_embedding]"
   },
   "preview": {
     "noUrl": "The preview cannot open because the entry has no public URL yet. Enter a slug.",

@@ -429,6 +429,7 @@ export interface TodoItem {
   kind:
     | "notification"
     | "budgetExhausted"
+    | "embeddingModelMissing"
     | "scheduleFailed"
     | "scheduleRetrying"
     | "reviewWaiting"

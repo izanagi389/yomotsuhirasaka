@@ -6,7 +6,8 @@
 //! - 片方が使えない（LLMの接続先・拡張がない、予算が尽きた）ときは、その状態を応答で示し、使える側だけで結果を返す。
 //!   キーワード検索だけを選んだときは、埋め込みを作らない。使わなかった側の状態は、設定の上で使えるかを示す（予算は確かめない）。
 //! - 検索語は、外部に送る前にマスクする（`crate::mask`。Q169）。長すぎる検索語は切り詰める。キーワード検索もマスクした検索語を使う。
-//! - 検索語の埋め込みは「埋め込みの作成」の予算から出す（`budget::embed`）。
+//! - 検索語の埋め込みは「埋め込みの作成」の予算から出す（`budget::embed`）。モデルは、ワークスペースが今使っているもの
+//!   （モデルの切り替えの途中は旧モデル。使っているモデルが設定になければ、ベクトル検索は無効）。
 //! - 検索語の埋め込みは、メモリの中に10分だけ持つ。キーは（ワークスペース、モデル、マスクした検索語）の SHA-256 で、
 //!   検索語そのものは持たない（原則7）。持つ数には上限がある。
 //! - 見せてよいチャンクは、共通の層（`access`）の条件で、検索のたびに今の状態と照合して選ぶ。
@@ -190,7 +191,9 @@ pub async fn search(
     mode: Mode,
 ) -> Result<Outcome> {
     // 設定の上で、それぞれの検索が使えるか
-    let vector_setup = match (&services.config.llm, services.egress) {
+    // ベクトル検索は、ワークスペースが今使っているモデルで行う（モデルの切り替えの途中は旧モデル。`super::switch`）
+    let serving = super::switch::serving(services.config, tx).await?;
+    let vector_setup = match (serving, services.egress) {
         (Some(c), Some(e)) => super::vector_schema(&mut **tx).await?.map(|vs| (c, e, vs)),
         _ => None,
     };

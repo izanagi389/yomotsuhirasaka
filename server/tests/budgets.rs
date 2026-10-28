@@ -32,6 +32,7 @@ fn llm(per_month: Option<u64>, per_day: Option<u64>) -> LlmConfig {
         embedding_price_per_million_tokens: None,
         default_workspace_embedding_tokens_per_month: per_month,
         default_workspace_embedding_tokens_per_day: per_day,
+        next_embedding: None,
     }
 }
 

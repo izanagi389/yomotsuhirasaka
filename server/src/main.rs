@@ -332,6 +332,7 @@ fn init_llm(
         embedding_price_per_million_tokens: None,
         default_workspace_embedding_tokens_per_month: None,
         default_workspace_embedding_tokens_per_day: None,
+        next_embedding: None,
     }))
 }
 
@@ -458,12 +459,18 @@ fn llm_check_main(config_path: &Path) -> ExitCode {
             bail!("no `[llm]` section in the config; embeddings are disabled");
         };
         let egress = cms_server::egress::Egress::from_config(&config.egress)?;
-        let llm = cms_server::llm::Llm::new(egress, llm_config);
-        // 相手の応答の本文は出さない（状態コードと、失敗の種類だけ）
-        match llm.embed(&["connection check".to_owned()]).await {
-            Ok(e) => {
-                println!(
-                    "LLM embeddings: ok ({} dimensions, {} tokens{})",
+        // 今のモデルと、切り替え先のモデル（あれば）の両方を確かめる
+        let mut targets = vec![("LLM embeddings", llm_config.current())];
+        if let Some(next) = llm_config.next() {
+            targets.push(("LLM embeddings (next_embedding)", next));
+        }
+        let mut failed = false;
+        for (label, c) in targets {
+            let llm = cms_server::llm::Llm::new(egress.clone(), c);
+            // 相手の応答の本文は出さない（状態コードと、失敗の種類だけ）
+            match llm.embed(&["connection check".to_owned()]).await {
+                Ok(e) => println!(
+                    "{label}: ok ({} dimensions, {} tokens{})",
                     e.vectors.first().map_or(0, Vec::len),
                     e.tokens,
                     if e.tokens_estimated {
@@ -471,11 +478,17 @@ fn llm_check_main(config_path: &Path) -> ExitCode {
                     } else {
                         ""
                     }
-                );
-                Ok(())
+                ),
+                Err(e) => {
+                    eprintln!("{label}: failed ({e})");
+                    failed = true;
+                }
             }
-            Err(e) => bail!("LLM embeddings: failed ({e})"),
         }
+        if failed {
+            bail!("the LLM check failed");
+        }
+        Ok(())
     })
 }
 
@@ -882,6 +895,11 @@ async fn serve(config: Config) -> Result<()> {
     // 検索用データを今の状態と設定にそろえる（LLMの接続先やモデルが変わっていれば、作り直す・消す）
     if let Err(e) = cms_server::search::index::schedule_all(&state.pool, &state.keys).await {
         tracing::error!("cannot queue search indexing: {e:#}");
+    }
+    // 使っているモデルが設定にないワークスペースを知らせる（埋め込みモデルの切り替え）
+    if let Err(e) = cms_server::search::switch::warn_unconfigured(&state.pool, &state.config).await
+    {
+        tracing::error!("cannot check the embedding models of workspaces: {e:#}");
     }
     cms_server::http::realtime::spawn_listener(state.clone());
     worker::spawn(state.clone());

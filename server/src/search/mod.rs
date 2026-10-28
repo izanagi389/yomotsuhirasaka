@@ -13,6 +13,7 @@ pub mod access;
 pub mod chunk;
 pub mod index;
 pub mod query;
+pub mod switch;
 
 use anyhow::{Result, bail};
 use sha2::{Digest as _, Sha256};
@@ -107,12 +108,15 @@ pub async fn usable_by_every_role<'e>(
     Ok(ok.unwrap_or(false))
 }
 
-/// 埋め込みを作る・検索に使うモデルと次元数（設定から）。
+/// 埋め込みを作る・検索に使うモデルと次元数（設定の今のモデルと、切り替え先のモデル）。
 pub fn embedding_models(config: &Config) -> Vec<(String, u32)> {
-    config
-        .llm
-        .iter()
-        .map(|l| (l.embedding_model.clone(), l.embedding_dimensions))
+    let Some(llm) = &config.llm else {
+        return Vec::new();
+    };
+    [Some(llm.current()), llm.next()]
+        .into_iter()
+        .flatten()
+        .map(|l| (l.embedding_model, l.embedding_dimensions))
         .collect()
 }
 
@@ -128,6 +132,7 @@ fn vector_index_name(model: &str, dimensions: u32) -> Ident {
 
 /// 設定のモデルごとに、ワークスペースの埋め込みの HNSW の部分索引を作る（既にあれば何もしない）。移行・ロールの作成用の接続で呼ぶ。
 /// 索引の式は `(embedding::vector(次元数)) vector_cosine_ops`、条件はモデルと次元数（検索の側も同じ式を使う。`query.rs`）。
+/// 設定にないモデルの索引は消す（そのモデルでは検索しないため。埋め込みそのものは、切り替えの決まりでジョブが消す）。
 /// LLMの接続先がない・pgvector がないときは何もしない。
 pub async fn ensure_vector_index(
     conn: &mut PgConnection,
@@ -142,6 +147,25 @@ pub async fn ensure_vector_index(
         return Ok(());
     };
     let schema = &db.schema;
+    let wanted: Vec<Ident> = models
+        .iter()
+        .map(|(m, d)| vector_index_name(m, *d))
+        .collect();
+    let existing: Vec<String> = sqlx::query_scalar(
+        "SELECT indexname::text FROM pg_indexes
+         WHERE schemaname = $1 AND tablename = 'search_embeddings' AND indexname LIKE 'search\\_embeddings\\_hnsw\\_%'",
+    )
+    .bind(schema.as_str())
+    .fetch_all(&mut *conn)
+    .await?;
+    for name in existing {
+        let name = Ident::new(&name)?;
+        if !wanted.contains(&name) {
+            sqlx::query(crate::sql!("DROP INDEX IF EXISTS {schema}.{name}"))
+                .execute(&mut *conn)
+                .await?;
+        }
+    }
     for (model, d) in models {
         let name = vector_index_name(&model, d);
         // モデル名は文字列の定数として書く（索引の条件には、パラメーターを使えない）。引用は PostgreSQL の quote_literal に任せる

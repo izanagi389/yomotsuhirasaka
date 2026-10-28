@@ -6,6 +6,7 @@ pub mod admin_audit_sinks;
 pub mod admin_auth;
 pub mod admin_budgets;
 pub mod admin_corrections;
+pub mod admin_embedding_switch;
 pub mod admin_entries;
 pub mod admin_import;
 pub mod admin_invitations;
@@ -591,6 +592,11 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/limits",
             get(admin_media::get_limits).put(admin_media::set_limits),
+        )
+        .route("/embedding-switch", get(admin_embedding_switch::get))
+        .route(
+            "/embedding-switch/start",
+            post(admin_embedding_switch::start),
         )
         .route(
             "/workspaces/{ws}/budgets/embedding",
