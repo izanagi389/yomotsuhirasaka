@@ -15,12 +15,23 @@ import { lazySearchWorld, marker, sleep, type SearchWorkspace } from "./support/
 
 const world = lazySearchWorld();
 
-/** 似た内容の本文（関連記事に選ばれるように、同じ文を使う）。 */
-const TEXT = "関連記事の約束を確かめるための本文です。似た内容の記事が、関連記事として選ばれます。";
+/** 本文の共通の部分（関連記事に選ばれるように、似た内容にする）。 */
+const TEXT = "関連記事の約束を確かめるための記事です。";
+/**
+ * 記事ごとの本文。共通の部分に、記事ごとに違う文を足す。ほぼ同じ内容（類似度 0.97 以上）の記事どうしは、
+ * 新しいほうだけが残る決まりなので、記事ごとに内容を変える（擬似LLMの埋め込みで、どの組も 0.85 未満）。
+ */
+const BODIES: Record<string, string> = {
+  A: "春の庭で育てるトマトとバジルの話をします。",
+  B: "夏の畑で育てるキュウリとナスの話をします。",
+  C: "秋の庭で育てるカボチャとサツマイモの話をします。",
+  D: "冬の温室で育てるイチゴとレタスの話をします。",
+  E: "ベランダで育てるハーブとミニトマトの話をします。",
+};
 
 async function publish(ws: SearchWorkspace, label: string): Promise<string> {
   const { cms } = await world();
-  const { id } = await cms.createEntry(ws.editorSession, ws.id, { title: marker(`rel-${label}`), body: simpleBody(`${TEXT} ${label}`) });
+  const { id } = await cms.createEntry(ws.editorSession, ws.id, { title: marker(`rel-${label}`), body: simpleBody(`${TEXT}${BODIES[label]}`) });
   await cms.publishEntry(ws.editorSession, ws.id, id);
   return id;
 }
