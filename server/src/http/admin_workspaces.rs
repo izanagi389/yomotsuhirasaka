@@ -194,7 +194,15 @@ pub async fn create_workspace(
         ));
     }
     let id = Uuid::new_v4();
-    workspace_db::provision(&state.migration, &state.app_role, id, name, template).await?;
+    let db = workspace_db::provision(&state.migration, &state.app_role, id, name, template).await?;
+    {
+        let mut conn = state
+            .migration
+            .acquire()
+            .await
+            .map_err(anyhow::Error::from)?;
+        crate::search::ensure_vector_index(&mut conn, &db, &state.config).await?;
+    }
     // テンプレートがデプロイ済みなら、その最新の版を適用する
     crate::schema::deploy::apply_latest_to_new_workspace(
         &state.migration,

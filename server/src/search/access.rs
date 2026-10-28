@@ -81,7 +81,8 @@ pub fn visible(types: usize, keys: usize, locale: usize) -> String {
     )
 }
 
-/// [`visible`] に加えて、今の埋め込みのモデルと次元数（`{model}`・`{dims}` のパラメーターの番号）で埋め込みを作ったチャンク。
+/// [`visible`] に加えて、チャンクのテキストの、今の埋め込みのモデルと次元数（`{model}`・`{dims}` のパラメーターの番号）の
+/// 埋め込み。`x` は search_embeddings。
 pub fn visible_embedded(
     types: usize,
     keys: usize,
@@ -91,7 +92,7 @@ pub fn visible_embedded(
 ) -> String {
     format!(
         "{}
-         AND c.embedding IS NOT NULL AND c.model = ${model} AND c.dimensions = ${dims}",
+         AND x.content_hash = c.content_hash AND x.model = ${model} AND x.dimensions = ${dims}",
         visible(types, keys, locale)
     )
 }
@@ -121,15 +122,15 @@ mod tests {
         assert!(sql.contains("$1::text[]") && sql.contains("$2::text[]"));
         assert!(
             sql.contains("e.locale = $3")
-                && sql.contains("c.model = $4")
-                && sql.contains("c.dimensions = $5")
+                && sql.contains("x.model = $4")
+                && sql.contains("x.dimensions = $5")
         );
         assert!(sql.contains("e.published_version_id = c.version_id"));
         assert!(sql.contains("e.use_for_chatbot"));
-        assert!(sql.contains("c.embedding IS NOT NULL"));
+        assert!(sql.contains("x.content_hash = c.content_hash"));
         // キーワード検索の条件は、モデルによらない（同じ照合を含む）
         let text = visible(1, 2, 3);
         assert!(sql.starts_with(&text));
-        assert!(!text.contains("c.model"));
+        assert!(!text.contains("x."));
     }
 }

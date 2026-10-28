@@ -6,6 +6,8 @@
 //! - 日本語のキーワード検索には pg_bigm を使う（M3。PGroonga は使わない）。これもスーパーユーザーが前もって作る。
 //!   なければ、キーワード検索だけを無効にする（INV-SRC-05）。あれば、CMSが移行用の接続で、各ワークスペースの本文に
 //!   GIN の索引（gin_bigm_ops）を作る（起動のときと、ワークスペースを作ったとき）。
+//! - 埋め込みには、ワークスペース・モデルごとに HNSW の部分索引を作る（[`ensure_vector_index`]。これも移行用の接続で、
+//!   起動のときと、ワークスペースを作ったとき）。
 
 pub mod access;
 pub mod chunk;
@@ -13,9 +15,11 @@ pub mod index;
 pub mod query;
 
 use anyhow::{Result, bail};
+use sha2::{Digest as _, Sha256};
 use sqlx::{PgConnection, PgExecutor, PgPool};
 use uuid::Uuid;
 
+use crate::config::Config;
 use crate::db::Ident;
 use crate::workspace_db::WorkspaceDb;
 
@@ -101,4 +105,89 @@ pub async fn usable_by_every_role<'e>(
     .fetch_one(executor)
     .await?;
     Ok(ok.unwrap_or(false))
+}
+
+/// 埋め込みを作る・検索に使うモデルと次元数（設定から）。
+pub fn embedding_models(config: &Config) -> Vec<(String, u32)> {
+    config
+        .llm
+        .iter()
+        .map(|l| (l.embedding_model.clone(), l.embedding_dimensions))
+        .collect()
+}
+
+/// モデルと次元数ごとの HNSW の索引の名前（モデル名は任意の文字列なので、要約から作る）。
+fn vector_index_name(model: &str, dimensions: u32) -> Ident {
+    let digest = Sha256::new()
+        .chain_update(model.as_bytes())
+        .chain_update(dimensions.to_be_bytes())
+        .finalize();
+    let hex: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    Ident::new(&format!("search_embeddings_hnsw_{hex}")).expect("hex is a valid identifier")
+}
+
+/// 設定のモデルごとに、ワークスペースの埋め込みの HNSW の部分索引を作る（既にあれば何もしない）。移行・ロールの作成用の接続で呼ぶ。
+/// 索引の式は `(embedding::vector(次元数)) vector_cosine_ops`、条件はモデルと次元数（検索の側も同じ式を使う。`query.rs`）。
+/// LLMの接続先がない・pgvector がないときは何もしない。
+pub async fn ensure_vector_index(
+    conn: &mut PgConnection,
+    db: &WorkspaceDb,
+    config: &Config,
+) -> Result<()> {
+    let models = embedding_models(config);
+    if models.is_empty() {
+        return Ok(());
+    }
+    let Some(vs) = vector_schema(&mut *conn).await? else {
+        return Ok(());
+    };
+    let schema = &db.schema;
+    for (model, d) in models {
+        let name = vector_index_name(&model, d);
+        // モデル名は文字列の定数として書く（索引の条件には、パラメーターを使えない）。引用は PostgreSQL の quote_literal に任せる
+        let literal: String = sqlx::query_scalar("SELECT quote_literal($1::text)")
+            .bind(&model)
+            .fetch_one(&mut *conn)
+            .await?;
+        sqlx::query(crate::sql!(
+            "CREATE INDEX IF NOT EXISTS {name} ON {schema}.search_embeddings
+             USING hnsw ((embedding::{vs}.vector({d})) {vs}.vector_cosine_ops)
+             WHERE model = {literal} AND dimensions = {d}"
+        ))
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
+/// すべてのワークスペースに [`ensure_vector_index`] を行う（サーバーの起動時。モデルを変えたときのため）。
+pub async fn ensure_vector_indexes(migration: &PgPool, config: &Config) -> Result<()> {
+    if embedding_models(config).is_empty() {
+        return Ok(());
+    }
+    let mut conn = migration.acquire().await?;
+    if vector_schema(&mut *conn).await?.is_none() {
+        return Ok(());
+    }
+    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM cms.workspaces ORDER BY created_at")
+        .fetch_all(&mut *conn)
+        .await?;
+    for id in ids {
+        ensure_vector_index(&mut conn, &WorkspaceDb::names_for(id), config).await?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vector_index_names_differ_by_model_and_dimensions() {
+        let a = vector_index_name("text-embedding-3-small", 1536);
+        assert_eq!(a, vector_index_name("text-embedding-3-small", 1536));
+        assert_ne!(a, vector_index_name("text-embedding-3-small", 512));
+        assert_ne!(a, vector_index_name("text-embedding-3-large", 1536));
+        assert!(a.as_str().starts_with("search_embeddings_hnsw_"));
+    }
 }

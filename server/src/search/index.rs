@@ -4,9 +4,11 @@
 //!   サーバーの起動のとき）。1回の実行で、次をまとめて行う。
 //!   1. 対象でなくなった記事（非公開・削除・チャットボットの対象外・本文の抹消・検索の対象のフィールドがない）の行を消す（物理削除）。
 //!      検索は毎回いまの状態と照合するので、消し終わる前でも結果には出ない（INV-SRC-01。照合は検索の側）。
+//!      どのチャンクにも使われなくなった埋め込みも消す（本文を抹消した版の埋め込みを含む。Q134）。
 //!   2. 公開中の版のチャンクがない・古い記事のチャンクを作り直す。チャンク（本文）は、LLMの接続先がなくても、予算が尽きていても作る
-//!      （キーワード検索に使うため）。テキストとモデルが同じチャンクの埋め込みがあれば使い回し（Q58）、なければ空にしておく。
-//!   3. LLMの接続先があれば、埋め込みが空の・今のモデルでないチャンクの埋め込みを作る。埋め込みは予算の範囲でだけ作る
+//!      （キーワード検索に使うため）。
+//!   3. LLMの接続先があれば、今のモデルの埋め込みがないテキストの埋め込みを作る。埋め込みはテキスト（content_hash）と
+//!      モデルごとに1つで、同じテキストのチャンクは使い回す（Q58。`search_embeddings`）。埋め込みは予算の範囲でだけ作る
 //!      （`budget::embed`。INV-BUD-01）。足りなければ、ここで止めて15分後にやり直す（上限が変われば、すぐにやり直す）。
 //! - 「決め方」（対象のフィールド・チャンクの決まり・変換器の版）が変わったら、すべての記事を見直す。
 //! - 変換結果（`versions.rendered`）がまだない・古い版は、変換の作り直し（`rerender`）を待って、1分後にやり直す。
@@ -166,6 +168,12 @@ pub async fn run(
     .bind(&types)
     .execute(&mut *tx)
     .await?;
+    sqlx::query(
+        "DELETE FROM search_embeddings x
+         WHERE NOT EXISTS (SELECT 1 FROM search_chunks c WHERE c.content_hash = x.content_hash)",
+    )
+    .execute(&mut *tx)
+    .await?;
     let stored: Option<String> = sqlx::query_scalar("SELECT plan_key FROM search_state")
         .fetch_optional(&mut *tx)
         .await?;
@@ -208,7 +216,7 @@ pub async fn run(
                 rendered: rendered.as_deref().map(serde_json::from_str).transpose()?,
                 rendered_with,
             };
-            if !index_entry(pool, &db, &plans, &candidate, embedding.as_ref()).await? {
+            if !index_entry(pool, &db, &plans, &candidate).await? {
                 waiting_for_render = true;
             }
         }
@@ -247,14 +255,13 @@ enum Step {
     Failed(&'static str),
 }
 
-/// 1つの記事のチャンクを作り直す（埋め込みは、使い回せるものだけを入れる）。
+/// 1つの記事のチャンクを作り直す（埋め込みは、テキストの要約で結び付くので、ここでは作らない）。
 /// 変換結果がまだない・古いために作れなければ false。
 async fn index_entry(
     pool: &PgPool,
     db: &workspace_db::WorkspaceDb,
     plans: &HashMap<String, Plan>,
     c: &Candidate,
-    embedding: Option<&(String, i32)>,
 ) -> Result<bool> {
     let Some(plan) = plans.get(&c.content_type) else {
         return Ok(true);
@@ -305,21 +312,6 @@ async fn index_entry(
     {
         return Ok(true);
     }
-    // テキストとモデルが同じ埋め込みは使い回す（なければ空にして、後で作る）
-    let mut vectors: HashMap<String, Vec<f32>> = HashMap::new();
-    if let Some((model, dims)) = embedding {
-        let reused: Vec<(String, Vec<f32>)> = sqlx::query_as(
-            "SELECT DISTINCT ON (content_hash) content_hash, embedding FROM search_chunks
-             WHERE content_hash = ANY($1) AND model = $2 AND dimensions = $3 AND embedding IS NOT NULL",
-        )
-        .bind(&hashes)
-        .bind(model)
-        .bind(dims)
-        .fetch_all(&mut *tx)
-        .await?;
-        vectors.extend(reused);
-    }
-
     // 書き直す（その間に記事が変わっていたら、何もしない。次の実行で見直す）
     let still: Option<Uuid> = sqlx::query_scalar(
         "SELECT published_version_id FROM entries WHERE id = $1 AND deleted_at IS NULL AND use_for_chatbot FOR UPDATE",
@@ -336,16 +328,10 @@ async fn index_entry(
         .execute(&mut *tx)
         .await?;
     for (seq, (chunk, hash)) in chunks.iter().zip(&hashes).enumerate() {
-        let vector = vectors.get(hash);
-        let (model, dims) = match (vector, embedding) {
-            (Some(_), Some((m, d))) => (Some(m.as_str()), Some(*d)),
-            _ => (None, None),
-        };
         sqlx::query(
             "INSERT INTO search_chunks
-               (id, entry_id, version_id, locale, seq, anchor, breadcrumb, content, content_hash, model, dimensions, embedding,
-                fields_key)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+               (id, entry_id, version_id, locale, seq, anchor, breadcrumb, content, content_hash, fields_key)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(Uuid::new_v4())
         .bind(c.entry_id)
@@ -356,9 +342,6 @@ async fn index_entry(
         .bind(&chunk.breadcrumb)
         .bind(&chunk.text)
         .bind(hash)
-        .bind(model)
-        .bind(dims)
-        .bind(vector)
         .bind(&key)
         .execute(&mut *tx)
         .await?;
@@ -367,10 +350,10 @@ async fn index_entry(
     Ok(true)
 }
 
-/// 埋め込みを作る対象のチャンクの行（ID・テキストの要約・アンカー・パンくず・本文）。
-type UnembeddedRow = (Uuid, String, Option<String>, Vec<String>, String);
+/// 埋め込みを作る対象のテキストの行（テキストの要約・アンカー・パンくず・本文）。
+type UnembeddedRow = (String, Option<String>, Vec<String>, String);
 
-/// 埋め込みが空の・今のモデルでないチャンクの埋め込みを、予算の範囲で作る。
+/// 今のモデルの埋め込みがないテキストの埋め込みを、予算の範囲で作る。
 async fn embed_chunks(
     pool: &PgPool,
     config: &Config,
@@ -380,76 +363,56 @@ async fn embed_chunks(
     model: &str,
     dims: i32,
 ) -> Result<Step> {
-    let mut after = Uuid::nil();
+    let mut after = String::new();
     loop {
         let mut tx = workspace_db::begin(pool, db).await?;
         let rows: Vec<UnembeddedRow> = sqlx::query_as(
-            "SELECT id, content_hash, anchor, breadcrumb, content FROM search_chunks
-             WHERE id > $1 AND (embedding IS NULL OR model <> $2 OR dimensions <> $3)
-             ORDER BY id LIMIT $4",
+            "SELECT DISTINCT ON (c.content_hash) c.content_hash, c.anchor, c.breadcrumb, c.content
+             FROM search_chunks c
+             WHERE c.content_hash > $1
+               AND NOT EXISTS (SELECT 1 FROM search_embeddings x
+                               WHERE x.content_hash = c.content_hash AND x.model = $2 AND x.dimensions = $3)
+             ORDER BY c.content_hash
+             LIMIT $4",
         )
-        .bind(after)
+        .bind(&after)
         .bind(model)
         .bind(dims)
         .bind(i64::try_from(INPUTS_PER_CALL).unwrap_or(i64::MAX))
         .fetch_all(&mut *tx)
         .await?;
+        tx.commit().await?;
         let Some(last) = rows.last() else {
             return Ok(Step::Done);
         };
-        after = last.0;
-        // テキストとモデルが同じ埋め込みが既にあれば使い回す
-        let hashes: Vec<String> = rows.iter().map(|r| r.1.clone()).collect();
-        let reused: Vec<(String, Vec<f32>)> = sqlx::query_as(
-            "SELECT DISTINCT ON (content_hash) content_hash, embedding FROM search_chunks
-             WHERE content_hash = ANY($1) AND model = $2 AND dimensions = $3 AND embedding IS NOT NULL",
-        )
-        .bind(&hashes)
-        .bind(model)
-        .bind(dims)
-        .fetch_all(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        let mut vectors: HashMap<String, Vec<f32>> = reused.into_iter().collect();
-        let mut missing: Vec<(String, String)> = Vec::new();
-        for (_, hash, anchor, breadcrumb, text) in &rows {
-            if !vectors.contains_key(hash) && !missing.iter().any(|(h, _)| h == hash) {
-                let input = chunk::embedding_input(&chunk::Chunk {
+        after = last.0.clone();
+        let inputs: Vec<String> = rows
+            .iter()
+            .map(|(_, anchor, breadcrumb, text)| {
+                chunk::embedding_input(&chunk::Chunk {
                     anchor: anchor.clone(),
                     breadcrumb: breadcrumb.clone(),
                     text: text.clone(),
-                });
-                missing.push((hash.clone(), input));
-            }
-        }
-        if !missing.is_empty() {
-            let batch: Vec<String> = missing.iter().map(|(_, i)| i.clone()).collect();
-            match budget::embed(pool, config, llm, ws, &batch).await? {
-                Embedded::Done(e) => {
-                    for ((hash, _), v) in missing.into_iter().zip(e.vectors) {
-                        vectors.insert(hash, v);
-                    }
-                }
-                Embedded::OverBudget => return Ok(Step::OverBudget),
-                Embedded::Failed(e) => return Ok(Step::Failed(e.code())),
-            }
-        }
-        // 書き込む（その間に作り直されたチャンクは、テキストが変わっていれば書かない）
+                })
+            })
+            .collect();
+        let vectors = match budget::embed(pool, config, llm, ws, &inputs).await? {
+            Embedded::Done(e) => e.vectors,
+            Embedded::OverBudget => return Ok(Step::OverBudget),
+            Embedded::Failed(e) => return Ok(Step::Failed(e.code())),
+        };
         let mut tx = workspace_db::begin(pool, db).await?;
-        for (id, hash, ..) in &rows {
-            if let Some(v) = vectors.get(hash) {
-                sqlx::query(
-                    "UPDATE search_chunks SET embedding = $3, model = $4, dimensions = $5
-                     WHERE id = $1 AND content_hash = $2",
-                )
-                .bind(id)
-                .bind(hash)
-                .bind(v)
-                .bind(model)
-                .bind(dims)
-                .execute(&mut *tx)
-                .await?;
-            }
+        for ((hash, ..), v) in rows.iter().zip(vectors) {
+            sqlx::query(
+                "INSERT INTO search_embeddings (content_hash, model, dimensions, embedding)
+                 VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+            )
+            .bind(hash)
+            .bind(model)
+            .bind(dims)
+            .bind(&v)
+            .execute(&mut *tx)
+            .await?;
         }
         tx.commit().await?;
     }
