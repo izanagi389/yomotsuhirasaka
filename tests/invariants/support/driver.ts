@@ -71,6 +71,33 @@ export interface EmbeddingBudget {
   tokensPerDay: number | null;
 }
 
+/** 埋め込みモデルの切り替えの、ワークスペースごとの状態（M3、08-search-and-related.md「モデルの変更」）。 */
+export type EmbeddingSwitchState =
+  /** 設定に新しいモデルがあるが、サーバー管理者がまだ開始していない。 */
+  | "notStarted"
+  /** 新しいモデルの埋め込みを作っている（検索は旧モデル）。 */
+  | "inProgress"
+  /** 予算が尽きて止まっている（検索は旧モデル）。 */
+  | "paused"
+  /** 新しいモデルに切り替わった。 */
+  | "switched"
+  /** 使っているモデルが設定にない（ベクトル検索は使えない）。 */
+  | "needsMigration";
+
+/** 埋め込みモデルの切り替えの見積もりと進み具合。 */
+export interface EmbeddingSwitchStatus {
+  /** 設定の新しいモデル（なければ null）。 */
+  nextModel: string | null;
+  workspaces: {
+    workspaceId: string;
+    /** 新しいモデルの埋め込みを、まだ作っていないチャンクの数。 */
+    chunksToEmbed: number;
+    /** そのトークン数の見積もり（多めに数える）。 */
+    estimatedTokens: number;
+    state: EmbeddingSwitchState;
+  }[];
+}
+
 export type HeavyPermission = "viewQuestionLog" | "manageLlm" | "policySwitches" | "corrections" | "takeOverEditing";
 
 export interface Member extends Credentials {
@@ -501,6 +528,12 @@ export interface CmsClient {
    * 重い権限（manageLlm）の操作で、再認証が要る。
    */
   setEmbeddingBudgetRaw(auth: Auth, workspaceId: string, budget: EmbeddingBudget): Promise<HttpResponse>;
+  /** 埋め込みモデルの切り替えの見積もりと進み具合（サーバー管理者）。成功しなければ失敗する。 */
+  embeddingSwitch(serverAdminSession: Session): Promise<EmbeddingSwitchStatus>;
+  /**
+   * 埋め込みモデルの切り替えを始める（止まっていれば再開する）。サーバー管理者の操作で、再認証が要る（応答をそのまま返す）。
+   */
+  startEmbeddingSwitchRaw(auth: Auth): Promise<HttpResponse>;
 
   // --- パスワードと多要素認証の回復 ---
   requestPasswordResetRaw(email: string, extras?: RequestExtras): Promise<HttpResponse>;
@@ -703,6 +736,11 @@ export interface ServerConfig {
     embeddingModel: string;
     embeddingDimensions: number;
     pricePerMillionTokens?: number;
+    /**
+     * 切り替え先の埋め込みのモデル（`[llm.next_embedding]`）。接続先とキーは、省略すれば今のものを使う。
+     * 接続先を書くときは、キーも書く。
+     */
+    nextEmbedding?: { model: string; dimensions: number; baseUrl?: string; apiKey?: string; pricePerMillionTokens?: number };
     /** ワークスペースの埋め込みの予算の天井の既定値（トークン数、月・日）。なければ 0。 */
     defaultWorkspaceTokensPerMonth?: number;
     defaultWorkspaceTokensPerDay?: number;

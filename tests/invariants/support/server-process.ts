@@ -153,6 +153,13 @@ export function renderConfig(config: ServerConfig, listen: string): string {
     if (config.llm.defaultWorkspaceTokensPerDay !== undefined) {
       lines.push(`default_workspace_embedding_tokens_per_day = ${config.llm.defaultWorkspaceTokensPerDay}`);
     }
+    const next = config.llm.nextEmbedding;
+    if (next) {
+      lines.push("", "[llm.next_embedding]", `model = ${tomlString(next.model)}`, `dimensions = ${next.dimensions}`);
+      if (next.baseUrl !== undefined) lines.push(`base_url = ${tomlString(next.baseUrl)}`);
+      if (next.apiKey !== undefined) lines.push(`api_key = ${tomlString(next.apiKey)}`);
+      if (next.pricePerMillionTokens !== undefined) lines.push(`embedding_price_per_million_tokens = ${next.pricePerMillionTokens}`);
+    }
   }
   if (config.scriptLimits) {
     lines.push(
