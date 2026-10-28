@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -905,6 +905,13 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     setEmbeddingBudgetRaw(auth: Auth, workspaceId: string, budget: EmbeddingBudget): Promise<HttpResponse> {
       return setEmbeddingBudgetRaw(auth, workspaceId, budget);
+    },
+    async embeddingSwitch(s: Session): Promise<EmbeddingSwitchStatus> {
+      const res = ensure("埋め込みモデルの切り替えの状態", await request("GET", `${ADMIN}/embedding-switch`, { auth: session(s) }));
+      return JSON.parse(res.text) as EmbeddingSwitchStatus;
+    },
+    startEmbeddingSwitchRaw(auth: Auth): Promise<HttpResponse> {
+      return request("POST", `${ADMIN}/embedding-switch/start`, { auth });
     },
     async setWorkspaceLimits(s: Session, workspaceId: string, limits: WorkspaceLimits): Promise<void> {
       ensure("ワークスペースの上限の変更", await setWorkspaceLimitsRaw(session(s), workspaceId, limits));
