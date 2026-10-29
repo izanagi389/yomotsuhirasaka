@@ -20,6 +20,9 @@
 // - プレビュー（preview を設定したとき）: `<preview.route>?token=…` がCMSのプレビュー用トークンを確かめてクッキーに替え、
 //   記事のページへリダイレクトする。クエリのルートは、クッキーがあればトークンを付けて取る（対象の記事だけが下書きになる）。
 //   管理画面の iframe の中では、CMSからの「読み直して」の知らせで取り直す（ライブプレビュー）。SSG でもサイトのサーバーが要る
+// - サイト内検索（search を設定したとき）: サイトのサーバーのルート（既定は /_cms/search）が検索のクエリを呼ぶ。
+//   画面からは useCmsSearch か <CmsSearchBox>。抜粋の一致した箇所は cmsHighlight で区切る。訪問者のIPアドレスごとに
+//   1分あたりの回数を制限する（rateLimit）。サイトのサーバーが要るので、nuxt generate では使えない
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -43,7 +46,10 @@ import {
   REDIRECTS_QUERY,
   REDIRECTS_QUERY_TEXT,
   RESERVED_QUERIES,
+  SEARCH_QUERY,
+  SEARCH_QUERY_TEXT,
 } from "./runtime/server/names.ts";
+import { DEFAULT_PER_MINUTE } from "./runtime/server/search-core.ts";
 import { type CmsRedirect, toPathRules, toRouteRules } from "./runtime/server/redirect-rules.ts";
 
 export interface ModuleOptions {
@@ -71,6 +77,13 @@ export interface ModuleOptions {
    * CMSの管理画面には `<サイトのURL><route>` を設定する）。CMSの管理画面のオリジン（cms.url）からのメッセージだけを受け付ける。
    */
   preview: false | { route?: string };
+  /**
+   * サイト内検索。route はサイトのサーバーのルート（既定は /_cms/search）。
+   * rateLimit.perMinute: 訪問者のIPアドレスごとの1分あたりの回数（既定は 30）。
+   * rateLimit.ipHeader: 訪問者のIPアドレスを読むヘッダー（例: cf-connecting-ip、x-forwarded-for）。サイトの手前の
+   * CDN・リバースプロキシが付けるヘッダーだけを書く（訪問者が偽れるため）。既定は空で、接続元のアドレスを使う。
+   */
+  search: false | { route?: string; rateLimit?: { perMinute?: number; ipHeader?: string } };
 }
 
 /** 訂正フィードの設定（キーはロケール）。 */
@@ -91,6 +104,7 @@ export type { CmsCorrectionItem } from "./runtime/server/feed.ts";
 export type { CmsAiCatalogItem } from "./runtime/server/ai.ts";
 export { DEFAULT_AI_TRAINING_CRAWLERS } from "./runtime/server/ai.ts";
 export type { CmsDeletedAnchor } from "./runtime/deleted-anchor.ts";
+export type { CmsHighlightSegment, CmsSearchAvailability, CmsSearchHit, CmsSearchMode, CmsSearchResult } from "./runtime/search.ts";
 
 /** CMSのAPIキー（`cms_key_`）・個人トークン（`cms_pat_`）・プレビュー用トークン（`cms_prv_`）らしい文字列を含むか。 */
 export function containsSecret(value: unknown): boolean {
@@ -102,7 +116,7 @@ export function containsSecret(value: unknown): boolean {
 
 export default defineNuxtModule<ModuleOptions>({
   meta: { name: "@new-cms/nuxt", configKey: "cms" },
-  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q", siteUrl: "", webhookRoute: "/_cms/webhook", corrections: false, ai: false, preview: false },
+  defaults: { url: "", workspaceId: "", queriesDir: "cms/queries", routePrefix: "/_cms/q", siteUrl: "", webhookRoute: "/_cms/webhook", corrections: false, ai: false, preview: false, search: false },
   async setup(options, nuxt) {
     const logger = useLogger("cms");
     const resolver = createResolver(import.meta.url);
@@ -124,12 +138,28 @@ export default defineNuxtModule<ModuleOptions>({
     if (ai?.robotsTxt && existsSync(resolve(nuxt.options.rootDir, nuxt.options.dir.public, "robots.txt"))) {
       throw new RegisterError("cms.ai.robotsTxt: remove public/robots.txt (the module serves /robots.txt; put your own lines in cms.ai.robotsTxt.extra)");
     }
-    nuxt.options.runtimeConfig.cms = { url, workspaceId: options.workspaceId, readKey: "", siteUrl, webhookSecret: "", correctionFeeds: feeds, ai };
+    const searchRoute = options.search ? (options.search.route ?? "/_cms/search") : "";
+    if (searchRoute && (!searchRoute.startsWith("/") || searchRoute.startsWith("//"))) {
+      throw new RegisterError("cms.search.route: use a path that starts with /");
+    }
+    if (searchRoute && nuxt.options.nitro.static) {
+      throw new RegisterError("cms.search needs the site's server (it calls the CMS for each search); it cannot be used with nuxt generate");
+    }
+    const rateLimit = options.search ? (options.search.rateLimit ?? {}) : {};
+    const perMinute = rateLimit.perMinute ?? DEFAULT_PER_MINUTE;
+    if (!Number.isInteger(perMinute) || perMinute < 1) throw new RegisterError("cms.search.rateLimit.perMinute: use a positive integer");
+    const ipHeader = (rateLimit.ipHeader ?? "").trim().toLowerCase();
+    if (searchRoute && !ipHeader && !nuxt.options.dev) {
+      logger.warn(
+        "cms.search.rateLimit.ipHeader is not set: visitors are counted by the connecting address. Behind a CDN or reverse proxy, every visitor shares one limit; set the header your proxy adds.",
+      );
+    }
+    nuxt.options.runtimeConfig.cms = { url, workspaceId: options.workspaceId, readKey: "", siteUrl, webhookSecret: "", correctionFeeds: feeds, ai, search: { perMinute, ipHeader } };
     const previewRoute = options.preview ? (options.preview.route ?? "/_cms/preview") : "";
     if (previewRoute && (!url || !previewRoute.startsWith("/") || previewRoute.startsWith("//"))) {
       throw new RegisterError("cms.preview: set cms.url, and make cms.preview.route a path that starts with /");
     }
-    nuxt.options.runtimeConfig.public.cms = { routePrefix: options.routePrefix, cmsOrigin: previewRoute ? new URL(url).origin : "" };
+    nuxt.options.runtimeConfig.public.cms = { routePrefix: options.routePrefix, cmsOrigin: previewRoute ? new URL(url).origin : "", searchRoute };
 
     // クエリの登録（nuxt prepare では行わない）
     const queries = readQueries(resolve(nuxt.options.rootDir, options.queriesDir));
@@ -139,6 +169,7 @@ export default defineNuxtModule<ModuleOptions>({
     // リダイレクト一覧と訂正の一覧のクエリは、モジュールが自分で登録する
     if (siteUrl) queries[REDIRECTS_QUERY] = REDIRECTS_QUERY_TEXT;
     if (options.corrections) queries[CORRECTIONS_QUERY] = CORRECTIONS_QUERY_TEXT;
+    if (searchRoute) queries[SEARCH_QUERY] = SEARCH_QUERY_TEXT;
     if (ai) {
       queries[AI_CATALOG_QUERY] = AI_CATALOG_QUERY_TEXT;
       queries[AI_MARKDOWN_QUERY] = AI_MARKDOWN_QUERY_TEXT;
@@ -216,14 +247,18 @@ export default defineNuxtModule<ModuleOptions>({
       addPlugin({ src: resolver.resolve("./runtime/live-preview.js"), mode: "client" });
     }
 
+    if (searchRoute) addServerHandler({ route: searchRoute, method: "get", handler: resolver.resolve("./runtime/server/search.js") });
     addServerHandler({ route: `${options.routePrefix}/:name`, method: "get", handler: resolver.resolve("./runtime/server/query.js") });
     addImports([
       { name: "useCmsQuery", from: resolver.resolve("./runtime/composables.js") },
       { name: "useCmsCorrections", from: resolver.resolve("./runtime/composables.js") },
       { name: "useCmsAiMeta", from: resolver.resolve("./runtime/composables.js") },
+      { name: "useCmsSearch", from: resolver.resolve("./runtime/composables.js") },
+      { name: "cmsHighlight", from: resolver.resolve("./runtime/search.js") },
     ]);
     addComponent({ name: "CmsBody", filePath: resolver.resolve("./runtime/body.js") });
     addComponent({ name: "CmsCorrections", filePath: resolver.resolve("./runtime/corrections.js") });
     addComponent({ name: "CmsDeletedAnchorNotice", filePath: resolver.resolve("./runtime/deleted-anchor.js") });
+    if (searchRoute) addComponent({ name: "CmsSearchBox", filePath: resolver.resolve("./runtime/search-box.js") });
   },
 });

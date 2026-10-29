@@ -140,6 +140,8 @@ pub struct Match {
 pub struct Hit {
     pub entry_id: Uuid,
     pub locale: String,
+    /// 記事の公開URL（アンカーは付けない）。
+    pub url: Option<String>,
     pub anchor: Option<String>,
     pub breadcrumb: Vec<String>,
     pub excerpt: String,
@@ -262,6 +264,7 @@ pub async fn search(
         Hit {
             entry_id,
             locale,
+            url: None,
             anchor,
             breadcrumb,
             excerpt: excerpt(&content),
@@ -275,6 +278,7 @@ pub async fn search(
         Hit {
             entry_id,
             locale,
+            url: None,
             anchor,
             breadcrumb,
             excerpt,
@@ -304,6 +308,19 @@ pub async fn search(
         .collect(),
     };
     out.hits.truncate(first);
+    // 記事の公開URL（サイトがリンクを作るため。配信APIで公開している値）
+    let ids: Vec<Uuid> = out.hits.iter().map(|h| h.entry_id).collect();
+    let urls: HashMap<Uuid, Option<String>> = sqlx::query_as::<_, (Uuid, Option<String>)>(
+        "SELECT id, url FROM entries WHERE id = ANY($1)",
+    )
+    .bind(&ids)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .collect();
+    for hit in &mut out.hits {
+        hit.url = urls.get(&hit.entry_id).cloned().flatten();
+    }
     Ok(out)
 }
 

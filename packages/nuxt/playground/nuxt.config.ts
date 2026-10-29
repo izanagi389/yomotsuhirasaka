@@ -7,6 +7,7 @@ export default defineNuxtConfig({
     workspaceId: process.env["CMS_WORKSPACE_ID"] ?? "",
     siteUrl: process.env["CMS_SITE_URL"] ?? "",
     ai: { locales: { ja: { title: "確かめ用のサイト", description: "モジュールの確かめ用" } }, robotsTxt: {} },
+    search: {},
     corrections: { feeds: { ja: { path: "/corrections", title: "訂正の一覧", link: process.env["CMS_SITE_URL"] || "http://localhost:3000" } } },
   },
   nitro: { prerender: { crawlLinks: true, routes: ["/", "/corrections"] } },
