@@ -10,6 +10,7 @@
 //!   3. LLMの接続先があれば、今のモデルの埋め込みがないテキストの埋め込みを作る。埋め込みはテキスト（content_hash）と
 //!      モデルごとに1つで、同じテキストのチャンクは使い回す（Q58。`search_embeddings`）。埋め込みは予算の範囲でだけ作る
 //!      （`budget::embed`。INV-BUD-01）。足りなければ、ここで止めて15分後にやり直す（上限が変われば、すぐにやり直す）。
+//!   4. 記事全体のベクトルを作り直し、作り直した記事の関連記事を計算する（`related`）。
 //! - 「決め方」（対象のフィールド・チャンクの決まり・変換器の版）が変わったら、すべての記事を見直す。
 //! - 変換結果（`versions.rendered`）がまだない・古い版は、変換の作り直し（`rerender`）を待って、1分後にやり直す。
 
@@ -236,6 +237,21 @@ pub async fn run(
         set_paused(pool, &db, false).await?;
         if !waiting_for_render && let Some(target) = &plan.target {
             switch_if_complete(pool, &db, ws, target).await?;
+        }
+        // 4. 記事のベクトルと関連記事（今使っているモデルで。外部とは通信しない）
+        let mut tx = workspace_db::begin(pool, &db).await?;
+        let serving = switch::serving(config, &mut tx).await?;
+        tx.commit().await?;
+        if let (Some(s), Some(vs)) = (serving, super::vector_schema(pool).await?) {
+            super::related::refresh(
+                pool,
+                &db,
+                &applied.manifest,
+                &vs,
+                &s.embedding_model,
+                s.embedding_dimensions,
+            )
+            .await?;
         }
     }
     if waiting_for_render {

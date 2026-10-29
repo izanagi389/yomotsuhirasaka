@@ -97,6 +97,18 @@ pub fn visible_embedded(
     )
 }
 
+/// 検索用データから選んだ記事（関連記事の候補など）を見せてよいかの、記事の条件。`e` は entries。
+/// 削除されておらず、公開中の版があって本文が抹消されておらず、記事ごとのスイッチ（チャットボットに使う）が ON で、
+/// ロケールが `{locale}` のパラメーターと同じ（[`visible`] の記事の側と同じ照合。INV-REL-01）。
+pub fn visible_entry(locale: usize) -> String {
+    format!(
+        "e.deleted_at IS NULL
+         AND e.use_for_chatbot
+         AND e.locale = ${locale}
+         AND EXISTS (SELECT 1 FROM versions v WHERE v.id = e.published_version_id AND v.erased_at IS NULL)"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

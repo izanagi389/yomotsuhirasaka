@@ -13,6 +13,7 @@ pub mod access;
 pub mod chunk;
 pub mod index;
 pub mod query;
+pub mod related;
 pub mod switch;
 
 use anyhow::{Result, bail};

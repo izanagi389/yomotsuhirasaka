@@ -53,6 +53,8 @@ pub mod action {
     pub const ENTRY_UNPUBLISHED: &str = "entry.unpublished";
     pub const ENTRY_DELETED: &str = "entry.deleted";
     pub const ENTRY_SETTINGS_CHANGED: &str = "entry.settings_changed";
+    /// 関連記事の固定・除外の変更（M3）。
+    pub const ENTRY_RELATED_CHANGED: &str = "entry.related_changed";
     /// 「確認済み」の記録（Q46）。
     pub const ENTRY_VERIFIED: &str = "entry.verified";
     /// レビュー依頼（計画の8番）。対象は記事と依頼のID。差し戻しのコメントは書かない。

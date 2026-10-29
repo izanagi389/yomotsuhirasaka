@@ -38,6 +38,9 @@ pub const SEARCH_HIT_TYPE: &str = "CmsSearchHit";
 pub const SEARCH_AVAILABILITY_TYPE: &str = "CmsSearchAvailability";
 pub const SEARCH_MODE_TYPE: &str = "CmsSearchMode";
 pub const SEARCH_MATCH_TYPE: &str = "CmsSearchMatch";
+/// 記事の型のCMSのフィールド（関連記事。M3）。テンプレートのフィールド名（英小文字・数字・_）とはぶつからない。
+pub const RELATED_ENTRIES_FIELD: &str = "relatedEntries";
+pub const RELATED_ENTRY_TYPE: &str = "CmsRelatedEntry";
 pub const AI_CATALOG_ITEM_TYPE: &str = "CmsAiCatalogItem";
 /// 記事の型のCMSのフィールド（AI向けのMarkdown版）。本文のフィールド `ai` の `aiMarkdown` とぶつかる。
 pub const AI_MARKDOWN_FIELD: &str = "aiMarkdown";

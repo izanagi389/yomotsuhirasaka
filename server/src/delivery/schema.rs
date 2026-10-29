@@ -26,8 +26,8 @@ use super::names::{
     self, AI_CATALOG_FIELD, AI_CATALOG_ITEM_TYPE, AI_MARKDOWN_BY_URL_FIELD, AI_MARKDOWN_FIELD,
     AI_TRAINING_OPT_OUTS_FIELD, ALTERNATE_TYPE, CORRECTION_FEED_ITEM_TYPE, CORRECTION_TYPE,
     CORRECTIONS_FIELD, DELETED_ANCHOR_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE,
-    REDIRECTS_FIELD, SEARCH_AVAILABILITY_TYPE, SEARCH_FIELD, SEARCH_HIT_TYPE, SEARCH_MATCH_TYPE,
-    SEARCH_MODE_TYPE, SEARCH_RESULT_TYPE,
+    REDIRECTS_FIELD, RELATED_ENTRIES_FIELD, RELATED_ENTRY_TYPE, SEARCH_AVAILABILITY_TYPE,
+    SEARCH_FIELD, SEARCH_HIT_TYPE, SEARCH_MATCH_TYPE, SEARCH_MODE_TYPE, SEARCH_RESULT_TYPE,
 };
 use crate::content::corrections::{self, Correction, DeletedAnchor, FeedItem};
 use crate::content::freshness::{self, Freshness};
@@ -699,8 +699,113 @@ fn training_opt_outs_field() -> Field {
     .description("Public URLs of published entries that opt out of use for AI training.")
 }
 
+/// 関連記事の1件。
+#[derive(Clone)]
+struct RelatedView {
+    id: Uuid,
+    content_type: String,
+    locale: String,
+    url: String,
+    title: Option<String>,
+    pinned: bool,
+    score: f64,
+}
+
+fn related_entry_type() -> Object {
+    Object::new(RELATED_ENTRY_TYPE)
+        .description("A related entry of the same content type and locale. Pinned entries come first.")
+        .field(value_field::<RelatedView, _>("id", TypeRef::named_nn(TypeRef::ID), |r| {
+            Some(GqlValue::from(r.id.to_string()))
+        }))
+        .field(value_field::<RelatedView, _>(
+            "contentType",
+            TypeRef::named_nn(TypeRef::STRING),
+            |r| Some(GqlValue::from(r.content_type.clone())),
+        ))
+        .field(value_field::<RelatedView, _>(
+            "locale",
+            TypeRef::named_nn(TypeRef::STRING),
+            |r| Some(GqlValue::from(r.locale.clone())),
+        ))
+        .field(value_field::<RelatedView, _>(
+            "url",
+            TypeRef::named_nn(TypeRef::STRING),
+            |r| Some(GqlValue::from(r.url.clone())),
+        ))
+        .field(value_field::<RelatedView, _>(
+            "title",
+            TypeRef::named(TypeRef::STRING),
+            |r| r.title.clone().map(GqlValue::from),
+        ))
+        .field(value_field::<RelatedView, _>(
+            "pinned",
+            TypeRef::named_nn(TypeRef::BOOLEAN),
+            |r| Some(GqlValue::from(r.pinned)),
+        ))
+        .field(
+            value_field::<RelatedView, _>("score", TypeRef::named_nn(TypeRef::FLOAT), |r| {
+                Some(GqlValue::from(r.score))
+            })
+            .description("Similarity after adjustments, for ordering only (0 for a pinned entry that is not a candidate)."),
+        )
+}
+
+/// 関連記事（M3、08-search-and-related.md「関連記事」）。保存した候補と固定を、返す時点の状態で照合する（INV-REL-01）。
+fn related_entries_field(manifest: Arc<Manifest>) -> Field {
+    Field::new(
+        RELATED_ENTRIES_FIELD,
+        TypeRef::named_nn_list_nn(RELATED_ENTRY_TYPE),
+        move |ctx| {
+            let manifest = manifest.clone();
+            FieldFuture::new(async move {
+                let e = parent(&ctx)?;
+                let first = ctx
+                    .args
+                    .get("first")
+                    .and_then(|v| v.i64().ok())
+                    .unwrap_or(crate::search::related::DEFAULT_FIRST);
+                let req = request(&ctx)?;
+                let mut guard = req.tx.lock().await;
+                let Some(tx) = guard.as_mut() else {
+                    return Ok(Some(FieldValue::list(Vec::<FieldValue>::new())));
+                };
+                let picked = crate::search::related::pick(tx, e.id, first)
+                    .await
+                    .map_err(internal)?;
+                let ids: Vec<Uuid> = picked.iter().map(|p| p.entry_id).collect();
+                let found = data::by_ids(tx, &ids).await.map_err(internal)?;
+                let views: Vec<RelatedView> = picked
+                    .iter()
+                    .filter_map(|p| {
+                        let entry = found.iter().find(|f| f.id == p.entry_id)?;
+                        let title = manifest
+                            .content_type(&entry.content_type)
+                            .and_then(|ct| ct.title_field.as_deref())
+                            .and_then(|f| entry.fields.get(f))
+                            .and_then(Value::as_str)
+                            .map(str::to_owned);
+                        Some(RelatedView {
+                            id: entry.id,
+                            content_type: entry.content_type.clone(),
+                            locale: entry.locale.clone(),
+                            url: entry.url.clone(),
+                            title,
+                            pinned: p.pinned,
+                            score: p.score,
+                        })
+                    })
+                    .collect();
+                Ok(Some(FieldValue::list(views.into_iter().map(FieldValue::owned_any))))
+            })
+        },
+    )
+    .argument(InputValue::new("first", TypeRef::named(TypeRef::INT)))
+    .description("Related entries of the same content type and locale (default 5, at most 10). Unpublished and deleted entries are never included.")
+}
+
 fn entry_type(ct: &ContentType, manifest: Arc<Manifest>) -> Object {
     let mut obj = system_fields(Object::new(names::type_name(&ct.name)));
+    obj = obj.field(related_entries_field(manifest.clone()));
     obj = correction_fields(obj, ct);
     obj = ai_fields(obj, ct, manifest);
     if let Some(d) = &ct.description {
@@ -1052,6 +1157,7 @@ pub fn build(
         .register(search_availability_type())
         .register(search_mode_type())
         .register(search_match_type())
+        .register(related_entry_type())
         .limit_depth(limits.depth)
         .limit_complexity(limits.complexity)
         .disable_suggestions();
