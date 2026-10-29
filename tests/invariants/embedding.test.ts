@@ -63,7 +63,9 @@ inv(
       const registerKey = await cms.createApiKey(session, ws, ["register"]);
       const query: RegisteredQuery = await cms.registerQuery(ws, registerKey.secret, { kind: "search" });
 
-      const word = marker("emb01");
+      // 検索語は外部に送る前にマスクされ、10桁以上の数字の並び（`-` で区切られていてもよい）は `[number]` になる（Q169）。
+      // 擬似LLMに届いた入力と完全に一致させて比べるため、検索語には数字を含めない（UUIDの数字を英字に置き換える）
+      const word = marker("emb01").replace(/\d/g, (d) => "ghijklmnop"[Number(d)]!);
       const search = (): Promise<SearchResult> => cms.search(ws, readKey.secret, query, { text: word, first: 50 });
       const publish = async (i: number): Promise<string> => {
         const { id } = await cms.createEntry(session, ws, { title: marker("emb01-title"), body: doc(paragraph(bodyText(word, i))) });
