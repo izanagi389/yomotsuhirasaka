@@ -23,6 +23,8 @@ RUN apt-get update -q && apt-get install -y --no-install-recommends pkg-config l
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY server ./server
+# 質問応答のプロンプトと回答の形（擬似LLMと同じファイルを読む。server/src/answer/format.rs）
+COPY tools/mock-llm/src/format.json ./tools/mock-llm/src/format.json
 RUN cargo build --release --locked -p cms-server
 
 FROM debian:trixie-slim

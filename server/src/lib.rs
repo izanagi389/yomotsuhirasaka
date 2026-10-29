@@ -2,6 +2,7 @@
 
 pub mod access;
 pub mod alerts;
+pub mod answer;
 pub mod api_keys;
 pub mod audit;
 pub mod audit_export;

@@ -1,4 +1,4 @@
-//! LLMの呼び出し（外部のOpenAI互換のAPI。10-llm-and-budget.md）。M3は埋め込みだけ。
+//! LLMの呼び出し（外部のOpenAI互換のAPI。10-llm-and-budget.md）。埋め込みと、回答の生成（チャットのストリーミング。M4）。
 //!
 //! - 送信は外部への送信の共通の仕組み（`egress`）を通す。内部の宛先は、サーバー管理者が例外として許したものだけ。
 //! - 応答の本文は、上限を付けて読み、解釈にだけ使う。ログや管理APIの応答には出さない。
@@ -9,7 +9,7 @@ use hyper::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
 use serde_json::Value;
 
 use crate::config::LlmConfig;
-use crate::egress::{Egress, EgressError, EgressRequest};
+use crate::egress::{Egress, EgressError, EgressRequest, EgressStream, StreamLimits};
 
 /// 呼び出しに失敗した理由。`code` はジョブの失敗の記録などに使う（相手の応答の本文は含めない）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +125,164 @@ impl Llm {
     }
 }
 
+/// チャットのメッセージ（`system`・`user`）。
+#[derive(Debug, Clone)]
+pub struct ChatMessage {
+    pub role: &'static str,
+    pub content: String,
+}
+
+/// チャットのストリーミングの待ち時間と大きさの上限（`egress::StreamLimits`）。
+pub const CHAT_LIMITS: StreamLimits = StreamLimits {
+    first_byte: std::time::Duration::from_secs(20),
+    idle: std::time::Duration::from_secs(20),
+    total: std::time::Duration::from_secs(90),
+    max_body_bytes: 4 * 1024 * 1024,
+};
+
+/// チャットの使用量（相手が返したときだけ）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChatUsage {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+}
+
+/// チャットの応答（SSE の `data:` の行）を、文字列の断片として少しずつ読む。
+pub struct ChatStream {
+    inner: EgressStream,
+    buf: Vec<u8>,
+    done: bool,
+    usage: Option<ChatUsage>,
+}
+
+impl ChatStream {
+    /// 次の本文の断片。応答が終われば None。`[DONE]` の前に接続が終わったら失敗にする（途中で切れた応答）。
+    pub async fn next_text(&mut self) -> Result<Option<String>, LlmError> {
+        loop {
+            if self.done {
+                return Ok(None);
+            }
+            // 届いている行を先に読む
+            while let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
+                let line: Vec<u8> = self.buf.drain(..=pos).collect();
+                match parse_chat_line(&line)? {
+                    Line::Text(t) if !t.is_empty() => return Ok(Some(t)),
+                    Line::Text(_) | Line::Ignore => {}
+                    Line::Usage(u) => self.usage = Some(u),
+                    Line::Done => {
+                        self.done = true;
+                        return Ok(None);
+                    }
+                }
+            }
+            match self.inner.next_chunk().await.map_err(LlmError::Egress)? {
+                Some(bytes) => self.buf.extend_from_slice(&bytes),
+                None => {
+                    self.done = true;
+                    return Err(LlmError::InvalidResponse);
+                }
+            }
+        }
+    }
+
+    /// 相手が返した使用量（`stream_options.include_usage` に応じた実装だけ）。
+    pub fn usage(&self) -> Option<ChatUsage> {
+        self.usage
+    }
+}
+
+enum Line {
+    Text(String),
+    Usage(ChatUsage),
+    Done,
+    Ignore,
+}
+
+/// SSE の1行を解釈する。`data:` 以外の行（コメント・空行など）は読み飛ばす。
+fn parse_chat_line(line: &[u8]) -> Result<Line, LlmError> {
+    let line = std::str::from_utf8(line).map_err(|_| LlmError::InvalidResponse)?;
+    let Some(data) = line.trim_end_matches(['\r', '\n']).strip_prefix("data:") else {
+        return Ok(Line::Ignore);
+    };
+    let data = data.trim();
+    if data == "[DONE]" {
+        return Ok(Line::Done);
+    }
+    let json: Value = serde_json::from_str(data).map_err(|_| LlmError::InvalidResponse)?;
+    if let Some(u) = json.get("usage").filter(|u| !u.is_null()) {
+        let get = |k: &str| u.get(k).and_then(Value::as_u64);
+        if let (Some(p), Some(c)) = (get("prompt_tokens"), get("completion_tokens")) {
+            return Ok(Line::Usage(ChatUsage {
+                prompt_tokens: p,
+                completion_tokens: c,
+            }));
+        }
+    }
+    let text = json
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|c| c.first())
+        .and_then(|c| c.get("delta"))
+        .and_then(|d| d.get("content"))
+        .and_then(Value::as_str);
+    Ok(text.map_or(Line::Ignore, |t| Line::Text(t.to_owned())))
+}
+
+impl Llm {
+    /// チャットを、ストリーミングで呼ぶ（回答の生成）。`model` は設定のチャットのモデル。
+    /// JSONモードなどには頼らない。使用量は `stream_options.include_usage` で求める（返さない実装もある）。
+    pub async fn chat_stream(
+        &self,
+        model: &str,
+        messages: &[ChatMessage],
+        max_tokens: u32,
+    ) -> Result<ChatStream, LlmError> {
+        let messages: Vec<Value> = messages
+            .iter()
+            .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+            .collect();
+        let body = serde_json::json!({
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "stream": true,
+            "stream_options": { "include_usage": true },
+        });
+        let auth = HeaderValue::from_str(&format!("Bearer {}", self.config.api_key))
+            .map_err(|_| LlmError::InvalidResponse)?;
+        let inner = self
+            .egress
+            .send_streaming(
+                EgressRequest {
+                    method: hyper::Method::POST,
+                    url: endpoint(&self.config.base_url, "chat/completions"),
+                    headers: vec![
+                        (AUTHORIZATION, auth),
+                        (CONTENT_TYPE, HeaderValue::from_static("application/json")),
+                        (
+                            hyper::header::ACCEPT,
+                            HeaderValue::from_static("text/event-stream"),
+                        ),
+                    ],
+                    body: serde_json::to_vec(&body).map_err(|_| LlmError::InvalidResponse)?,
+                    read_body_limit: None,
+                },
+                CHAT_LIMITS,
+            )
+            .await
+            .map_err(LlmError::Egress)?;
+        if !(200..300).contains(&inner.status()) {
+            return Err(LlmError::Status(inner.status()));
+        }
+        Ok(ChatStream {
+            inner,
+            buf: Vec::new(),
+            done: false,
+            usage: None,
+        })
+    }
+}
+
 /// `<base_url>/<path>`（base_url の末尾の / は1つにまとめる）。
 fn endpoint(base_url: &str, path: &str) -> String {
     format!("{}/{path}", base_url.trim_end_matches('/'))
@@ -192,6 +350,36 @@ mod tests {
 
     fn inputs(n: usize) -> Vec<String> {
         (0..n).map(|i| format!("text {i}")).collect()
+    }
+
+    #[test]
+    fn chat_lines() {
+        let text = |l: &str| match parse_chat_line(l.as_bytes()).unwrap() {
+            Line::Text(t) => Some(t),
+            _ => None,
+        };
+        assert_eq!(
+            text("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"こん\"}}]}\n"),
+            Some("こん".to_owned())
+        );
+        assert_eq!(text("data: {\"choices\":[{\"delta\":{}}]}\n"), None);
+        assert!(matches!(
+            parse_chat_line(b"data: [DONE]\r\n").unwrap(),
+            Line::Done
+        ));
+        assert!(matches!(
+            parse_chat_line(b": keep-alive\n").unwrap(),
+            Line::Ignore
+        ));
+        match parse_chat_line(
+            b"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":5}}\n",
+        )
+        .unwrap()
+        {
+            Line::Usage(u) => assert_eq!((u.prompt_tokens, u.completion_tokens), (3, 5)),
+            _ => panic!("usage"),
+        }
+        assert!(parse_chat_line(b"data: {broken\n").is_err());
     }
 
     #[test]

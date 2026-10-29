@@ -7,13 +7,8 @@
 
 # --- M4: テスト未作成（各PRでテストを先に書いて承認を受け、実装後に行を消す） ---
 # 回答の検査（引用・答えられない宣言・devNote・URL・長さ）
-inv_qa_01
 inv_qa_03
-inv_qa_04
-inv_qa_10
 inv_qa_11
-inv_qa_12
-inv_qa_13
 # 公開状態とキャッシュ
 inv_qa_02
 inv_qa_06
@@ -21,9 +16,7 @@ inv_qa_07
 inv_qa_08
 inv_qa_09
 # 予算と回数の制限
-inv_qa_05
 inv_qa_14
-inv_qa_15
 inv_bud_02
 # 質問ログ
 inv_log_01
