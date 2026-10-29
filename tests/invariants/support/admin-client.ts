@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -461,6 +461,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         return `query($text: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $first: Int) { search(text: $text, locale: $locale, first: $first) { vectorSearch keywordSearch hits { entryId locale anchor breadcrumb excerpt score } } }`;
       case "searchWithMode":
         return `query($text: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $first: Int, $mode: CmsSearchMode) { search(text: $text, locale: $locale, first: $first, mode: $mode) { vectorSearch keywordSearch hits { entryId locale anchor breadcrumb excerpt score } } }`;
+      // 関連記事（M3。server/src/delivery）
+      case "relatedEntries":
+        return `query($id: ID!, $first: Int) { ${SINGLE}(id: $id) { id relatedEntries(first: $first) { id contentType locale url title pinned score } } }`;
       case "text":
         return spec.text;
     }
@@ -966,6 +969,19 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         keywordSearch: VALUES[String(r["keywordSearch"])] as SearchResult["keywordSearch"],
       };
     },
+    async relatedEntries(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { id: string; first?: number }): Promise<RelatedEntry[]> {
+      const res = ensure(
+        "関連記事",
+        await request("GET", `/ws/${workspaceId}/graphql`, {
+          auth: deliveryAuth(apiKey),
+          extras: { query: { id: query.ref, variables: JSON.stringify(input) } },
+        }),
+      );
+      const body = JSON.parse(res.text) as { data?: Record<string, { relatedEntries?: RelatedEntry[] } | null>; errors?: unknown };
+      const entry = body.data?.[SINGLE];
+      if (!entry || !entry.relatedEntries || body.errors) throw new SetupError("関連記事の応答の読み取り", res);
+      return entry.relatedEntries;
+    },
     deliveryPreviewRaw(
       workspaceIdInUrl: string,
       apiKey: string | null,
@@ -1062,6 +1078,15 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     setMemberGrantsRaw(auth: Auth, workspaceId: string, userId: string, grants: HeavyPermission[]): Promise<HttpResponse> {
       return request("PATCH", `${ADMIN}/workspaces/${workspaceId}/members/${userId}`, { auth, body: { grants } });
+    },
+    setRelatedRaw(auth: Auth, workspaceId: string, entryId: string, settings: RelatedSettings): Promise<HttpResponse> {
+      return request("PUT", `${entriesPath(workspaceId)}/${entryId}/related`, { auth, body: settings });
+    },
+    async translationGroupId(s: Session, workspaceId: string, entryId: string): Promise<string> {
+      const res = ensure("記事の取得", await getEntryRaw(session(s), workspaceId, entryId));
+      const { translationGroupId } = JSON.parse(res.text) as { translationGroupId?: unknown };
+      if (typeof translationGroupId !== "string") throw new SetupError("記事の翻訳グループの読み取り", res);
+      return translationGroupId;
     },
     setPublishSettingsRaw(
       auth: Auth,

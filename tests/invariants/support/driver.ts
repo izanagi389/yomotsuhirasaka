@@ -325,7 +325,27 @@ export type QuerySpec =
   | { kind: "search" }
   /** サイト内検索で、検索の方法（mode）も指定するもの（M3）。変数は text・locale・first・mode。 */
   | { kind: "searchWithMode" }
+  /** 記事1件の関連記事（M3、08-search-and-related.md「関連記事」）。変数は id・first。 */
+  | { kind: "relatedEntries" }
   | { kind: "text"; text: string };
+
+/** 関連記事の1件（同じコンテンツタイプ・同じロケールの記事。固定した記事が先）。 */
+export interface RelatedEntry {
+  id: string;
+  contentType: string;
+  locale: string;
+  url: string | null;
+  title: string | null;
+  /** 編集者が固定した記事か。 */
+  pinned: boolean;
+  score: number;
+}
+
+/** 記事ごとの関連記事の固定と除外（どちらも翻訳グループのID。固定は並べる順）。 */
+export interface RelatedSettings {
+  pinned: string[];
+  excluded: string[];
+}
 
 /** サイト内検索の1件（1つの記事から、いちばん似たチャンクを1件）。 */
 export interface SearchHit {
@@ -513,6 +533,12 @@ export interface CmsClient {
     entryId: string,
     changes: { includeInAiMaterials?: boolean; optOutOfAiTraining?: boolean; useForChatbot?: boolean },
   ): Promise<HttpResponse>;
+  /**
+   * 記事の関連記事の固定と除外を置き換える（応答をそのまま返す）。公開設定と同じく、公開できる人の操作で、再認証が要る。
+   */
+  setRelatedRaw(auth: Auth, workspaceId: string, entryId: string, settings: RelatedSettings): Promise<HttpResponse>;
+  /** 記事の翻訳グループのID。成功しなければ失敗する。 */
+  translationGroupId(session: Session, workspaceId: string, entryId: string): Promise<string>;
   /** 「確認済み」を記録する（応答をそのまま返す）。 */
   markVerifiedRaw(auth: Auth, workspaceId: string, entryId: string, memo: string): Promise<HttpResponse>;
   removeMember(session: Session, workspaceId: string, userId: string): Promise<void>;
@@ -639,6 +665,11 @@ export interface CmsClient {
    * 成功しなければ失敗する。`mode` は `searchWithMode` のクエリにだけ渡す。
    */
   search(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { text: string; locale?: string; first?: number; mode?: SearchMode }): Promise<SearchResult>;
+  /**
+   * 登録済みの関連記事のクエリ（`{ kind: "relatedEntries" }`）で、記事1件の関連記事を読む。成功しなければ失敗する。
+   * 記事が配信されない（非公開など）ときも失敗する。
+   */
+  relatedEntries(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { id: string; first?: number }): Promise<RelatedEntry[]>;
   /** 登録していないクエリを、文のまま送る。 */
   deliveryAdHocRaw(workspaceIdInUrl: string, apiKey: string, spec: QuerySpec, variables?: Record<string, unknown>): Promise<HttpResponse>;
   /** 1回のリクエストで複数のクエリを送る（バッチ）。 */
