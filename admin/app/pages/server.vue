@@ -1,10 +1,12 @@
 <script setup lang="ts">
-// サーバー管理者の画面: インスタンス単位の通知、利用者（リセットの発行）とインスタンス全体の監査ログ。権限の判断はサーバー。
+// サーバー管理者の画面: インスタンス単位の通知、利用者（リセットの発行）、埋め込みモデルの切り替え、インスタンス全体の監査ログ。
+// 権限の判断はサーバー。`?tab=embedding` などで開くタブを選べる（to-do のカードから飛ぶため）。
 // サーバー管理者自身のリセットは、どの経路でもできない（サーバーのCLIで行う。INV-AUTH-10）。
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import AuditPanel from "~/components/admin/AuditPanel.vue";
+import EmbeddingSwitchPanel from "~/components/admin/EmbeddingSwitchPanel.vue";
 import ServerNotificationsPanel from "~/components/admin/ServerNotificationsPanel.vue";
 import type { Issued } from "~/utils/admin";
 
@@ -19,7 +21,9 @@ interface UserInfo {
 const { t } = useI18n();
 const api = useApi();
 const { me } = useAuth();
-const tab = ref("users");
+const TABS = ["users", "notifications", "embedding", "audit"];
+const route = useRoute();
+const tab = ref(TABS.includes(String(route.query.tab)) ? String(route.query.tab) : "users");
 const { data: users, error } = await useAsyncData("server:users", () =>
   me.value?.isServerAdmin ? api.get<UserInfo[]>("/users") : Promise.resolve([] as UserInfo[]),
 );
@@ -47,6 +51,7 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
       <TabsList>
         <TabsTrigger value="users">{{ t("server.users") }}</TabsTrigger>
         <TabsTrigger value="notifications" data-testid="tab-notifications">{{ t("notifications.title") }}</TabsTrigger>
+        <TabsTrigger value="embedding" data-testid="tab-embedding">{{ t("embeddingSwitch.title") }}</TabsTrigger>
         <TabsTrigger value="audit">{{ t("adminTabs.audit") }}</TabsTrigger>
       </TabsList>
       <TabsContent value="users" class="mt-4 grid gap-4">
@@ -77,6 +82,7 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
         </ul>
       </TabsContent>
       <TabsContent value="notifications" class="mt-4"><ServerNotificationsPanel :people="people" /></TabsContent>
+      <TabsContent value="embedding" class="mt-4"><EmbeddingSwitchPanel /></TabsContent>
       <TabsContent value="audit" class="mt-4"><AuditPanel :people="people" /></TabsContent>
     </Tabs>
   </div>

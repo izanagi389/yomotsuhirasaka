@@ -972,5 +972,37 @@
     "ceilingTitle": "Ceiling (server administrator)",
     "ceilingHelp": "The highest limits this workspace can set. LLM charges go to the instance's key. With \"Default\", the default in the server config file applies (0 if none).",
     "useDefault": "Default"
+  },
+  "embeddingSwitch": {
+    "title": "Embedding model",
+    "noLlm": "No LLM endpoint ([llm]) is configured, so no embeddings are created.",
+    "currentModel": "Current model in the config",
+    "nextModel": "Model to switch to",
+    "dimensions": "{n} dimensions",
+    "noNext": "Not set",
+    "howToSet": "The model to switch to can only be set in the config file. Add the following and restart the server; then you can review the estimate and start here.",
+    "workspace": "Workspace",
+    "state": "State",
+    "activeModel": "Model in use",
+    "chunks": "Chunks to embed",
+    "tokens": "Tokens (estimate)",
+    "cost": "Cost (estimate)",
+    "total": "Total",
+    "estimateHelp": "Tokens are over-estimated at 1 character = 1 token. The cost uses the price in the config. Embeddings are created within each workspace's embedding budget and pause when it runs out. Search keeps using the current model until the switch completes.",
+    "start": "Start the switch",
+    "resume": "Resume the switch",
+    "running": "Switching. Each workspace switches as soon as all of its embeddings are ready.",
+    "reload": "Reload",
+    "confirmTitle": "Start switching to {model}?",
+    "confirmResumeTitle": "Resume the switch?",
+    "confirmDescription": "{chunks} chunks, {tokens} tokens (estimate), cost {cost}. Embeddings are created within each workspace's budget.",
+    "noPrice": "no price set",
+    "states": {
+      "notStarted": "Not started",
+      "inProgress": "In progress",
+      "paused": "Paused",
+      "switched": "Switched",
+      "needsMigration": "Needs migration"
+    }
   }
 }

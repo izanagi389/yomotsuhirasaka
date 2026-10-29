@@ -63,9 +63,11 @@ const TAB: Record<TodoItem["kind"], string | null> = {
   scheduleCancelled: null,
 };
 const link = (i: TodoItem) =>
-  i.kind === "budgetExhausted" || i.kind === "embeddingModelMissing"
-    ? `/w/${ws}/budget`
-    : `/w/${ws}/entries/${i.entry?.id}${TAB[i.kind] ? `?tab=${TAB[i.kind]}` : ""}`;
+  i.kind === "embeddingModelMissing"
+    ? "/server?tab=embedding"
+    : i.kind === "budgetExhausted"
+      ? `/w/${ws}/budget`
+      : `/w/${ws}/entries/${i.entry?.id}${TAB[i.kind] ? `?tab=${TAB[i.kind]}` : ""}`;
 const urgent = (k: TodoItem["kind"]) =>
   k === "budgetExhausted" || k === "embeddingModelMissing" || k === "scheduleFailed" || k === "scheduleRetrying" || k === "reviewExpired";
 
