@@ -63,6 +63,11 @@ export interface WorkspaceLimits {
   /** 埋め込みの作成の予算の天井（トークン数）。null は設定ファイルの既定値。 */
   embeddingTokensPerMonth?: number | null;
   embeddingTokensPerDay?: number | null;
+  /** 訪問者向けの回答の予算の天井（トークン数、入力・出力別。M4）。null は設定ファイルの既定値。 */
+  answerInputTokensPerMonth?: number | null;
+  answerInputTokensPerDay?: number | null;
+  answerOutputTokensPerMonth?: number | null;
+  answerOutputTokensPerDay?: number | null;
 }
 
 /** ワークスペースの埋め込みの作成の予算（トークン数）。null は上限なし（サーバー管理者の天井の範囲で）。 */
@@ -142,8 +147,11 @@ export interface LoginOptions {
 
 export type WorkspaceRole = "admin" | "editor" | "author" | "viewer";
 
-/** 配信APIのキーのスコープ。"read" は公開版の読み取りだけ、"register" はクエリの登録。 */
-export type ApiKeyScope = "read" | "register";
+/**
+ * 配信APIのキーのスコープ。"read" は公開版の読み取りだけ、"register" はクエリの登録、
+ * "answer" は回答API（M4、09-qa-chatbot.md。お金がかかるので read とは分ける）。
+ */
+export type ApiKeyScope = "read" | "register" | "answer";
 
 /** 個人トークンの範囲。"read" は読み取りだけ、"write" は本人のロールの範囲の書き込み、"deploy" はデプロイ（サーバー管理者だけ）。 */
 export type TokenScope = "read" | "write" | "deploy";
@@ -327,6 +335,10 @@ export type QuerySpec =
   | { kind: "searchWithMode" }
   /** 記事1件の関連記事（M3、08-search-and-related.md「関連記事」）。変数は id・first。 */
   | { kind: "relatedEntries" }
+  /** 質問への回答を、まとめて返すもの（M4、09-qa-chatbot.md）。変数は question・locale。 */
+  | { kind: "answer" }
+  /** 質問への回答を、判定先行のストリーミングで返すもの（M4）。変数は question・locale。 */
+  | { kind: "answerStream" }
   | { kind: "text"; text: string };
 
 /** 関連記事の1件（同じコンテンツタイプ・同じロケールの記事。固定した記事が先）。 */
@@ -372,6 +384,48 @@ export interface SearchResult {
 
 /** サイト内検索の方法。hybrid はベクトル検索とキーワード検索の結果を混ぜる（既定）。 */
 export type SearchMode = "hybrid" | "vector" | "keyword";
+
+/** 回答の状態。noInformation は「該当する情報がありません」、violationDetected は本文の途中で規則違反を検知したもの。 */
+export type AnswerStatus = "answered" | "noInformation" | "violationDetected";
+
+/** 回答の出典（記事の該当セクション）。 */
+export interface AnswerSource {
+  entryId: string;
+  locale: string;
+  url: string | null;
+  anchor: string | null;
+  breadcrumb: string[];
+  versionId: string;
+  lastReviewedAt: string | null;
+  reviewExpired: boolean;
+}
+
+/** まとめて返す回答（M4）。 */
+export interface AnswerResult {
+  status: AnswerStatus;
+  /** 回答の本文（Markdown）。noInformation なら「情報なし」の文言。 */
+  text: string;
+  /** 長さの上限で打ち切ったか。 */
+  truncated: boolean;
+  sources: AnswerSource[];
+}
+
+/**
+ * ストリーミングの回答のイベント（届いた順）。
+ * - verdict: 判定（LLMの先行宣言をCMSが確かめた後に1回）。answerable が false なら、本文は来ない
+ * - delta: 本文の断片
+ * - final: 最終判定（最後に1回）。text は本文の全体（noInformation なら「情報なし」の文言）
+ */
+export type AnswerEvent =
+  | { type: "verdict"; answerable: boolean; sources: AnswerSource[] }
+  | { type: "delta"; text: string }
+  | ({ type: "final" } & AnswerResult);
+
+/** 回答のリクエストの応答から読み取ったエラー（GraphQL の errors の extensions.code）。 */
+export interface AnswerError {
+  code: string | null;
+  message: string;
+}
 
 /** 登録済みクエリの参照。 */
 export interface RegisteredQuery {
@@ -688,6 +742,17 @@ export interface CmsClient {
    * 記事が配信されない（非公開など）ときも失敗する。
    */
   relatedEntries(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { id: string; first?: number }): Promise<RelatedEntry[]>;
+  /**
+   * 登録済みの回答のクエリ（`{ kind: "answer" }` または `{ kind: "answerStream" }`）を実行する（応答をそのまま返す）。
+   * 回答はお金がかかって共有できないので POST で送る。answerStream は SSE（`Accept: text/event-stream`）で受け取る。
+   */
+  answerRaw(workspaceIdInUrl: string, apiKey: string, query: RegisteredQuery, input: { question: string; locale?: string }): Promise<HttpResponse>;
+  /** answerRaw の応答（{ kind: "answer" }）から、回答を読む。エラーの応答なら null。 */
+  parseAnswer(res: HttpResponse): AnswerResult | null;
+  /** answerRaw の応答（{ kind: "answerStream" }）から、イベントを届いた順に読む。エラーのイベントは含めない。 */
+  parseAnswerStream(res: HttpResponse): AnswerEvent[];
+  /** answerRaw の応答（まとめて・ストリーミングのどちらも）から、エラーを読む。なければ空。 */
+  answerErrors(res: HttpResponse): AnswerError[];
   /** 登録していないクエリを、文のまま送る。 */
   deliveryAdHocRaw(workspaceIdInUrl: string, apiKey: string, spec: QuerySpec, variables?: Record<string, unknown>): Promise<HttpResponse>;
   /** 1回のリクエストで複数のクエリを送る（バッチ）。 */
@@ -784,6 +849,8 @@ export interface ServerConfig {
     apiKey: string;
     embeddingModel: string;
     embeddingDimensions: number;
+    /** 回答の生成に使うチャットのモデル（`[llm] chat_model`。M4）。なければ回答APIを使えない。 */
+    chatModel?: string;
     pricePerMillionTokens?: number;
     /**
      * 切り替え先の埋め込みのモデル（`[llm.next_embedding]`）。接続先とキーは、省略すれば今のものを使う。
@@ -871,6 +938,13 @@ export interface DbLayout {
 // ---------------------------------------------------------------------------
 
 export const driver = {
+  /**
+   * 回答APIの長さの上限（M4、13-security.md「チャットボットへの悪用」）。値はサーバーのコードの定数と同じ。
+   * - questionMaxChars: 質問文の文字数（Unicode のコードポイント）。超えたら拒否する
+   * - answerMaxChars: 回答の本文の文字数。超えた分は打ち切る
+   */
+  answerLimits: { questionMaxChars: 500, answerMaxChars: 4000 },
+
   /** 起動済みのCMSにつなぐ。 */
   connect(baseUrl: string): CmsClient {
     return connectAdmin(baseUrl, todo);

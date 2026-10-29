@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, AnswerError, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -406,6 +406,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     if ("mediaBytes" in limits) body["mediaBytes"] = limits.mediaBytes ?? null;
     if ("embeddingTokensPerMonth" in limits) body["embeddingTokensPerMonth"] = limits.embeddingTokensPerMonth ?? null;
     if ("embeddingTokensPerDay" in limits) body["embeddingTokensPerDay"] = limits.embeddingTokensPerDay ?? null;
+    for (const k of ["answerInputTokensPerMonth", "answerInputTokensPerDay", "answerOutputTokensPerMonth", "answerOutputTokensPerDay"] as const) {
+      if (k in limits) body[k] = limits[k] ?? null;
+    }
     return request("PUT", `${ADMIN}/workspaces/${workspaceId}/limits`, { auth, extras, body });
   };
   const setEmbeddingBudgetRaw = (auth: Auth, workspaceId: string, budget: EmbeddingBudget, extras?: RequestExtras): Promise<HttpResponse> =>
@@ -419,6 +422,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const camel = (name: string): string => name.split("_").filter(Boolean).map((p, i) => (i === 0 ? p : p[0]!.toUpperCase() + p.slice(1))).join("");
   const SINGLE = camel(POST_TYPE.name);
   const LIST = `${SINGLE}List`;
+  // 回答の出典と、回答（まとめて返すものと、ストリーミングの最終判定）で選ぶ項目（M4）
+  const ANSWER_SOURCE_FIELDS = "entryId locale url anchor breadcrumb versionId lastReviewedAt reviewExpired";
+  const ANSWER_FIELDS = `status text truncated sources { ${ANSWER_SOURCE_FIELDS} }`;
   const DEFAULT_LOCALE = BASE_TEMPLATE.defaultLocale;
   const selection = (fields?: string[]): string => (fields ? ["id", ...fields.filter((f) => f !== "id")] : ["id", "title", "slug"]).join(" ");
   // 変換した本文: 本文のフィールド <名前> に対して <名前>Html と <名前>Markdown（server/src/delivery/schema.rs）
@@ -464,10 +470,50 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       // 関連記事（M3。server/src/delivery）
       case "relatedEntries":
         return `query($id: ID!, $first: Int) { ${SINGLE}(id: $id) { id relatedEntries(first: $first) { id contentType locale url title pinned score } } }`;
+      // 回答（M4。server/src/delivery）。出典の項目は、まとめて・ストリーミングで同じ
+      case "answer":
+        return `query($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}) { answer(question: $question, locale: $locale) { ${ANSWER_FIELDS} } }`;
+      case "answerStream":
+        return `subscription($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}) { answerStream(question: $question, locale: $locale) { __typename ... on CmsAnswerVerdict { answerable sources { ${ANSWER_SOURCE_FIELDS} } } ... on CmsAnswerDelta { text } ... on CmsAnswerFinal { ${ANSWER_FIELDS} } } }`;
       case "text":
         return spec.text;
     }
   };
+  /** 回答の応答の、GraphQL の列挙の値（ANSWERED など）をドライバーの値にする。 */
+  const ANSWER_STATUS: Record<string, AnswerStatus> = { ANSWERED: "answered", NO_INFORMATION: "noInformation", VIOLATION_DETECTED: "violationDetected" };
+  const toAnswerResult = (r: Record<string, unknown>): AnswerResult => ({
+    status: ANSWER_STATUS[String(r["status"])] ?? (String(r["status"]) as AnswerStatus),
+    text: r["text"] as string,
+    truncated: r["truncated"] as boolean,
+    sources: r["sources"] as AnswerSource[],
+  });
+  const graphqlErrors = (body: unknown): AnswerError[] => {
+    const errors = (body as { errors?: unknown } | null)?.errors;
+    if (!Array.isArray(errors)) return [];
+    return errors.map((e) => {
+      const code = (e as { extensions?: { code?: unknown } }).extensions?.code;
+      return { code: typeof code === "string" ? code : null, message: String((e as { message?: unknown }).message ?? "") };
+    });
+  };
+  /**
+   * SSE の本文を、イベントの一覧にする（GraphQL over SSE の「別々の接続」の形: `event: next` の data に GraphQL の応答、
+   * 最後に `event: complete`）。
+   */
+  const sseEvents = (text: string): { event: string; data: unknown }[] =>
+    text
+      .split(/\r?\n\r?\n/u)
+      .map((block) => {
+        let event = "message";
+        const data: string[] = [];
+        for (const line of block.split(/\r?\n/u)) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /u, ""));
+        }
+        return { event, raw: data.join("\n") };
+      })
+      .filter((e) => e.event !== "message" || e.raw !== "")
+      .map((e) => ({ event: e.event, data: e.raw === "" ? null : (JSON.parse(e.raw) as unknown) }));
+  const isEventStream = (res: HttpResponse) => (res.headers.get("content-type") ?? "").startsWith("text/event-stream");
   const deliveryAuth = (apiKey: string | null): Auth => (apiKey === null ? { kind: "none" } : { kind: "bearer", token: apiKey });
   // プレビュー用トークンは専用のヘッダーで送る（APIキーの Authorization とは別。server/src/delivery）
   const PREVIEW_HEADER = "X-Cms-Preview-Token";
@@ -981,6 +1027,54 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       const entry = body.data?.[SINGLE];
       if (!entry || !entry.relatedEntries || body.errors) throw new SetupError("関連記事の応答の読み取り", res);
       return entry.relatedEntries;
+    },
+    answerRaw(workspaceIdInUrl: string, apiKey: string, query: RegisteredQuery, input: { question: string; locale?: string }) {
+      return request("POST", `/ws/${workspaceIdInUrl}/graphql`, {
+        auth: deliveryAuth(apiKey),
+        body: { id: query.ref, variables: input },
+        extras: { headers: { Accept: "text/event-stream, application/json" } },
+      });
+    },
+    parseAnswer(res) {
+      if (isEventStream(res)) return null;
+      const body = JSON.parse(res.text) as { data?: { answer?: Record<string, unknown> | null } | null; errors?: unknown };
+      if (body.errors || !body.data?.answer) return null;
+      return toAnswerResult(body.data.answer);
+    },
+    parseAnswerStream(res) {
+      if (!isEventStream(res)) return [];
+      const out: AnswerEvent[] = [];
+      for (const { event, data } of sseEvents(res.text)) {
+        if (event !== "next") continue;
+        const e = (data as { data?: { answerStream?: Record<string, unknown> | null } | null } | null)?.data?.answerStream;
+        if (!e) continue;
+        switch (e["__typename"]) {
+          case "CmsAnswerVerdict":
+            out.push({ type: "verdict", answerable: e["answerable"] as boolean, sources: e["sources"] as AnswerSource[] });
+            break;
+          case "CmsAnswerDelta":
+            out.push({ type: "delta", text: e["text"] as string });
+            break;
+          case "CmsAnswerFinal":
+            out.push({ type: "final", ...toAnswerResult(e) });
+            break;
+          default:
+            throw new SetupError(`回答のイベントの種類 ${String(e["__typename"])} の読み取り`, res);
+        }
+      }
+      return out;
+    },
+    answerErrors(res) {
+      if (!isEventStream(res)) {
+        try {
+          return graphqlErrors(JSON.parse(res.text));
+        } catch {
+          return [{ code: null, message: `HTTP ${res.status}` }];
+        }
+      }
+      return sseEvents(res.text)
+        .filter((e) => e.event === "next")
+        .flatMap((e) => graphqlErrors(e.data));
     },
     deliveryPreviewRaw(
       workspaceIdInUrl: string,

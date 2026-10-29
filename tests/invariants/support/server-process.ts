@@ -146,6 +146,7 @@ export function renderConfig(config: ServerConfig, listen: string): string {
       `embedding_model = ${tomlString(config.llm.embeddingModel)}`,
       `embedding_dimensions = ${config.llm.embeddingDimensions}`,
     );
+    if (config.llm.chatModel !== undefined) lines.push(`chat_model = ${tomlString(config.llm.chatModel)}`);
     if (config.llm.pricePerMillionTokens !== undefined) lines.push(`embedding_price_per_million_tokens = ${config.llm.pricePerMillionTokens}`);
     if (config.llm.defaultWorkspaceTokensPerMonth !== undefined) {
       lines.push(`default_workspace_embedding_tokens_per_month = ${config.llm.defaultWorkspaceTokensPerMonth}`);
