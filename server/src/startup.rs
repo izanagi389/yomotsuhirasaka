@@ -268,6 +268,11 @@ pub fn check_config(config: &Config) -> Report {
             &config.egress.internal_destination_exceptions,
         ));
     }
+    if config.search.related_batch_hour_utc > 23 {
+        report.problems.push(Problem::fatal(
+            "`search.related_batch_hour_utc` must be between 0 and 23",
+        ));
+    }
     if config.audit.retention_days < crate::migrate::MIN_AUDIT_RETENTION_DAYS {
         report.problems.push(Problem::fatal(format!(
             "`audit.retention_days` must be at least {}",

@@ -620,6 +620,9 @@
       },
       "embedding_switch": {
         "started": "Embedding model switch started"
+      },
+      "related": {
+        "recompute_started": "Related entries recomputation started"
       }
     },
     "you": "You",

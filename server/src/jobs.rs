@@ -79,6 +79,36 @@ pub async fn enqueue_debounced<'e>(
     Ok(())
 }
 
+/// 同じ `dedupe_key` のジョブが、待っている・実行中・やり直し待ちのどれでもないときだけ積む。積んだら true。
+pub async fn enqueue_unless_queued<'e>(
+    executor: impl PgExecutor<'e>,
+    keys: &KeyRing,
+    workspace_id: Option<Uuid>,
+    kind: &str,
+    payload: &[u8],
+    max_attempts: i32,
+    dedupe_key: &str,
+) -> Result<bool> {
+    let id = Uuid::new_v4();
+    let sealed = keys.encrypt(payload, &aad(id, kind))?;
+    let done = sqlx::query(
+        "INSERT INTO cms.jobs (id, workspace_id, kind, payload_enc, max_attempts, dedupe_key)
+         SELECT $1, $2, $3, $4, $5, $6
+         WHERE NOT EXISTS (SELECT 1 FROM cms.jobs WHERE dedupe_key = $6 AND failed_at IS NULL)
+         ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND attempts = 0 AND failed_at IS NULL
+         DO NOTHING",
+    )
+    .bind(id)
+    .bind(workspace_id)
+    .bind(kind)
+    .bind(sealed)
+    .bind(max_attempts)
+    .bind(dedupe_key)
+    .execute(executor)
+    .await?;
+    Ok(done.rows_affected() == 1)
+}
+
 /// 取り出したジョブ。
 pub struct Claimed {
     pub id: Uuid,

@@ -130,6 +130,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "embedding_switch",
         include_str!("../migrations/0027_embedding_switch.sql"),
     ),
+    (
+        28,
+        "related_batches",
+        include_str!("../migrations/0028_related_batches.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -167,6 +172,8 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("budget_usage", "SELECT, INSERT, UPDATE"),
     // サーバー管理者が埋め込みモデルの切り替えを開始する（開始のたびに書き直す）
     ("embedding_switch", "SELECT, INSERT, UPDATE"),
+    // 関連記事の毎日の一括計算を、ワークスペースごとに1日1回だけ積む
+    ("related_batches", "SELECT, INSERT, UPDATE"),
     // 管理者が設定を変える（編集の引き継ぎを誰ができるか）
     ("workspace_settings", "SELECT, INSERT, UPDATE"),
     // 管理者が削除する（送信の記録も一緒に消える）
