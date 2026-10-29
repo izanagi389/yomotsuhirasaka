@@ -10,6 +10,7 @@
 //!   起動のときと、ワークスペースを作ったとき）。
 
 pub mod access;
+pub mod batch;
 pub mod chunk;
 pub mod index;
 pub mod query;

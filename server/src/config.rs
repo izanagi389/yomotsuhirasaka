@@ -64,6 +64,9 @@ pub struct Config {
     /// 管理画面や管理APIからは変えられない（ワークスペースごとの上書きはM4）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub llm: Option<LlmConfig>,
+    /// 検索と関連記事（08-search-and-related.md）。
+    #[serde(default)]
+    pub search: SearchConfig,
     /// 管理画面（Nuxt の SPA）の配信。
     #[serde(default)]
     pub admin: AdminConfig,
@@ -100,6 +103,22 @@ impl Default for AlertsConfig {
             rate_limited: 100,
             window_seconds: 300,
             cooldown_seconds: 1800,
+        }
+    }
+}
+
+/// 検索と関連記事。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct SearchConfig {
+    /// 関連記事の毎日の一括計算を始める時刻（UTCの時、0〜23。既定は18 = 日本時間の3時）。
+    pub related_batch_hour_utc: u8,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            related_batch_hour_utc: 18,
         }
     }
 }

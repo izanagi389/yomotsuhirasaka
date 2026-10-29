@@ -213,6 +213,50 @@ pub async fn refresh(
     Ok(())
 }
 
+/// すべての記事の関連記事を計算し直す（毎日の一括計算と、今すぐの再計算）。返す一覧（[`listed`]）が変わった記事のIDを返す。
+/// 記事のベクトルは作らない（検索用データのジョブが作る）。外部とは通信しない。
+pub async fn recompute_all(
+    pool: &PgPool,
+    db: &WorkspaceDb,
+    manifest: &Manifest,
+    vs: &Ident,
+    model: &str,
+    dims: u32,
+) -> Result<Vec<Uuid>> {
+    let d = i32::try_from(dims).unwrap_or(i32::MAX);
+    let mut tx = workspace_db::begin(pool, db).await?;
+    let ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT entry_id FROM search_entry_vectors WHERE model = $1 AND dimensions = $2 ORDER BY entry_id",
+    )
+    .bind(model)
+    .bind(d)
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let mut changed = Vec::new();
+    for entry_id in ids {
+        let mut tx = workspace_db::begin(pool, db).await?;
+        let before = listed(&mut tx, entry_id).await?;
+        if compute(&mut tx, manifest, vs, model, dims, entry_id).await?
+            && listed(&mut tx, entry_id).await? != before
+        {
+            changed.push(entry_id);
+        }
+        tx.commit().await?;
+    }
+    Ok(changed)
+}
+
+/// 今返す一覧（返す時点の照合をかけた、上限 [`MAX_FIRST`] 件のID、並び順のまま）。
+/// 一覧が変わったかを比べるのに使う（08-search-and-related.md「計算のタイミング」、INV-REL-02）。
+pub async fn listed(conn: &mut PgConnection, entry_id: Uuid) -> Result<Vec<Uuid>> {
+    Ok(pick(conn, entry_id, MAX_FIRST)
+        .await?
+        .into_iter()
+        .map(|p| p.entry_id)
+        .collect())
+}
+
 /// 1つの記事の関連記事を計算して保存する。一覧が前と変わったら true（ベクトルがなければ、一覧を消して false）。
 /// `conn` はワークスペースのロールとスキーマに切り替えたトランザクション。
 pub async fn compute(

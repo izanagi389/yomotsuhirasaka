@@ -386,6 +386,7 @@ fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()>
         audit_export: config::AuditExportConfig::default(),
         audit: config::AuditConfig::default(),
         alerts: config::AlertsConfig::default(),
+        search: config::SearchConfig::default(),
     };
     let report = startup::check_config(&Config {
         encryption_key_file: None,
@@ -904,6 +905,7 @@ async fn serve(config: Config) -> Result<()> {
     cms_server::http::realtime::spawn_listener(state.clone());
     worker::spawn(state.clone());
     worker::spawn_sweeper(state.clone());
+    cms_server::search::batch::spawn_scheduler(state.clone());
     cms_server::audit_export::spawn(state.clone());
     cms_server::alerts::spawn(state.pool.clone(), state.config.alerts.clone());
     let app = http::router(state);

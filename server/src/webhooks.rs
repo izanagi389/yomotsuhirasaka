@@ -224,6 +224,79 @@ pub async fn emit_schedule(
     enqueue_all(pool, keys, workspace_id, kind, Some(entry.id), &body).await
 }
 
+/// 関連記事の一覧が変わった記事を知らせるイベント（08-search-and-related.md「計算のタイミング」、INV-REL-02）。
+pub const RELATED_CHANGED_EVENT: &str = "entries.related_changed";
+/// 1通に入れる記事の数の上限。超えたら分けて送る。
+pub const RELATED_PER_DELIVERY: usize = 100;
+
+/// 関連記事のイベントの本文。記事の参照だけを含める（INV-WH-07）。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RelatedBody<'a> {
+    #[serde(rename = "type")]
+    kind: &'a str,
+    workspace_id: Uuid,
+    /// 一括計算（または固定・除外の変更）1回ごとのID。分けて送った通はすべて同じ。
+    run_id: Uuid,
+    /// 何通目か（1から）と、全部で何通か。
+    part: usize,
+    parts: usize,
+    entries: Vec<RelatedEntryRef<'a>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RelatedEntryRef<'a> {
+    entry_id: Uuid,
+    translation_group_id: Uuid,
+    locale: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<&'a str>,
+}
+
+/// 関連記事の一覧が変わった記事を、[`RELATED_PER_DELIVERY`] 件ずつに分けて、すべての送信先に送る（ジョブを積む）。
+/// 送信先がなければ何もしない。操作を確定（commit）した後に呼ぶ。
+pub async fn emit_related_changed(
+    pool: &PgPool,
+    keys: &KeyRing,
+    workspace_id: Uuid,
+    entries: &[EntryRef],
+) -> Result<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let hooks: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM cms.webhooks WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .fetch_one(pool)
+            .await?;
+    if hooks == 0 {
+        return Ok(());
+    }
+    let run_id = Uuid::new_v4();
+    let parts = entries.len().div_ceil(RELATED_PER_DELIVERY);
+    for (i, chunk) in entries.chunks(RELATED_PER_DELIVERY).enumerate() {
+        let body = serde_json::to_string(&RelatedBody {
+            kind: RELATED_CHANGED_EVENT,
+            workspace_id,
+            run_id,
+            part: i + 1,
+            parts,
+            entries: chunk
+                .iter()
+                .map(|e| RelatedEntryRef {
+                    entry_id: e.id,
+                    translation_group_id: e.translation_group_id,
+                    locale: &e.locale,
+                    url: e.url.as_deref(),
+                })
+                .collect(),
+        })?;
+        enqueue_all(pool, keys, workspace_id, RELATED_CHANGED_EVENT, None, &body).await?;
+    }
+    Ok(())
+}
+
 /// すべての送信先にジョブを積む（1つのイベントに1つのイベントID）。
 async fn enqueue_all(
     pool: &PgPool,

@@ -91,6 +91,8 @@ pub mod action {
     pub const BUDGET_EXHAUSTED: &str = "budget.exhausted";
     /// 埋め込みモデルの切り替えを始めた・再開した（サーバー管理者。インスタンス全体の記録）。
     pub const EMBEDDING_SWITCH_STARTED: &str = "embedding_switch.started";
+    /// 関連記事の一括再計算を今すぐ始めた（M3。公開の操作と同じく、サーバー管理者が操作したときだけ）。
+    pub const RELATED_RECOMPUTE_STARTED: &str = "related.recompute_started";
     pub const WEBHOOK_CREATED: &str = "webhook.created";
     /// 監査ログの書き出し先（ワークスペース）の作成・削除・再開（計画の14番）。
     pub const AUDIT_SINK_CREATED: &str = "audit_sink.created";

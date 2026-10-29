@@ -4,14 +4,20 @@
 //! |---|---|---|---|
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/related | 固定（順番付き）と除外の翻訳グループ | 所属者・サーバー管理者 |
 //! | PUT | /api/admin/workspaces/{ws}/entries/{id}/related | 固定と除外を置き換える。その記事の関連記事を、その場で計算し直す | 公開できる人（編集者・管理者）・サーバー管理者 |
+//! | POST | /api/admin/workspaces/{ws}/related/recompute | ワークスペースの関連記事を、今すぐ一括で計算し直す（ジョブを積んで 202） | 管理者・サーバー管理者 |
 //!
 //! - 固定・除外は版ではなく記事に持ち、変えたらすぐに効く。指すのは翻訳グループで、返すときに同じロケールの記事へ解決する。
 //! - 検査: 固定は [`MAX_PINNED`] 件、除外は [`MAX_EXCLUDED`] 件まで。同じワークスペースの、同じコンテンツタイプの翻訳グループで、
 //!   自分の翻訳グループは指せない。固定と除外の両方には入れられない。指した記事が後で非公開・削除になっても設定は残し、返すときに落とす。
+//! - 固定・除外を変えて、返す一覧（`related::listed`）が変わったら、その記事を Webhook（`entries.related_changed`）で知らせる
+//!   （INV-REL-02）。一括再計算で変わった記事も、同じイベントで知らせる（`search::batch`）。
+//! - 一括再計算は、保存済みのベクトルを使うのでLLMの費用はかからない。同じワークスペースの一括計算が待っている・実行中なら、
+//!   新しく積まない。
 //! - 監査ログは、公開の操作と同じく、サーバー管理者が操作したときに残す。
 
 use axum::Json;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -20,8 +26,10 @@ use super::admin_entries::{db, parse, reader};
 use super::admin_publishing::publisher;
 use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
+use crate::access::Role;
 use crate::audit::{self, action};
-use crate::workspace_db;
+use crate::search::related;
+use crate::{webhooks, workspace_db};
 
 /// 固定と除外の数の上限。
 pub const MAX_PINNED: usize = 5;
@@ -133,6 +141,7 @@ pub async fn put(
             "Every translation group must belong to an entry of the same content type in this workspace.",
         ));
     }
+    let before = related::listed(&mut tx, id).await?;
     sqlx::query(
         "INSERT INTO related_settings (entry_id, pinned, excluded, updated_by, updated_at)
          VALUES ($1, $2, $3, $4, now())
@@ -163,7 +172,12 @@ pub async fn put(
         }
     }
     let settings = read_settings(&mut tx, id).await?;
+    let changed = related::listed(&mut tx, id).await? != before;
+    let entry = webhooks::entry_ref(&mut tx, id).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
+    if changed && let Some(entry) = entry {
+        webhooks::emit_related_changed(&state.pool, &state.keys, ws, &[entry]).await?;
+    }
     if access.server_admin {
         audit::record(
             &state.pool,
@@ -175,4 +189,35 @@ pub async fn put(
         .await?;
     }
     Ok(Json(settings))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Recompute {
+    /// 新しくジョブを積んだか（同じワークスペースの一括計算が待っている・実行中なら false）。
+    queued: bool,
+}
+
+pub async fn recompute(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path(ws): Path<String>,
+) -> Result<(StatusCode, Json<Recompute>), ApiError> {
+    let ws = parse(&ws)?;
+    let access = reader(&state, &current, ws).await?;
+    if !(access.server_admin || access.role == Some(Role::Admin)) {
+        return Err(crate::access::Denied::Forbidden.into());
+    }
+    let queued = crate::search::batch::enqueue(&state.pool, &state.keys, ws).await?;
+    if access.server_admin {
+        audit::record(
+            &state.pool,
+            Some(ws),
+            Some(current.user_id),
+            action::RELATED_RECOMPUTE_STARTED,
+            &[],
+        )
+        .await?;
+    }
+    Ok((StatusCode::ACCEPTED, Json(Recompute { queued })))
 }

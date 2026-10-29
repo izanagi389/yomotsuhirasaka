@@ -620,6 +620,9 @@
       },
       "embedding_switch": {
         "started": "埋め込みモデルの切り替えの開始"
+      },
+      "related": {
+        "recompute_started": "関連記事の一括再計算の開始"
       }
     },
     "you": "あなた",

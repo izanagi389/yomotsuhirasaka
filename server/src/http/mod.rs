@@ -347,6 +347,10 @@ pub fn router(state: AppState) -> Router {
             get(admin_related::get).put(admin_related::put),
         )
         .route(
+            "/workspaces/{ws}/related/recompute",
+            post(admin_related::recompute),
+        )
+        .route(
             "/workspaces/{ws}/entries/{id}/publish-settings",
             get(admin_publishing::get_settings).patch(admin_publishing::change_settings),
         )
