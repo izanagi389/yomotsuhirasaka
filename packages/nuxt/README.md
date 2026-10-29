@@ -154,6 +154,66 @@ useCmsAiMeta(() => data.value?.postBySlug); // <meta name="robots" content="noai
 
 これらはクローラーへの意思表示であって、技術的に止めるものではありません。
 
+### サイト内検索（`search` を設定したとき）
+
+CMSの検索（ベクトル検索とキーワード検索の組み合わせ）を、サイトのサーバーのルート（既定は `/_cms/search`）を通して使います。ブラウザから配信APIは呼びません。サイトのサーバーが要るので、`nuxt generate` では使えません（ビルドを止めます）。
+
+```ts
+// nuxt.config.ts
+cms: { search: { rateLimit: { perMinute: 30, ipHeader: "cf-connecting-ip" } } }
+```
+
+```vue
+<!-- 部品を使う（見た目はサイトが決める。文言はすべてサイトが渡す） -->
+<CmsSearchBox label="サイト内を検索" locale="ja">
+  <template #loading>検索しています…</template>
+  <template #empty>見つかりませんでした。</template>
+  <template #rateLimited>しばらくしてからもう一度お試しください。</template>
+</CmsSearchBox>
+```
+
+```vue
+<!-- 自分で描く -->
+<script setup lang="ts">
+const { text, result, status } = useCmsSearch({ locale: "ja", mode: "HYBRID", first: 10 });
+</script>
+
+<template>
+  <input v-model="text" type="search" aria-label="サイト内を検索" />
+  <ol v-if="result">
+    <li v-for="hit in result.hits" :key="hit.entryId">
+      <a :href="`${hit.url}#${hit.anchor}`">{{ hit.breadcrumb.join(" › ") }}</a>
+      <p><template v-for="(s, i) in cmsHighlight(hit.excerpt, hit.matches)" :key="i"><mark v-if="s.match">{{ s.text }}</mark><template v-else>{{ s.text }}</template></template></p>
+    </li>
+  </ol>
+</template>
+```
+
+| 設定 | 内容 |
+|---|---|
+| `route` | サイトのサーバーのルート（既定は `/_cms/search`）。`?q=&locale=&mode=&first=` で呼ぶ |
+| `rateLimit.perMinute` | 訪問者のIPアドレスごとの1分あたりの回数（既定は 30）。超えると 429 |
+| `rateLimit.ipHeader` | 訪問者のIPアドレスを読むヘッダー（例: `cf-connecting-ip`、`x-forwarded-for`）。既定は空で、接続元のアドレスを使う |
+
+- 回数の制限は、訪問者の入力のたびにCMSが呼ばれ、ベクトル検索ならワークスペースの埋め込みの予算も減るためです。数えるのはサイトのサーバーのメモリの中だけです（プロセスごと）。
+- CDN やリバースプロキシの後ろでは、接続元のアドレスが全員同じになり、訪問者全員で1つの上限を共有します。手前のプロキシが付けるヘッダーを `ipHeader` に書いてください（`x-forwarded-for` はいちばん右の値を使います）。訪問者が偽れるヘッダーは書かないでください。本番のビルドで空のままなら、ビルドのログに注意を出します。
+- 検索語は 500 文字まで。空の検索語では CMS を呼ばずに空の結果を返します。同じ検索の結果は 60 秒だけサーバーの中に覚えておき、CMSのWebhookを受けたら消します。応答は `Cache-Control: private, no-store` です。
+- `useCmsSearch` の `locale` は必須です（サイトのロケールの決め方はサイトごとに違うので、モジュールは推測しません）。既定は `HYBRID` で 10 件（上限 50）。入力が止まってから（既定 300 ミリ秒）検索し、後から始めた検索の結果を古い結果で上書きしません。`status` は `idle`・`loading`・`done`・`error`・`rateLimited` です。
+- `<CmsSearchBox>` は、`<search>` の中にラベル付きの検索欄と結果の `<ol>` を描きます。クラスもスタイルも、決まった文言も持ちません。状態はスロット（`loading`・`empty`・`budgetExhausted`・`keywordDisabled`・`rateLimited`・`error`）でだけ描きます。結果1件は `#hit="{ hit, href, segments }"` で置き換えられます。既定は、パンくず（なければURL）のリンクと、一致した箇所を `<mark>` で囲んだ抜粋です。
+- 結果の `breadcrumb` に記事のタイトルが入るのは、タイトルのフィールドが検索の対象のときだけです。`vectorSearch` が `BUDGET_EXHAUSTED` なら埋め込みの予算切れ（キーワード検索の結果だけ）、`keywordSearch` が `DISABLED` なら日本語の全文検索の拡張がないCMSです。
+- 検索のクエリはモジュールが登録します（`cms/queries/cmsSearch.graphql` という名前は使えません）。
+
+### 関連記事
+
+関連記事は、記事のクエリに `relatedEntries` を足せば取れます（モジュールの設定は要りません）。非公開・削除された記事は、CMSが返すときに落とします。
+
+```graphql
+postBySlug(slug: $slug, locale: $locale) { title body relatedEntries(first: 5) { id url title pinned } }
+```
+
+- 同じコンテンツタイプ・同じロケールの記事だけが返ります。編集者が固定した記事が先頭です。
+- CMSは毎日の一括計算の後などに、一覧が変わった記事を `entries.related_changed` のWebhookで知らせます。このモジュールは関連記事を覚えていないので、受け口ではほかのイベントと同じくキャッシュを消すだけです。ページをキャッシュしているサイト（ISR など）は、この知らせで該当する記事のページを作り直してください。
+
 ## 開発
 
 ```sh

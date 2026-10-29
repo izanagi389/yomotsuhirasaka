@@ -549,6 +549,12 @@ fn search_hit_type() -> Object {
             TypeRef::named_nn(TypeRef::STRING),
             |h| Some(GqlValue::from(h.locale.clone())),
         ))
+        .field(
+            value_field::<Hit, _>("url", TypeRef::named(TypeRef::STRING), |h| {
+                h.url.clone().map(GqlValue::from)
+            })
+            .description("The entry's public URL, without the anchor. Link to `url#anchor` for the section."),
+        )
         .field(value_field::<Hit, _>(
             "anchor",
             TypeRef::named(TypeRef::STRING),
