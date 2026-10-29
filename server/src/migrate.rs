@@ -135,6 +135,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "related_batches",
         include_str!("../migrations/0028_related_batches.sql"),
     ),
+    (
+        29,
+        "answer_budgets",
+        include_str!("../migrations/0029_answer_budgets.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。

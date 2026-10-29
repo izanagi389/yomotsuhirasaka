@@ -359,6 +359,15 @@ pub struct SetLimits {
     embedding_tokens_per_month: Option<Option<i64>>,
     #[serde(default, deserialize_with = "present")]
     embedding_tokens_per_day: Option<Option<i64>>,
+    /// 訪問者向けの回答の予算の天井（トークン数、入力・出力別、UTCの暦の月・日。M4）。null と「項目なし」は埋め込みと同じ。
+    #[serde(default, deserialize_with = "present")]
+    answer_input_tokens_per_month: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "present")]
+    answer_input_tokens_per_day: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "present")]
+    answer_output_tokens_per_month: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "present")]
+    answer_output_tokens_per_day: Option<Option<i64>>,
 }
 
 /// 項目が「ない」ことと「null」を区別する（ない: None、null: Some(None)）。
@@ -391,6 +400,33 @@ pub async fn set_limits(
     {
         return Err(ApiError::bad_request(
             "`embeddingTokensPerMonth` and `embeddingTokensPerDay` must not be negative.",
+        ));
+    }
+    // 回答の予算の天井（決まった4つの列。SQL は固定の文）
+    let answer = [
+        (
+            "UPDATE cms.workspace_limits SET answer_input_tokens_per_month = $2 WHERE workspace_id = $1",
+            req.answer_input_tokens_per_month,
+        ),
+        (
+            "UPDATE cms.workspace_limits SET answer_input_tokens_per_day = $2 WHERE workspace_id = $1",
+            req.answer_input_tokens_per_day,
+        ),
+        (
+            "UPDATE cms.workspace_limits SET answer_output_tokens_per_month = $2 WHERE workspace_id = $1",
+            req.answer_output_tokens_per_month,
+        ),
+        (
+            "UPDATE cms.workspace_limits SET answer_output_tokens_per_day = $2 WHERE workspace_id = $1",
+            req.answer_output_tokens_per_day,
+        ),
+    ];
+    if answer
+        .iter()
+        .any(|(_, v)| v.flatten().is_some_and(|t| t < 0))
+    {
+        return Err(ApiError::bad_request(
+            "The answer token limits must not be negative.",
         ));
     }
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
@@ -429,7 +465,20 @@ pub async fn set_limits(
         .await
         .map_err(anyhow::Error::from)?;
     }
+    for (sql, value) in answer {
+        if let Some(v) = value {
+            sqlx::query(sql)
+                .bind(ws)
+                .bind(v)
+                .execute(&mut *tx)
+                .await
+                .map_err(anyhow::Error::from)?;
+        }
+    }
     tx.commit().await.map_err(anyhow::Error::from)?;
+    if answer.iter().any(|(_, v)| v.is_some()) {
+        crate::budget::resumed(&state.pool, ws, crate::budget::Kind::VisitorAnswers).await?;
+    }
     if req.embedding_tokens_per_month.is_some() || req.embedding_tokens_per_day.is_some() {
         crate::budget::resumed(&state.pool, ws, crate::budget::Kind::Embedding).await?;
         // 予算で止まっていた検索用データの作成を、すぐにやり直す
