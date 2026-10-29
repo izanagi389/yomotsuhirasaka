@@ -2,7 +2,7 @@
 //!
 //! | メソッド | パス | 内容 | 誰が |
 //! |---|---|---|---|
-//! | GET | /api/admin/workspaces/{ws}/entries/{id}/related | 固定（順番付き）と除外の翻訳グループ | 所属者・サーバー管理者 |
+//! | GET | /api/admin/workspaces/{ws}/entries/{id}/related | 固定（順番付き）と除外の翻訳グループと、今返している一覧 | 所属者・サーバー管理者 |
 //! | PUT | /api/admin/workspaces/{ws}/entries/{id}/related | 固定と除外を置き換える。その記事の関連記事を、その場で計算し直す | 公開できる人（編集者・管理者）・サーバー管理者 |
 //! | POST | /api/admin/workspaces/{ws}/related/recompute | ワークスペースの関連記事を、今すぐ一括で計算し直す（ジョブを積んで 202） | 管理者・サーバー管理者 |
 //!
@@ -35,11 +35,47 @@ use crate::{webhooks, workspace_db};
 pub const MAX_PINNED: usize = 5;
 pub const MAX_EXCLUDED: usize = 50;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RelatedSettings {
     pinned: Vec<Uuid>,
     excluded: Vec<Uuid>,
+}
+
+/// 一覧で見せる1件（今返している関連記事。配信と同じ照合をかけた上限 10 件）。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Current {
+    entry_id: Uuid,
+    pinned: bool,
+    score: f64,
+}
+
+/// GET・PUT の応答: 固定と除外と、今返している一覧（固定・除外を決める材料に見せる）。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedView {
+    pinned: Vec<Uuid>,
+    excluded: Vec<Uuid>,
+    current: Vec<Current>,
+}
+
+async fn view(conn: &mut sqlx::PgConnection, entry_id: Uuid) -> Result<RelatedView, ApiError> {
+    let RelatedSettings { pinned, excluded } = read_settings(conn, entry_id).await?;
+    let current = related::pick(conn, entry_id, related::MAX_FIRST)
+        .await?
+        .into_iter()
+        .map(|p| Current {
+            entry_id: p.entry_id,
+            pinned: p.pinned,
+            score: p.score,
+        })
+        .collect();
+    Ok(RelatedView {
+        pinned,
+        excluded,
+        current,
+    })
 }
 
 async fn read_settings(
@@ -74,7 +110,7 @@ pub async fn get(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
     Path((ws, id)): Path<(String, String)>,
-) -> Result<Json<RelatedSettings>, ApiError> {
+) -> Result<Json<RelatedView>, ApiError> {
     let (ws, id) = (parse(&ws)?, parse(&id)?);
     reader(&state, &current, ws).await?;
     let db = db(&state, ws).await?;
@@ -82,7 +118,7 @@ pub async fn get(
     if entry_of(&mut tx, id).await?.is_none() {
         return Err(ApiError::not_found());
     }
-    let settings = read_settings(&mut tx, id).await?;
+    let settings = view(&mut tx, id).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(settings))
 }
@@ -99,7 +135,7 @@ pub async fn put(
     AuthSession(current): AuthSession,
     Path((ws, id)): Path<(String, String)>,
     JsonBody(req): JsonBody<RelatedSettings>,
-) -> Result<Json<RelatedSettings>, ApiError> {
+) -> Result<Json<RelatedView>, ApiError> {
     let (ws, id) = (parse(&ws)?, parse(&id)?);
     let access = publisher(&state, &current, ws).await?;
     if req.pinned.len() > MAX_PINNED || req.excluded.len() > MAX_EXCLUDED {
@@ -171,8 +207,13 @@ pub async fn put(
             .await?;
         }
     }
-    let settings = read_settings(&mut tx, id).await?;
-    let changed = related::listed(&mut tx, id).await? != before;
+    let settings = view(&mut tx, id).await?;
+    let changed = settings
+        .current
+        .iter()
+        .map(|c| c.entry_id)
+        .collect::<Vec<_>>()
+        != before;
     let entry = webhooks::entry_ref(&mut tx, id).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     if changed && let Some(entry) = entry {

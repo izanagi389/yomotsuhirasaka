@@ -300,7 +300,8 @@
     "settings": "Publish settings",
     "urls": "URL history",
     "freshness": "Freshness",
-    "review": "Review"
+    "review": "Review",
+    "related": "Related"
   },
   "translations": {
     "source": "Source entry",
@@ -1004,5 +1005,27 @@
       "switched": "Switched",
       "needsMigration": "Needs migration"
     }
+  },
+  "related": {
+    "note": "Related entries are chosen automatically by how close the whole entries are in content. Pinned entries come first, in the pinned order. Excluded entries are never shown. Pins and exclusions point to translation groups and are returned as the entry in this entry's locale. Changes take effect immediately.",
+    "needPermission": "Only people who can publish (editors and admins) can change pins and exclusions.",
+    "current": "Related entries returned now",
+    "none": "None yet (they are computed once the search data is ready).",
+    "pinnedBadge": "Pinned",
+    "pinned": "Pinned (up to {max})",
+    "nonePinned": "No pinned entries.",
+    "excluded": "Excluded (up to {max})",
+    "noneExcluded": "No excluded entries.",
+    "addPinned": "Choose an entry to pin",
+    "addExcluded": "Choose an entry to exclude",
+    "remove": "Remove",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "unknownEntry": "Deleted entry",
+    "recomputeTitle": "Recompute related entries",
+    "recomputeHelp": "Related entries are recomputed every day at a set time. You can recompute them now, for example after changing the template. It uses stored data, so it has no LLM cost.",
+    "recompute": "Recompute now",
+    "queued": "Started. The results appear in a few minutes.",
+    "alreadyQueued": "A recomputation is already waiting or running."
   }
 }

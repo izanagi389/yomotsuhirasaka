@@ -16,6 +16,7 @@ import PreviewPanel from "~/components/entry/PreviewPanel.vue";
 import PublishDialog from "~/components/entry/PublishDialog.vue";
 import EditLockBanner from "~/components/entry/EditLockBanner.vue";
 import EntryTodoNotice from "~/components/entry/EntryTodoNotice.vue";
+import RelatedPanel from "~/components/entry/RelatedPanel.vue";
 import ReviewPanel from "~/components/entry/ReviewPanel.vue";
 import ScheduleNotice from "~/components/entry/ScheduleNotice.vue";
 import SourceDiffDialog from "~/components/entry/SourceDiffDialog.vue";
@@ -98,7 +99,7 @@ const title = computed(() => (draft.value ? entryTitle(contentType.value, values
 
 // タブ（内容のタブは、エディタの状態を保つため、ほかのタブを開いている間も残しておく）
 // ?tab=review などで、開くタブを選べる（「要対応」の一覧から）
-const TABS = ["content", "preview", "translations", "versions", "review", "freshness", "settings", "urls"];
+const TABS = ["content", "preview", "translations", "versions", "review", "freshness", "related", "settings", "urls"];
 const tab = ref(TABS.includes(String(route.query["tab"])) ? String(route.query["tab"]) : "content");
 // プレビューのタブを一度でも開いたか（開いたら、ほかのタブに移っても iframe を残す）
 const previewOpened = ref(tab.value === "preview");
@@ -250,6 +251,7 @@ onBeforeRouteLeave(async () => {
             <span v-if="review?.open" class="ml-1 inline-block size-2 rounded-full bg-amber-500" :aria-label="t('review.waiting')" />
           </TabsTrigger>
           <TabsTrigger value="freshness">{{ t("entryTabs.freshness") }}</TabsTrigger>
+          <TabsTrigger value="related" data-testid="tab-related">{{ t("entryTabs.related") }}</TabsTrigger>
           <TabsTrigger value="settings">{{ t("entryTabs.settings") }}</TabsTrigger>
           <TabsTrigger value="urls">{{ t("entryTabs.urls") }}</TabsTrigger>
         </TabsList>
@@ -293,6 +295,9 @@ onBeforeRouteLeave(async () => {
         </TabsContent>
         <TabsContent value="freshness" class="mt-4">
           <FreshnessPanel :key="published" :workspace-id="ws" :entry-id="id" :editable="canPublish(workspace)" :can-verify="hasPermission(workspace, 'corrections')" />
+        </TabsContent>
+        <TabsContent value="related" class="mt-4">
+          <RelatedPanel :workspace-id="ws" :entry-id="id" :content-type="contentType" :locale="draft.locale" :entries="entries ?? []" :editable="canPublish(workspace)" />
         </TabsContent>
         <TabsContent value="settings" class="mt-4">
           <SettingsPanel :workspace-id="ws" :entry-id="id" :editable="hasPermission(workspace, 'policySwitches')" />

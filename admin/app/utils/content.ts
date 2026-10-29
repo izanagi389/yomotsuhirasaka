@@ -452,6 +452,13 @@ export interface TodoItem {
   budget?: "embedding";
 }
 
+/** GET/PUT /workspaces/{ws}/entries/{id}/related（固定と除外は翻訳グループ。current は今返している一覧）。 */
+export interface RelatedView {
+  pinned: string[];
+  excluded: string[];
+  current: { entryId: string; pinned: boolean; score: number }[];
+}
+
 /** 埋め込みモデルの切り替えの、ワークスペースごとの状態。 */
 export type EmbeddingSwitchState = "notStarted" | "inProgress" | "paused" | "switched" | "needsMigration";
 

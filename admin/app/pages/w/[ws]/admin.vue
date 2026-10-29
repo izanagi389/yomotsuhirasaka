@@ -8,6 +8,7 @@ import AuditSinksPanel from "~/components/admin/AuditSinksPanel.vue";
 import CorrectionTemplatesPanel from "~/components/admin/CorrectionTemplatesPanel.vue";
 import InvitationsPanel from "~/components/admin/InvitationsPanel.vue";
 import MembersPanel from "~/components/admin/MembersPanel.vue";
+import RelatedRecomputePanel from "~/components/admin/RelatedRecomputePanel.vue";
 import WebhooksPanel from "~/components/admin/WebhooksPanel.vue";
 import WorkspaceSettingsPanel from "~/components/admin/WorkspaceSettingsPanel.vue";
 import type { MemberInfo } from "~/utils/admin";
@@ -48,7 +49,10 @@ watch(tab, async (v) => {
         <TabsTrigger value="settings">{{ t("adminTabs.settings") }}</TabsTrigger>
       </TabsList>
       <TabsContent value="members" class="mt-4"><MembersPanel :workspace-id="ws" /></TabsContent>
-      <TabsContent value="settings" class="mt-4"><WorkspaceSettingsPanel :workspace-id="ws" /></TabsContent>
+      <TabsContent value="settings" class="mt-4 grid gap-8">
+        <WorkspaceSettingsPanel :workspace-id="ws" />
+        <RelatedRecomputePanel :workspace-id="ws" />
+      </TabsContent>
       <TabsContent value="invitations" class="mt-4"><InvitationsPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="apiKeys" class="mt-4"><ApiKeysPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="webhooks" class="mt-4"><WebhooksPanel :workspace-id="ws" /></TabsContent>
