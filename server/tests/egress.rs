@@ -2,9 +2,10 @@
 //! 手元で待ち受ける相手（127.0.0.1）を例外として許し、実際に送って確かめる。
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use cms_server::config::{EgressConfig, EgressProxyConfig, ProxyConnectBy};
-use cms_server::egress::{Egress, EgressError, EgressRequest};
+use cms_server::egress::{Egress, EgressError, EgressRequest, StreamLimits};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpListener;
 
@@ -214,4 +215,225 @@ fn unreadable_ca_file_is_an_error() {
         ..Default::default()
     });
     assert!(err.is_err());
+}
+
+// --- 本文を少しずつ受け取る送り方（send_streaming）---
+
+/// 応答の先頭を `head_delay` 待ってから返し、本文を chunked で、決めた間隔をおいて1つずつ返す相手。
+async fn streaming_peer(head_delay: Duration, chunks: Vec<(Duration, &'static str)>) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = listener.accept().await else {
+                return;
+            };
+            let chunks = chunks.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 65536];
+                let mut got = Vec::new();
+                while !got.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let n = s.read(&mut buf).await.unwrap_or(0);
+                    if n == 0 {
+                        return;
+                    }
+                    got.extend_from_slice(&buf[..n]);
+                }
+                tokio::time::sleep(head_delay).await;
+                let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n";
+                if s.write_all(head.as_bytes()).await.is_err() {
+                    return;
+                }
+                for (delay, data) in chunks {
+                    tokio::time::sleep(delay).await;
+                    let frame = format!("{:x}\r\n{data}\r\n", data.len());
+                    if s.write_all(frame.as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+                let _ = s.write_all(b"0\r\n\r\n").await;
+                let _ = s.shutdown().await;
+            });
+        }
+    });
+    port
+}
+
+fn limits() -> StreamLimits {
+    StreamLimits {
+        first_byte: Duration::from_secs(5),
+        idle: Duration::from_secs(5),
+        total: Duration::from_secs(10),
+        max_body_bytes: 1024,
+    }
+}
+
+/// 本文を終わりまで読む。途中で失敗したら、それまでに読んだものと失敗の理由を返す。
+async fn read_all(
+    stream: &mut cms_server::egress::EgressStream,
+) -> (Vec<String>, Option<EgressError>) {
+    let mut out = Vec::new();
+    loop {
+        match stream.next_chunk().await {
+            Ok(Some(b)) => out.push(String::from_utf8(b.to_vec()).unwrap()),
+            Ok(None) => return (out, None),
+            Err(e) => return (out, Some(e)),
+        }
+    }
+}
+
+#[tokio::test]
+async fn streaming_returns_chunks_as_they_arrive() {
+    let ms = Duration::from_millis;
+    let port = streaming_peer(
+        ms(0),
+        vec![
+            (ms(0), "data: a\n\n"),
+            (ms(100), "data: b\n\n"),
+            (ms(100), "data: c\n\n"),
+        ],
+    )
+    .await;
+    let mut stream = egress(allow_local())
+        .send_streaming(
+            post(format!("http://127.0.0.1:{port}/v1/chat"), None),
+            limits(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stream.status(), 200);
+    let (chunks, err) = read_all(&mut stream).await;
+    assert_eq!(err, None);
+    assert_eq!(chunks.concat(), "data: a\n\ndata: b\n\ndata: c\n\n");
+    // 終わった後は、何度読んでも None
+    assert!(stream.next_chunk().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn streaming_stops_when_the_first_byte_is_late() {
+    let ms = Duration::from_millis;
+    let port = streaming_peer(ms(800), vec![(ms(0), "data: a\n\n")]).await;
+    let err = egress(allow_local())
+        .send_streaming(
+            post(format!("http://127.0.0.1:{port}/"), None),
+            StreamLimits {
+                first_byte: ms(200),
+                ..limits()
+            },
+        )
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(err, EgressError::Timeout);
+}
+
+#[tokio::test]
+async fn streaming_stops_when_data_stops_arriving() {
+    let ms = Duration::from_millis;
+    let port = streaming_peer(
+        ms(0),
+        vec![(ms(0), "data: a\n\n"), (ms(800), "data: b\n\n")],
+    )
+    .await;
+    let mut stream = egress(allow_local())
+        .send_streaming(
+            post(format!("http://127.0.0.1:{port}/"), None),
+            StreamLimits {
+                idle: ms(200),
+                ..limits()
+            },
+        )
+        .await
+        .unwrap();
+    let (chunks, err) = read_all(&mut stream).await;
+    assert_eq!(chunks, vec!["data: a\n\n"]);
+    assert_eq!(err, Some(EgressError::Timeout));
+    // 止めた後は読まない
+    assert!(stream.next_chunk().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn streaming_stops_at_the_total_time_limit() {
+    let ms = Duration::from_millis;
+    // データは途切れずに来続けるが、全体の時間の上限で止まる
+    let port = streaming_peer(ms(0), (0..30).map(|_| (ms(100), "data: x\n\n")).collect()).await;
+    let mut stream = egress(allow_local())
+        .send_streaming(
+            post(format!("http://127.0.0.1:{port}/"), None),
+            StreamLimits {
+                idle: ms(1000),
+                total: ms(600),
+                ..limits()
+            },
+        )
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let (chunks, err) = read_all(&mut stream).await;
+    assert_eq!(err, Some(EgressError::Timeout));
+    assert!(chunks.len() < 30, "{}", chunks.len());
+    assert!(started.elapsed() < ms(1500), "{:?}", started.elapsed());
+}
+
+#[tokio::test]
+async fn streaming_stops_when_the_body_is_too_large() {
+    let ms = Duration::from_millis;
+    let port = streaming_peer(ms(0), vec![(ms(0), "abc"), (ms(50), "def")]).await;
+    let mut stream = egress(allow_local())
+        .send_streaming(
+            post(format!("http://127.0.0.1:{port}/"), None),
+            StreamLimits {
+                max_body_bytes: 5,
+                ..limits()
+            },
+        )
+        .await
+        .unwrap();
+    let (chunks, err) = read_all(&mut stream).await;
+    assert_eq!(chunks, vec!["abc"]);
+    assert_eq!(err, Some(EgressError::ResponseTooLarge));
+}
+
+#[tokio::test]
+async fn streaming_checks_the_destination_like_send() {
+    let ms = Duration::from_millis;
+    let port = streaming_peer(ms(0), vec![(ms(0), "data: a\n\n")]).await;
+    // 例外がなければ、内部向けの宛先にもHTTPにも送らない
+    let e = egress(EgressConfig::default());
+    for url in [
+        format!("http://127.0.0.1:{port}/"),
+        format!("https://127.0.0.1:{port}/"),
+    ] {
+        let err = e
+            .send_streaming(post(url.clone(), None), limits())
+            .await
+            .err()
+            .unwrap();
+        assert!(
+            matches!(
+                err,
+                EgressError::InternalDestination | EgressError::SchemeNotAllowed
+            ),
+            "{url}: {err}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn streaming_does_not_follow_redirects() {
+    let (target_port, target_seen) = peer("HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n").await;
+    let location: &'static str = Box::leak(
+        format!("HTTP/1.1 307 Temporary Redirect\r\nlocation: http://127.0.0.1:{target_port}/final\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+            .into_boxed_str(),
+    );
+    let (port, _) = peer(location).await;
+    let mut stream = egress(allow_local())
+        .send_streaming(post(format!("http://127.0.0.1:{port}/"), None), limits())
+        .await
+        .unwrap();
+    assert_eq!(stream.status(), 307);
+    let (chunks, err) = read_all(&mut stream).await;
+    assert_eq!((chunks.len(), err), (0, None));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(target_seen.lock().unwrap().is_empty());
 }

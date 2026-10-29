@@ -11,12 +11,14 @@
 //! - プロキシの環境変数は使わない。出口のプロキシは設定で明示したときだけ使い、
 //!   既定では中継の依頼（CONNECT）の宛先に、検査したIPアドレスを指定する（Q128）。
 //! - 相手の応答の本文は、呼び出し側が上限を付けて求めたときだけ読む。管理APIの応答には出さない（Q112）。
+//! - LLMのストリーミングの応答のように、本文を少しずつ受け取る送り方（`send_streaming`）もある。
+//!   最初の応答まで・次のデータまで・全体の時間と、本文の大きさに、必ず上限を付ける。
 
 pub mod address;
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use http_body_util::{BodyExt as _, Full, Limited};
@@ -97,6 +99,89 @@ pub struct EgressResponse {
     pub status: u16,
     /// `read_body_limit` を指定したときだけ。
     pub body: Option<Vec<u8>>,
+}
+
+/// 本文を少しずつ受け取るときの上限（`send_streaming`）。どれも省略できない。
+#[derive(Debug, Clone, Copy)]
+pub struct StreamLimits {
+    /// 応答の先頭（状態コードとヘッダー）を受け取るまで（名前解決・接続・TLSを含む）。
+    pub first_byte: Duration,
+    /// 本文のデータとデータの間。
+    pub idle: Duration,
+    /// 送り始めてから本文の終わりまで。
+    pub total: Duration,
+    /// 本文の大きさ（バイト）。
+    pub max_body_bytes: usize,
+}
+
+/// 本文を少しずつ受け取る応答。落とすと接続を閉じる。
+pub struct EgressStream {
+    status: u16,
+    body: hyper::body::Incoming,
+    conn: tokio::task::JoinHandle<()>,
+    deadline: Instant,
+    idle: Duration,
+    remaining: usize,
+    done: bool,
+}
+
+impl EgressStream {
+    pub fn status(&self) -> u16 {
+        self.status
+    }
+
+    /// 本文の次のデータ。本文が終われば None。上限を超えたら、それ以降は読まない。
+    pub async fn next_chunk(&mut self) -> Result<Option<Bytes>, EgressError> {
+        loop {
+            if self.done {
+                return Ok(None);
+            }
+            let now = Instant::now();
+            if now >= self.deadline {
+                self.finish();
+                return Err(EgressError::Timeout);
+            }
+            let wait = self.idle.min(self.deadline - now);
+            let frame = match tokio::time::timeout(wait, self.body.frame()).await {
+                Err(_) => {
+                    self.finish();
+                    return Err(EgressError::Timeout);
+                }
+                Ok(None) => {
+                    self.finish();
+                    return Ok(None);
+                }
+                Ok(Some(Err(_))) => {
+                    self.finish();
+                    return Err(EgressError::HttpFailed);
+                }
+                Ok(Some(Ok(frame))) => frame,
+            };
+            // トレーラーなど、データでないフレームは読み飛ばす
+            let Ok(data) = frame.into_data() else {
+                continue;
+            };
+            if data.len() > self.remaining {
+                self.finish();
+                return Err(EgressError::ResponseTooLarge);
+            }
+            self.remaining -= data.len();
+            if !data.is_empty() {
+                return Ok(Some(data));
+            }
+        }
+    }
+
+    fn finish(&mut self) {
+        self.done = true;
+        self.conn.abort();
+    }
+}
+
+impl Drop for EgressStream {
+    fn drop(&mut self) {
+        self.conn.abort();
+    }
 }
 
 /// 検査を通った送信先。
@@ -343,22 +428,80 @@ impl Egress {
 
     /// 送る。名前解決と検査を行い、検査したアドレスに固定して接続する。リダイレクトはたどらない。
     pub async fn send(&self, request: EgressRequest) -> Result<EgressResponse, EgressError> {
-        let (url, ..) = parse_url(&request.url)?;
         tokio::time::timeout(self.inner.request_timeout, async {
-            let dest = self.check(&request.url).await?;
-            let io = self.open(&dest).await?;
-            // プロキシ経由のHTTP（CONNECTを使わない中継）では、リクエストの宛先を絶対形式で書く
-            let absolute_target = match &self.inner.proxy {
-                Some(proxy) if !dest.https => Some(match proxy.connect_by {
-                    ProxyConnectBy::Ip => socket_authority(dest.addrs[0]),
-                    ProxyConnectBy::Hostname => authority(&dest.host, dest.port),
-                }),
-                _ => None,
+            let read_body_limit = request.read_body_limit;
+            let (res, conn) = self.request(request).await?;
+            let status = res.status().as_u16();
+            let body = match read_body_limit {
+                None => Ok(None),
+                Some(limit) => Limited::new(res.into_body(), limit)
+                    .collect()
+                    .await
+                    .map(|c| Some(c.to_bytes().to_vec()))
+                    .map_err(|e| {
+                        if e.is::<http_body_util::LengthLimitError>() {
+                            EgressError::ResponseTooLarge
+                        } else {
+                            EgressError::HttpFailed
+                        }
+                    }),
             };
-            exchange(io, &dest, &url, request, absolute_target).await
+            conn.abort();
+            Ok(EgressResponse {
+                status,
+                body: body?,
+            })
         })
         .await
         .map_err(|_| EgressError::Timeout)?
+    }
+
+    /// 送り、本文を少しずつ受け取る（LLMのストリーミングの応答など）。宛先の検査とリダイレクトの扱いは `send` と同じ。
+    /// `request.read_body_limit` は使わない（本文の上限は `limits.max_body_bytes`）。
+    pub async fn send_streaming(
+        &self,
+        request: EgressRequest,
+        limits: StreamLimits,
+    ) -> Result<EgressStream, EgressError> {
+        let deadline = Instant::now() + limits.total;
+        let (res, conn) =
+            tokio::time::timeout(limits.first_byte.min(limits.total), self.request(request))
+                .await
+                .map_err(|_| EgressError::Timeout)??;
+        Ok(EgressStream {
+            status: res.status().as_u16(),
+            body: res.into_body(),
+            conn,
+            deadline,
+            idle: limits.idle,
+            remaining: limits.max_body_bytes,
+            done: false,
+        })
+    }
+
+    /// 検査した送信先に接続し、リクエストを送って応答の先頭を受け取る。本文はまだ読まない。
+    async fn request(
+        &self,
+        request: EgressRequest,
+    ) -> Result<
+        (
+            hyper::Response<hyper::body::Incoming>,
+            tokio::task::JoinHandle<()>,
+        ),
+        EgressError,
+    > {
+        let (url, ..) = parse_url(&request.url)?;
+        let dest = self.check(&request.url).await?;
+        let io = self.open(&dest).await?;
+        // プロキシ経由のHTTP（CONNECTを使わない中継）では、リクエストの宛先を絶対形式で書く
+        let absolute_target = match &self.inner.proxy {
+            Some(proxy) if !dest.https => Some(match proxy.connect_by {
+                ProxyConnectBy::Ip => socket_authority(dest.addrs[0]),
+                ProxyConnectBy::Hostname => authority(&dest.host, dest.port),
+            }),
+            _ => None,
+        };
+        exchange(io, &dest, &url, request, absolute_target).await
     }
 
     /// 検査したアドレスへの接続（必要ならプロキシ経由、TLS）を作る。
@@ -457,7 +600,8 @@ async fn proxy_connect(stream: &mut TcpStream, target: &str) -> Result<(), Egres
     }
 }
 
-/// 接続の上でHTTP/1.1のリクエストを1つ送り、応答を受け取る。
+/// 接続の上でHTTP/1.1のリクエストを1つ送り、応答の先頭を受け取る。本文は呼び出し側が読む。
+/// 返す JoinHandle は接続を動かすタスクで、読み終えたら止める。
 /// `absolute_target` はプロキシ経由のHTTP（CONNECTを使わない中継）のときの宛先（既定では検査したIPアドレス）。
 async fn exchange(
     io: Box<dyn Io>,
@@ -465,7 +609,13 @@ async fn exchange(
     url: &Url,
     request: EgressRequest,
     absolute_target: Option<String>,
-) -> Result<EgressResponse, EgressError> {
+) -> Result<
+    (
+        hyper::Response<hyper::body::Incoming>,
+        tokio::task::JoinHandle<()>,
+    ),
+    EgressError,
+> {
     let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(io))
         .await
         .map_err(|_| EgressError::HttpFailed)?;
@@ -501,29 +651,13 @@ async fn exchange(
     let req = builder
         .body(Full::new(Bytes::from(request.body)))
         .map_err(|_| EgressError::InvalidUrl)?;
-    let res = sender
-        .send_request(req)
-        .await
-        .map_err(|_| EgressError::HttpFailed)?;
-    let status = res.status().as_u16();
-    let body = match request.read_body_limit {
-        None => None,
-        Some(limit) => {
-            let collected = Limited::new(res.into_body(), limit)
-                .collect()
-                .await
-                .map_err(|e| {
-                    if e.is::<http_body_util::LengthLimitError>() {
-                        EgressError::ResponseTooLarge
-                    } else {
-                        EgressError::HttpFailed
-                    }
-                })?;
-            Some(collected.to_bytes().to_vec())
+    match sender.send_request(req).await {
+        Ok(res) => Ok((res, conn)),
+        Err(_) => {
+            conn.abort();
+            Err(EgressError::HttpFailed)
         }
-    };
-    conn.abort();
-    Ok(EgressResponse { status, body })
+    }
 }
 
 #[cfg(test)]
