@@ -7,7 +7,7 @@
 //!   - 確認期限切れの記事は、点数に [`EXPIRED_FACTOR`] をかけて順位を下げる（除外はしない）。
 //! - 計算するのは、検索用データのジョブで記事のベクトルを作り直したとき（公開・更新のとき）と、固定・除外を変えたとき。
 //!   ほかの記事の一覧に新しい記事が入るのは、毎日の一括計算のとき。
-//! - 保存した候補は、返すときに公開状態・ロケール・除外を毎回照合する（`access::visible_entry`。INV-REL-01）。
+//! - 保存した候補と固定した記事は、返すときに公開状態・ロケール・除外を毎回照合する（`access::visible_entry`。INV-REL-01）。
 
 use std::collections::HashMap;
 
@@ -320,8 +320,9 @@ pub struct Picked {
 }
 
 /// 記事の関連記事を、返す時点の状態で選ぶ（固定した記事を先に、固定の順で。次に保存した候補を点数の順で）。
-/// 固定・候補のどちらも、今の公開状態・ロケール・除外を照合する（INV-REL-01）。
-/// 固定は翻訳グループから、同じコンテンツタイプ・同じロケールの、公開中の記事へ解決する。
+/// 固定・候補のどちらも、今の公開状態・ロケール・除外を照合する（`access::visible_entry`。INV-REL-01）。
+/// 固定は翻訳グループから、同じコンテンツタイプ・同じロケールの、見せてよい記事へ解決する。
+/// 「チャットボットに使う」を OFF にした記事は、固定していても返さない。
 pub async fn pick(conn: &mut PgConnection, entry_id: Uuid, first: i64) -> Result<Vec<Picked>> {
     let first = usize::try_from(first.clamp(0, MAX_FIRST)).unwrap_or(0);
     let me: Option<(String, String, Uuid)> = sqlx::query_as(
@@ -345,13 +346,13 @@ pub async fn pick(conn: &mut PgConnection, entry_id: Uuid, first: i64) -> Result
             .fetch_optional(&mut *conn)
             .await?
             .unwrap_or_default();
-    // 固定: 公開中の（削除されていない）記事へ解決する
-    let pinned_rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
+    // 固定: 候補と同じく、見せてよい記事（チャットボットに使うものを含む）へ解決する
+    let pinned_visible = access::visible_entry(3);
+    let pinned_rows: Vec<(Uuid, Uuid)> = sqlx::query_as(crate::db::trusted(format!(
         "SELECT e.translation_group_id, e.id FROM entries e
-         WHERE e.translation_group_id = ANY($1) AND e.content_type = $2 AND e.locale = $3
-           AND e.deleted_at IS NULL AND e.published_version_id IS NOT NULL AND e.translation_group_id <> $4
-           AND EXISTS (SELECT 1 FROM versions v WHERE v.id = e.published_version_id AND v.erased_at IS NULL)",
-    )
+         WHERE e.translation_group_id = ANY($1) AND e.content_type = $2 AND {pinned_visible}
+           AND e.translation_group_id <> $4"
+    )))
     .bind(&pinned)
     .bind(&content_type)
     .bind(&locale)
