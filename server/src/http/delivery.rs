@@ -330,7 +330,7 @@ async fn execute(
     let shape = crate::delivery::validate::shape(&query)
         .ok_or_else(|| ApiError::bad_request("The query is not valid."))?;
     let is_answer = |r: &String| r == ANSWER_FIELD || r == ANSWER_STREAM_FIELD;
-    let answering = shape.roots.iter().any(is_answer);
+    let answering = shape.answering();
     let reading = !shape.roots.iter().all(is_answer);
     let missing = ApiError::new(
         StatusCode::FORBIDDEN,
@@ -339,6 +339,12 @@ async fn execute(
     );
     if (answering && !grant.has_scope("answer")) || (reading && !grant.has_scope("read")) {
         return Err(missing);
+    }
+    // 回答は1つの文に1回だけ（別名で何度も選んで、1回のリクエストでLLMを何度も呼ばせない。登録のときにも確かめる）
+    if answering && !shape.answer_alone() {
+        return Err(ApiError::bad_request(
+            "Select `answer` or `answerStream` once, without other fields.",
+        ));
     }
     if answering && !req.post {
         return Err(ApiError::new(

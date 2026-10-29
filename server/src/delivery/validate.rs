@@ -14,6 +14,7 @@ use serde_json::{Map, Value};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use super::names::{ANSWER_FIELD, ANSWER_STREAM_FIELD};
 use super::queries::MAX_QUERY_BYTES;
 use super::schema::RequestData;
 
@@ -39,6 +40,24 @@ pub struct Shape {
     pub subscription: bool,
     /// ルートのフィールドの名前（フラグメントの中のものも含む。`__typename` などは含めない）。
     pub roots: Vec<String>,
+    /// 回答のフィールド（`answer`・`answerStream`）を選んだ回数（別名・フラグメントの分も数える）。
+    pub answer_fields: usize,
+}
+
+impl Shape {
+    /// 回答のフィールドを含むか。
+    pub fn answering(&self) -> bool {
+        self.answer_fields > 0
+    }
+
+    /// 回答のフィールドを、ほかのフィールドと混ぜずに1回だけ選んでいるか（1回のリクエストでLLMを何度も呼ばせない）。
+    pub fn answer_alone(&self) -> bool {
+        self.answer_fields == 1 && self.roots.len() == 1
+    }
+}
+
+fn is_answer(name: &str) -> bool {
+    name == ANSWER_FIELD || name == ANSWER_STREAM_FIELD
 }
 
 /// 文の形を読む。1つの操作だけを含む文でなければ None。
@@ -49,20 +68,16 @@ pub fn shape(query: &str) -> Option<Shape> {
         DocumentOperations::Multiple(ops) if ops.len() == 1 => ops.values().next()?,
         DocumentOperations::Multiple(_) => return None,
     };
-    let mut roots = Vec::new();
-    collect_roots(&doc, &op.node.selection_set.node, &mut roots, 0);
-    Some(Shape {
+    let mut shape = Shape {
         subscription: op.node.ty == OperationType::Subscription,
-        roots,
-    })
+        roots: Vec::new(),
+        answer_fields: 0,
+    };
+    collect_roots(&doc, &op.node.selection_set.node, &mut shape, 0);
+    Some(shape)
 }
 
-fn collect_roots(
-    doc: &ExecutableDocument,
-    set: &SelectionSet,
-    out: &mut Vec<String>,
-    depth: usize,
-) {
+fn collect_roots(doc: &ExecutableDocument, set: &SelectionSet, out: &mut Shape, depth: usize) {
     // フラグメントの循環は検証で拒否されるが、ここでも深さで止める
     if depth > 32 {
         return;
@@ -71,8 +86,11 @@ fn collect_roots(
         match &item.node {
             Selection::Field(f) => {
                 let name = f.node.name.node.as_str();
-                if !name.starts_with("__") && !out.iter().any(|n| n == name) {
-                    out.push(name.to_owned());
+                if is_answer(name) {
+                    out.answer_fields += 1;
+                }
+                if !name.starts_with("__") && !out.roots.iter().any(|n| n == name) {
+                    out.roots.push(name.to_owned());
                 }
             }
             Selection::InlineFragment(f) => {
@@ -104,6 +122,16 @@ pub async fn check(schema: &Schema, query: &str) -> Result<(), Vec<String>> {
             ]);
         }
     };
+    // 回答のフィールドは、1つの文に1回だけ、ほかのフィールドと混ぜずに選ぶ（別名で何度も選ぶと、1回のリクエストで
+    // LLMを何度も呼べてしまう）
+    if let Some(shape) = shape(query)
+        && shape.answering()
+        && !shape.answer_alone()
+    {
+        return Err(vec![
+            "select `answer` or `answerStream` once, without other fields".to_owned(),
+        ]);
+    }
     let subscription = match op.node.ty {
         OperationType::Query => false,
         OperationType::Subscription => true,
@@ -149,5 +177,32 @@ pub async fn check(schema: &Schema, query: &str) -> Result<(), Vec<String>> {
         Ok(())
     } else {
         Err(response.errors.into_iter().map(|e| e.message).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn answer_fields_are_counted_through_aliases_and_fragments() {
+        let one = shape(r#"query { answer(question: "q", locale: "ja") { text } }"#).unwrap();
+        assert!(one.answering() && one.answer_alone());
+        let aliased = shape(
+            r#"query { a: answer(question: "q", locale: "ja") { text } b: answer(question: "q", locale: "ja") { text } }"#,
+        )
+        .unwrap();
+        assert_eq!(aliased.answer_fields, 2);
+        assert!(!aliased.answer_alone());
+        let via_fragment = shape(
+            r#"query { ...F answer(question: "q", locale: "ja") { text } } fragment F on Query { answer(question: "x", locale: "ja") { text } }"#,
+        )
+        .unwrap();
+        assert_eq!(via_fragment.answer_fields, 2);
+        let mixed =
+            shape(r#"query { answer(question: "q", locale: "ja") { text } redirects { from } }"#)
+                .unwrap();
+        assert!(mixed.answering() && !mixed.answer_alone());
+        assert!(!shape("query { redirects { from } }").unwrap().answering());
     }
 }
