@@ -459,6 +459,30 @@ export interface RelatedView {
   current: { entryId: string; pinned: boolean; score: number }[];
 }
 
+/** 埋め込みモデルの切り替えの、ワークスペースごとの状態。 */
+export type EmbeddingSwitchState = "notStarted" | "inProgress" | "paused" | "switched" | "needsMigration";
+
+/** GET /embedding-switch（サーバー管理者）。 */
+export interface EmbeddingSwitch {
+  llmConfigured: boolean;
+  currentModel: string | null;
+  nextModel: string | null;
+  nextDimensions: number | null;
+  /** サーバー管理者が開始した切り替え先（設定の切り替え先と違えば、まだ始まっていない）。 */
+  startedModel: string | null;
+  workspaces: {
+    workspaceId: string;
+    name: string;
+    state: EmbeddingSwitchState;
+    activeModel: string;
+    activeDimensions: number;
+    chunksToEmbed: number;
+    estimatedTokens: number;
+    /** 単価を設定していれば、費用の見積もり。 */
+    estimatedCost: number | null;
+  }[];
+}
+
 /** GET/PUT /workspaces/{ws}/budgets/embedding（埋め込みの作成の予算。トークン数、UTCの暦の月・日）。 */
 export interface EmbeddingBudget {
   /** LLMの接続先が設定されているか。なければ埋め込みは作らない。 */
