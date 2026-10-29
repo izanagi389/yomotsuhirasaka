@@ -452,6 +452,13 @@ export interface TodoItem {
   budget?: "embedding";
 }
 
+/** GET/PUT /workspaces/{ws}/entries/{id}/related（固定と除外は翻訳グループ。current は今返している一覧）。 */
+export interface RelatedView {
+  pinned: string[];
+  excluded: string[];
+  current: { entryId: string; pinned: boolean; score: number }[];
+}
+
 /** GET/PUT /workspaces/{ws}/budgets/embedding（埋め込みの作成の予算。トークン数、UTCの暦の月・日）。 */
 export interface EmbeddingBudget {
   /** LLMの接続先が設定されているか。なければ埋め込みは作らない。 */
