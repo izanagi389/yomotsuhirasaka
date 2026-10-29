@@ -6,6 +6,7 @@ import { asBearer, driver, type CmsClient, type Credentials, type IssuedSecret, 
 import { SEARCHABLE_TEMPLATE } from "./template.js";
 import { simpleBody } from "./body.js";
 import { env } from "./env.js";
+import { mockLlm } from "./mock-llm.js";
 
 /** 応答に含まれてはいけない値を見分けるための、一意な目印。 */
 export const marker = (label: string): string => `MARKER-${label}-${randomUUID()}`;
@@ -174,4 +175,90 @@ export async function createSearchWorld(): Promise<SearchWorld> {
 export function lazySearchWorld(): () => Promise<SearchWorld> {
   let promise: Promise<SearchWorld> | null = null;
   return () => (promise ??= createSearchWorld());
+}
+
+// ---------------------------------------------------------------------------
+// 質問応答の舞台（M4）
+// ---------------------------------------------------------------------------
+
+/** 質問応答のワークスペース。記事は入っていない。 */
+export interface AnswerWorkspace {
+  id: string;
+  editorSession: Session;
+  readKey: IssuedSecret;
+  /** 回答APIを呼ぶキー（answer のスコープだけ）。 */
+  answerKey: IssuedSecret;
+  searchQuery: RegisteredQuery;
+  /** 登録済みの、まとめて返す回答のクエリ。 */
+  answerQuery: RegisteredQuery;
+  /** 登録済みの、ストリーミングの回答のクエリ。 */
+  answerStreamQuery: RegisteredQuery;
+}
+
+export interface AnswerWorld {
+  cms: CmsClient;
+  /** このインスタンスが擬似LLMにつなぐキー（記録・障害・回答の組み立て方は、このキーに対して設定する）。 */
+  llmKey: string;
+  /**
+   * ワークスペースを作る。埋め込みと回答の予算の天井は、answerCeiling を指定しなければ十分に大きくする。
+   * answerCeiling は回答の予算の天井（トークン数。入力・出力、月・日のすべてに同じ値）。
+   */
+  workspace(label: string, options?: { answerCeiling?: number }): Promise<AnswerWorkspace>;
+  stop(): Promise<void>;
+}
+
+/** 回答の予算の、十分に大きい天井。 */
+const LARGE_BUDGET = 10_000_000;
+
+/**
+ * 質問応答の舞台: 専用のインスタンスを、専用のキーで擬似LLMにつないで起動する（擬似LLMの記録と回答の組み立て方は
+ * キーごとなので、他のテストと混ざらない）。同じファイルのテストは順に流れるので、このキーを共有する。
+ * 各テストは、使い終わったら擬似LLMの障害と回答の組み立て方を元に戻す。
+ */
+export async function createAnswerWorld(): Promise<AnswerWorld> {
+  const llmKey = `inv-answer-${randomUUID().slice(0, 8)}`;
+  const instance = await driver.createIsolatedInstance();
+  const started = await driver.startServer({ ...instance.config, llm: { ...mockLlm.connection(llmKey), chatModel: mockLlm.chatModel } });
+  if (started.outcome !== "ready") throw new Error(`擬似LLMにつないだサーバーが起動しない:\n${started.output}`);
+  const cms = started.client!;
+  const sa = await cms.login(instance.serverAdmin);
+  await cms.reauthenticate(sa, instance.serverAdmin);
+  const token = await cms.deployToken(sa, instance.serverAdmin);
+  const res = await cms.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE);
+  if (res.status < 200 || res.status >= 300) throw new Error(`SEARCHABLE_TEMPLATE をデプロイできない（${res.status}）: ${res.text}`);
+  return {
+    cms,
+    llmKey,
+    async workspace(label, options = {}) {
+      await cms.reauthenticate(sa, instance.serverAdmin);
+      const { id } = await cms.createWorkspace(sa, `inv-${label}-${randomUUID().slice(0, 8)}`, { template: SEARCHABLE_TEMPLATE.name });
+      const answer = options.answerCeiling ?? LARGE_BUDGET;
+      await cms.setWorkspaceLimits(sa, id, {
+        embeddingTokensPerMonth: LARGE_BUDGET,
+        embeddingTokensPerDay: LARGE_BUDGET,
+        answerInputTokensPerMonth: answer,
+        answerInputTokensPerDay: answer,
+        answerOutputTokensPerMonth: answer,
+        answerOutputTokensPerDay: answer,
+      });
+      const admin = await cms.createMember(sa, id, "admin");
+      const adminSession = await cms.login(admin);
+      const editor = await cms.createMember(adminSession, id, "editor");
+      const editorSession = await cms.login(editor);
+      await cms.reauthenticate(adminSession, admin);
+      const readKey = await cms.createApiKey(adminSession, id, ["read"]);
+      const answerKey = await cms.createApiKey(adminSession, id, ["answer"]);
+      const registerKey = await cms.createApiKey(adminSession, id, ["register"]);
+      return {
+        id,
+        editorSession,
+        readKey,
+        answerKey,
+        searchQuery: await cms.registerQuery(id, registerKey.secret, { kind: "search" }),
+        answerQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answer" }),
+        answerStreamQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answerStream" }),
+      };
+    },
+    stop: () => started.stop(),
+  };
 }

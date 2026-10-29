@@ -6,7 +6,7 @@
 //   テストは自分のワークスペース用のキーを使い、他のテストと混ざらないようにする。
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { env } from "./env.js";
 
@@ -104,6 +104,31 @@ export function mockUsageTokens(inputs: readonly string[]): number {
   return inputs.reduce((sum, s) => sum + Math.max(1, Math.ceil([...s].length / 4)), 0);
 }
 
+/**
+ * 質問応答のプロンプトと回答の形（tools/mock-llm/src/format.json。擬似LLMとCMSが同じファイルを読む）。
+ * テストは、回答の組み立て方 `fixed` に渡す回答を、この形で作る。
+ */
+const FORMAT = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tools/mock-llm/src/format.json", import.meta.url)), "utf8")) as {
+  answerableDeclaration: string;
+  notAnswerableDeclaration: string;
+  sourceSeparator: string;
+};
+
+/** 回答の組み立て方 `fixed` に渡す回答（1行目が判定の先行宣言、2行目からが本文）。sources が空なら「答えられない」の宣言。 */
+export function fixedAnswer(sources: readonly number[], body: string): string {
+  const declaration =
+    sources.length === 0 ? FORMAT.notAnswerableDeclaration : FORMAT.answerableDeclaration.replace("{sources}", sources.join(FORMAT.sourceSeparator));
+  return `${declaration}\n${body}`;
+}
+
+/** 本文の中の引用記号（`[n]` の形。format.json の citation と同じ）。 */
+export const citation = (n: number): string => `[${n}]`;
+
+/** 受け取ったチャットのリクエスト。 */
+export function chatRequests(requests: readonly MockLlmRequest[]): MockLlmRequest[] {
+  return requests.filter((r) => r.endpoint === "chat");
+}
+
 /** 文字数（Unicode のコードポイント）の合計。 */
 export function characterCount(inputs: readonly string[]): number {
   return inputs.reduce((sum, s) => sum + [...s].length, 0);
@@ -131,6 +156,8 @@ export const mockLlm = {
   connection(apiKey: string): { baseUrl: string; apiKey: string; embeddingModel: string; embeddingDimensions: number } {
     return { baseUrl: env.mockLlmUrl, apiKey, embeddingModel: "mock-embed-64", embeddingDimensions: 64 };
   },
+  /** 擬似LLMの、チャットのモデルの名前（回答の生成。M4）。 */
+  chatModel: "mock-chat",
   /** 条件に合うまで、受け取ったリクエストを読み直す。時間内に合わなければ失敗する。 */
   async waitForRequests(apiKey: string, predicate: (requests: MockLlmRequest[]) => boolean, timeoutMs = 60_000): Promise<MockLlmRequest[]> {
     const deadline = Date.now() + timeoutMs;
