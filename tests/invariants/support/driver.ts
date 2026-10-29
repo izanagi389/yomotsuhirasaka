@@ -396,6 +396,19 @@ export type WebhookEventKind =
   | "scheduled"
   | "scheduleCancelled";
 
+/** 関連記事の一覧が変わった記事を知らせるWebhook（`entries.related_changed`）の本文。 */
+export interface ParsedRelatedChanged {
+  type: string;
+  workspaceId: string;
+  /** 一括計算（または固定・除外の変更）1回ごとのID。 */
+  runId: string;
+  /** 分けて送ったうちの何通目か（1から）と、全部で何通か。 */
+  part: number;
+  parts: number;
+  /** 一覧が変わった記事のID。 */
+  entryIds: string[];
+}
+
 export interface ParsedWebhook {
   /** イベントの種類（ドライバーの webhookEventTypes の値のどれか）。 */
   type: string;
@@ -534,9 +547,14 @@ export interface CmsClient {
     changes: { includeInAiMaterials?: boolean; optOutOfAiTraining?: boolean; useForChatbot?: boolean },
   ): Promise<HttpResponse>;
   /**
-   * 記事の関連記事の固定と除外を置き換える（応答をそのまま返す）。公開設定と同じく、公開できる人の操作で、再認証が要る。
+   * 記事の関連記事の固定と除外を置き換える（応答をそのまま返す）。公開できる人の操作で、再認証は要らない。
    */
   setRelatedRaw(auth: Auth, workspaceId: string, entryId: string, settings: RelatedSettings): Promise<HttpResponse>;
+  /**
+   * ワークスペースの関連記事を、今すぐ一括で計算し直す（応答をそのまま返す）。ワークスペースの管理者とサーバー管理者の操作。
+   * 計算はジョブで行い、応答は計算の終わりを待たない。
+   */
+  recomputeRelatedRaw(auth: Auth, workspaceId: string): Promise<HttpResponse>;
   /** 記事の翻訳グループのID。成功しなければ失敗する。 */
   translationGroupId(session: Session, workspaceId: string, entryId: string): Promise<string>;
   /** 「確認済み」を記録する（応答をそのまま返す）。 */
@@ -975,6 +993,24 @@ export const driver = {
       scheduled: "entry.scheduled",
       scheduleCancelled: "entry.schedule_cancelled",
     }),
+    /** 関連記事の一覧が変わった記事を知らせるイベントの種類。 */
+    relatedChangedType: (): string => "entries.related_changed",
+    parseRelatedChanged: (body: string): ParsedRelatedChanged => {
+      const v = JSON.parse(body) as { type?: unknown; workspaceId?: unknown; runId?: unknown; part?: unknown; parts?: unknown; entries?: unknown };
+      const entries = Array.isArray(v.entries) ? (v.entries as { entryId?: unknown }[]) : null;
+      if (
+        typeof v.type !== "string" ||
+        typeof v.workspaceId !== "string" ||
+        typeof v.runId !== "string" ||
+        typeof v.part !== "number" ||
+        typeof v.parts !== "number" ||
+        entries === null ||
+        entries.some((e) => typeof e?.entryId !== "string")
+      ) {
+        throw new Error(`関連記事のイベントのWebhookの本文ではない: ${body.slice(0, 200)}`);
+      }
+      return { type: v.type, workspaceId: v.workspaceId, runId: v.runId, part: v.part, parts: v.parts, entryIds: entries.map((e) => e.entryId as string) };
+    },
     parse: (body: string): ParsedWebhook => {
       const v = JSON.parse(body) as { type?: unknown; workspaceId?: unknown; entryId?: unknown };
       if (typeof v.type !== "string" || typeof v.workspaceId !== "string" || typeof v.entryId !== "string") {

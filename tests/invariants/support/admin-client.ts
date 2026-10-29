@@ -1082,6 +1082,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     setRelatedRaw(auth: Auth, workspaceId: string, entryId: string, settings: RelatedSettings): Promise<HttpResponse> {
       return request("PUT", `${entriesPath(workspaceId)}/${entryId}/related`, { auth, body: settings });
     },
+    recomputeRelatedRaw(auth: Auth, workspaceId: string): Promise<HttpResponse> {
+      return request("POST", `${ADMIN}/workspaces/${workspaceId}/related/recompute`, { auth });
+    },
     async translationGroupId(s: Session, workspaceId: string, entryId: string): Promise<string> {
       const res = ensure("記事の取得", await getEntryRaw(session(s), workspaceId, entryId));
       const { translationGroupId } = JSON.parse(res.text) as { translationGroupId?: unknown };
