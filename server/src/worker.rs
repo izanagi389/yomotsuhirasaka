@@ -149,6 +149,10 @@ pub fn spawn_sweeper(state: AppState) -> tokio::task::JoinHandle<()> {
             if let Err(e) = crate::notifications::sweep(&state.pool).await {
                 tracing::error!("notification reads sweeper: {e:#}");
             }
+            // 寿命の過ぎた回答キャッシュ
+            if let Err(e) = crate::answer::cache::sweep(&state.pool).await {
+                tracing::error!("answer cache sweeper: {e:#}");
+            }
             // 保存期間を過ぎた監査ログ（専用のロールの関数だけが消せる。送り終えていない記録は残す）
             match sqlx::query_scalar::<_, i64>("SELECT cms.purge_audit_log($1)")
                 .bind(state.config.audit.retention_days)

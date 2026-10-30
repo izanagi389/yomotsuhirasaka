@@ -108,8 +108,10 @@ inv(
     const updated = `${wordMarker("qasixnew")} ${word} は、版を変えた記事です。`;
     await cms.saveDraft(ws.editorSession, ws.id, v1.id, { body: doc(paragraph(updated)) });
     await cms.publishEntry(ws.editorSession, ws.id, v1.id);
+    // （作り直した回答はまた保存されるので、続く依頼がキャッシュから返ることはある。そのときも前の版のキャッシュではない）
     for (const r of [await ask(ws, question), (await askStream(ws, question)).final]) {
-      expect(r.cached, "版が変わった回答キャッシュが返った").not.toBe(true);
+      const stale = r.sources.some((s) => s.versionId === v1.versionId);
+      expect(r.cached === true && stale, "版が変わった回答キャッシュが返った").toBe(false);
     }
 
     // 対照: 新しい版で答えた回答は、キャッシュから返る
@@ -120,8 +122,7 @@ inv(
     // 2. 非公開になった: キャッシュは返されない（その記事を出典にした回答も返らない）
     await cms.unpublishEntry(ws.editorSession, ws.id, v1.id);
     for (const r of [await ask(ws, question), (await askStream(ws, question)).final]) {
-      expect(r.cached, "非公開になった記事を引用した回答キャッシュが返った").not.toBe(true);
-      expect(r.sources.map((s) => s.entryId), "非公開になった記事が出典に含まれる").not.toContain(v1.id);
+      expect(r.sources.map((s) => s.entryId), "非公開になった記事を引用した回答（キャッシュを含む）が返った").not.toContain(v1.id);
     }
   },
   300_000,
@@ -145,8 +146,7 @@ inv(
     await cms.saveDraft(ws.editorSession, ws.id, v1.id, { body: doc(paragraph(corrected)) });
     await cms.publishEntry(ws.editorSession, ws.id, v1.id, { correction: true, note: marker("qa07-note") });
     for (const r of [await ask(ws, question), (await askStream(ws, question)).final]) {
-      expect(r.cached, "訂正した記事の旧版を引用した回答キャッシュが返った").not.toBe(true);
-      expect(r.sources.map((s) => s.versionId), "訂正した記事の旧版が出典に含まれる").not.toContain(v1.versionId);
+      expect(r.sources.map((s) => s.versionId), "訂正した記事の旧版を引用した回答（キャッシュを含む）が返った").not.toContain(v1.versionId);
       expect(r.text, "訂正した記事の旧版の内容が回答に含まれる").not.toContain(wrong);
     }
     const sent = JSON.stringify(await mockLlm.requests(llmKey));
@@ -205,17 +205,17 @@ inv(
     expect(hit.sources.find((s) => s.entryId === id)?.reviewExpired).toBe(false);
     expect(Date.now() < deadline, "期限の前に確かめ終わらない（期限までの時間を長くする）").toBe(true);
 
-    // 期限をまたいだ: キャッシュは返されず、出典は今の時刻で期限切れと判定される
+    // 期限をまたいだ: 期限の前に作ったキャッシュは返されず、出典は今の時刻で期限切れと判定される
     await sleep((deadline - Date.now()) / 1000 + 3);
-    for (const r of [await ask(ws, question), (await askStream(ws, question)).final]) {
-      expect(r.cached, "確認期限をまたいだ回答キャッシュが返った").not.toBe(true);
-      const source = r.sources.find((s) => s.entryId === id);
-      expect(source, "期限切れの記事も根拠に使われるはず").toBeDefined();
-      expect(source!.reviewExpired, "期限を過ぎたのに、出典が期限切れと判定されない").toBe(true);
-    }
-    // 期限切れのまま作り直した回答は、キャッシュから返るときも期限切れと判定される
+    const crossed = await ask(ws, question);
+    expect(crossed.cached, "確認期限をまたいだ回答キャッシュが返った").not.toBe(true);
+    expect(crossed.sources.find((s) => s.entryId === id)?.reviewExpired, "期限を過ぎたのに、出典が期限切れと判定されない").toBe(true);
+    // 期限の後に作り直した回答は、キャッシュから返るときも期限切れと判定される（まとめて・ストリーミング）
     const expiredHit = await expectCached(ws, question, "期限切れの後の同じ質問");
     expect(expiredHit.sources.find((s) => s.entryId === id)?.reviewExpired).toBe(true);
+    const streamed = (await askStream(ws, question)).final;
+    expect(streamed.cached).toBe(true);
+    expect(streamed.sources.find((s) => s.entryId === id)?.reviewExpired, "キャッシュから返すときに、今の時刻で期限切れと判定されない").toBe(true);
   },
   300_000,
 );
