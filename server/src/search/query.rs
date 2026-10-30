@@ -324,6 +324,108 @@ pub async fn search(
     Ok(out)
 }
 
+/// 質問応答の根拠にする断片（チャンク1つ。09-qa-chatbot.md）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct Fragment {
+    pub entry_id: Uuid,
+    pub locale: String,
+    pub anchor: Option<String>,
+    pub breadcrumb: Vec<String>,
+    /// チャンクの本文（変換器の Markdown）。
+    pub content: String,
+}
+
+/// 質問に近い断片を、チャンクのまま `k` 件まで選ぶ（質問応答の根拠。M4）。
+/// - 見せてよいチャンクの条件は検索と同じ（共通の層 `access`。質問のたびに今の状態と照合する）。
+/// - ベクトル検索とキーワード検索の両方の候補を、検索の混ぜ方（RRF）で、記事ごとにまとめずに並べる。
+/// - ベクトル検索の候補のうち、コサイン類似度が `min_similarity` に届かないものは外す（ゆるい足切り。最終の判断はLLM。Q15）。
+/// - `masked` はマスクした質問文。埋め込みは検索語と同じく「埋め込みの作成」の予算から出す（尽きていればキーワード検索だけ）。
+#[allow(clippy::too_many_arguments)]
+pub async fn fragments(
+    services: &Services<'_>,
+    tx: &mut Transaction<'static, Postgres>,
+    workspace_id: Uuid,
+    manifest: &Manifest,
+    masked: &str,
+    locale: &str,
+    k: usize,
+    min_similarity: f64,
+) -> Result<Vec<Fragment>> {
+    if k == 0 || masked.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let serving = super::switch::serving(services.config, tx).await?;
+    let vector_setup = match (serving, services.egress) {
+        (Some(c), Some(e)) => super::vector_schema(&mut **tx).await?.map(|vs| (c, e, vs)),
+        _ => None,
+    };
+    let keyword_schema = super::keyword_schema(tx).await?;
+    let (types, keys) = access::current_keys(manifest);
+    let limit = i64::try_from(k)
+        .unwrap_or(i64::MAX)
+        .saturating_mul(4)
+        .max(20);
+    let target = Target {
+        types: &types,
+        keys: &keys,
+        locale,
+        limit,
+        per_entry: false,
+    };
+    let mut vector_rows = Vec::new();
+    if let Some((llm_config, egress, vs)) = &vector_setup
+        && let Some(vector) =
+            query_vector(services, workspace_id, llm_config, egress, masked).await?
+    {
+        vector_rows = vector_candidates(tx, &target, vs, llm_config, &vector, limit)
+            .await?
+            .into_iter()
+            .filter(|r| r.5 >= min_similarity)
+            .collect();
+    }
+    let mut keyword_rows = Vec::new();
+    if let Some(bs) = &keyword_schema {
+        keyword_rows = keyword_candidates(tx, &target, bs, &terms(masked)).await?;
+    }
+    Ok(fuse_chunks(vector_rows, keyword_rows, k)
+        .into_iter()
+        .map(
+            |(entry_id, locale, anchor, breadcrumb, content, _)| Fragment {
+                entry_id,
+                locale,
+                anchor,
+                breadcrumb,
+                content,
+            },
+        )
+        .collect())
+}
+
+/// RRF で2つの並びを、チャンクのまま混ぜる（同じチャンクは記事・アンカー・本文で見分ける）。
+fn fuse_chunks(vector: Vec<HitRow>, keyword: Vec<HitRow>, k: usize) -> Vec<HitRow> {
+    type Key = (Uuid, Option<String>, String);
+    let mut scores: HashMap<Key, (f64, HitRow)> = HashMap::new();
+    let rrf = |rank: usize| 1.0 / (RRF_K + rank as f64);
+    for rows in [vector, keyword] {
+        let r = ranks(&rows);
+        for (rank, row) in r.into_iter().zip(rows) {
+            let key = (row.0, row.2.clone(), row.4.clone());
+            scores
+                .entry(key)
+                .and_modify(|e| e.0 += rrf(rank))
+                .or_insert((rrf(rank), row));
+        }
+    }
+    let mut fused: Vec<(f64, HitRow)> = scores.into_values().collect();
+    fused.sort_by(|a, b| {
+        b.0.total_cmp(&a.0)
+            .then(a.1.0.cmp(&b.1.0))
+            .then(a.1.4.cmp(&b.1.4))
+    });
+    fused.truncate(k);
+    fused.into_iter().map(|(_, row)| row).collect()
+}
+
 /// 候補を取る範囲（見せてよいチャンクの条件に渡すもの）。
 struct Target<'a> {
     types: &'a [String],

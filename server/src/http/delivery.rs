@@ -6,6 +6,11 @@
 //! | GET | /ws/{ws}/graphql?id=…&variables=… | 登録済みのクエリを実行する（`read` の範囲のキー） |
 //! | POST | /ws/{ws}/graphql | 同じ（`{id, variables}`）。開発モードでは `{query, variables}` も受け付ける |
 //!
+//! - 回答API（M4。`answer`・`answerStream`）は、POST だけで受け付け、`answer` の範囲のキーを求める（お金がかかるため、
+//!   `read` のキーでは呼べない）。ほかのフィールドには `read` の範囲を求める。範囲は、実行する文のルートのフィールドで確かめる。
+//!   回答の応答は `Cache-Control: private, no-store`。`answerStream`（subscription）は SSE で返す
+//!   （GraphQL over SSE の「別々の接続」の形: `event: next` の data に GraphQL の応答、最後に `event: complete`）。
+//!
 //! - APIキーは `Authorization: Bearer` でだけ受け付ける。キーのないリクエストは拒否する（INV-API-01）。
 //!   URLのワークスペースとキーのワークスペースが違えば拒否する（INV-GQL-07）。範囲の足りないキーは 403（INV-API-02, INV-GQL-02）。
 //! - 本番では登録済みのクエリだけを実行する（INV-GQL-01）。複数のクエリの一括送信は受け付けない（INV-GQL-04）。
@@ -37,6 +42,7 @@ use crate::content::applied_schema;
 use crate::content::previews;
 use crate::content::publishing::Scripts;
 use crate::delivery::data;
+use crate::delivery::names::{ANSWER_FIELD, ANSWER_STREAM_FIELD};
 use crate::delivery::queries;
 use crate::delivery::schema::{QueryLimits, RequestData};
 use crate::script::Host;
@@ -107,15 +113,15 @@ fn denied(d: Denied) -> ApiError {
     }
 }
 
-/// キーを照合し、回数制限を数える。
+/// キーを照合し、回数制限を数える。`scopes` のどれかを持つキーだけを通す（呼ぶ側が、操作に要るものを確かめる）。
 async fn authenticate(
     state: &AppState,
     headers: &HeaderMap,
     ws: &str,
-    scope: &str,
+    scopes: &[&str],
 ) -> Result<(Uuid, Grant), ApiError> {
     let ws = Uuid::parse_str(ws).map_err(|_| ApiError::not_found())?;
-    let grant = api_keys::authenticate(&state.pool, bearer(headers), ws, scope)
+    let grant = api_keys::authenticate_any(&state.pool, bearer(headers), ws, scopes)
         .await?
         .map_err(denied)?;
     // 回数制限（INV-GQL-03）。用途で、キーの上限の既定値を分ける（Q153）
@@ -186,7 +192,7 @@ pub async fn register(
     headers: HeaderMap,
     body: Result<Json<Register>, axum::extract::rejection::JsonRejection>,
 ) -> Result<(StatusCode, Json<Registered>), ApiError> {
-    let (ws, grant) = authenticate(&state, &headers, &ws, "register").await?;
+    let (ws, grant) = authenticate(&state, &headers, &ws, &["register"]).await?;
     let Json(req) =
         body.map_err(|_| ApiError::bad_request("Send `{\"query\": \"...\"}` as JSON."))?;
     // 1つの問い合わせだけか、スキーマに合うか、深さ・複雑さの上限。データは読まない
@@ -208,6 +214,8 @@ struct Execute {
     id: Option<String>,
     query: Option<String>,
     variables: Option<Value>,
+    /// POST で届いたか（回答APIは POST だけ）。
+    post: bool,
 }
 
 fn batch_refused() -> ApiError {
@@ -239,6 +247,7 @@ pub async fn get(
             id: params.get("id").cloned(),
             query: params.get("query").cloned(),
             variables,
+            post: false,
         },
     )
     .await
@@ -268,6 +277,7 @@ pub async fn post(
             id: text(body.remove("id")),
             query: text(body.remove("query")),
             variables: body.remove("variables").filter(|v| !v.is_null()),
+            post: true,
         },
     )
     .await
@@ -279,7 +289,7 @@ async fn execute(
     headers: &HeaderMap,
     req: Execute,
 ) -> Result<Response, ApiError> {
-    let (ws, grant) = authenticate(state, headers, ws, "read").await?;
+    let (ws, grant) = authenticate(state, headers, ws, &["read", "answer"]).await?;
     let db = workspace_db::lookup(&state.pool, ws)
         .await?
         .ok_or_else(ApiError::not_found)?;
@@ -316,15 +326,56 @@ async fn execute(
         Some(v @ Value::Object(_)) => v,
         Some(_) => return Err(ApiError::bad_request("`variables` must be a JSON object.")),
     };
+    // ルートのフィールドで、要るスコープとメソッドを確かめる（回答は answer の範囲と POST、ほかは read の範囲）
+    let shape = crate::delivery::validate::shape(&query)
+        .ok_or_else(|| ApiError::bad_request("The query is not valid."))?;
+    let is_answer = |r: &String| r == ANSWER_FIELD || r == ANSWER_STREAM_FIELD;
+    let answering = shape.answering();
+    let reading = !shape.roots.iter().all(is_answer);
+    let missing = ApiError::new(
+        StatusCode::FORBIDDEN,
+        "insufficient_scope",
+        "This API key does not allow this operation.",
+    );
+    if (answering && !grant.has_scope("answer")) || (reading && !grant.has_scope("read")) {
+        return Err(missing);
+    }
+    // 回答は1つの文に1回だけ（別名で何度も選んで、1回のリクエストでLLMを何度も呼ばせない。登録のときにも確かめる）
+    if answering && !shape.answer_alone() {
+        return Err(ApiError::bad_request(
+            "Select `answer` or `answerStream` once, without other fields.",
+        ));
+    }
+    if answering && !req.post {
+        return Err(ApiError::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "answer_requires_post",
+            "Answers are not cacheable. Send the request with POST.",
+        ));
+    }
+    if shape.subscription && reading {
+        return Err(ApiError::bad_request(
+            "Only the answer stream can be subscribed to.",
+        ));
+    }
     let schema = schema_for(state, ws).await?;
+    if shape.subscription {
+        return Ok(answer_stream(state, &schema, ws, query, variables));
+    }
     let preview = match preview_token(headers) {
         Some(token) => Some(preview_entry(state, ws, &db, token).await?.0),
         None => None,
     };
     let previewing = preview.is_some();
-    let tx = workspace_db::begin_owned(&state.pool, &db).await?;
+    // 回答だけの文では、リクエストのトランザクションを開かない（回答は自分の短いトランザクションで読む。LLMを待つ間、
+    // DBの接続を持ち続けないため）
+    let tx = if reading {
+        Some(workspace_db::begin_owned(&state.pool, &db).await?)
+    } else {
+        None
+    };
     let data = Arc::new(RequestData {
-        tx: Mutex::new(Some(tx)),
+        tx: Mutex::new(tx),
         workspace_id: ws,
         media_base: super::admin_media::media_base(state),
         preview,
@@ -353,7 +404,7 @@ async fn execute(
         HeaderValue::from_static("application/json"),
     );
     // 既定で共有キャッシュに載せない。許すのは、設定で有効にし、公開版の読み取りだけのキーで実行したときだけ（INV-GQL-08）
-    let cache = if previewing {
+    let cache = if previewing || answering {
         HeaderValue::from_static("private, no-store")
     } else if shared_cacheable(state, &grant) {
         HeaderValue::from_str(&format!(
@@ -366,6 +417,54 @@ async fn execute(
     };
     h.insert(header::CACHE_CONTROL, cache);
     Ok(res)
+}
+
+/// 回答のストリーミング（subscription）を SSE で返す。
+fn answer_stream(
+    state: &AppState,
+    schema: &Schema,
+    ws: Uuid,
+    query: String,
+    variables: Value,
+) -> Response {
+    use async_graphql::futures_util::{StreamExt as _, stream};
+    let data = Arc::new(RequestData {
+        tx: Mutex::new(None),
+        workspace_id: ws,
+        media_base: super::admin_media::media_base(state),
+        preview: None,
+        app: Some(state.clone()),
+    });
+    let request = async_graphql::Request::new(query)
+        .variables(async_graphql::Variables::from_json(variables))
+        .data(data);
+    let events = schema
+        .execute_stream(request)
+        .map(|response| {
+            let json = serde_json::to_string(&response)
+                .unwrap_or_else(|_| r#"{"errors":[{"message":"internal error"}]}"#.to_owned());
+            format!("event: next\ndata: {json}\n\n")
+        })
+        .chain(stream::once(async {
+            "event: complete\ndata: \n\n".to_owned()
+        }))
+        .map(Ok::<_, std::convert::Infallible>);
+    let mut res = Response::new(axum::body::Body::from_stream(events));
+    let h = res.headers_mut();
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    // 手前のプロキシ（nginx など）に、ためずに流させる
+    h.insert(
+        header::HeaderName::from_static("x-accel-buffering"),
+        HeaderValue::from_static("no"),
+    );
+    res
 }
 
 /// プレビュー用トークンの確認の応答。
@@ -384,7 +483,7 @@ pub async fn preview_info(
     Path(ws): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let (ws, _) = authenticate(&state, &headers, &ws, "read").await?;
+    let (ws, _) = authenticate(&state, &headers, &ws, &["read"]).await?;
     let db = workspace_db::lookup(&state.pool, ws)
         .await?
         .ok_or_else(ApiError::not_found)?;

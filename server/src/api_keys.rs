@@ -2,7 +2,8 @@
 //!
 //! - 形は `cms_key_<ランダムな43文字>`。発行時に一度だけ渡し、DBにはハッシュだけを保存する（INV-KEY-01）。
 //! - ワークスペースごと。配信APIのURLのワークスペースIDと、キーのワークスペースを必ず照合する（Q125）。
-//! - スコープ: `read`（公開版の読み取り）、`register`（クエリの登録）。用途（build・server）は回数制限の既定値だけに影響する。
+//! - スコープ: `read`（公開版の読み取り）、`register`（クエリの登録）、`answer`（回答API。お金がかかるので read と分ける。M4）。
+//!   用途（build・server）は回数制限の既定値だけに影響する。
 //! - 有効期限（任意）を過ぎたキーと、失効したキーは使えない（INV-KEY-04）。
 
 use anyhow::Result;
@@ -12,7 +13,7 @@ use uuid::Uuid;
 use crate::auth::personal_tokens::API_KEY_PREFIX as PREFIX;
 use crate::auth::token;
 
-pub const SCOPES: [&str; 2] = ["read", "register"];
+pub const SCOPES: [&str; 3] = ["read", "register", "answer"];
 pub const PURPOSES: [&str; 2] = ["build", "server"];
 
 const RFC3339: &str = r#"'YYYY-MM-DD"T"HH24:MI:SS"Z"'"#;
@@ -169,6 +170,17 @@ pub async fn authenticate(
     url_workspace: Uuid,
     scope: &str,
 ) -> Result<Result<Grant, Denied>> {
+    authenticate_any(pool, presented, url_workspace, &[scope]).await
+}
+
+/// [`authenticate`] と同じ。`scopes` のどれか1つを持っていれば通す（GraphQL のように、操作ごとのスコープを
+/// 実行の中で確かめるときに使う。呼ぶ側が、操作に要るスコープを `Grant::has_scope` で必ず確かめる）。
+pub async fn authenticate_any(
+    pool: &PgPool,
+    presented: Option<&str>,
+    url_workspace: Uuid,
+    scopes: &[&str],
+) -> Result<Result<Grant, Denied>> {
     let Some(presented) = presented.filter(|p| p.starts_with(PREFIX)) else {
         return Ok(Err(Denied::Invalid));
     };
@@ -182,7 +194,7 @@ pub async fn authenticate(
     .bind(TOUCH_INTERVAL_SECONDS)
     .fetch_optional(pool)
     .await?;
-    let Some((key_id, workspace_id, scopes, purpose, stale)) = row else {
+    let Some((key_id, workspace_id, key_scopes, purpose, stale)) = row else {
         return Ok(Err(Denied::Invalid));
     };
     if workspace_id != url_workspace {
@@ -191,10 +203,10 @@ pub async fn authenticate(
     let grant = Grant {
         key_id,
         workspace_id,
-        scopes,
+        scopes: key_scopes,
         purpose,
     };
-    if !grant.has_scope(scope) {
+    if !scopes.iter().any(|s| grant.has_scope(s)) {
         return Ok(Err(Denied::MissingScope));
     }
     if stale {

@@ -63,6 +63,9 @@ sha1 = "0.11.0"
 rquickjs = { version = "=0.14.0", default-features = false, features = ["std"] }
 # HTMLの無害化（変換器の出力。INV-CNV-01）。許可リストは content/html.rs
 ammonia = "=4.2.3"
+# 質問応答の回答の形（判定の先行宣言と引用記号）を、擬似LLMと同じ format.json の正規表現で読む（answer/format.rs）。
+# rust-lang の公式。ammonia などが既に使っている版
+regex = "1.13.1"
 
 [dev-dependencies]
 # テストで、ブラウザと認証器の代わりにパスキーを作って使う

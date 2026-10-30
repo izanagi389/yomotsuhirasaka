@@ -218,7 +218,12 @@ const LARGE_BUDGET = 10_000_000;
 export async function createAnswerWorld(): Promise<AnswerWorld> {
   const llmKey = `inv-answer-${randomUUID().slice(0, 8)}`;
   const instance = await driver.createIsolatedInstance();
-  const started = await driver.startServer({ ...instance.config, llm: { ...mockLlm.connection(llmKey), chatModel: mockLlm.chatModel } });
+  // 舞台の準備のログインと招待の承諾は同じアドレスから続くので、テストの舞台のCMSと同じく回数制限を大きくする（global-setup.ts）
+  const started = await driver.startServer({
+    ...instance.config,
+    loginAttemptsPerIpPerMinute: 100_000,
+    llm: { ...mockLlm.connection(llmKey), chatModel: mockLlm.chatModel },
+  });
   if (started.outcome !== "ready") throw new Error(`擬似LLMにつないだサーバーが起動しない:\n${started.output}`);
   const cms = started.client!;
   const sa = await cms.login(instance.serverAdmin);
