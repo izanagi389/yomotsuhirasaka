@@ -101,6 +101,7 @@ pub fn answer_field(manifest: Arc<Manifest>) -> Field {
                     text: String::new(),
                     truncated: false,
                     sources: Vec::new(),
+                    cached: false,
                 })));
             };
             let mut rx = answer::start(app, req);
@@ -206,6 +207,12 @@ fn answer_object(name: &str) -> Object {
                 Some(GqlValue::from(a.truncated))
             })
             .description("Whether the text was cut at the length limit."),
+        )
+        .field(
+            value_field::<Answer, _>("cached", TypeRef::named_nn(TypeRef::BOOLEAN), |a| {
+                Some(GqlValue::from(a.cached))
+            })
+            .description("Whether the answer came from the answer cache (sources are checked against the current entries first)."),
         )
         .field(sources_field::<Answer>(|a| &a.sources))
 }

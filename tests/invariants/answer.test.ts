@@ -7,6 +7,8 @@
 // - 擬似LLMの既定の回答の組み立て方（overlap）は、質問と重なりの多い断片を出典にして、`[n]` 付きの回答を返す。
 //   回答の中身を決めたいテストは `fixed` で回答（判定の先行宣言＋本文）を渡す。
 //   CMSはプロンプトの断片に 1 から順に番号を付ける（format.json の `[n] 本文` の行）ので、`fixed` の回答は出典に 1 を使う。
+// - 同じ質問は、回答キャッシュから前の回答が返る。擬似LLMの動きを変えて確かめるテストは、場面ごとに言い回しの違う
+//   質問を送る（phrasings）。
 // - 質問文は外部に送る前にマスクされ、10桁以上の数字の並びは `[number]` になる（Q169）。擬似LLMに届いた内容と
 //   比べるテストの検索語には、数字を含めない（wordMarker）。
 
@@ -78,6 +80,31 @@ async function askStream(ws: AnswerWorkspace, question: string): Promise<{ event
 }
 
 const deltas = (events: AnswerEvent[]): string[] => events.flatMap((e) => (e.type === "delta" ? [e.text] : []));
+
+/**
+ * 同じ記事についての、言い回しの違う質問を順に返す。回答キャッシュ（09-qa-chatbot.md）があるので、擬似LLMの動きを変えて
+ * LLMの回答の検査を確かめる場面では、場面ごとに違う質問を送る（同じ質問は、前の回答がキャッシュから返る）。
+ */
+function phrasings(word: string): () => string {
+  const endings = [
+    "とは何ですか",
+    "について教えてください",
+    "を説明してください",
+    "とはどういうものですか",
+    "の要点は何ですか",
+    "について詳しく教えてください",
+    "は何のためのものですか",
+    "について知りたいです",
+    "の特徴を教えてください",
+    "とはどんな記事ですか",
+  ];
+  let i = 0;
+  return () => {
+    const ending = endings[i++];
+    if (ending === undefined) throw new Error("質問の言い回しが足りない（phrasings に足す）");
+    return `${word} ${ending}`;
+  };
+}
 const chars = (s: string): number => [...s].length;
 
 inv(
@@ -88,21 +115,21 @@ inv(
     const ws = await (await world()).workspace("qa01");
     const word = wordMarker("qaone");
     await publishSearchable(ws, word, `${word} は、引用の検証を確かめるための記事です。回答には出典の番号が付きます。`);
-    const question = `${word} とは何ですか`;
+    const next = phrasings(word);
 
     // 対照: 引用のある回答は、そのまま返る
-    const normal = await ask(ws, question);
+    const normal = await ask(ws, next());
     expect(normal.status, "引用のある回答が返らない（擬似LLMの既定の組み立て方）").toBe("answered");
     expect(normal.sources.length).toBeGreaterThan(0);
 
     // 1. 擬似LLMが本文から引用記号を取り除く（宣言は「答えられる」のまま）
     await mockLlm.setFaults(llmKey, [{ kind: "noCitations", endpoint: "chat" }]);
     const mockBody = (r: AnswerResult) => r.text.includes(word);
-    const replaced = await ask(ws, question);
+    const replaced = await ask(ws, next());
     expect(replaced.status, "引用のない回答が「情報なし」に差し替えられない（まとめて）").toBe("noInformation");
     expect(mockBody(replaced), "引用のない回答の本文が返った（まとめて）").toBe(false);
     expect(replaced.sources, "「情報なし」に出典が付いている").toEqual([]);
-    const streamed = await askStream(ws, question);
+    const streamed = await askStream(ws, next());
     expect(streamed.final.status, "引用のない回答が「情報なし」に差し替えられない（ストリーミングの最終判定）").toBe("noInformation");
     expect(mockBody(streamed.final), "引用のない回答の本文が、最終判定で返った").toBe(false);
     expect(streamed.final.sources).toEqual([]);
@@ -111,10 +138,10 @@ inv(
     await mockLlm.clearFaults(llmKey);
     const uncited = `引用のない本文 ${wordMarker("uncited")}`;
     await mockLlm.setStrategy(llmKey, { kind: "fixed", content: fixedAnswer([1], uncited) });
-    const fixed = await ask(ws, question);
+    const fixed = await ask(ws, next());
     expect(fixed.status, "引用のない回答が「情報なし」に差し替えられない（決めた回答・まとめて）").toBe("noInformation");
     expect(fixed.text, "引用のない回答の本文が返った（決めた回答）").not.toContain(uncited);
-    const fixedStream = await askStream(ws, question);
+    const fixedStream = await askStream(ws, next());
     expect(fixedStream.final.status).toBe("noInformation");
     expect(fixedStream.final.text).not.toContain(uncited);
 
@@ -132,10 +159,10 @@ inv(
     const ws = await (await world()).workspace("qa04");
     const word = wordMarker("qafour");
     await publishSearchable(ws, word, `${word} は、判定の先行宣言を確かめるための記事です。宣言を確かめてから本文を配信します。`);
-    const question = `${word} とは何ですか`;
+    const next = phrasings(word);
 
     // 対照: 答えられる回答では、判定（答えられる）の後に本文の断片が配信される
-    const normal = await askStream(ws, question);
+    const normal = await askStream(ws, next());
     expect(normal.final.status, "答えられる回答が返らない").toBe("answered");
     expect(normal.events[0]?.type, "最初のイベントが判定でない").toBe("verdict");
     expect(normal.events[0]?.type === "verdict" && normal.events[0].answerable).toBe(true);
@@ -143,13 +170,13 @@ inv(
 
     /** 本文の断片が1つも配信されず、最終判定が「情報なし」で、宣言の後に書かれた本文が返らない。 */
     const expectNoInformation = async (label: string, forbidden: string | null) => {
-      const s = await askStream(ws, question);
+      const s = await askStream(ws, next());
       expect(deltas(s.events), `${label}: 本文が配信された（ストリーミング）`).toEqual([]);
       for (const e of s.events) {
         if (e.type === "verdict") expect(e.answerable, `${label}: 判定が「答えられる」になった`).toBe(false);
       }
       expect(s.final.status, `${label}: 最終判定が「情報なし」でない`).toBe("noInformation");
-      const whole = await ask(ws, question);
+      const whole = await ask(ws, next());
       expect(whole.status, `${label}: 「情報なし」が返らない（まとめて）`).toBe("noInformation");
       if (forbidden !== null) {
         expect(s.final.text, `${label}: 宣言の後の本文が返った（ストリーミング）`).not.toContain(forbidden);
@@ -270,12 +297,12 @@ inv(
     const ws = await (await world()).workspace("qa13");
     const word = wordMarker("qathirteen");
     await publishSearchable(ws, word, `${word} は、回答の長さの上限を確かめるための記事です。`);
-    const question = `${word} とは何ですか`;
+    const next = phrasings(word);
     const max = driver.answerLimits.answerMaxChars;
 
     // 対照: 短い回答は打ち切られない
     await mockLlm.setStrategy(llmKey, { kind: "fixed", content: fixedAnswer([1], `短い回答です ${citation(1)}`) });
-    const short = await ask(ws, question);
+    const short = await ask(ws, next());
     expect(short.status).toBe("answered");
     expect(short.truncated, "短い回答が打ち切られた").toBe(false);
 
@@ -284,12 +311,12 @@ inv(
     expect(chars(long)).toBeGreaterThan(max * 2);
     await mockLlm.setStrategy(llmKey, { kind: "fixed", content: fixedAnswer([1], long) });
 
-    const whole = await ask(ws, question);
+    const whole = await ask(ws, next());
     expect(whole.status, "長い回答が返らない（まとめて）").toBe("answered");
     expect(chars(whole.text), "回答の長さが上限を超えた（まとめて）").toBeLessThanOrEqual(max);
     expect(whole.truncated, "打ち切ったことが示されない（まとめて）").toBe(true);
 
-    const s = await askStream(ws, question);
+    const s = await askStream(ws, next());
     expect(s.final.status, "長い回答が返らない（ストリーミング）").toBe("answered");
     expect(chars(deltas(s.events).join("")), "配信した本文の長さが上限を超えた（ストリーミング）").toBeLessThanOrEqual(max);
     expect(chars(s.final.text), "最終判定の本文の長さが上限を超えた").toBeLessThanOrEqual(max);
@@ -440,12 +467,15 @@ inv(
       const ws = await w.workspace("qa14", { visitorId: true });
       const word = wordMarker("qafourteen");
       await publishSearchable(ws, word, `${word} は、訪問者ごとの回数制限を確かめるための記事です。`, undefined, w);
-      const question = `${word} とは何ですか`;
+      // 1回ごとに言い回しを変える（回答キャッシュから返したのではなく、回数制限で断ったこと・LLMを呼んだことを確かめるため）
+      const next = phrasings(word);
       // 中継サーバーがハッシュ化した訪問者の識別子（CMSにとっては中身を解釈しない文字列）
       const visitor = (label: string) => `visitor-${wordMarker(label)}`;
       const limited = visitor("limited");
-      const call = (stream: boolean, visitorId?: string) =>
-        w.cms.answerRaw(ws.id, ws.answerKey.secret, stream ? ws.answerStreamQuery : ws.answerQuery, visitorId === undefined ? { question } : { question, visitorId });
+      const call = (stream: boolean, visitorId?: string) => {
+        const question = next();
+        return w.cms.answerRaw(ws.id, ws.answerKey.secret, stream ? ws.answerStreamQuery : ws.answerQuery, visitorId === undefined ? { question } : { question, visitorId });
+      };
       const expectAnswered = (res: HttpResponse, what: string) => {
         expect(res.status, `${what}: 回答が返らない`).toBe(200);
         expect(w.cms.answerErrors(res), `${what}: エラーになった`).toEqual([]);

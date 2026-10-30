@@ -11,6 +11,7 @@
 //!
 //! 質問文と回答の本文はログに出さない（原則7）。ログに残すのは、規則違反の種類だけ。
 
+pub mod cache;
 pub mod check;
 pub mod format;
 mod prompt;
@@ -83,6 +84,8 @@ pub struct Answer {
     pub text: String,
     pub truncated: bool,
     pub sources: Vec<Source>,
+    /// 回答キャッシュから返したか。
+    pub cached: bool,
 }
 
 /// ストリーミングのイベント。まとめて返すときは `Final` だけを使う。
@@ -193,6 +196,7 @@ impl Grounds {
             text: self.no_information.clone(),
             truncated: false,
             sources: Vec::new(),
+            cached: false,
         }
     }
 }
@@ -224,6 +228,29 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     };
     // 外部（埋め込み・LLM）に送る前にマスクする
     let masked = crate::mask::mask(question);
+    // 回答キャッシュ（出典を今の状態と照合してから返す。予算・埋め込み・LLMは使わない）
+    let cache_key = cache_key(app, req, locale, &model, &masked).map_err(internal)?;
+    if let Some(hit) = cached(app, req, &cache_key).await.map_err(internal)? {
+        let _ = out
+            .send(Ok(Event::Verdict {
+                answerable: true,
+                sources: hit.sources.clone(),
+            }))
+            .await;
+        if req.streaming {
+            let _ = out.send(Ok(Event::Delta(hit.text.clone()))).await;
+        }
+        let _ = out
+            .send(Ok(Event::Final(Answer {
+                status: Status::Answered,
+                text: hit.text,
+                truncated: hit.truncated,
+                sources: hit.sources,
+                cached: true,
+            })))
+            .await;
+        return Ok(());
+    }
     let grounds = grounds(app, req, &masked).await.map_err(internal)?;
     if grounds.fragments.is_empty() {
         // 根拠がなければ、LLMを呼ばない（予算も使わない）
@@ -343,7 +370,7 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
             if violation {
                 tracing::warn!(workspace = %ws, kind = "undeclared_citation", "answer broke the citation rule");
             }
-            Answer {
+            let answer = Answer {
                 // まとめて返すときは、取り除いた後の本文だけを返すので違反は外に出ていない
                 status: if violation && req.streaming {
                     Status::ViolationDetected
@@ -353,7 +380,17 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
                 text,
                 truncated: checker.truncated(),
                 sources: grounds.sources(&cited),
+                cached: false,
+            };
+            // 回答キャッシュに保存する。違反を検知したもの・終わりまで読まなかったもの（訪問者が離れたなど。長さの上限で
+            // 打ち切ったものは除く）は保存しない。保存できなくても、回答は返す
+            if !violation
+                && (completed || checker.truncated())
+                && let Err(e) = remember(app, req, &cache_key, &answer).await
+            {
+                tracing::warn!(workspace = %ws, "answer cache store failed: {e:#}");
             }
+            answer
         }
     };
     let _ = out.send(Ok(Event::Final(answer))).await;
@@ -388,6 +425,47 @@ async fn send_step(
 
 fn log_llm_error(e: LlmError) {
     tracing::warn!(code = e.code(), status = ?e.status(), "answer LLM call failed");
+}
+
+/// 回答キャッシュのキー（正規化してマスクした質問文と、ワークスペース・ロケール・設定から）。
+fn cache_key(
+    app: &AppState,
+    req: &Request,
+    locale: &str,
+    model: &str,
+    masked: &str,
+) -> Result<Vec<u8>> {
+    let secret = app.keys.derive(cache::KEY_PURPOSE)?;
+    Ok(cache::key(
+        &secret,
+        req.workspace_id,
+        locale,
+        &cache::settings(model),
+        &cache::normalize(masked),
+    ))
+}
+
+/// 回答キャッシュを引く（自分の短いトランザクションで）。
+async fn cached(app: &AppState, req: &Request, key: &[u8]) -> Result<Option<cache::Hit>> {
+    let mut tx = workspace_db::begin_owned(&app.pool, &req.db).await?;
+    let hit = cache::lookup(&mut tx, &req.manifest, key, &req.locale).await?;
+    tx.commit().await?;
+    Ok(hit)
+}
+
+/// 回答を回答キャッシュに保存する。
+async fn remember(app: &AppState, req: &Request, key: &[u8], answer: &Answer) -> Result<()> {
+    let mut tx = workspace_db::begin_owned(&app.pool, &req.db).await?;
+    cache::store(
+        &mut tx,
+        key,
+        &answer.text,
+        answer.truncated,
+        &answer.sources,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 /// プロンプトに入れる断片の文字列（パンくずと本文）。

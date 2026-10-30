@@ -338,10 +338,11 @@ export type QuerySpec =
   /**
    * 質問への回答を、まとめて返すもの（M4、09-qa-chatbot.md）。変数は question・locale。
    * visitorId を true にすると、訪問者の識別子（13-security.md「チャットボットへの悪用」）の変数 visitorId も受け取る。
+   * cached を true にすると、回答キャッシュから返したか（AnswerResult の cached）も選ぶ。
    */
-  | { kind: "answer"; visitorId?: boolean }
+  | { kind: "answer"; visitorId?: boolean; cached?: boolean }
   /** 質問への回答を、判定先行のストリーミングで返すもの（M4）。変数は question・locale（visitorId は answer と同じ）。 */
-  | { kind: "answerStream"; visitorId?: boolean }
+  | { kind: "answerStream"; visitorId?: boolean; cached?: boolean }
   | { kind: "text"; text: string };
 
 /** 関連記事の1件（同じコンテンツタイプ・同じロケールの記事。固定した記事が先）。 */
@@ -411,6 +412,8 @@ export interface AnswerResult {
   /** 長さの上限で打ち切ったか。 */
   truncated: boolean;
   sources: AnswerSource[];
+  /** 回答キャッシュから返したか（09-qa-chatbot.md「回答キャッシュ」）。クエリで選んだときだけある。 */
+  cached?: boolean;
 }
 
 /**
@@ -953,6 +956,53 @@ export const driver = {
    */
   answerLimits: { questionMaxChars: 500, answerMaxChars: 4000 },
 
+  /**
+   * DBへの直接の接続（CLAUDE.md の例外）。「保存しない」ことと「時刻」に関わる約束（QA-08, 09, LOG-01, 02）のテストだけが使う。
+   * 接続先は、設定の databaseUrl のDBに、スーパーユーザーでつなぐ。
+   */
+  storage: {
+    /**
+     * DBのすべてのテキストの列（文字列・JSON・配列・全文検索の索引・バイト列）から、`needle` を大文字・小文字を区別せずに探す。
+     * 見つかった列を「スキーマ.テーブル.列」で返す。
+     */
+    async findText(config: ServerConfig, needle: string): Promise<string[]> {
+      return withClient(superuserUrlFor(config), async (c) => {
+        const cols = await c.query<{ s: string; t: string; c: string; ty: string }>(
+          `SELECT c.table_schema AS s, c.table_name AS t, c.column_name AS c, c.data_type AS ty
+             FROM information_schema.columns c
+             JOIN information_schema.tables t
+               ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
+            WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
+              AND (c.data_type IN ('text', 'character varying', 'character', 'json', 'jsonb', 'ARRAY', 'bytea')
+                   OR c.udt_name = 'tsvector')`,
+        );
+        const found: string[] = [];
+        for (const col of cols.rows) {
+          const target = `${ident(col.s)}.${ident(col.t)}`;
+          const column = ident(col.c);
+          const where =
+            col.ty === "bytea"
+              ? `(position(convert_to($1, 'UTF8') in ${column}) > 0 OR position(convert_to(lower($1), 'UTF8') in ${column}) > 0)`
+              : `${column}::text ILIKE '%' || $1 || '%'`;
+          const res = await c.query<{ n: string }>(`SELECT count(*) AS n FROM ${target} WHERE ${where}`, [needle]);
+          if (Number(res.rows[0]?.n ?? 0) > 0) found.push(`${col.s}.${col.t}.${col.c}`);
+        }
+        return found;
+      });
+    },
+    /** 記事の最終確認日を、今（DBの時刻）から `secondsAgo` 秒前にずらす（確認期限をテストの間に来させるため）。 */
+    async setLastVerifiedAgo(config: ServerConfig, workspaceId: string, entryId: string, secondsAgo: number): Promise<void> {
+      await withClient(superuserUrlFor(config), async (c) => {
+        const schema = `ws_${workspaceId.replace(/-/g, "")}`;
+        const res = await c.query(`UPDATE ${ident(schema)}.entries SET last_verified_at = now() - make_interval(secs => $2) WHERE id = $1`, [
+          entryId,
+          secondsAgo,
+        ]);
+        if (res.rowCount !== 1) throw new Error(`記事の最終確認日をずらせない: ${entryId}`);
+      });
+    },
+  },
+
   /** 起動済みのCMSにつなぐ。 */
   connect(baseUrl: string): CmsClient {
     return connectAdmin(baseUrl, todo);
@@ -1180,6 +1230,13 @@ export const driver = {
  * サーバーを一度起動して移行し、サーバー管理者（多要素認証あり）を作り、BASE_TEMPLATE をデプロイする。
  * 暗号化の鍵のファイルは写しを使う（鍵の入れ替えのテストが、テスト環境の鍵を変えないように）。
  */
+/** 設定の databaseUrl のDBに、スーパーユーザーでつなぐ接続先。 */
+function superuserUrlFor(config: ServerConfig): string {
+  const u = new URL(env.dbSuperuserUrl);
+  u.pathname = new URL(config.databaseUrl).pathname;
+  return u.toString();
+}
+
 async function createIsolatedInstance(): Promise<IsolatedInstance> {
   const base = validServerConfigFromEnv();
   const dbName = `cms_iso_${randomUUID().replace(/-/g, "").slice(0, 16)}`;

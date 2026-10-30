@@ -203,8 +203,11 @@ export interface AnswerWorld {
    * ワークスペースを作る。埋め込みと回答の予算の天井は、answerCeiling を指定しなければ十分に大きくする。
    * answerCeiling は回答の予算の天井（トークン数。入力・出力、月・日のすべてに同じ値）。
    * visitorId を true にすると、回答のクエリを、訪問者の識別子の変数 visitorId も受け取る形で登録する。
+   * cached を true にすると、回答のクエリで、回答キャッシュから返したか（cached）も選ぶ。
    */
-  workspace(label: string, options?: { answerCeiling?: number; visitorId?: boolean }): Promise<AnswerWorkspace>;
+  workspace(label: string, options?: { answerCeiling?: number; visitorId?: boolean; cached?: boolean }): Promise<AnswerWorkspace>;
+  /** このインスタンスのサーバーの設定（driver.storage に渡す）。 */
+  config: ServerConfig;
   stop(): Promise<void>;
 }
 
@@ -220,12 +223,13 @@ export async function createAnswerWorld(options: Pick<ServerConfig, "answerRateL
   const llmKey = `inv-answer-${randomUUID().slice(0, 8)}`;
   const instance = await driver.createIsolatedInstance();
   // 舞台の準備のログインと招待の承諾は同じアドレスから続くので、テストの舞台のCMSと同じく回数制限を大きくする（global-setup.ts）
-  const started = await driver.startServer({
+  const config: ServerConfig = {
     ...instance.config,
     loginAttemptsPerIpPerMinute: 100_000,
     llm: { ...mockLlm.connection(llmKey), chatModel: mockLlm.chatModel },
     ...options,
-  });
+  };
+  const started = await driver.startServer(config);
   if (started.outcome !== "ready") throw new Error(`擬似LLMにつないだサーバーが起動しない:\n${started.output}`);
   const cms = started.client!;
   const sa = await cms.login(instance.serverAdmin);
@@ -236,6 +240,7 @@ export async function createAnswerWorld(options: Pick<ServerConfig, "answerRateL
   return {
     cms,
     llmKey,
+    config,
     async workspace(label, options = {}) {
       await cms.reauthenticate(sa, instance.serverAdmin);
       const { id } = await cms.createWorkspace(sa, `inv-${label}-${randomUUID().slice(0, 8)}`, { template: SEARCHABLE_TEMPLATE.name });
@@ -262,8 +267,8 @@ export async function createAnswerWorld(options: Pick<ServerConfig, "answerRateL
         readKey,
         answerKey,
         searchQuery: await cms.registerQuery(id, registerKey.secret, { kind: "search" }),
-        answerQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answer", visitorId: options.visitorId }),
-        answerStreamQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answerStream", visitorId: options.visitorId }),
+        answerQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answer", visitorId: options.visitorId, cached: options.cached }),
+        answerStreamQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answerStream", visitorId: options.visitorId, cached: options.cached }),
       };
     },
     stop: () => started.stop(),

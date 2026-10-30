@@ -473,11 +473,13 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       // 回答（M4。server/src/delivery）。出典の項目は、まとめて・ストリーミングで同じ
       case "answer": {
         const [v, a] = spec.visitorId ? [", $visitorId: String", ", visitorId: $visitorId"] : ["", ""];
-        return `query($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}${v}) { answer(question: $question, locale: $locale${a}) { ${ANSWER_FIELDS} } }`;
+        const fields = spec.cached ? `${ANSWER_FIELDS} cached` : ANSWER_FIELDS;
+        return `query($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}${v}) { answer(question: $question, locale: $locale${a}) { ${fields} } }`;
       }
       case "answerStream": {
         const [v, a] = spec.visitorId ? [", $visitorId: String", ", visitorId: $visitorId"] : ["", ""];
-        return `subscription($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}${v}) { answerStream(question: $question, locale: $locale${a}) { __typename ... on CmsAnswerVerdict { answerable sources { ${ANSWER_SOURCE_FIELDS} } } ... on CmsAnswerDelta { text } ... on CmsAnswerFinal { ${ANSWER_FIELDS} } } }`;
+        const fields = spec.cached ? `${ANSWER_FIELDS} cached` : ANSWER_FIELDS;
+        return `subscription($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}${v}) { answerStream(question: $question, locale: $locale${a}) { __typename ... on CmsAnswerVerdict { answerable sources { ${ANSWER_SOURCE_FIELDS} } } ... on CmsAnswerDelta { text } ... on CmsAnswerFinal { ${fields} } } }`;
       }
       case "text":
         return spec.text;
@@ -490,6 +492,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     text: r["text"] as string,
     truncated: r["truncated"] as boolean,
     sources: r["sources"] as AnswerSource[],
+    ...(typeof r["cached"] === "boolean" ? { cached: r["cached"] } : {}),
   });
   const graphqlErrors = (body: unknown): AnswerError[] => {
     const errors = (body as { errors?: unknown } | null)?.errors;

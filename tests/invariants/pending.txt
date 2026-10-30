@@ -9,10 +9,6 @@
 # 回答の検査（引用・答えられない宣言・devNote・URL・長さ）
 inv_qa_03
 # 公開状態とキャッシュ
-inv_qa_06
-inv_qa_07
-inv_qa_08
-inv_qa_09
 # 予算と回数の制限
 inv_bud_02
 # 質問ログ

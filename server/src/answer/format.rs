@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::Deserialize;
 
-const FORMAT_JSON: &str = include_str!("../../../tools/mock-llm/src/format.json");
+pub(crate) const FORMAT_JSON: &str = include_str!("../../../tools/mock-llm/src/format.json");
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
