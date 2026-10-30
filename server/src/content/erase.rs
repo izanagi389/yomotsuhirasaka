@@ -177,6 +177,8 @@ pub async fn erase(
     if updated.rows_affected() == 0 {
         return Ok(Err(Refused::NotFound));
     }
+    // その版を引用した回答キャッシュも消す（Q134）
+    crate::answer::cache::forget_version(conn, version_id).await?;
     let mut ids = delete_media.to_vec();
     ids.sort();
     ids.dedup();

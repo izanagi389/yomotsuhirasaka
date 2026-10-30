@@ -17,6 +17,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use chacha20poly1305::aead::{Aead as _, KeyInit as _, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use hmac::Mac as _;
 
 pub const KEY_BYTES: usize = 32;
 const NONCE_BYTES: usize = 24;
@@ -98,6 +99,20 @@ impl KeyRing {
             .get(&version)
             .ok_or_else(|| anyhow!("encryption key v{version} is not in the key file"))?;
         XChaCha20Poly1305::new_from_slice(key).map_err(|_| anyhow!("invalid key length"))
+    }
+
+    /// 用途ごとの鍵（現在の鍵を鍵にした HMAC-SHA256 で、用途の名前から導く）。鍵を入れ替えると変わる。
+    /// 暗号化の鍵そのものを、別の用途（ハッシュの鍵など）に使わないため。
+    pub fn derive(&self, purpose: &str) -> Result<[u8; KEY_BYTES]> {
+        let key = self
+            .keys
+            .get(&self.active_version())
+            .ok_or_else(|| anyhow!("no active key"))?;
+        let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key)
+            .map_err(|_| anyhow!("invalid key length"))?;
+        mac.update(b"new-cms derived key\0");
+        mac.update(purpose.as_bytes());
+        Ok(mac.finalize().into_bytes().into())
     }
 
     /// 現在の鍵で暗号化する。

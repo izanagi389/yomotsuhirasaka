@@ -127,6 +127,31 @@ async fn erasing_version_bodies() {
         assert_eq!((res.status, res.json_str("error").as_deref()), (409, Some("version_is_published")));
         assert!(parse(&get(&server, &format!("{target}/versions/{v2}"), &admin).await)["fields"].is_object());
 
+        // 回答キャッシュ: v1 を引用したものと、v2 を引用したもの（抹消で消えるのは v1 を引用したものだけ。Q134）
+        let db = cms_server::workspace_db::lookup(&server.pool, ws).await.unwrap().unwrap();
+        let cite = |vid: &str| cms_server::answer::Source {
+            entry_id: id.parse().unwrap(),
+            locale: "ja".into(),
+            url: None,
+            anchor: Some("sec".into()),
+            breadcrumb: Vec::new(),
+            version_id: vid.parse().unwrap(),
+            last_reviewed_at: None,
+            review_expired: false,
+        };
+        let mut tx = cms_server::workspace_db::begin(&server.pool, &db).await.unwrap();
+        for (key, vid) in [(b"cites-v1", &v1), (b"cites-v2", &v2)] {
+            cms_server::answer::cache::store(&mut tx, key, "答え [1]", false, &[cite(vid)]).await.unwrap();
+        }
+        tx.commit().await.unwrap();
+        let cached_keys = || async {
+            let mut tx = cms_server::workspace_db::begin(&server.pool, &db).await.unwrap();
+            let keys: Vec<Vec<u8>> = sqlx::query_scalar("SELECT key FROM answer_cache ORDER BY key").fetch_all(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            keys
+        };
+        assert_eq!(cached_keys().await.len(), 2);
+
         // 抹消する。指定したメディアのうち、他で使われているものは消さない（INV-PUB-06）
         let random = uuid::Uuid::new_v4().to_string();
         let res = send(&server, "POST", &erase(&v1), &admin, Some(&body(&[&only_here, &in_other_draft, &random]))).await;
@@ -134,6 +159,8 @@ async fn erasing_version_bodies() {
         assert_eq!(parse(&res)["deletedMediaIds"], json!([only_here]));
         assert_eq!(fetch_status(&server, &only_here_url).await, 404);
         assert_eq!(fetch_status(&server, &in_other_draft_url).await, 200);
+        // 抹消した版を引用した回答キャッシュは消える
+        assert_eq!(cached_keys().await, vec![b"cites-v2".to_vec()]);
 
         // 版は残り、本文だけが消える（INV-PUB-03, 04）
         let versions = parse(&get(&server, &format!("{target}/versions"), &admin).await);
