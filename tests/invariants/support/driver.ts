@@ -335,10 +335,13 @@ export type QuerySpec =
   | { kind: "searchWithMode" }
   /** 記事1件の関連記事（M3、08-search-and-related.md「関連記事」）。変数は id・first。 */
   | { kind: "relatedEntries" }
-  /** 質問への回答を、まとめて返すもの（M4、09-qa-chatbot.md）。変数は question・locale。 */
-  | { kind: "answer" }
-  /** 質問への回答を、判定先行のストリーミングで返すもの（M4）。変数は question・locale。 */
-  | { kind: "answerStream" }
+  /**
+   * 質問への回答を、まとめて返すもの（M4、09-qa-chatbot.md）。変数は question・locale。
+   * visitorId を true にすると、訪問者の識別子（13-security.md「チャットボットへの悪用」）の変数 visitorId も受け取る。
+   */
+  | { kind: "answer"; visitorId?: boolean }
+  /** 質問への回答を、判定先行のストリーミングで返すもの（M4）。変数は question・locale（visitorId は answer と同じ）。 */
+  | { kind: "answerStream"; visitorId?: boolean }
   | { kind: "text"; text: string };
 
 /** 関連記事の1件（同じコンテンツタイプ・同じロケールの記事。固定した記事が先）。 */
@@ -421,7 +424,7 @@ export type AnswerEvent =
   | { type: "delta"; text: string }
   | ({ type: "final" } & AnswerResult);
 
-/** 回答のリクエストの応答から読み取ったエラー（GraphQL の errors の extensions.code）。 */
+/** 回答のリクエストの応答から読み取ったエラー（GraphQL の errors の extensions.code。HTTPのエラーの応答なら、そのエラーコード）。 */
 export interface AnswerError {
   code: string | null;
   message: string;
@@ -746,7 +749,7 @@ export interface CmsClient {
    * 登録済みの回答のクエリ（`{ kind: "answer" }` または `{ kind: "answerStream" }`）を実行する（応答をそのまま返す）。
    * 回答はお金がかかって共有できないので POST で送る。answerStream は SSE（`Accept: text/event-stream`）で受け取る。
    */
-  answerRaw(workspaceIdInUrl: string, apiKey: string, query: RegisteredQuery, input: { question: string; locale?: string }): Promise<HttpResponse>;
+  answerRaw(workspaceIdInUrl: string, apiKey: string, query: RegisteredQuery, input: { question: string; locale?: string; visitorId?: string }): Promise<HttpResponse>;
   /** answerRaw の応答（{ kind: "answer" }）から、回答を読む。エラーの応答なら null。 */
   parseAnswer(res: HttpResponse): AnswerResult | null;
   /** answerRaw の応答（{ kind: "answerStream" }）から、イベントを届いた順に読む。エラーのイベントは含めない。 */
@@ -830,6 +833,11 @@ export interface ServerConfig {
   oneTimeTokenLifetimeSeconds?: number;
   /** 回数制限（1分あたり）。 */
   rateLimits?: { deliveryPerKey?: number; deliveryPerWorkspace?: number };
+  /**
+   * 回答APIの回数制限（M4、13-security.md「チャットボットへの悪用」）。undefined ならサーバーの既定。
+   * keyPerMinute はAPIキーごとの回答の回数（1分あたり）、visitorPerMinute・visitorPerDay は訪問者の識別子ごとの回数。
+   */
+  answerRateLimits?: { keyPerMinute?: number; visitorPerMinute?: number; visitorPerDay?: number };
   /**
    * 接続元のIPアドレスごとのログインの試行の上限（1分あたり）。undefined ならサーバーの既定。
    * テストの舞台のCMSでは、接続元を名乗らないログイン（舞台の準備など）が同じアドレスに集まるので大きくする。

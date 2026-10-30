@@ -1,4 +1,4 @@
-// 質問応答の約束（回答の土台）: INV-QA-01・04・05・10・12・13・15（M4、09-qa-chatbot.md、13-security.md「チャットボットへの悪用」）
+// 質問応答の約束（回答の土台）: INV-QA-01・02・04・05・10〜15（M4、09-qa-chatbot.md、13-security.md「チャットボットへの悪用」）
 //
 // - 回答は配信APIの GraphQL（Persisted Queries）で行う。まとめて返す Query `answer` と、判定先行のストリーミングの
 //   Subscription `answerStream`（SSE）の両方で確かめる。回答APIは answer のスコープのキーで呼ぶ。
@@ -37,9 +37,9 @@ afterAll(async () => {
 /** 数字を含まない一意な目印（マスクで変わらないようにする）。 */
 const wordMarker = (label: string): string => marker(label).replace(/\d/g, (d) => "ghijklmnop"[Number(d)]!);
 
-/** 記事を公開し、検索に出る（埋め込みができる）まで待つ。 */
-async function publishSearchable(ws: AnswerWorkspace, word: string, text: string, fields?: Record<string, unknown>): Promise<string> {
-  const { cms } = await world();
+/** 記事を公開し、検索に出る（埋め込みができる）まで待つ。w を渡せば、その舞台で行う（既定はこのファイルの舞台）。 */
+async function publishSearchable(ws: AnswerWorkspace, word: string, text: string, fields?: Record<string, unknown>, w?: AnswerWorld): Promise<string> {
+  const { cms } = w ?? (await world());
   const { id } = await cms.createEntry(ws.editorSession, ws.id, { title: marker("qa-title"), body: doc(paragraph(text)), fields });
   await cms.publishEntry(ws.editorSession, ws.id, id);
   const deadline = Date.now() + 120_000;
@@ -425,6 +425,57 @@ inv(
     expect(s.final.status).toBe("answered");
     check("ストリーミングの最終判定", s.final.text);
     check("ストリーミングで配信した本文", deltas(s.events).join(""));
+  },
+  300_000,
+);
+
+inv(
+  "inv_qa_14",
+  "訪問者の識別子が渡された場合、訪問者単位の回数制限を超えたリクエストは、LLMを呼ばずに拒否される",
+  async () => {
+    // 訪問者ごとの上限を小さくした、専用の舞台（専用のキーで擬似LLMにつなぐ。APIキーごとの上限は大きくする）
+    const limit = 3;
+    const w = await createAnswerWorld({ answerRateLimits: { visitorPerMinute: limit, visitorPerDay: 1_000, keyPerMinute: 1_000 } });
+    try {
+      const ws = await w.workspace("qa14", { visitorId: true });
+      const word = wordMarker("qafourteen");
+      await publishSearchable(ws, word, `${word} は、訪問者ごとの回数制限を確かめるための記事です。`, undefined, w);
+      const question = `${word} とは何ですか`;
+      // 中継サーバーがハッシュ化した訪問者の識別子（CMSにとっては中身を解釈しない文字列）
+      const visitor = (label: string) => `visitor-${wordMarker(label)}`;
+      const limited = visitor("limited");
+      const call = (stream: boolean, visitorId?: string) =>
+        w.cms.answerRaw(ws.id, ws.answerKey.secret, stream ? ws.answerStreamQuery : ws.answerQuery, visitorId === undefined ? { question } : { question, visitorId });
+      const expectAnswered = (res: HttpResponse, what: string) => {
+        expect(res.status, `${what}: 回答が返らない`).toBe(200);
+        expect(w.cms.answerErrors(res), `${what}: エラーになった`).toEqual([]);
+      };
+
+      // 上限の内側: まとめて・ストリーミングのどちらも、同じ訪問者の回数として数える
+      for (let i = 0; i < limit; i++) expectAnswered(await call(i % 2 === 1, limited), `上限の内側の ${i + 1} 回目`);
+      await mockLlm.clearRequests(w.llmKey);
+
+      // 上限を超えた: まとめて・ストリーミングのどちらも拒否され、埋め込みもLLMも呼ばれない
+      for (const stream of [false, true]) {
+        const what = stream ? "ストリーミング" : "まとめて";
+        const res = await call(stream, limited);
+        expect(res.status, `上限を超えた訪問者のリクエストが拒否されない（${what}）`).toBe(429);
+        expect(w.cms.answerErrors(res).map((e) => e.code), `訪問者の回数制限のエラーコードが返らない（${what}）`).toContain("visitor_rate_limited");
+        expect(res.text, `拒否の応答に、記事の内容が含まれている（${what}）`).not.toContain(word);
+      }
+      const after = await mockLlm.requests(w.llmKey);
+      expect(chatRequests(after), "回数制限を超えたのに、LLMが呼ばれた").toEqual([]);
+      expect(embeddingInputs(after), "回数制限を超えたのに、質問の埋め込みが作られた").toEqual([]);
+
+      // 対照: 別の訪問者と、識別子を渡さないリクエストは、上限に関係なく通る（LLMも呼ばれる）
+      expectAnswered(await call(false, visitor("other")), "別の訪問者");
+      expectAnswered(await call(true, visitor("other")), "別の訪問者（ストリーミング）");
+      expectAnswered(await call(false), "識別子を渡さないリクエスト");
+      expect(chatRequests(await mockLlm.requests(w.llmKey)).length, "上限の内側のリクエストで、LLMが呼ばれない").toBeGreaterThanOrEqual(3);
+    } finally {
+      await mockLlm.clearRequests(w.llmKey);
+      await w.stop();
+    }
   },
   300_000,
 );

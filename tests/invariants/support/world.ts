@@ -2,7 +2,7 @@
 // テストのファイルごとに新しく作るので、他のファイルの結果に左右されない。
 
 import { randomUUID } from "node:crypto";
-import { asBearer, driver, type CmsClient, type Credentials, type IssuedSecret, type Member, type OperationTarget, type RegisteredQuery, type Session } from "./driver.js";
+import { asBearer, driver, type CmsClient, type Credentials, type IssuedSecret, type Member, type OperationTarget, type RegisteredQuery, type ServerConfig, type Session } from "./driver.js";
 import { SEARCHABLE_TEMPLATE } from "./template.js";
 import { simpleBody } from "./body.js";
 import { env } from "./env.js";
@@ -202,8 +202,9 @@ export interface AnswerWorld {
   /**
    * ワークスペースを作る。埋め込みと回答の予算の天井は、answerCeiling を指定しなければ十分に大きくする。
    * answerCeiling は回答の予算の天井（トークン数。入力・出力、月・日のすべてに同じ値）。
+   * visitorId を true にすると、回答のクエリを、訪問者の識別子の変数 visitorId も受け取る形で登録する。
    */
-  workspace(label: string, options?: { answerCeiling?: number }): Promise<AnswerWorkspace>;
+  workspace(label: string, options?: { answerCeiling?: number; visitorId?: boolean }): Promise<AnswerWorkspace>;
   stop(): Promise<void>;
 }
 
@@ -215,7 +216,7 @@ const LARGE_BUDGET = 10_000_000;
  * キーごとなので、他のテストと混ざらない）。同じファイルのテストは順に流れるので、このキーを共有する。
  * 各テストは、使い終わったら擬似LLMの障害と回答の組み立て方を元に戻す。
  */
-export async function createAnswerWorld(): Promise<AnswerWorld> {
+export async function createAnswerWorld(options: Pick<ServerConfig, "answerRateLimits"> = {}): Promise<AnswerWorld> {
   const llmKey = `inv-answer-${randomUUID().slice(0, 8)}`;
   const instance = await driver.createIsolatedInstance();
   // 舞台の準備のログインと招待の承諾は同じアドレスから続くので、テストの舞台のCMSと同じく回数制限を大きくする（global-setup.ts）
@@ -223,6 +224,7 @@ export async function createAnswerWorld(): Promise<AnswerWorld> {
     ...instance.config,
     loginAttemptsPerIpPerMinute: 100_000,
     llm: { ...mockLlm.connection(llmKey), chatModel: mockLlm.chatModel },
+    ...options,
   });
   if (started.outcome !== "ready") throw new Error(`擬似LLMにつないだサーバーが起動しない:\n${started.output}`);
   const cms = started.client!;
@@ -260,8 +262,8 @@ export async function createAnswerWorld(): Promise<AnswerWorld> {
         readKey,
         answerKey,
         searchQuery: await cms.registerQuery(id, registerKey.secret, { kind: "search" }),
-        answerQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answer" }),
-        answerStreamQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answerStream" }),
+        answerQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answer", visitorId: options.visitorId }),
+        answerStreamQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answerStream", visitorId: options.visitorId }),
       };
     },
     stop: () => started.stop(),

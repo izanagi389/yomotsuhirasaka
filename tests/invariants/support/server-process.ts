@@ -123,6 +123,13 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (config.rateLimits?.deliveryPerWorkspace !== undefined) delivery.push(`workspace_requests_per_minute = ${config.rateLimits.deliveryPerWorkspace}`);
   if (config.sharedCache !== undefined) delivery.push(`shared_cache = ${config.sharedCache}`);
   if (delivery.length > 0) lines.push("", "[delivery]", ...delivery);
+  // 回答APIの回数制限（server/src/config.rs の AnswerConfig）
+  const answer: string[] = [];
+  const ar = config.answerRateLimits;
+  if (ar?.keyPerMinute !== undefined) answer.push(`key_requests_per_minute = ${ar.keyPerMinute}`);
+  if (ar?.visitorPerMinute !== undefined) answer.push(`visitor_requests_per_minute = ${ar.visitorPerMinute}`);
+  if (ar?.visitorPerDay !== undefined) answer.push(`visitor_requests_per_day = ${ar.visitorPerDay}`);
+  if (answer.length > 0) lines.push("", "[answer]", ...answer);
   if (config.loginHistoryRetention) {
     const r = config.loginHistoryRetention;
     lines.push("", "[login_history]", `retention_seconds = ${r.retentionSeconds}`, `sweep_interval_seconds = ${r.sweepIntervalSeconds}`);
