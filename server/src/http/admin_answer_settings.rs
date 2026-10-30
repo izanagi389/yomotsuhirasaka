@@ -7,7 +7,8 @@
 //!
 //! - 「情報なし」の文は、テンプレートのロケールだけを受け付ける（空・長すぎる・制御文字は拒否）。
 //! - 自由記述は [`settings::MAX_FREE_PROMPT_CHARS`] 文字まで。使う設定にするなら空にできない。
-//! - 変更は監査ログに残す。残すのは変えた項目の名前だけで、文の中身は残さない（原則7）。
+//! - 答えない質問の決まり（`refusal`。拒否する語と組み込みの種類）も、ここで変える（09-qa-chatbot.md「拒否する語」）。
+//! - 変更は監査ログに残す。残すのは変えた項目の名前と拒否する語の件数だけで、文や語の中身は残さない（原則7）。
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -70,7 +71,8 @@ pub async fn put(
             action::ANSWER_SETTINGS_CHANGED,
             &[],
             false,
-            Some(&serde_json::json!({ "fields": fields })),
+            // 拒否する語は、語そのものではなく件数だけを残す（語が秘密の名前でありうるため）
+            Some(&serde_json::json!({ "fields": fields, "refusalWords": out.refusal.words.len() })),
         )
         .await?;
     }
