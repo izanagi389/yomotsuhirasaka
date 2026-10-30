@@ -611,6 +611,10 @@ pub fn router(state: AppState) -> Router {
             "/workspaces/{ws}/budgets/embedding",
             get(admin_budgets::get_embedding).put(admin_budgets::set_embedding),
         )
+        .route(
+            "/workspaces/{ws}/budgets/answer",
+            get(admin_budgets::get_answer).put(admin_budgets::set_answer),
+        )
         .fallback(not_found);
     Router::new()
         .route("/healthz", get(|| async { "ok" }))

@@ -154,3 +154,97 @@ async fn the_ceiling_defaults_to_zero() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn answer_budget_api() {
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        let mut l = llm(None, None);
+        l.chat_model = Some("chat".into());
+        l.chat_output_price_per_million_tokens = Some(2.0);
+        cfg.llm = Some(l);
+        let server = start(cfg.clone()).await;
+        // やることの一覧は、テンプレートを適用したワークスペースで読む
+        let (root, token) = common::content::root_with_deploy_token(&server).await;
+        let manifest = common::content::blog_manifest();
+        assert_eq!(common::content::deploy(&server, &token, "blog", &manifest, "").await.status, 200);
+        let ws = common::content::workspace_with_template(&server, &root, "answer", "blog").await;
+        let path = format!("/api/admin/workspaces/{ws}/budgets/answer");
+        let get = |s: &Login| {
+            let (server, s, path) = (&server, s.clone(), path.clone());
+            async move {
+                let res = send(server, "GET", &path, &s, None).await;
+                assert_eq!(res.status, 200, "{}", res.body);
+                serde_json::from_str::<serde_json::Value>(&res.body).unwrap()
+            }
+        };
+
+        // 重い権限 manageLlm のない人は見られない
+        create_user(&server.pool, "editor@example.test", false).await;
+        common::content::add_member(&server, ws, "editor@example.test", "editor").await;
+        let editor = login(&server, "editor@example.test", PASSWORD).await;
+        assert_eq!(send(&server, "GET", &path, &editor, None).await.status, 403);
+
+        // 天井は、設定ファイルに既定値がなければ 0。サーバー管理者が入力・出力ごとに決める
+        let v = get(&root).await;
+        assert_eq!(v["chatConfigured"], true);
+        assert_eq!(v["input"]["ceilingTokensPerMonth"], 0);
+        let res = send(
+            &server,
+            "PUT",
+            &format!("/api/admin/workspaces/{ws}/limits"),
+            &root,
+            Some(r#"{"answerInputTokensPerMonth":1000,"answerInputTokensPerDay":100,"answerOutputTokensPerMonth":500,"answerOutputTokensPerDay":50}"#),
+        )
+        .await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        let v = get(&root).await;
+        assert_eq!((v["input"]["ceilingTokensPerMonth"].clone(), v["output"]["ceilingTokensPerDay"].clone()), (1000.into(), 50.into()));
+        assert_eq!(v["output"]["pricePerMillionTokens"], 2.0);
+        assert_eq!(v["input"]["pricePerMillionTokens"], serde_json::Value::Null);
+
+        // 天井を超える上限は 400。片方が超えていれば、どちらも変えない
+        let res = send(
+            &server,
+            "PUT",
+            &path,
+            &root,
+            Some(r#"{"input":{"tokensPerMonth":10,"tokensPerDay":null},"output":{"tokensPerMonth":501,"tokensPerDay":null}}"#),
+        )
+        .await;
+        assert_eq!((res.status, res.json_str("error").as_deref()), (400, Some("budget_exceeds_ceiling")));
+        assert_eq!(get(&root).await["input"]["tokensPerMonth"], serde_json::Value::Null);
+        // 送った向きだけが変わる
+        let res = send(&server, "PUT", &path, &root, Some(r#"{"output":{"tokensPerMonth":400,"tokensPerDay":null}}"#)).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        let v: serde_json::Value = serde_json::from_str(&res.body).unwrap();
+        assert_eq!((v["output"]["tokensPerMonth"].clone(), v["output"]["effectiveTokensPerMonth"].clone()), (400.into(), 400.into()));
+        assert_eq!(v["input"]["tokensPerMonth"], serde_json::Value::Null);
+        let changed: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE workspace_id = $1 AND action = 'budget.changed'")
+            .bind(ws)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(changed, 1);
+
+        // 予算が尽きたら、使用量の画面とやることの一覧に出る（どの予算かを示す）
+        assert!(matches!(
+            budget::reserve(&server.pool, &cfg, ws, Kind::VisitorAnswers, Direction::Output, 401).await.unwrap(),
+            Reserved::Exhausted { first: true }
+        ));
+        assert!(get(&root).await["output"]["exhaustedAt"].is_string());
+        let res = send(&server, "GET", &format!("/api/admin/workspaces/{ws}/todo"), &root, None).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        let todo: serde_json::Value = serde_json::from_str(&res.body).unwrap();
+        let budgets: Vec<&str> = todo["items"]
+            .as_array()
+            .or_else(|| todo.as_array())
+            .unwrap()
+            .iter()
+            .filter(|i| i["kind"] == "budgetExhausted")
+            .filter_map(|i| i["budget"].as_str())
+            .collect();
+        assert_eq!(budgets, vec!["visitor_answers"]);
+    })
+    .await;
+}

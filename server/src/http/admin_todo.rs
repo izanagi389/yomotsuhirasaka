@@ -284,24 +284,34 @@ pub async fn todo(
         Vec::new()
     };
     if state.config.llm.is_some() && access.has(Permission::ManageLlm) {
-        let usage = crate::budget::usage(
-            &state.pool,
-            ws,
-            crate::budget::Kind::Embedding,
-            crate::budget::Direction::Input,
-        )
-        .await?;
-        if let Some(at) = usage.exhausted_at {
-            items.push(Item {
-                kind: Kind::BudgetExhausted,
-                entry: None,
-                at,
-                request: None,
-                schedule: None,
-                version_id: None,
-                notification: None,
-                budget: Some(crate::budget::Kind::Embedding.as_str()),
-            });
+        use crate::budget::{Direction, Kind as Budget};
+        // 予算ごとに1枚（回答は入力・出力のどちらかが尽きていれば）。`budget` でどの予算かを示す
+        for (budget, directions) in [
+            (Budget::Embedding, &[Direction::Input][..]),
+            (
+                Budget::VisitorAnswers,
+                &[Direction::Input, Direction::Output][..],
+            ),
+        ] {
+            let mut first: Option<String> = None;
+            for &direction in directions {
+                let usage = crate::budget::usage(&state.pool, ws, budget, direction).await?;
+                if let Some(at) = usage.exhausted_at {
+                    first = Some(first.map_or(at.clone(), |f| f.min(at)));
+                }
+            }
+            if let Some(at) = first {
+                items.push(Item {
+                    kind: Kind::BudgetExhausted,
+                    entry: None,
+                    at,
+                    request: None,
+                    schedule: None,
+                    version_id: None,
+                    notification: None,
+                    budget: Some(budget.as_str()),
+                });
+            }
         }
     }
     if let Some(at) = model_missing {
