@@ -622,6 +622,9 @@
         "exhausted": "LLM budget exhausted (embeddings)",
         "answer_exhausted": "LLM budget exhausted (visitor answers)"
       },
+      "answer": {
+        "settings_changed": "Answer tone and phrases changed"
+      },
       "embedding_switch": {
         "started": "Embedding model switch started"
       },

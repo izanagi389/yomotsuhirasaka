@@ -622,6 +622,9 @@
         "exhausted": "LLMの予算切れ（埋め込みの作成）",
         "answer_exhausted": "LLMの予算切れ（訪問者向けの回答）"
       },
+      "answer": {
+        "settings_changed": "回答の語り口と定型文を変更"
+      },
       "embedding_switch": {
         "started": "埋め込みモデルの切り替えの開始"
       },

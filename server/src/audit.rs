@@ -91,6 +91,8 @@ pub mod action {
     pub const BUDGET_EXHAUSTED: &str = "budget.exhausted";
     /// 訪問者向けの回答の予算が足りずに回答を断った（M4。期間ごとに1回。ワークスペースの管理者に知らせる）。
     pub const ANSWER_BUDGET_EXHAUSTED: &str = "budget.answer_exhausted";
+    /// 回答の語り口と定型文を変えた（M4。重い権限 manageLlm。詳細は変えた項目の名前だけ）。
+    pub const ANSWER_SETTINGS_CHANGED: &str = "answer.settings_changed";
     /// 埋め込みモデルの切り替えを始めた・再開した（サーバー管理者。インスタンス全体の記録）。
     pub const EMBEDDING_SWITCH_STARTED: &str = "embedding_switch.started";
     /// 関連記事の一括再計算を今すぐ始めた（M3。公開の操作と同じく、サーバー管理者が操作したときだけ）。

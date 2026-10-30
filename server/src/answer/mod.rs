@@ -15,6 +15,7 @@ pub mod cache;
 pub mod check;
 pub mod format;
 mod prompt;
+pub mod settings;
 pub mod urls;
 
 use std::collections::HashMap;
@@ -43,7 +44,7 @@ const FRAGMENTS: usize = 6;
 /// ベクトル検索の候補の、コサイン類似度の足切り（ゆるい足切り。最終の判断はLLM）。
 const MIN_SIMILARITY: f64 = 0.2;
 /// 「情報なし」の文言がロケールにも英語にもないときの文。
-const NO_INFORMATION_FALLBACK: &str = "No relevant information was found.";
+pub(crate) const NO_INFORMATION_FALLBACK: &str = "No relevant information was found.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -229,7 +230,9 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     // 外部（埋め込み・LLM）に送る前にマスクする
     let masked = crate::mask::mask(question);
     // 回答キャッシュ（出典を今の状態と照合してから返す。予算・埋め込み・LLMは使わない）
-    let cache_key = cache_key(app, req, locale, &model, &masked).map_err(internal)?;
+    // 語り口（回答キャッシュのキーとプロンプトに使う）
+    let tone = load_tone(app, req).await.map_err(internal)?;
+    let cache_key = cache_key(app, req, locale, &model, &tone, &masked).map_err(internal)?;
     if let Some(hit) = cached(app, req, &cache_key).await.map_err(internal)? {
         let _ = out
             .send(Ok(Event::Verdict {
@@ -275,7 +278,7 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
                 .filter(|d| *d == f.locale),
         })
         .collect();
-    let messages = prompt::messages(locale, &masked, &fragments);
+    let messages = prompt::messages(locale, &masked, &fragments, &tone);
     let input_estimate = prompt::estimate_tokens(&messages);
 
     let pool = &app.pool;
@@ -433,6 +436,7 @@ fn cache_key(
     req: &Request,
     locale: &str,
     model: &str,
+    tone: &settings::Tone,
     masked: &str,
 ) -> Result<Vec<u8>> {
     let secret = app.keys.derive(cache::KEY_PURPOSE)?;
@@ -440,9 +444,17 @@ fn cache_key(
         &secret,
         req.workspace_id,
         locale,
-        &cache::settings(model, &req.manifest),
+        &cache::settings(model, &req.manifest, &tone.fingerprint()),
         &cache::normalize(masked),
     ))
+}
+
+/// 語り口を読む（自分の短いトランザクションで）。
+async fn load_tone(app: &AppState, req: &Request) -> Result<settings::Tone> {
+    let mut tx = workspace_db::begin_owned(&app.pool, &req.db).await?;
+    let tone = settings::tone(&mut tx).await?;
+    tx.commit().await?;
+    Ok(tone)
 }
 
 /// 回答キャッシュを引く（自分の短いトランザクションで）。
