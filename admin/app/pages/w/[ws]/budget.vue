@@ -74,7 +74,7 @@ const answerExhaustedAt = computed(() => {
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="allowed" />
+    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="allowed" :questions="hasPermission(workspace, 'viewQuestionLog')" />
     <FormError :error="wsError ?? error ?? answerError ?? saveError" />
     <p v-if="workspace && !allowed" class="text-muted-foreground">{{ t("errors.forbidden") }}</p>
 

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // ワークスペースの中の画面の切り替え（やること・記事・メディア・予算・チャットボット・管理）。管理は管理者とサーバー管理者だけ、
-// 予算とチャットボットは重い権限 manageLlm を持つ人とサーバー管理者だけに出す（権限の判断はサーバー）。
+// 予算とチャットボットは重い権限 manageLlm を持つ人とサーバー管理者だけ、質問ログは viewQuestionLog を持つ人だけに出す
+// （権限の判断はサーバー）。
 // 「やること」には、その人が対応できる項目の件数を出す（0件なら出さない）。
-const props = defineProps<{ workspaceId: string; name: string | undefined; admin?: boolean; budget?: boolean }>();
+const props = defineProps<{ workspaceId: string; name: string | undefined; admin?: boolean; budget?: boolean; questions?: boolean }>();
 const { t } = useI18n();
 const route = useRoute();
 const { data: todo } = useTodo(props.workspaceId);
@@ -16,6 +17,8 @@ const items = computed(() => [
         { to: `/w/${props.workspaceId}/chatbot`, label: t("nav.chatbot") },
       ]
     : []),
+  // 質問ログは重い権限 viewQuestionLog を持つ人だけ（管理者にも既定では付かない）
+  ...(props.questions ? [{ to: `/w/${props.workspaceId}/questions`, label: t("nav.questions") }] : []),
   ...(props.admin ? [{ to: `/w/${props.workspaceId}/admin`, label: t("nav.admin") }] : []),
 ]);
 </script>

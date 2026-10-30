@@ -7,6 +7,7 @@ import AuditPanel from "~/components/admin/AuditPanel.vue";
 import AuditSinksPanel from "~/components/admin/AuditSinksPanel.vue";
 import CorrectionTemplatesPanel from "~/components/admin/CorrectionTemplatesPanel.vue";
 import InvitationsPanel from "~/components/admin/InvitationsPanel.vue";
+import QuestionLogSettingsPanel from "~/components/admin/QuestionLogSettingsPanel.vue";
 import MembersPanel from "~/components/admin/MembersPanel.vue";
 import RelatedRecomputePanel from "~/components/admin/RelatedRecomputePanel.vue";
 import WebhooksPanel from "~/components/admin/WebhooksPanel.vue";
@@ -35,7 +36,7 @@ watch(tab, async (v) => {
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="hasPermission(workspace, 'manageLlm')" />
+    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="hasPermission(workspace, 'manageLlm')" :questions="hasPermission(workspace, 'viewQuestionLog')" />
     <FormError :error="error" />
     <p v-if="workspace && !isWorkspaceAdmin(workspace)" class="text-muted-foreground">{{ t("errors.forbidden") }}</p>
     <Tabs v-else-if="workspace" v-model="tab">
@@ -51,6 +52,7 @@ watch(tab, async (v) => {
       <TabsContent value="members" class="mt-4"><MembersPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="settings" class="mt-4 grid gap-8">
         <WorkspaceSettingsPanel :workspace-id="ws" />
+        <QuestionLogSettingsPanel :workspace-id="ws" />
         <RelatedRecomputePanel :workspace-id="ws" />
       </TabsContent>
       <TabsContent value="invitations" class="mt-4"><InvitationsPanel :workspace-id="ws" /></TabsContent>
