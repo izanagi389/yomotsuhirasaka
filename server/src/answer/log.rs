@@ -67,9 +67,13 @@ pub async fn record(
     if outcome == Outcome::NoInformation
         && let Some(text) = masked
     {
-        let enabled: bool = sqlx::query_scalar("SELECT enabled FROM question_log_settings")
-            .fetch_one(&mut *tx)
-            .await?;
+        // 設定の行を共有ロックで読む。無効にする操作（行の更新と記録の削除を1つのトランザクションで行う）と順番を決め、
+        // 無効にした後に質問文が残らないようにする（無効にする操作が先なら、ここは確定を待って無効を読む。こちらが先なら、
+        // 無効にする操作がこの記録の確定を待ってから消す）
+        let enabled: bool =
+            sqlx::query_scalar("SELECT enabled FROM question_log_settings FOR SHARE")
+                .fetch_one(&mut *tx)
+                .await?;
         if enabled {
             sqlx::query(
                 "INSERT INTO question_log (id, key, question, locale) VALUES ($1, $2, $3, $4)",
@@ -261,9 +265,11 @@ pub async fn sweep(pool: &PgPool) -> Result<u64> {
             continue;
         };
         let mut tx = workspace_db::begin(pool, &db).await?;
+        // 保存期間を過ぎたもの。無効のワークスペースに残ったものも消す（念のため）
         removed += sqlx::query(
             "DELETE FROM question_log
-             WHERE asked_at <= now() - make_interval(days => (SELECT retention_days FROM question_log_settings))",
+             WHERE asked_at <= now() - make_interval(days => (SELECT retention_days FROM question_log_settings))
+                OR NOT (SELECT enabled FROM question_log_settings)",
         )
         .execute(&mut *tx)
         .await?
