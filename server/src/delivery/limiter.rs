@@ -18,8 +18,9 @@ const MINUTE: Duration = Duration::from_secs(60);
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 /// 記録の数がこれを超えたら、期限の切れた記録を捨てる（捨てた後に残った数の2倍になるまでは、次の掃除をしない）。
 const PRUNE_THRESHOLD: usize = 50_000;
-/// 訪問者の記録の数の上限。1日の記録は長く残るので、識別子を変え続けるリクエストでメモリと掃除の手間が増え続けないよう、
-/// 上限を設ける。満ちたら、記録のない（新しい）訪問者の回答は断る（予算を守るほうを選ぶ）。期限の切れた記録の掃除は、
+/// ワークスペースごとの、訪問者の記録の数の上限。1日の記録は長く残るので、識別子を変え続けるリクエストでメモリと掃除の手間が
+/// 増え続けないよう、上限を設ける。満ちたら、そのワークスペースの記録のない（新しい）訪問者の回答は断る（予算を守るほうを
+/// 選ぶ）。上限はワークスペースごとなので、ほかのワークスペースは影響を受けない（INV-TEN-03）。期限の切れた記録の掃除は、
 /// 満ちている間は1分に1回まで。
 const MAX_VISITOR_RECORDS: usize = 200_000;
 
@@ -104,14 +105,15 @@ impl Counters {
     }
 }
 
-/// 数える状態（訪問者の記録は、上限のある別の表に持つ）。
+/// 数える状態（訪問者の記録は、ワークスペースごとの、上限のある表に持つ）。
 struct State {
     general: Counters,
-    visitors: Counters,
+    visitors: HashMap<Uuid, Counters>,
 }
 
 pub struct Limiter {
     state: Mutex<State>,
+    visitor_cap: usize,
 }
 
 impl Default for Limiter {
@@ -125,8 +127,9 @@ impl Limiter {
         Self {
             state: Mutex::new(State {
                 general: Counters::new(None),
-                visitors: Counters::new(Some(cap)),
+                visitors: HashMap::new(),
             }),
+            visitor_cap: cap,
         }
     }
 
@@ -135,8 +138,12 @@ impl Limiter {
         let now = Instant::now();
         let window = subject.window();
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let state = &mut *state;
         let counters = match subject {
-            Subject::Visitor { .. } => &mut state.visitors,
+            Subject::Visitor { workspace, .. } => state
+                .visitors
+                .entry(workspace)
+                .or_insert_with(|| Counters::new(Some(self.visitor_cap))),
             _ => &mut state.general,
         };
         if !counters.room_for(&subject, now) {
@@ -278,8 +285,14 @@ mod tests {
         ));
         assert!(l.check_answer(ws, key, Some("v1"), &limits).is_ok());
         assert!(l.check_answer(ws, key, None, &limits).is_ok());
+        // 上限はワークスペースごと（ほかのワークスペースの新しい訪問者は断られない）
+        let other = Uuid::new_v4();
+        assert!(
+            l.check_answer(other, Uuid::new_v4(), Some("v3"), &limits)
+                .is_ok()
+        );
         let state = l.state.lock().unwrap();
-        assert_eq!(state.visitors.map.len(), 4);
+        assert_eq!(state.visitors[&ws].map.len(), 4);
     }
 
     #[test]
