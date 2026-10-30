@@ -16,6 +16,7 @@ pub mod check;
 pub mod format;
 pub mod log;
 mod prompt;
+pub mod refuse;
 pub mod settings;
 pub mod urls;
 
@@ -113,6 +114,8 @@ pub enum Refusal {
     BudgetExhausted,
     /// LLMの呼び出しに失敗した（タイムアウト・429・5xx・途中で切れた応答など）。リトライはしない。
     LlmUnavailable,
+    /// ワークスペースが答えないと決めた質問（拒否する語・組み込みの種類。INV-QA-16）。
+    QuestionRefused,
     Internal,
 }
 
@@ -125,6 +128,7 @@ impl Refusal {
             Self::Unavailable => "ANSWER_UNAVAILABLE",
             Self::BudgetExhausted => "ANSWER_BUDGET_EXHAUSTED",
             Self::LlmUnavailable => "LLM_UNAVAILABLE",
+            Self::QuestionRefused => "QUESTION_REFUSED",
             Self::Internal => "INTERNAL_ERROR",
         }
     }
@@ -137,6 +141,7 @@ impl Refusal {
             Self::Unavailable => "Answers are not configured on this server.",
             Self::BudgetExhausted => "The answer budget of this workspace is used up.",
             Self::LlmUnavailable => "The language model could not be reached. Try again later.",
+            Self::QuestionRefused => "This workspace does not answer this question.",
             Self::Internal => "internal error",
         }
     }
@@ -159,7 +164,12 @@ pub fn start(app: AppState, req: Request) -> mpsc::Receiver<Result<Event, Refusa
     tokio::spawn(async move {
         if let Err(refusal) = run(&app, &req, &tx).await {
             // 断った依頼は、日ごとの件数だけを残す（質問文は残さない）
-            note(&app, &req, log::Outcome::Error, None).await;
+            let outcome = if refusal == Refusal::QuestionRefused {
+                log::Outcome::Refused
+            } else {
+                log::Outcome::Error
+            };
+            note(&app, &req, outcome, None).await;
             let _ = tx.send(Err(refusal)).await;
         }
     });
@@ -224,6 +234,14 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     let Some(locale) = req.manifest.locales.iter().find(|l| **l == req.locale) else {
         return Err(Refusal::LocaleNotSupported);
     };
+    // 答えない質問（拒否する語・組み込みの種類）。検索・埋め込み・LLM・回答キャッシュのどれよりも前に照合する
+    if load_refusal(app, req)
+        .await
+        .map_err(internal)?
+        .refuses(question)
+    {
+        return Err(Refusal::QuestionRefused);
+    }
     let (Some(llm_config), Some(egress)) = (app.config.llm.as_ref(), app.egress.as_ref()) else {
         return Err(Refusal::Unavailable);
     };
@@ -465,6 +483,14 @@ fn cache_key(
         &cache::settings(model, &req.manifest, &tone.fingerprint()),
         &cache::normalize(masked),
     ))
+}
+
+/// 答えない質問の決まりを読む（自分の短いトランザクションで）。
+async fn load_refusal(app: &AppState, req: &Request) -> Result<refuse::Rules> {
+    let mut tx = workspace_db::begin_owned(&app.pool, &req.db).await?;
+    let rules = settings::refusal(&mut tx).await?;
+    tx.commit().await?;
+    Ok(rules)
 }
 
 /// 語り口を読む（自分の短いトランザクションで）。
