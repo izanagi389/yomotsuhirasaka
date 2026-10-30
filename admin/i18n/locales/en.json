@@ -384,7 +384,8 @@
     "entries": "Entries",
     "media": "Media",
     "admin": "Admin",
-    "budget": "Budget"
+    "budget": "Budget",
+    "chatbot": "Chatbot"
   },
   "adminTabs": {
     "members": "Members",
@@ -621,6 +622,9 @@
         "changed": "LLM budget changed",
         "exhausted": "LLM budget exhausted (embeddings)",
         "answer_exhausted": "LLM budget exhausted (visitor answers)"
+      },
+      "answer": {
+        "settings_changed": "Answer tone and phrases changed"
       },
       "embedding_switch": {
         "started": "Embedding model switch started"
@@ -1040,5 +1044,28 @@
     "recompute": "Recompute now",
     "queued": "Started. The results appear in a few minutes.",
     "alreadyQueued": "A recomputation is already waiting or running."
+  },
+  "chatbot": {
+    "title": "Chatbot answers",
+    "help": "Choose how answers to visitors' questions sound, and what to say when there is no answer. Citations are always checked, whatever you choose.",
+    "toneTitle": "Tone",
+    "politeness": "Politeness",
+    "politenessPolite": "Polite",
+    "politenessCasual": "Casual",
+    "length": "Answer length",
+    "lengthShort": "Short (two or three sentences)",
+    "lengthStandard": "Standard",
+    "lengthDetailed": "Detailed",
+    "lengthHelp": "The length is only an instruction to the language model. The maximum answer length does not change.",
+    "freePromptTitle": "Free-form system prompt (advanced)",
+    "freePromptUse": "Use the free-form prompt",
+    "freePromptWarning": "Depending on the instructions, answers may become less accurate. The free-form prompt only sets the tone; it cannot change the CMS rules such as citation checks.",
+    "freePromptLabel": "Instructions (up to {max} characters)",
+    "freePromptCount": "{count} / {max} characters",
+    "freePromptOff": "The text is saved even when it is not used (it is not sent to the language model).",
+    "phrasesTitle": "When there is no answer",
+    "phrasesHelp": "Shown to visitors when no entry answers the question or the answer fails the checks. Set one per content locale (up to {max} characters).",
+    "egressNote": "Visitors' questions (masked) are sent to the external language model provider.",
+    "saved": "Saved."
   }
 }

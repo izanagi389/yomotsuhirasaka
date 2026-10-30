@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, AnswerError, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, AnswerError, AnswerSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -400,6 +400,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const mediaPath = (workspaceId: string) => `${ADMIN}/workspaces/${workspaceId}/media`;
   const uploadMediaRaw = (auth: Auth, workspaceId: string, file: UploadFile, extras?: RequestExtras): Promise<HttpResponse> =>
     request("POST", mediaPath(workspaceId), { auth, extras, rawBody: { contentType: file.contentType, bytes: file.bytes } });
+  const setAnswerSettingsRaw = (auth: Auth, workspaceId: string, settings: AnswerSettings, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("PUT", `${ADMIN}/workspaces/${workspaceId}/answer-settings`, { auth, extras, body: settings });
   const setWorkspaceLimitsRaw = (auth: Auth, workspaceId: string, limits: WorkspaceLimits, extras?: RequestExtras): Promise<HttpResponse> => {
     // 書いた項目だけを送る（サーバーは、書いた項目だけを変える）
     const body: Record<string, number | null> = {};
@@ -657,6 +659,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     // 埋め込みの作成の予算（重い権限 manageLlm）。値は天井の範囲に必ず収まる 0
     op("getEmbeddingBudget", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/budgets/embedding`, { auth, extras })),
     op("setEmbeddingBudget", true, "workspace", (auth, t, extras) => setEmbeddingBudgetRaw(auth, t.workspaceId, { tokensPerMonth: 0, tokensPerDay: 0 }, extras)),
+    // 回答の語り口と定型文（M4。重い権限 manageLlm）。何も変えない変更を送る
+    op("getAnswerSettings", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/answer-settings`, { auth, extras })),
+    op("setAnswerSettings", true, "workspace", (auth, t, extras) => setAnswerSettingsRaw(auth, t.workspaceId, {}, extras)),
     // 対象は存在しない版（舞台の版を壊さないため）
     op("eraseVersion", true, "workspace", (auth, t, extras) => eraseVersionRaw(auth, t.workspaceId, t.entryId, randomUUID(), [], extras)),
     op("getEraseCandidates", false, "workspace", async (auth, t, extras) => {
@@ -973,6 +978,10 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     async setWorkspaceLimits(s: Session, workspaceId: string, limits: WorkspaceLimits): Promise<void> {
       ensure("ワークスペースの上限の変更", await setWorkspaceLimitsRaw(session(s), workspaceId, limits));
     },
+    async setAnswerSettings(s: Session, workspaceId: string, settings: AnswerSettings): Promise<void> {
+      ensure("回答の設定の変更", await setAnswerSettingsRaw(session(s), workspaceId, settings));
+    },
+    setAnswerSettingsRaw: (auth: Auth, workspaceId: string, settings: AnswerSettings) => setAnswerSettingsRaw(auth, workspaceId, settings),
     async eraseCandidates(s: Session, workspaceId: string, entryId: string, versionId: string): Promise<string[]> {
       const res = ensure("抹消の候補の取得", await eraseCandidatesRaw(session(s), workspaceId, entryId, versionId));
       const { media } = JSON.parse(res.text) as { media?: unknown };

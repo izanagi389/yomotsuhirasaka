@@ -34,7 +34,7 @@
 | `converter.test.ts` | 変換器とカスタムノード（NODE-01, CNV-01） |
 | `permissions.test.ts` | 重い権限（PERM-02, 03） |
 | `budget.test.ts` | 予算（BUD-01） |
-| `answer.test.ts` | 質問応答（QA-01, 02, 04, 05, 10〜15） |
+| `answer.test.ts` | 質問応答（QA-01〜05, 10〜15） |
 | `answer-cache.test.ts` | 回答キャッシュ（QA-06〜09） |
 | `search.test.ts` | サイト内検索（SRC-01〜04） |
 | `meta.test.ts` | 約束の一覧・テスト・`pending.txt` の整合。CMSなしで動く |
