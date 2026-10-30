@@ -13,6 +13,8 @@ import type { AnswerSettings } from "~/utils/content";
 
 const MAX_FREE_PROMPT = 2000;
 const MAX_PHRASE = 500;
+const MAX_REFUSE_WORDS = 100;
+const MAX_REFUSE_WORD = 100;
 
 const route = useRoute();
 const ws = route.params.ws as string;
@@ -41,8 +43,23 @@ const freePromptTooLong = computed(() => !!form.value && chars(form.value.freePr
 const phraseProblems = computed(() =>
   Object.entries(form.value?.phrases ?? {}).filter(([, p]) => p.noInformation.trim() === "" || chars(p.noInformation) > MAX_PHRASE).map(([l]) => l),
 );
+/** 拒否する語の入力（1行に1語）。 */
+const refuseText = ref("");
+watch(data, (d) => (refuseText.value = d ? d.refusal.words.join("\n") : ""), { immediate: true });
+const refuseWords = computed(() => [...new Set(refuseText.value.split("\n").map((w) => w.trim()).filter((w) => w !== ""))]);
+const refuseProblem = computed(() =>
+  refuseWords.value.length > MAX_REFUSE_WORDS
+    ? t("chatbot.refuseTooMany", { max: MAX_REFUSE_WORDS })
+    : refuseWords.value.some((w) => chars(w) > MAX_REFUSE_WORD)
+      ? t("chatbot.refuseTooLong", { max: MAX_REFUSE_WORD })
+      : null,
+);
 const invalid = computed(
-  () => freePromptTooLong.value || phraseProblems.value.length > 0 || (!!form.value?.freePrompt.enabled && form.value.freePrompt.text.trim() === ""),
+  () =>
+    freePromptTooLong.value ||
+    phraseProblems.value.length > 0 ||
+    !!refuseProblem.value ||
+    (!!form.value?.freePrompt.enabled && form.value.freePrompt.text.trim() === ""),
 );
 
 /** 読み込んだ値から変えた項目だけ。 */
@@ -58,6 +75,11 @@ function changes(): Partial<AnswerSettings> {
   if (Object.keys(fp).length > 0) (out as Record<string, unknown>).freePrompt = fp;
   const phrases = Object.fromEntries(Object.entries(f.phrases).filter(([l, p]) => p.noInformation !== d.phrases[l]?.noInformation));
   if (Object.keys(phrases).length > 0) out.phrases = phrases;
+  const refusal: Partial<AnswerSettings["refusal"]> = {};
+  if (refuseWords.value.join("\n") !== d.refusal.words.join("\n")) refusal.words = refuseWords.value;
+  if (f.refusal.creditCard !== d.refusal.creditCard) refusal.creditCard = f.refusal.creditCard;
+  if (f.refusal.myNumber !== d.refusal.myNumber) refusal.myNumber = f.refusal.myNumber;
+  if (Object.keys(refusal).length > 0) (out as Record<string, unknown>).refusal = refusal;
   return out;
 }
 
@@ -88,7 +110,7 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="allowed" />
+    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="allowed" :questions="hasPermission(workspace, 'viewQuestionLog')" />
     <FormError :error="wsError ?? error ?? saveError" />
     <p v-if="workspace && !allowed" class="text-muted-foreground">{{ t("errors.forbidden") }}</p>
 
@@ -147,6 +169,26 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
           <Label :for="`phrase-${locale}`">{{ locale }}</Label>
           <Textarea :id="`phrase-${locale}`" v-model="form.phrases[locale]!.noInformation" rows="2" :disabled="saving" :aria-invalid="phraseProblems.includes(locale)" />
         </div>
+      </section>
+
+      <!-- 答えない質問（拒否する語と組み込みの種類） -->
+      <section class="grid gap-3 border-t pt-6" data-testid="chatbot-refusal">
+        <h3 class="font-medium">{{ t("chatbot.refusalTitle") }}</h3>
+        <p class="text-muted-foreground">{{ t("chatbot.refusalHelp") }}</p>
+        <div class="grid gap-1.5">
+          <Label for="refuse-words">{{ t("chatbot.refuseWords", { max: MAX_REFUSE_WORDS }) }}</Label>
+          <Textarea id="refuse-words" v-model="refuseText" rows="5" :disabled="saving" :aria-invalid="!!refuseProblem" />
+          <p class="text-muted-foreground">{{ t("chatbot.refuseWordsHelp", { count: refuseWords.length }) }}</p>
+          <p v-if="refuseProblem" class="text-destructive" role="alert">{{ refuseProblem }}</p>
+        </div>
+        <label class="flex items-center gap-2">
+          <input v-model="form.refusal.creditCard" type="checkbox" :disabled="saving" />
+          {{ t("chatbot.refuseCreditCard") }}
+        </label>
+        <label class="flex items-center gap-2">
+          <input v-model="form.refusal.myNumber" type="checkbox" :disabled="saving" />
+          {{ t("chatbot.refuseMyNumber") }}
+        </label>
       </section>
 
       <div class="flex items-center gap-3">

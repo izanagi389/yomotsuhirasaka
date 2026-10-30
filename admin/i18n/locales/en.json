@@ -385,7 +385,8 @@
     "media": "Media",
     "admin": "Admin",
     "budget": "Budget",
-    "chatbot": "Chatbot"
+    "chatbot": "Chatbot",
+    "questions": "Question log"
   },
   "adminTabs": {
     "members": "Members",
@@ -631,6 +632,11 @@
       },
       "related": {
         "recompute_started": "Related entries recomputation started"
+      },
+      "question_log": {
+        "settings_changed": "Question log settings changed",
+        "viewed": "Question log viewed",
+        "candidate_deleted": "Question log candidate deleted"
       }
     },
     "you": "You",
@@ -1066,6 +1072,41 @@
     "phrasesTitle": "When there is no answer",
     "phrasesHelp": "Shown to visitors when no entry answers the question or the answer fails the checks. Set one per content locale (up to {max} characters).",
     "egressNote": "Visitors' questions (masked) are sent to the external language model provider.",
-    "saved": "Saved."
+    "saved": "Saved.",
+    "refusalTitle": "Questions not to answer",
+    "refusalHelp": "Questions containing these words or numbers are not answered (error code QUESTION_REFUSED). They are not sent to the language model or embeddings, and not kept in the question log. Email addresses, phone numbers and IP addresses are always masked before sending, apart from this setting.",
+    "refuseWords": "Words to refuse (one per line, up to {max})",
+    "refuseWordsHelp": "{count} words. Matching ignores full-width/half-width and upper/lower case.",
+    "refuseTooMany": "Use up to {max} words.",
+    "refuseTooLong": "Each word can be up to {max} characters.",
+    "refuseCreditCard": "Do not answer questions containing what looks like a credit card number",
+    "refuseMyNumber": "Do not answer questions containing what looks like a 12-digit My Number"
+  },
+  "questionLog": {
+    "settingsTitle": "Question log",
+    "settingsHelp": "Keeps unanswered visitor questions as \"articles to write\". Answered questions are only counted per day. Viewing needs the question log permission.",
+    "enable": "Keep a question log",
+    "privacyNote": "If you keep a question log, mention it in your site's privacy policy. Fixed patterns such as email addresses, phone numbers and IP addresses are masked, but free-form details such as names and addresses are not.",
+    "retentionDays": "Retention (days, {min}-{max})",
+    "daysInvalid": "Enter a whole number from {min} to {max}.",
+    "saved": "Saved.",
+    "disableTitle": "Stop keeping the question log?",
+    "disableDescription": "The stored questions are deleted right away and cannot be restored. Daily counts are kept.",
+    "disable": "Stop and delete",
+    "candidatesTitle": "Articles to write",
+    "candidatesHelp": "Unanswered questions grouped by question, most frequent first (kept for {days} days). Fixed patterns in the questions are masked.",
+    "disabled": "This workspace does not keep a question log (change it in Admin > Settings).",
+    "noCandidates": "There are no unanswered questions.",
+    "count": "{count} times",
+    "delete": "Delete",
+    "deleteTitle": "Delete this candidate?",
+    "deleteDescription": "All records of this question are deleted. This cannot be undone.",
+    "dailyTitle": "Daily counts (last 30 days, UTC)",
+    "noDaily": "Nothing recorded yet.",
+    "date": "Date",
+    "answered": "Answered",
+    "noInformation": "No information",
+    "refused": "Refused",
+    "error": "Errors"
   }
 }

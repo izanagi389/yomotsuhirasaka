@@ -385,7 +385,8 @@
     "media": "メディア",
     "admin": "管理",
     "budget": "予算",
-    "chatbot": "チャットボット"
+    "chatbot": "チャットボット",
+    "questions": "質問ログ"
   },
   "adminTabs": {
     "members": "所属者",
@@ -631,6 +632,11 @@
       },
       "related": {
         "recompute_started": "関連記事の一括再計算の開始"
+      },
+      "question_log": {
+        "settings_changed": "質問ログの設定を変更",
+        "viewed": "質問ログの閲覧",
+        "candidate_deleted": "質問ログの候補の削除"
       }
     },
     "you": "あなた",
@@ -1066,6 +1072,41 @@
     "phrasesTitle": "答えられないときの文",
     "phrasesHelp": "記事に答えがないときや、回答が検証を通らなかったときに、訪問者に返す文です。コンテンツのロケールごとに決めます（{max}文字まで）。",
     "egressNote": "訪問者の質問文は（マスクした上で）、外部のLLMの提供会社に送られます。",
-    "saved": "保存しました。"
+    "saved": "保存しました。",
+    "refusalTitle": "答えない質問",
+    "refusalHelp": "ここで決めた語や番号を含む質問には回答しません（エラーコード QUESTION_REFUSED）。質問文はLLMにも埋め込みにも送らず、質問ログにも残しません。メールアドレス・電話番号・IPアドレスは、この設定とは別に、いつも伏せてから送ります。",
+    "refuseWords": "拒否する語（1行に1語。{max}語まで）",
+    "refuseWordsHelp": "{count} 語。全角と半角、大文字と小文字の違いは区別せずに照合します。",
+    "refuseTooMany": "拒否する語は {max} 語までです。",
+    "refuseTooLong": "1語は {max} 文字までです。",
+    "refuseCreditCard": "クレジットカード番号らしい並びを含む質問に答えない",
+    "refuseMyNumber": "マイナンバーらしい12桁の番号を含む質問に答えない"
+  },
+  "questionLog": {
+    "settingsTitle": "質問ログ",
+    "settingsHelp": "訪問者の質問のうち、答えられなかったものを「書くべき記事の候補」として残します。答えた質問は、日ごとの件数だけを残します。見るには「質問ログの閲覧」の権限が要ります。",
+    "enable": "質問ログを残す",
+    "privacyNote": "質問ログを残す場合は、サイトのプライバシーポリシーへの記載が必要です。メールアドレス・電話番号・IPアドレスなどの決まった形は伏せて残しますが、氏名や住所のような自由な書き方は伏せられません。",
+    "retentionDays": "保存期間（日。{min}〜{max}）",
+    "daysInvalid": "{min}〜{max} の整数で入れてください。",
+    "saved": "保存しました。",
+    "disableTitle": "質問ログを残さないようにしますか？",
+    "disableDescription": "残っている質問文はすぐに削除され、元に戻せません。日ごとの件数は残ります。",
+    "disable": "残さないようにして削除",
+    "candidatesTitle": "書くべき記事の候補",
+    "candidatesHelp": "答えられなかった質問を、同じ質問ごとにまとめています（件数の多い順。保存期間は {days} 日）。質問文は、決まった形を伏せたものです。",
+    "disabled": "このワークスペースでは、質問ログを残していません（管理の「設定」で変えられます）。",
+    "noCandidates": "答えられなかった質問はありません。",
+    "count": "{count} 件",
+    "delete": "削除",
+    "deleteTitle": "この候補を削除しますか？",
+    "deleteDescription": "同じ質問の記録をすべて削除します。元に戻せません。",
+    "dailyTitle": "日ごとの件数（直近30日、UTC）",
+    "noDaily": "まだ記録はありません。",
+    "date": "日付",
+    "answered": "答えた",
+    "noInformation": "情報なし",
+    "refused": "拒否",
+    "error": "エラー"
   }
 }

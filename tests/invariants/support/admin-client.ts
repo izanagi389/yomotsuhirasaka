@@ -666,6 +666,13 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     // 回答の語り口と定型文（M4。重い権限 manageLlm）。何も変えない変更を送る
     op("getAnswerSettings", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/answer-settings`, { auth, extras })),
     op("setAnswerSettings", true, "workspace", (auth, t, extras) => setAnswerSettingsRaw(auth, t.workspaceId, {}, extras)),
+    // 質問ログ（M4）: 設定はワークスペースの管理者、閲覧と候補の削除は重い権限 viewQuestionLog。削除の対象は存在しない候補
+    op("getQuestionLogSettings", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/question-log/settings`, { auth, extras })),
+    op("setQuestionLogSettings", true, "workspace", (auth, t, extras) => setQuestionLogSettingsRaw(auth, t.workspaceId, {}, extras)),
+    op("getQuestionLog", false, "workspace", (auth, t, extras) => questionLogRaw(auth, t.workspaceId, extras)),
+    op("deleteQuestionCandidate", true, "workspace", (auth, t, extras) =>
+      request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/question-log/candidates/${"0".repeat(64)}`, { auth, extras }),
+    ),
     // 対象は存在しない版（舞台の版を壊さないため）
     op("eraseVersion", true, "workspace", (auth, t, extras) => eraseVersionRaw(auth, t.workspaceId, t.entryId, randomUUID(), [], extras)),
     op("getEraseCandidates", false, "workspace", async (auth, t, extras) => {

@@ -87,6 +87,21 @@ async fn answer_settings_api() {
         assert_eq!(v["freePrompt"], json!({"enabled": false, "text": secret_tone}));
         assert_eq!(v["politeness"], "casual");
 
+        // 答えない質問の決まり: 拒否する語は前後の空白を除き、空と重複を除いて、一覧ごと置き換える
+        let v = parse(&put(&admin, json!({"refusal": {"words": [" SECRET-WORD-0001 ", "", "SECRET-WORD-0001", "社外秘"], "creditCard": true}})).await);
+        assert_eq!(v["refusal"], json!({"words": ["SECRET-WORD-0001", "社外秘"], "creditCard": true, "myNumber": false}));
+        let too_many: Vec<String> = (0..101).map(|i| format!("w{i}")).collect();
+        for (body, what) in [
+            (json!({"refusal": {"words": too_many}}), "多すぎる語"),
+            (json!({"refusal": {"words": ["x".repeat(101)]}}), "長すぎる語"),
+            (json!({"refusal": {"words": ["a\u{0007}"]}}), "制御文字"),
+            (json!({"refusal": {"other": true}}), "知らない項目"),
+        ] {
+            let res = put(&admin, body).await;
+            assert!(res.status == 422 || res.status == 400, "{what}: {} {}", res.status, res.body);
+        }
+        assert_eq!(parse(&get(&server, &path, &admin).await)["refusal"]["words"], json!(["SECRET-WORD-0001", "社外秘"]));
+
         // 監査ログには、変えた項目の名前だけが残る（文の中身は残さない）
         let rows: Vec<(String, Option<String>)> = sqlx::query_as(
             "SELECT action, details::text FROM cms.audit_log WHERE workspace_id = $1 AND action = 'answer.settings_changed' ORDER BY created_at",
@@ -95,7 +110,7 @@ async fn answer_settings_api() {
         .fetch_all(&server.pool)
         .await
         .unwrap();
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         let details: Value = serde_json::from_str(rows[0].1.as_deref().unwrap()).unwrap();
         assert_eq!(
             details["fields"],
@@ -103,7 +118,7 @@ async fn answer_settings_api() {
         );
         for (_, d) in &rows {
             let d = d.as_deref().unwrap();
-            assert!(!d.contains("SECRET-TONE") && !d.contains("見つかりませんでした"), "{d}");
+            assert!(!d.contains("SECRET-TONE") && !d.contains("見つかりませんでした") && !d.contains("SECRET-WORD") && !d.contains("社外秘"), "{d}");
         }
     })
     .await;

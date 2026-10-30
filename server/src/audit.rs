@@ -93,6 +93,12 @@ pub mod action {
     pub const ANSWER_BUDGET_EXHAUSTED: &str = "budget.answer_exhausted";
     /// 回答の語り口と定型文を変えた（M4。重い権限 manageLlm。詳細は変えた項目の名前だけ）。
     pub const ANSWER_SETTINGS_CHANGED: &str = "answer.settings_changed";
+    /// 質問ログの有効・無効と保存期間を変えた（ワークスペースの管理者。詳細は変えた後の値）。
+    pub const QUESTION_LOG_SETTINGS_CHANGED: &str = "question_log.settings_changed";
+    /// 質問ログを見た（重い権限 viewQuestionLog。見るたびに記録する）。
+    pub const QUESTION_LOG_VIEWED: &str = "question_log.viewed";
+    /// 質問ログの候補を消した。
+    pub const QUESTION_LOG_CANDIDATE_DELETED: &str = "question_log.candidate_deleted";
     /// 埋め込みモデルの切り替えを始めた・再開した（サーバー管理者。インスタンス全体の記録）。
     pub const EMBEDDING_SWITCH_STARTED: &str = "embedding_switch.started";
     /// 関連記事の一括再計算を今すぐ始めた（M3。公開の操作と同じく、サーバー管理者が操作したときだけ）。

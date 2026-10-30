@@ -11,9 +11,6 @@
 # 予算と回数の制限
 inv_bud_02
 # 質問ログと拒否する語
-inv_log_01
-inv_log_02
-inv_qa_16
 # LLMの接続先とAPIキー
 inv_llm_01
 inv_llm_02

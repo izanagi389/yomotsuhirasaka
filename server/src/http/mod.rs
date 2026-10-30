@@ -18,6 +18,7 @@ pub mod admin_notifications;
 pub mod admin_oidc;
 pub mod admin_previews;
 pub mod admin_publishing;
+pub mod admin_question_log;
 pub mod admin_related;
 pub mod admin_resets;
 pub mod admin_reviews;
@@ -619,6 +620,18 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/answer-settings",
             get(admin_answer_settings::get).put(admin_answer_settings::put),
+        )
+        .route(
+            "/workspaces/{ws}/question-log/settings",
+            get(admin_question_log::get_settings).put(admin_question_log::put_settings),
+        )
+        .route(
+            "/workspaces/{ws}/question-log",
+            get(admin_question_log::view),
+        )
+        .route(
+            "/workspaces/{ws}/question-log/candidates/{id}",
+            delete(admin_question_log::delete_candidate),
         )
         .fallback(not_found);
     Router::new()
