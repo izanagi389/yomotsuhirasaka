@@ -174,7 +174,8 @@ impl Default for State {
 impl State {
     fn emitted(&mut self, s: &str) {
         for c in s.chars() {
-            if c == '\n' {
+            // CommonMark の行の終わりは `\n`・`\r\n`・`\r`
+            if c == '\n' || c == '\r' {
                 self.line_start = true;
             } else if !matches!(
                 c,
@@ -213,6 +214,13 @@ fn scan(s: &str, end: bool, st: &mut State, policy: &mut Policy<'_>, out: &mut S
             }
         }
         let parsed = match c {
+            // どの形にも当たらない `]` の直後が `(` なら、エスケープして出す。こちらの読み方（コードスパンなど）と
+            // 表示する側の解釈がずれても、`](` でリンクや画像にならないようにする
+            ']' => match rest[1..].chars().next() {
+                None if !end => Parsed::More,
+                Some('(') => Parsed::Done(1, "\\]".to_owned()),
+                _ => Parsed::No,
+            },
             '\\' => match rest[1..].chars().next() {
                 None if !end => Parsed::More,
                 Some(n) if n.is_ascii_punctuation() => {
@@ -251,6 +259,13 @@ fn scan(s: &str, end: bool, st: &mut State, policy: &mut Policy<'_>, out: &mut S
             // 長すぎるそのままのURLは、空白まで捨てる
             Parsed::More if matches!(c, 'h' | 'H' | 'w' | 'W') => {
                 st.skipping = true;
+            }
+            // 長すぎて形を決められない `[`・`<` は、エスケープして出す（後から届く文と合わせて、リンクや自動リンクにならない）
+            Parsed::More if matches!(c, '[' | '<') => {
+                let escaped = format!("\\{c}");
+                out.push_str(&escaped);
+                st.emitted(&escaped);
+                i += 1;
             }
             Parsed::More | Parsed::No => {
                 out.push(c);
@@ -675,13 +690,45 @@ mod tests {
         );
     }
 
+    /// 出した文字列に、エスケープされていない `](` がない（表示する側でリンク・画像にならない）。
+    fn no_link_opener(out: &str) -> bool {
+        !out.replace("\\]", "").contains("](")
+    }
+
+    #[test]
+    fn differences_from_the_renderer_do_not_make_links() {
+        // 待てる長さを超えたリンク・画像の後に、許さない宛先が届く
+        let long = "あ".repeat(HOLD_CHARS + 5);
+        for text in [
+            format!("[{long}](//evil.example.net)"),
+            format!("![{long}](//evil.example.net/i.png)"),
+            format!("[{long}](javascript:alert(1))"),
+        ] {
+            let out = filtered(&text);
+            assert!(no_link_opener(&out), "{out}");
+        }
+        // コードスパンの中の `]` を閉じかっこと読んでも、表示する側ではリンクにならない
+        let out = filtered("[a `]` b](//evil.example.net) と ![a `]` b](//evil.example.net/i.png)");
+        assert!(no_link_opener(&out), "{out}");
+        // 長すぎる自動リンクは `<` をエスケープする
+        let out = filtered(&format!("<javascript:{}>", "a".repeat(HOLD_CHARS + 5)));
+        assert!(out.starts_with("\\<javascript:"), "{out}");
+        // `\r` も行の終わり（その後の参照の定義を絞り込む）
+        assert_eq!(
+            filtered("x\r[r]: //evil.example.net\r\n[r]: //evil.example.net"),
+            "x\r\r\n"
+        );
+        // 引用はそのまま
+        assert_eq!(filtered("答え [1]。[2]"), "答え [1]。[2]");
+    }
+
     #[test]
     fn long_constructs_are_not_held_forever() {
         let mut f = Filter::new(allowed());
         let mut out = f.push("前 [");
         out.push_str(&f.push(&"あ".repeat(HOLD_CHARS + 5)));
-        // 形が決まらないまま長くなったら、`[` を文字として出す
-        assert!(out.starts_with("前 [あ"), "{out}");
+        // 形が決まらないまま長くなったら、`[` をエスケープして文字として出す
+        assert!(out.starts_with("前 \\[あ"), "{out}");
         let mut f = Filter::new(allowed());
         let mut out = f.push("前 https://evil.example.net/");
         out.push_str(&f.push(&"a".repeat(HOLD_CHARS + 5)));
