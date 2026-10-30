@@ -185,6 +185,9 @@ export function lazySearchWorld(): () => Promise<SearchWorld> {
 export interface AnswerWorkspace {
   id: string;
   editorSession: Session;
+  /** ワークスペースの管理者（回答の設定を変えられる）。再認証には admin を使う。 */
+  admin: Member;
+  adminSession: Session;
   readKey: IssuedSecret;
   /** 回答APIを呼ぶキー（answer のスコープだけ）。 */
   answerKey: IssuedSecret;
@@ -264,6 +267,8 @@ export async function createAnswerWorld(options: Pick<ServerConfig, "answerRateL
       return {
         id,
         editorSession,
+        admin,
+        adminSession,
         readKey,
         answerKey,
         searchQuery: await cms.registerQuery(id, registerKey.secret, { kind: "search" }),

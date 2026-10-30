@@ -57,6 +57,19 @@ export interface Credentials {
  * - corrections: 訂正としての公開と、確認済みの記録
  * - takeOverEditing: 編集の引き継ぎ
  */
+/**
+ * 回答の設定（語り口と訪問者向けの定型文。M4、09-qa-chatbot.md「語り口」）。書いた項目だけを変える。
+ * - politeness: 丁寧さ、length: 回答の長さ（プロンプトでの指示）
+ * - freePrompt: 自由記述のシステムプロンプト。enabled が false なら、text を保存しても使わない
+ * - phrases: コンテンツのロケールごとの「情報なし」の文
+ */
+export interface AnswerSettings {
+  politeness?: "polite" | "casual";
+  length?: "short" | "standard" | "detailed";
+  freePrompt?: { enabled?: boolean; text?: string };
+  phrases?: Record<string, { noInformation: string }>;
+}
+
 /** サーバー管理者が決めるワークスペースの上限。書いた項目だけを変える。 */
 export interface WorkspaceLimits {
   mediaBytes?: number;
@@ -627,6 +640,9 @@ export interface CmsClient {
    * null は設定ファイルの既定値に戻す。
    */
   setWorkspaceLimits(serverAdminSession: Session, workspaceId: string, limits: WorkspaceLimits): Promise<void>;
+  /** 回答の設定を変える（重い権限 manageLlm と再認証が要る。M4）。 */
+  setAnswerSettings(session: Session, workspaceId: string, settings: AnswerSettings): Promise<void>;
+  setAnswerSettingsRaw(auth: Auth, workspaceId: string, settings: AnswerSettings): Promise<HttpResponse>;
   /**
    * ワークスペースの埋め込みの作成の予算（トークン数、UTCの暦の月・日。null は上限なし（天井の範囲で））を決める（応答をそのまま返す）。
    * 重い権限（manageLlm）の操作で、再認証が要る。
