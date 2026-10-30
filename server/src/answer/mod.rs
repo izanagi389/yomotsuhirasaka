@@ -14,6 +14,7 @@
 pub mod check;
 pub mod format;
 mod prompt;
+pub mod urls;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -268,7 +269,20 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
         }
     };
 
-    let mut checker = Checker::new(grounds.fragments.len());
+    // 断片ごとの、本文に残してよいURLの手がかり（LLMに渡した断片の文字列と、記事の公開URL）
+    let url_grounds = grounds
+        .fragments
+        .iter()
+        .zip(&fragments)
+        .map(|(f, p)| {
+            let public = grounds
+                .entries
+                .get(&f.entry_id)
+                .and_then(|e| e.0.as_deref());
+            urls::Ground::new(&p.text, public)
+        })
+        .collect();
+    let mut checker = Checker::new(url_grounds);
     let mut received_chars: i64 = 0;
     let mut refused = false;
     let mut failure = None;
@@ -315,8 +329,8 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
         return Err(Refusal::LlmUnavailable);
     }
 
-    let (early, verdict) = checker.finish();
-    if let Some(step) = early {
+    let (rest, verdict) = checker.finish();
+    for step in rest {
         send_step(&grounds, req.streaming, out, step, &mut refused).await;
     }
     let answer = match verdict {
