@@ -101,11 +101,28 @@ pub fn visible_embedded(
 /// 削除されておらず、公開中の版があって本文が抹消されておらず、記事ごとのスイッチ（チャットボットに使う）が ON で、
 /// ロケールが `{locale}` のパラメーターと同じ（[`visible`] の記事の側と同じ照合。INV-REL-01）。
 pub fn visible_entry(locale: usize) -> String {
+    visible_entry_as("e", locale)
+}
+
+/// [`visible_entry`] を、別名 `alias`（コードに書いた定数だけ）の entries に当てる。
+fn visible_entry_as(alias: &'static str, locale: usize) -> String {
     format!(
-        "e.deleted_at IS NULL
-         AND e.use_for_chatbot
-         AND e.locale = ${locale}
-         AND EXISTS (SELECT 1 FROM versions v WHERE v.id = e.published_version_id AND v.erased_at IS NULL)"
+        "{alias}.deleted_at IS NULL
+         AND {alias}.use_for_chatbot
+         AND {alias}.locale = ${locale}
+         AND EXISTS (SELECT 1 FROM versions v WHERE v.id = {alias}.published_version_id AND v.erased_at IS NULL)"
+    )
+}
+
+/// 既定のロケールへのフォールバックの条件（09-qa-chatbot.md）。`{locale}` のパラメーターが NULL なら、いつも真。
+/// そうでなければ、記事 `e` の翻訳グループに、そのロケールの見せてよい記事（[`visible_entry`] と同じ照合）がないときだけ真。
+/// 翻訳があれば、そちらの言語の断片を使う（翻訳の埋め込みがまだでも、元の言語に戻さない）。
+pub fn untranslated(locale: usize) -> String {
+    format!(
+        "(${locale}::text IS NULL OR NOT EXISTS (
+           SELECT 1 FROM entries t
+           WHERE t.translation_group_id = e.translation_group_id AND t.id <> e.id AND {}))",
+        visible_entry_as("t", locale)
     )
 }
 
@@ -144,5 +161,13 @@ mod tests {
         let text = visible(1, 2, 3);
         assert!(sql.starts_with(&text));
         assert!(!text.contains("x."));
+    }
+
+    #[test]
+    fn untranslated_checks_the_same_way_as_visible_entry() {
+        let sql = untranslated(8);
+        assert!(sql.starts_with("($8::text IS NULL OR NOT EXISTS"));
+        assert!(sql.contains("t.translation_group_id = e.translation_group_id"));
+        assert!(sql.contains(&visible_entry(8).replace("e.", "t.")));
     }
 }
