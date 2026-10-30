@@ -384,7 +384,8 @@
     "entries": "記事",
     "media": "メディア",
     "admin": "管理",
-    "budget": "予算"
+    "budget": "予算",
+    "chatbot": "チャットボット"
   },
   "adminTabs": {
     "members": "所属者",
@@ -1043,5 +1044,28 @@
     "recompute": "今すぐ再計算する",
     "queued": "計算を始めました。数分で反映されます。",
     "alreadyQueued": "すでに計算待ち・計算中です。"
+  },
+  "chatbot": {
+    "title": "チャットボットの回答",
+    "help": "訪問者の質問に答えるときの語り口と、答えられないときの文を決めます。引用の検証は、どの設定でも必ず行います。",
+    "toneTitle": "語り口",
+    "politeness": "丁寧さ",
+    "politenessPolite": "丁寧（です・ます）",
+    "politenessCasual": "くだけた口調",
+    "length": "回答の長さ",
+    "lengthShort": "短く（2〜3文）",
+    "lengthStandard": "標準",
+    "lengthDetailed": "詳しく",
+    "lengthHelp": "回答の長さは、LLMへの指示だけに使います。回答の長さの上限は変わりません。",
+    "freePromptTitle": "自由記述のシステムプロンプト（上級者向け）",
+    "freePromptUse": "自由記述を使う",
+    "freePromptWarning": "指示内容によっては回答の正確さが下がる場合があります。自由記述は語り口の指示としてだけ使われ、引用の検証などのCMSの規則は変えられません。",
+    "freePromptLabel": "指示（{max}文字まで）",
+    "freePromptCount": "{count} / {max} 文字",
+    "freePromptOff": "使わない設定でも、書いた文は保存されます（LLMには送りません）。",
+    "phrasesTitle": "答えられないときの文",
+    "phrasesHelp": "記事に答えがないときや、回答が検証を通らなかったときに、訪問者に返す文です。コンテンツのロケールごとに決めます（{max}文字まで）。",
+    "egressNote": "訪問者の質問文は（マスクした上で）、外部のLLMの提供会社に送られます。",
+    "saved": "保存しました。"
   }
 }
