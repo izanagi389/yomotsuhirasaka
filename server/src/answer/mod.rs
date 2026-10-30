@@ -241,6 +241,10 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
         .map(|f| prompt::PromptFragment {
             text: fragment_text(f),
             review_expired: grounds.entries.get(&f.entry_id).is_some_and(|e| e.3),
+            // 断片のロケールは、質問のロケールか既定のロケール（検索で絞ったもの）。印にはテンプレートの値を使う
+            other_locale: (f.locale != *locale)
+                .then(|| req.manifest.default_locale.clone())
+                .filter(|d| *d == f.locale),
         })
         .collect();
     let messages = prompt::messages(locale, &masked, &fragments);

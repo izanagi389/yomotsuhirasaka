@@ -228,6 +228,7 @@ pub async fn search(
         types: &types,
         keys: &keys,
         locale,
+        untranslated: None,
         limit,
         per_entry,
     };
@@ -339,6 +340,8 @@ pub struct Fragment {
 /// - 見せてよいチャンクの条件は検索と同じ（共通の層 `access`。質問のたびに今の状態と照合する）。
 /// - ベクトル検索とキーワード検索の両方の候補を、検索の混ぜ方（RRF）で、記事ごとにまとめずに並べる。
 /// - ベクトル検索の候補のうち、コサイン類似度が `min_similarity` に届かないものは外す（ゆるい足切り。最終の判断はLLM。Q15）。
+/// - 質問のロケールが既定のロケールでなければ、既定のロケールの断片も候補にする。ただし、質問のロケールの見せてよい翻訳がある
+///   記事の断片は除く（[`access::untranslated`]）。断片の `locale` で、どちらの言語かが分かる。
 /// - `masked` はマスクした質問文。埋め込みは検索語と同じく「埋め込みの作成」の予算から出す（尽きていればキーワード検索だけ）。
 #[allow(clippy::too_many_arguments)]
 pub async fn fragments(
@@ -365,27 +368,50 @@ pub async fn fragments(
         .unwrap_or(i64::MAX)
         .saturating_mul(4)
         .max(20);
-    let target = Target {
+    // 質問のロケールと、既定のロケールへのフォールバック（そのロケールの翻訳がない記事だけ。09-qa-chatbot.md）。
+    // ロケールで点数を変えない（同じ並びに混ぜて RRF で順位を付ける）
+    let mut targets = vec![Target {
         types: &types,
         keys: &keys,
         locale,
+        untranslated: None,
         limit,
         per_entry: false,
+    }];
+    if manifest.default_locale != locale {
+        targets.push(Target {
+            types: &types,
+            keys: &keys,
+            locale: &manifest.default_locale,
+            untranslated: Some(locale),
+            limit,
+            per_entry: false,
+        });
+    }
+    let vector = match &vector_setup {
+        Some((llm_config, egress, _)) => {
+            query_vector(services, workspace_id, llm_config, egress, masked).await?
+        }
+        None => None,
     };
     let mut vector_rows = Vec::new();
-    if let Some((llm_config, egress, vs)) = &vector_setup
-        && let Some(vector) =
-            query_vector(services, workspace_id, llm_config, egress, masked).await?
-    {
-        vector_rows = vector_candidates(tx, &target, vs, llm_config, &vector, limit)
-            .await?
-            .into_iter()
-            .filter(|r| r.5 >= min_similarity)
-            .collect();
-    }
     let mut keyword_rows = Vec::new();
-    if let Some(bs) = &keyword_schema {
-        keyword_rows = keyword_candidates(tx, &target, bs, &terms(masked)).await?;
+    for target in &targets {
+        if let (Some((llm_config, _, vs)), Some(vector)) = (&vector_setup, &vector) {
+            vector_rows.extend(
+                vector_candidates(tx, target, vs, llm_config, vector, limit)
+                    .await?
+                    .into_iter()
+                    .filter(|r| r.5 >= min_similarity),
+            );
+        }
+        if let Some(bs) = &keyword_schema {
+            keyword_rows.extend(keyword_candidates(tx, target, bs, &terms(masked)).await?);
+        }
+    }
+    // ロケールごとの候補を、点数の順の1つの並びにする
+    for rows in [&mut vector_rows, &mut keyword_rows] {
+        rows.sort_by(|a, b| b.5.total_cmp(&a.5).then(a.0.cmp(&b.0)));
     }
     Ok(fuse_chunks(vector_rows, keyword_rows, k)
         .into_iter()
@@ -431,6 +457,8 @@ struct Target<'a> {
     types: &'a [String],
     keys: &'a [String],
     locale: &'a str,
+    /// 既定のロケールへのフォールバックで、このロケールの翻訳がある記事を除くか（[`access::untranslated`]）。
+    untranslated: Option<&'a str>,
     /// 取る行の数。
     limit: i64,
     /// 記事ごとに、いちばん合うチャンクだけにするか（しなければ、チャンクのまま点数の順）。
@@ -522,13 +550,14 @@ async fn vector_candidates(
         sqlx::query(setting).execute(&mut **tx).await?;
     }
     let visible = access::visible_embedded(1, 2, 3, 4, 5);
+    let untranslated = access::untranslated(8);
     let distance = format!(
         "(x.embedding::{vs}.vector({d})) OPERATOR({vs}.<=>) (($6::real[])::{vs}.vector({d}))"
     );
     let sql = format!(
         "SELECT {COLUMNS}, (1 - ({distance}))::float8 AS score
          FROM search_embeddings x, search_chunks c, entries e
-         WHERE {visible}
+         WHERE {visible} AND {untranslated}
          ORDER BY {distance}
          LIMIT $7"
     );
@@ -540,6 +569,7 @@ async fn vector_candidates(
         .bind(dims)
         .bind(vector)
         .bind(limit)
+        .bind(t.untranslated)
         .fetch_all(&mut **tx)
         .await?;
     rows.sort_by(|a, b| b.5.total_cmp(&a.5).then(a.0.cmp(&b.0)));
@@ -557,14 +587,15 @@ async fn keyword_candidates(
         return Ok(Vec::new());
     }
     let visible = access::visible(1, 2, 3);
+    let untranslated = access::untranslated(6);
     // 語ごとに LIKE を1つ（pg_bigm の索引は lower(content) に作ってある。`super::ensure_keyword_index`）
     let likes: Vec<String> = (0..terms.len())
-        .map(|i| format!("lower(c.content) LIKE ('%' || lower(${}) || '%')", 6 + i))
+        .map(|i| format!("lower(c.content) LIKE ('%' || lower(${}) || '%')", 7 + i))
         .collect();
     let columns =
         format!("{COLUMNS}, {bs}.bigm_similarity(lower($4), lower(c.content))::float8 AS score");
     let from_where = format!(
-        "FROM search_chunks c, entries e WHERE {visible} AND {}",
+        "FROM search_chunks c, entries e WHERE {visible} AND {untranslated} AND {}",
         likes.join(" AND ")
     );
     let sql = ranked(&columns, &from_where, t.per_entry, 5);
@@ -573,7 +604,8 @@ async fn keyword_candidates(
         .bind(t.keys)
         .bind(t.locale)
         .bind(terms.join(" "))
-        .bind(t.limit);
+        .bind(t.limit)
+        .bind(t.untranslated);
     for term in terms {
         q = q.bind(escape_like(term));
     }
