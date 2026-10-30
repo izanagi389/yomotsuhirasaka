@@ -92,7 +92,8 @@ fn is_ip(s: &str) -> bool {
         && s.parse::<Ipv6Addr>().is_ok()
 }
 
-/// IPアドレスの範囲（文字の位置）。末尾の `.` と `:` は含めない（文の終わりなど）。
+/// IPアドレスの範囲（文字の位置）。IPアドレスに使う文字の並びを見つけ、その中からIPアドレスの部分を探す
+/// （前後に `:`・`.`・16進の英字が付いていても伏せる。`IP:10.0.0.1`、`abc10.0.0.1` など）。
 fn ip_spans(chars: &[char]) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -105,15 +106,47 @@ fn ip_spans(chars: &[char]) -> Vec<(usize, usize)> {
         while j < chars.len() && ip_char(chars[j]).is_some() {
             j += 1;
         }
-        let mut end = j;
-        while end > i && matches!(ip_char(chars[end - 1]), Some('.' | ':')) {
-            end -= 1;
-        }
-        let text: String = chars[i..end].iter().filter_map(|c| ip_char(*c)).collect();
-        if is_ip(&text) {
-            out.push((i, end));
+        let run: Vec<char> = chars[i..j].iter().filter_map(|c| ip_char(*c)).collect();
+        for (s, e) in ip_in_run(&run) {
+            out.push((i + s, i + e));
         }
         i = j;
+    }
+    out
+}
+
+/// 並びの中で、IPアドレスとして読める最長の部分を左から順に探す（重ならない）。
+fn ip_in_run(run: &[char]) -> Vec<(usize, usize)> {
+    // 長い並びで総当たりが重くならないよう、1つの候補の長さは IPv6 の最大の書き方程度にとどめる
+    const MAX_LEN: usize = 64;
+    let mut out = Vec::new();
+    let mut s = 0;
+    while s < run.len() {
+        let mut found = None;
+        let last = run.len().min(s + MAX_LEN);
+        // 前が数字なら、長い数字の並びの途中なので候補にしない
+        if s > 0 && run[s - 1].is_ascii_digit() {
+            s += 1;
+            continue;
+        }
+        for e in (s + 1..=last).rev() {
+            // 後ろが数字なら、長い数字の並びの途中（`1.2.3.400` の `1.2.3.40` など）
+            if run.get(e).is_some_and(char::is_ascii_digit) {
+                continue;
+            }
+            let text: String = run[s..e].iter().collect();
+            if is_ip(&text) {
+                found = Some(e);
+                break;
+            }
+        }
+        match found {
+            Some(e) => {
+                out.push((s, e));
+                s = e;
+            }
+            None => s += 1,
+        }
     }
     out
 }
@@ -232,6 +265,13 @@ mod tests {
         assert_eq!(mask("v6 は 2001:db8::1 と fe80::1:2"), "v6 は [ip] と [ip]");
         assert_eq!(mask("[2001:db8:0:0:0:0:0:1]:443"), "[[ip]]:443");
         assert_eq!(mask("192.168.0.0/24"), "[ip]/24");
+        // 前に区切りや16進の英字が付いていても伏せる
+        assert_eq!(mask("IP:10.0.0.1 です"), "IP:[ip] です");
+        assert_eq!(mask("IP：10.0.0.1"), "IP：[ip]");
+        assert_eq!(
+            mask("abc10.0.0.1 と .10.0.0.2 と fe80::1abc"),
+            "abc[ip] と .[ip] と [ip]"
+        );
         // IPアドレスでないものはそのまま
         assert_eq!(mask("std::net と a:b と 1.2.3"), "std::net と a:b と 1.2.3");
         assert_eq!(mask("版 1.2.3.400"), "版 1.2.3.400");
