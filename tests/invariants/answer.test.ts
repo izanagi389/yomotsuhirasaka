@@ -331,3 +331,100 @@ inv(
   },
   300_000,
 );
+
+inv(
+  "inv_qa_02",
+  "回答の出典は、質問の時点で公開中の記事だけに限られる",
+  async () => {
+    const w = await world();
+    const { cms, llmKey } = w;
+    const ws = await w.workspace("qa02");
+    const word = wordMarker("qatwo");
+    // 記事ごとの目印（LLMに渡された内容を見分ける）
+    const marks = { kept: wordMarker("kept"), unpublished: wordMarker("unpublished"), deleted: wordMarker("deleted") };
+    const text = (label: keyof typeof marks) => `${word} は、出典の公開状態を確かめるための記事です。${marks[label]}`;
+    const kept = await publishSearchable(ws, word, text("kept"));
+    const unpublished = await publishSearchable(ws, word, text("unpublished"));
+    const deleted = await publishSearchable(ws, word, text("deleted"));
+    const question = `${word} とは何ですか`;
+    // 擬似LLMは、渡された断片をすべて出典にする（断片の数より大きい n）
+    await mockLlm.setStrategy(llmKey, { kind: "firstN", n: 50 });
+    const sourceIds = (r: AnswerResult) => r.sources.map((s) => s.entryId);
+
+    // 対照: 3件とも公開中のうちは、3件とも出典になる
+    const before = await ask(ws, question);
+    expect(before.status).toBe("answered");
+    expect(new Set(sourceIds(before)), "公開中の記事が出典にならない").toEqual(new Set([kept, unpublished, deleted]));
+
+    // 非公開・削除の直後（検索用データの物理削除が終わる前）に質問しても、出典にならず、LLMにも渡されない
+    await cms.unpublishEntry(ws.editorSession, ws.id, unpublished);
+    await cms.deleteEntry(ws.editorSession, ws.id, deleted);
+    await mockLlm.clearRequests(llmKey);
+    const whole = await ask(ws, question);
+    expect(sourceIds(whole), "非公開・削除した記事が出典になった（まとめて）").toEqual([kept]);
+    const s = await askStream(ws, question);
+    const streamed = [...s.events.flatMap((e) => (e.type === "verdict" ? e.sources : [])), ...s.final.sources].map((x) => x.entryId);
+    expect(streamed.length, "出典が返らない（ストリーミング）").toBeGreaterThan(0);
+    expect(streamed.filter((id) => id !== kept), "非公開・削除した記事が出典になった（ストリーミング）").toEqual([]);
+    const sent = JSON.stringify(chatRequests(await mockLlm.requests(llmKey)).map((r) => r.body));
+    expect(sent, "非公開にした記事の本文が、LLMに渡された").not.toContain(marks.unpublished);
+    expect(sent, "削除した記事の本文が、LLMに渡された").not.toContain(marks.deleted);
+    // 対照: 公開中の記事の本文は渡されている
+    expect(sent, "公開中の記事の本文が、LLMに渡されない").toContain(marks.kept);
+    // 出典には、質問の時点で公開中の版が付く
+    expect(whole.sources[0]?.versionId, "出典に版の情報がない").toBeTruthy();
+  },
+  300_000,
+);
+
+/** 本文に含まれるURL（Markdown のリンク・画像、`<URL>`、そのまま書かれた http(s) のURL、ほかのスキームのリンク先）。 */
+function urlsIn(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(/!?\[[^\]]*\]\(([^)\s]*)[^)]*\)/gu)) out.push(m[1]!);
+  for (const m of text.matchAll(/<([a-z][a-z0-9+.-]*:[^>\s]*)>/giu)) out.push(m[1]!);
+  for (const m of text.matchAll(/\bhttps?:\/\/[^\s)<>\]]+/giu)) out.push(m[0]);
+  return [...new Set(out)];
+}
+
+inv(
+  "inv_qa_11",
+  "回答に含まれるURL（画像のURLを含む）は、根拠にした記事の本文に書かれたURLか、出典と同じサイトのURLだけである",
+  async () => {
+    const { llmKey } = await world();
+    const ws = await (await world()).workspace("qa11");
+    const word = wordMarker("qaeleven");
+    const inBody = `https://docs.example.org/${wordMarker("inbody").toLowerCase()}`;
+    await publishSearchable(ws, word, `${word} は、回答のURLを確かめるための記事です。詳しくは ${inBody} を見てください。`);
+    const question = `${word} について詳しく`;
+    // 出典の記事の公開URLのオリジン（SEARCHABLE_TEMPLATE の urlTemplate）
+    const site = "https://site.inv.test";
+    const outside = "https://evil.example.net";
+    // LLMが、許すURLと許さないURLを混ぜて返す（本文の断片は8文字ずつ届くので、URLは断片の境目をまたぐ）
+    const body = [
+      `${citation(1)} 記事のリンク [資料](${inBody}) と、サイトの別の記事 [関連](${site}/ja/blog/other) があります。`,
+      `外部のリンク [罠](${outside}/phish) と画像 ![追跡](${outside}/pixel.png) とサイトの画像 ![図](${site}/media/figure.png)。`,
+      `自動リンク <${outside}/auto> と、そのままのURL ${outside}/bare と、スクリプト [押す](javascript:alert(1)) もあります。`,
+    ].join("\n");
+    await mockLlm.setStrategy(llmKey, { kind: "fixed", content: fixedAnswer([1], body) });
+
+    const allowed = (u: string) => u === inBody || (URL.canParse(u) && new URL(u).origin === site);
+    const check = (label: string, text: string) => {
+      const urls = urlsIn(text);
+      expect(urls.filter((u) => !allowed(u)), `${label}: 許さないURLが含まれる`).toEqual([]);
+      expect(text, `${label}: 外部のURLが含まれる`).not.toContain("evil.example.net");
+      expect(text.toLowerCase(), `${label}: javascript: のリンクが含まれる`).not.toContain("javascript:");
+      // 対照: 許すURLは残る（取り除きすぎていない）
+      expect(urls, `${label}: 記事の本文に書かれたURLが消えた`).toContain(inBody);
+      expect(urls, `${label}: 出典と同じサイトのURLが消えた`).toContain(`${site}/ja/blog/other`);
+    };
+
+    const whole = await ask(ws, question);
+    expect(whole.status).toBe("answered");
+    check("まとめて", whole.text);
+    const s = await askStream(ws, question);
+    expect(s.final.status).toBe("answered");
+    check("ストリーミングの最終判定", s.final.text);
+    check("ストリーミングで配信した本文", deltas(s.events).join(""));
+  },
+  300_000,
+);

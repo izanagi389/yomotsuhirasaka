@@ -10,7 +10,6 @@
 inv_qa_03
 inv_qa_11
 # 公開状態とキャッシュ
-inv_qa_02
 inv_qa_06
 inv_qa_07
 inv_qa_08
