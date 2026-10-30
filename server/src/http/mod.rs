@@ -1,5 +1,6 @@
 //! HTTPの受け付け: ルーティング、共通の応答ヘッダー、アプリの状態。
 
+pub mod admin_answer_settings;
 pub mod admin_api_keys;
 pub mod admin_audit;
 pub mod admin_audit_sinks;
@@ -614,6 +615,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/budgets/answer",
             get(admin_budgets::get_answer).put(admin_budgets::set_answer),
+        )
+        .route(
+            "/workspaces/{ws}/answer-settings",
+            get(admin_answer_settings::get).put(admin_answer_settings::put),
         )
         .fallback(not_found);
     Router::new()

@@ -59,16 +59,19 @@ pub fn normalize(question: &str) -> String {
     out
 }
 
-/// 回答を左右する設定のハッシュ（回答のモデル・プロンプトの組み立て方・回答の形式・検索の対象のフィールドの決め方）。
+/// 回答を左右する設定のハッシュ（回答のモデル・プロンプトの組み立て方・回答の形式・語り口（`tone` は
+/// `settings::Tone::fingerprint`）・検索の対象のフィールドの決め方）。
 /// 検索の対象のフィールドを変えたら、前の決め方のチャンクから作った回答を返さない（検索と同じ。INV-SRC-03）。
-pub fn settings(chat_model: &str, manifest: &Manifest) -> String {
+pub fn settings(chat_model: &str, manifest: &Manifest, tone: &str) -> String {
     let (types, keys) = access::current_keys(manifest);
     let mut hasher = Sha256::new()
         .chain_update(PROMPT_VERSION.as_bytes())
         .chain_update([0])
         .chain_update(chat_model.as_bytes())
         .chain_update([0])
-        .chain_update(super::format::FORMAT_JSON.as_bytes());
+        .chain_update(super::format::FORMAT_JSON.as_bytes())
+        .chain_update([0])
+        .chain_update(tone.as_bytes());
     for (t, k) in types.iter().zip(&keys) {
         hasher.update([0]);
         hasher.update(t.as_bytes());
@@ -315,7 +318,8 @@ mod tests {
         // 項目の境目をずらしても、同じキーにならない
         assert_ne!(k(&a, ws, "ja", "sq", ""), k(&a, ws, "ja", "s", "q"));
         let m = crate::schema::manifest::tests::sample();
-        assert_ne!(settings("model-a", &m), settings("model-b", &m));
+        assert_ne!(settings("model-a", &m, ""), settings("model-b", &m, ""));
+        assert_ne!(settings("model-a", &m, ""), settings("model-a", &m, "tone"));
         // 検索の対象のフィールドを変えたら、設定も変わる
         let mut changed = m.clone();
         for ct in &mut changed.content_types {
@@ -323,6 +327,9 @@ mod tests {
                 f.searchable = !f.searchable;
             }
         }
-        assert_ne!(settings("model-a", &m), settings("model-a", &changed));
+        assert_ne!(
+            settings("model-a", &m, ""),
+            settings("model-a", &changed, "")
+        );
     }
 }
