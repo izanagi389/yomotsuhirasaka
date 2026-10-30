@@ -471,10 +471,14 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       case "relatedEntries":
         return `query($id: ID!, $first: Int) { ${SINGLE}(id: $id) { id relatedEntries(first: $first) { id contentType locale url title pinned score } } }`;
       // 回答（M4。server/src/delivery）。出典の項目は、まとめて・ストリーミングで同じ
-      case "answer":
-        return `query($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}) { answer(question: $question, locale: $locale) { ${ANSWER_FIELDS} } }`;
-      case "answerStream":
-        return `subscription($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}) { answerStream(question: $question, locale: $locale) { __typename ... on CmsAnswerVerdict { answerable sources { ${ANSWER_SOURCE_FIELDS} } } ... on CmsAnswerDelta { text } ... on CmsAnswerFinal { ${ANSWER_FIELDS} } } }`;
+      case "answer": {
+        const [v, a] = spec.visitorId ? [", $visitorId: String", ", visitorId: $visitorId"] : ["", ""];
+        return `query($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}${v}) { answer(question: $question, locale: $locale${a}) { ${ANSWER_FIELDS} } }`;
+      }
+      case "answerStream": {
+        const [v, a] = spec.visitorId ? [", $visitorId: String", ", visitorId: $visitorId"] : ["", ""];
+        return `subscription($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}${v}) { answerStream(question: $question, locale: $locale${a}) { __typename ... on CmsAnswerVerdict { answerable sources { ${ANSWER_SOURCE_FIELDS} } } ... on CmsAnswerDelta { text } ... on CmsAnswerFinal { ${ANSWER_FIELDS} } } }`;
+      }
       case "text":
         return spec.text;
     }
@@ -1028,7 +1032,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       if (!entry || !entry.relatedEntries || body.errors) throw new SetupError("関連記事の応答の読み取り", res);
       return entry.relatedEntries;
     },
-    answerRaw(workspaceIdInUrl: string, apiKey: string, query: RegisteredQuery, input: { question: string; locale?: string }) {
+    answerRaw(workspaceIdInUrl: string, apiKey: string, query: RegisteredQuery, input: { question: string; locale?: string; visitorId?: string }) {
       return request("POST", `/ws/${workspaceIdInUrl}/graphql`, {
         auth: deliveryAuth(apiKey),
         body: { id: query.ref, variables: input },
@@ -1067,7 +1071,11 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     answerErrors(res) {
       if (!isEventStream(res)) {
         try {
-          return graphqlErrors(JSON.parse(res.text));
+          const body = JSON.parse(res.text) as unknown;
+          // HTTPのエラーの応答（回数制限など）は { error, message }
+          const error = (body as { error?: unknown } | null)?.error;
+          if (typeof error === "string") return [{ code: error, message: String((body as { message?: unknown }).message ?? "") }];
+          return graphqlErrors(body);
         } catch {
           return [{ code: null, message: `HTTP ${res.status}` }];
         }

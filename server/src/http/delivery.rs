@@ -10,6 +10,9 @@
 //!   `read` のキーでは呼べない）。ほかのフィールドには `read` の範囲を求める。範囲は、実行する文のルートのフィールドで確かめる。
 //!   回答の応答は `Cache-Control: private, no-store`。`answerStream`（subscription）は SSE で返す
 //!   （GraphQL over SSE の「別々の接続」の形: `event: next` の data に GraphQL の応答、最後に `event: complete`）。
+//! - 回答の回数制限（M4、INV-QA-14）: 配信APIの回数制限に加えて、APIキーごとの回答の回数と、訪問者の識別子（`visitorId` の
+//!   引数）ごとの回数（1分あたり・1日あたり）を、実行の前に数える。超えたら 429（`answer_rate_limited`・`visitor_rate_limited`）
+//!   で、質問の検査・検索・LLMの呼び出しをしない。ストリーミングも SSE を始める前に断る。
 //!
 //! - APIキーは `Authorization: Bearer` でだけ受け付ける。キーのないリクエストは拒否する（INV-API-01）。
 //!   URLのワークスペースとキーのワークスペースが違えば拒否する（INV-GQL-07）。範囲の足りないキーは 403（INV-API-02, INV-GQL-02）。
@@ -42,6 +45,7 @@ use crate::content::applied_schema;
 use crate::content::previews;
 use crate::content::publishing::Scripts;
 use crate::delivery::data;
+use crate::delivery::limiter::AnswerLimited;
 use crate::delivery::names::{ANSWER_FIELD, ANSWER_STREAM_FIELD};
 use crate::delivery::queries;
 use crate::delivery::schema::{QueryLimits, RequestData};
@@ -359,6 +363,10 @@ async fn execute(
             "Only the answer stream can be subscribed to.",
         ));
     }
+    // 回答の回数制限（13-security.md「チャットボットへの悪用」、INV-QA-14）。質問の検査・検索・LLMより前に数える
+    if answering {
+        answer_limits(state, ws, grant.key_id, &shape, &variables)?;
+    }
     let schema = schema_for(state, ws).await?;
     if shape.subscription {
         return Ok(answer_stream(state, &schema, ws, query, variables));
@@ -418,6 +426,51 @@ async fn execute(
     };
     h.insert(header::CACHE_CONTROL, cache);
     Ok(res)
+}
+
+/// 訪問者の識別子の長さの上限（文字）。
+const MAX_VISITOR_ID_CHARS: usize = 128;
+
+/// 回答の回数を数える（APIキーごとの回答の回数と、訪問者の識別子ごとの回数）。空の識別子は、渡されていないものとする。
+fn answer_limits(
+    state: &AppState,
+    ws: Uuid,
+    key: Uuid,
+    shape: &crate::delivery::validate::Shape,
+    variables: &Value,
+) -> Result<(), ApiError> {
+    let invalid = || {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "visitor_id_invalid",
+            "`visitorId` must be a string of at most 128 characters.",
+        )
+    };
+    let visitor = shape
+        .visitor_id(variables)
+        .map_err(|_| invalid())?
+        .filter(|v| !v.is_empty());
+    if visitor
+        .as_ref()
+        .is_some_and(|v| v.chars().count() > MAX_VISITOR_ID_CHARS)
+    {
+        return Err(invalid());
+    }
+    state
+        .delivery_limiter
+        .check_answer(ws, key, visitor.as_deref(), &state.config.answer)
+        .map_err(|limited| match limited {
+            AnswerLimited::Key(retry) => ApiError::too_many(
+                "answer_rate_limited",
+                "Too many answer requests with this API key. Try again later.",
+                retry,
+            ),
+            AnswerLimited::Visitor(retry) => ApiError::too_many(
+                "visitor_rate_limited",
+                "Too many questions from this visitor. Try again later.",
+                retry,
+            ),
+        })
 }
 
 /// 回答のストリーミング（subscription）を SSE で返す。

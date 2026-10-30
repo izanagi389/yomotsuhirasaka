@@ -19,7 +19,7 @@ use async_graphql::{ErrorExtensions as _, Value as GqlValue};
 
 use super::names::{
     ANSWER_DELTA_TYPE, ANSWER_EVENT_TYPE, ANSWER_FIELD, ANSWER_FINAL_TYPE, ANSWER_SOURCE_TYPE,
-    ANSWER_STATUS_TYPE, ANSWER_STREAM_FIELD, ANSWER_TYPE, ANSWER_VERDICT_TYPE,
+    ANSWER_STATUS_TYPE, ANSWER_STREAM_FIELD, ANSWER_TYPE, ANSWER_VERDICT_TYPE, VISITOR_ID_ARG,
 };
 use super::schema::{internal, request, value_field};
 use crate::answer::{self, Answer, Event, Refusal, Source, Status};
@@ -78,6 +78,15 @@ fn arguments(field: Field) -> Field {
             "locale",
             TypeRef::named_nn(TypeRef::STRING),
         ))
+        .argument(visitor_arg())
+}
+
+/// 訪問者の識別子の引数。回数制限は、実行の前に配信APIの入口（http::delivery）で数える。ここでは値を使わない。
+fn visitor_arg() -> InputValue {
+    InputValue::new(VISITOR_ID_ARG, TypeRef::named(TypeRef::STRING)).description(
+        "An opaque identifier of the visitor (hash it on your relay server), up to 128 characters. \
+         Used only for per-visitor rate limits; never stored.",
+    )
 }
 
 /// `answer(question, locale)`: 回答をまとめて返す。
@@ -156,6 +165,7 @@ pub fn answer_stream_field(manifest: Arc<Manifest>) -> SubscriptionField {
         TypeRef::named_nn(TypeRef::STRING),
     ))
     .argument(InputValue::new("locale", TypeRef::named_nn(TypeRef::STRING)))
+    .argument(visitor_arg())
 }
 
 /// 出典の一覧のフィールド（`sources`）。
