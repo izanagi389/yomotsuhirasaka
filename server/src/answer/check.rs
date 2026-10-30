@@ -5,8 +5,11 @@
 //! - 宣言を確かめた後で、本文を配信する。本文は [`MAX_ANSWER_CHARS`] 文字で打ち切る（INV-QA-13）。
 //! - 最後に、本文の中の引用記号を照合する。宣言した番号の引用が1つもなければ「情報なし」に差し替える（INV-QA-01。無効にできない）。
 //!   宣言していない番号の引用記号は、返す本文から取り除く。ストリーミングでは配信した後なので、最終判定で「規則違反を検知した」と示す。
+//! - 本文のURLは、配信する前に絞り込む（宣言した出典の断片に書かれたURLか、出典と同じサイトのURLだけ。`urls`、INV-QA-11）。
+//!   長さの上限は、絞り込んだ後の本文で数える。
 
 use super::format;
+use super::urls::{Allowed, Filter, Ground};
 
 /// 回答の本文の長さの上限（文字。Unicode のコードポイント）。
 pub const MAX_ANSWER_CHARS: usize = 4000;
@@ -49,8 +52,10 @@ enum Phase {
 /// LLMの回答を、届いた順に検査する。
 #[derive(Debug)]
 pub struct Checker {
-    /// プロンプトに入れた断片の数（番号は 1..=fragments）。
-    fragments: usize,
+    /// プロンプトに入れた断片ごとの、許すURLの手がかり（番号は 1..=grounds.len()）。
+    grounds: Vec<Ground>,
+    /// 本文のURLの絞り込み（宣言を確かめた後に、宣言した出典で作る）。
+    filter: Option<Filter>,
     phase: Phase,
     head: String,
     declared: Vec<usize>,
@@ -60,9 +65,10 @@ pub struct Checker {
 }
 
 impl Checker {
-    pub fn new(fragments: usize) -> Self {
+    pub fn new(grounds: Vec<Ground>) -> Self {
         Self {
-            fragments,
+            grounds,
+            filter: None,
             phase: Phase::Declaration,
             head: String::new(),
             declared: Vec::new(),
@@ -104,44 +110,66 @@ impl Checker {
                 }
             }
             Phase::Body => {
-                let room = MAX_ANSWER_CHARS - self.body_chars;
-                let taken: String = text.chars().take(room).collect();
-                let n = taken.chars().count();
-                self.body_chars += n;
-                self.body.push_str(&taken);
-                if !taken.is_empty() {
-                    out.push(Step::Delta(taken));
-                }
-                if n < text.chars().count() {
-                    self.truncated = true;
-                    self.phase = Phase::Done;
-                    out.push(Step::Full);
-                }
+                let safe = match self.filter.as_mut() {
+                    Some(f) => f.push(text),
+                    None => String::new(),
+                };
+                self.take(&safe, &mut out);
             }
         }
         out
     }
 
+    /// 絞り込んだ本文を、長さの上限まで足す。
+    fn take(&mut self, safe: &str, out: &mut Vec<Step>) {
+        let room = MAX_ANSWER_CHARS - self.body_chars;
+        let taken: String = safe.chars().take(room).collect();
+        let n = taken.chars().count();
+        self.body_chars += n;
+        self.body.push_str(&taken);
+        if !taken.is_empty() {
+            out.push(Step::Delta(taken));
+        }
+        if n < safe.chars().count() {
+            self.truncated = true;
+            self.phase = Phase::Done;
+            out.push(Step::Full);
+        }
+    }
+
     /// 宣言の行を確かめる。答えられるなら Step::Answerable、そうでなければ None。
     fn declare(&mut self, line: &str) -> Option<Step> {
         let sources = format::parse_declaration(line)?;
-        if sources.is_empty() || sources.iter().any(|&n| n == 0 || n > self.fragments) {
+        if sources.is_empty() || sources.iter().any(|&n| n == 0 || n > self.grounds.len()) {
             return None;
         }
+        self.filter = Some(Filter::new(Allowed::new(
+            sources.iter().map(|&n| &self.grounds[n - 1]),
+        )));
         self.declared = sources.clone();
         Some(Step::Answerable(sources))
     }
 
-    /// LLMの回答が終わった（または読むのをやめた）ときの最終判定。宣言だけで本文がなければ「情報なし」。
-    pub fn finish(&mut self) -> (Option<Step>, Verdict) {
-        let mut early = None;
-        if let Phase::Declaration = self.phase {
-            // 改行のないまま終わった: 1行だけの回答は宣言として確かめる（本文はない）
-            let line = std::mem::take(&mut self.head);
-            early = Some(match self.declare(&line) {
-                Some(step) => step,
-                None => Step::Refused,
-            });
+    /// LLMの回答が終わった（または読むのをやめた）ときの最終判定と、その前に送る段階（宣言・残りの本文）。
+    /// 宣言だけで本文がなければ「情報なし」。
+    pub fn finish(&mut self) -> (Vec<Step>, Verdict) {
+        let mut early = Vec::new();
+        match self.phase {
+            Phase::Declaration => {
+                // 改行のないまま終わった: 1行だけの回答は宣言として確かめる（本文はない）
+                let line = std::mem::take(&mut self.head);
+                early.push(match self.declare(&line) {
+                    Some(step) => step,
+                    None => Step::Refused,
+                });
+            }
+            // 形が決まるまで待っていた本文を、終わりとして絞り込んで足す
+            Phase::Body => {
+                if let Some(rest) = self.filter.as_mut().map(Filter::finish) {
+                    self.take(&rest, &mut early);
+                }
+            }
+            Phase::Done => {}
         }
         self.phase = Phase::Done;
         if self.declared.is_empty() {
@@ -191,14 +219,18 @@ impl Checker {
 mod tests {
     use super::*;
 
+    fn grounds(n: usize) -> Vec<Ground> {
+        vec![Ground::default(); n]
+    }
+
     fn run(fragments: usize, pieces: &[&str]) -> (Vec<Step>, Verdict) {
-        let mut c = Checker::new(fragments);
+        let mut c = Checker::new(grounds(fragments));
         let mut steps = Vec::new();
         for p in pieces {
             steps.extend(c.push(p));
         }
-        let (early, verdict) = c.finish();
-        steps.extend(early);
+        let (rest, verdict) = c.finish();
+        steps.extend(rest);
         (steps, verdict)
     }
 
@@ -270,7 +302,7 @@ mod tests {
     #[test]
     fn body_is_cut_at_the_limit() {
         let long = "あ".repeat(MAX_ANSWER_CHARS + 10);
-        let mut c = Checker::new(1);
+        let mut c = Checker::new(grounds(1));
         let mut steps = c.push("ANSWERABLE: yes; SOURCES: 1\n[1] ");
         steps.extend(c.push(&long));
         assert!(steps.contains(&Step::Full));
@@ -286,7 +318,7 @@ mod tests {
 
     #[test]
     fn dangling_citation_after_cut_is_dropped() {
-        let mut c = Checker::new(1);
+        let mut c = Checker::new(grounds(1));
         c.push("ANSWERABLE: yes; SOURCES: 1\n[1] ");
         let filler = "い".repeat(MAX_ANSWER_CHARS - 6);
         c.push(&format!("{filler}[1] [1"));
@@ -294,6 +326,41 @@ mod tests {
             Verdict::Answered { text, .. } => assert!(text.ends_with('い'), "{text}"),
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn urls_are_filtered_before_delivery_with_the_declared_sources_only() {
+        let g = vec![
+            Ground::new(
+                "[a](https://one.example.test/a)",
+                Some("https://site.example.test/x"),
+            ),
+            Ground::new(
+                "https://two.example.test/b",
+                Some("https://other.example.test/y"),
+            ),
+        ];
+        let mut c = Checker::new(g);
+        let mut steps = c.push("ANSWERABLE: yes; SOURCES: 1\n[1] [a](https://one.exa");
+        steps.extend(
+            c.push("mple.test/a) [b](https://two.example.test/b) https://site.example.test/z"),
+        );
+        steps.extend(
+            c.push(" ![x](https://other.example.test/i.png) 終わり https://evil.example.net"),
+        );
+        let (rest, verdict) = c.finish();
+        steps.extend(rest);
+        // 宣言しなかった出典（2番）の断片のURLやサイトは許さない。URLが断片の境目をまたいでも、配信する前に絞り込む
+        let expected = "[1] [a](https://one.example.test/a) b https://site.example.test/z  終わり ";
+        assert_eq!(deltas(&steps), expected);
+        assert_eq!(
+            verdict,
+            Verdict::Answered {
+                text: expected.trim().into(),
+                cited: vec![1],
+                violation: false
+            }
+        );
     }
 
     #[test]
