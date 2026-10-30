@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 配信APIのキー（Q13, Q93, Q153）。秘密の値は発行の応答でだけ受け取り、この画面で一度だけ表示する（INV-KEY-01）。
 // 発行には再認証が要る。用途（ビルド用・サーバー用）は回数制限の既定値だけを変える。
+// 回答API（answer。M4）のスコープは、LLMの料金がかかるので read と分け、選んだときに注意を出す。
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -84,11 +85,12 @@ async function revoke() {
       </div>
       <fieldset class="flex flex-wrap gap-4">
         <legend class="mb-1 font-medium">{{ t("apiKeys.scopes") }}</legend>
-        <label v-for="s in ['read', 'register']" :key="s" class="flex items-center gap-2">
+        <label v-for="s in ['read', 'register', 'answer']" :key="s" class="flex items-center gap-2">
           <input type="checkbox" :checked="scopes.includes(s)" @change="toggleScope(s, ($event.target as HTMLInputElement).checked)" />
           {{ t(`apiKeys.scope.${s}`) }}
         </label>
       </fieldset>
+      <p v-if="scopes.includes('answer')" class="text-muted-foreground" role="note" data-testid="api-key-answer-note">{{ t("apiKeys.answerNote") }}</p>
       <Button type="submit" class="w-fit" :disabled="busy || scopes.length === 0">{{ t("apiKeys.create") }}</Button>
     </form>
     <FormError :error="error ?? actionError" />

@@ -89,6 +89,8 @@ pub mod action {
     pub const BUDGET_CHANGED: &str = "budget.changed";
     /// 予算が足りずにLLMの呼び出しを断った（期間ごとに1回。ワークスペースの管理者に知らせる）。
     pub const BUDGET_EXHAUSTED: &str = "budget.exhausted";
+    /// 訪問者向けの回答の予算が足りずに回答を断った（M4。期間ごとに1回。ワークスペースの管理者に知らせる）。
+    pub const ANSWER_BUDGET_EXHAUSTED: &str = "budget.answer_exhausted";
     /// 埋め込みモデルの切り替えを始めた・再開した（サーバー管理者。インスタンス全体の記録）。
     pub const EMBEDDING_SWITCH_STARTED: &str = "embedding_switch.started";
     /// 関連記事の一括再計算を今すぐ始めた（M3。公開の操作と同じく、サーバー管理者が操作したときだけ）。
@@ -142,6 +144,7 @@ pub const NOTIFY: &[&str] = &[
     action::MFA_RESET_COMPLETED,
     action::AUDIT_SINK_DELETED,
     action::BUDGET_EXHAUSTED,
+    action::ANSWER_BUDGET_EXHAUSTED,
 ];
 
 /// 知らせるかを記録する側が決める記録。

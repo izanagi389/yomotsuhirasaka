@@ -445,7 +445,8 @@
     "scopes": "Scopes",
     "scope": {
       "read": "Read",
-      "register": "Register queries"
+      "register": "Register queries",
+      "answer": "Answer API"
     },
     "create": "Issue",
     "created": "API key \"{name}\"",
@@ -456,7 +457,8 @@
     "neverUsed": "Never used",
     "revoke": "Revoke",
     "revokeTitle": "Revoke the API key",
-    "revokeDescription": "Revokes \"{name}\". Sites using this key will no longer be able to read the delivery API."
+    "revokeDescription": "Revokes \"{name}\". Sites using this key will no longer be able to read the delivery API.",
+    "answerNote": "Each call to the answer API costs LLM usage (within this workspace's visitor answer budget). Keep this key on the server that relays visitors' questions, and never send it to browsers."
   },
   "webhooks": {
     "url": "Destination URL",
@@ -617,7 +619,8 @@
       },
       "budget": {
         "changed": "LLM budget changed",
-        "exhausted": "LLM budget exhausted (embeddings)"
+        "exhausted": "LLM budget exhausted (embeddings)",
+        "answer_exhausted": "LLM budget exhausted (visitor answers)"
       },
       "embedding_switch": {
         "started": "Embedding model switch started"
@@ -906,7 +909,8 @@
     "dueAt": "Due: {at}",
     "budgetExhausted": "The embedding budget is used up. Search data for new entries is not created until the limit is raised or the next period (UTC) starts.",
     "embeddingModelMissing": "The embedding model this workspace uses is no longer in the server config. Vector search is off until the switch is started.",
-    "embeddingModelMissingDetail": "Server configuration: [llm.next_embedding]"
+    "embeddingModelMissingDetail": "Server configuration: [llm.next_embedding]",
+    "answerBudgetExhausted": "The visitor answer budget is used up. The answer API returns a budget error until the limit is raised or the next period (UTC) starts."
   },
   "preview": {
     "noUrl": "The preview cannot open because the entry has no public URL yet. Enter a slug.",
@@ -972,7 +976,16 @@
     "saved": "Saved.",
     "ceilingTitle": "Ceiling (server administrator)",
     "ceilingHelp": "The highest limits this workspace can set. LLM charges go to the instance's key. With \"Default\", the default in the server config file applies (0 if none).",
-    "useDefault": "Default"
+    "useDefault": "Default",
+    "answerTitle": "Visitor answer budget",
+    "answerHelp": "The budget for answering visitors' questions through the answer API. Input (the question and entry fragments) and output (the answer) are counted separately in tokens. The LLM is called only within the budget; otherwise the API returns a budget error.",
+    "answerEgressNote": "Visitors' questions (with email addresses, phone numbers and similar patterns masked) and the entry fragments used as grounds are sent to the LLM endpoint configured on the server. Free-form personal details such as names or addresses are not masked.",
+    "noChat": "Answers are not available because no chat model is configured (chat_model under [llm] in the server configuration file).",
+    "answerExhaustedHelp": "Since {at}, answers have been refused because the budget is used up. They resume when the limit is raised or the next period (UTC) starts.",
+    "direction": {
+      "input": "Input (question and fragments)",
+      "output": "Output (answer)"
+    }
   },
   "embeddingSwitch": {
     "title": "Embedding model",

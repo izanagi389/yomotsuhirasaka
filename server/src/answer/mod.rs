@@ -460,9 +460,15 @@ async fn reserve(
     let kind = Kind::VisitorAnswers;
     let exhausted = |first: bool| async move {
         if first {
-            audit::record(pool, Some(ws), None, audit::action::BUDGET_EXHAUSTED, &[ws])
-                .await
-                .map_err(internal)?;
+            audit::record(
+                pool,
+                Some(ws),
+                None,
+                audit::action::ANSWER_BUDGET_EXHAUSTED,
+                &[ws],
+            )
+            .await
+            .map_err(internal)?;
         }
         Err::<(Reservation, Reservation), Refusal>(Refusal::BudgetExhausted)
     };

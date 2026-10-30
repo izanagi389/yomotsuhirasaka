@@ -445,7 +445,8 @@
     "scopes": "権限",
     "scope": {
       "read": "読む",
-      "register": "クエリの登録"
+      "register": "クエリの登録",
+      "answer": "回答API"
     },
     "create": "発行する",
     "created": "APIキー「{name}」",
@@ -456,7 +457,8 @@
     "neverUsed": "未使用",
     "revoke": "失効させる",
     "revokeTitle": "APIキーを失効させます",
-    "revokeDescription": "「{name}」を失効させます。このキーを使っているサイトは、配信APIを読めなくなります。"
+    "revokeDescription": "「{name}」を失効させます。このキーを使っているサイトは、配信APIを読めなくなります。",
+    "answerNote": "回答APIは、呼ぶたびにLLMの料金がかかります（このワークスペースの訪問者向けの回答の予算の範囲で）。このキーは訪問者の質問を中継するサーバーにだけ置き、ブラウザに渡さないでください。"
   },
   "webhooks": {
     "url": "送信先のURL",
@@ -617,7 +619,8 @@
       },
       "budget": {
         "changed": "LLMの予算を変更",
-        "exhausted": "LLMの予算切れ（埋め込みの作成）"
+        "exhausted": "LLMの予算切れ（埋め込みの作成）",
+        "answer_exhausted": "LLMの予算切れ（訪問者向けの回答）"
       },
       "embedding_switch": {
         "started": "埋め込みモデルの切り替えの開始"
@@ -906,7 +909,8 @@
     "dueAt": "期限: {at}",
     "budgetExhausted": "埋め込みの作成の予算が尽きました。上限を上げるか、次の期間（UTC）になるまで、新しい記事の検索用のデータは作られません。",
     "embeddingModelMissing": "このワークスペースが使っている埋め込みのモデルが、サーバーの設定にありません。切り替えを開始するまで、ベクトル検索は使えません。",
-    "embeddingModelMissingDetail": "サーバーの設定: [llm.next_embedding]"
+    "embeddingModelMissingDetail": "サーバーの設定: [llm.next_embedding]",
+    "answerBudgetExhausted": "訪問者向けの回答の予算が尽きました。上限を上げるか、次の期間（UTC）になるまで、回答APIは予算切れのエラーを返します。"
   },
   "preview": {
     "noUrl": "公開URLを作れないため、プレビューを開けません。スラッグを入力してください。",
@@ -972,7 +976,16 @@
     "saved": "保存しました。",
     "ceilingTitle": "天井（サーバー管理者）",
     "ceilingHelp": "このワークスペースが決められる上限の天井です。LLMの料金はインスタンスのキーにかかります。「既定値」にすると、サーバーの設定ファイルの既定値（なければ 0）が効きます。",
-    "useDefault": "既定値"
+    "useDefault": "既定値",
+    "answerTitle": "訪問者向けの回答の予算",
+    "answerHelp": "回答APIで、訪問者の質問に答えるときの予算です。入力（質問と記事の断片）と出力（回答）を別々に、トークン数で数えます。予算の範囲でだけLLMを呼び、足りなければ予算切れのエラーを返します。",
+    "answerEgressNote": "訪問者の質問文（メールアドレスや電話番号などはマスクした上で）と、根拠にする記事の断片は、サーバーに設定したLLMの接続先に送られます。氏名や住所などの自由な書き方はマスクされません。",
+    "noChat": "回答の生成のモデルが設定されていないため、回答APIは使えません（サーバーの設定ファイルの [llm] chat_model）。",
+    "answerExhaustedHelp": "{at} から、予算が足りないため回答を断っています。上限を上げるか、次の期間（UTC）になると再開します。",
+    "direction": {
+      "input": "入力（質問と記事の断片）",
+      "output": "出力（回答）"
+    }
   },
   "embeddingSwitch": {
     "title": "埋め込みモデル",
