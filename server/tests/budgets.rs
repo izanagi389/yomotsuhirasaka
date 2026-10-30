@@ -4,7 +4,7 @@
 
 mod common;
 
-use cms_server::budget::{self, Kind, Reserved};
+use cms_server::budget::{self, Direction, Kind, Reserved};
 use cms_server::config::LlmConfig;
 use common::server::*;
 use common::with_scratch;
@@ -32,6 +32,13 @@ fn llm(per_month: Option<u64>, per_day: Option<u64>) -> LlmConfig {
         embedding_price_per_million_tokens: None,
         default_workspace_embedding_tokens_per_month: per_month,
         default_workspace_embedding_tokens_per_day: per_day,
+        chat_model: None,
+        chat_input_price_per_million_tokens: None,
+        chat_output_price_per_million_tokens: None,
+        default_workspace_answer_input_tokens_per_month: None,
+        default_workspace_answer_input_tokens_per_day: None,
+        default_workspace_answer_output_tokens_per_month: None,
+        default_workspace_answer_output_tokens_per_day: None,
         next_embedding: None,
     }
 }
@@ -52,10 +59,10 @@ async fn reservations_never_exceed_the_effective_limit() {
             .unwrap();
 
         // ワークスペースの上限（100）が天井（1000）より小さければ、ワークスペースの上限が効く
-        budget::set_limits(&server.pool, ws, Kind::Embedding, Some(100), None, admin_id)
+        budget::set_limits(&server.pool, ws, Kind::Embedding, Direction::Input, Some(100), None, admin_id)
             .await
             .unwrap();
-        let limits = budget::limits(&server.pool, &cfg, ws, Kind::Embedding).await.unwrap();
+        let limits = budget::limits(&server.pool, &cfg, ws, Kind::Embedding, Direction::Input).await.unwrap();
         assert_eq!(limits.effective().per_month, 100);
         assert_eq!(limits.effective().per_day, 1000);
 
@@ -63,7 +70,7 @@ async fn reservations_never_exceed_the_effective_limit() {
         let mut set = tokio::task::JoinSet::new();
         for _ in 0..10 {
             let (pool, cfg) = (server.pool.clone(), cfg.clone());
-            set.spawn(async move { budget::reserve(&pool, &cfg, ws, Kind::Embedding, 30).await });
+            set.spawn(async move { budget::reserve(&pool, &cfg, ws, Kind::Embedding, Direction::Input, 30).await });
         }
         let results = set.join_all().await;
         let ok: Vec<_> = results
@@ -80,33 +87,33 @@ async fn reservations_never_exceed_the_effective_limit() {
             .filter(|r| matches!(r.as_ref().unwrap(), Reserved::Exhausted { first: true }))
             .count();
         assert_eq!(firsts, 1, "{results:?}");
-        let usage = budget::usage(&server.pool, ws, Kind::Embedding).await.unwrap();
+        let usage = budget::usage(&server.pool, ws, Kind::Embedding, Direction::Input).await.unwrap();
         assert_eq!((usage.month, usage.day), (90, 90));
         assert!(usage.exhausted_at.is_some());
 
         // 精算で余りを返すと、その分また確保できる
         budget::settle(&server.pool, &ok[0], 5).await.unwrap();
-        let usage = budget::usage(&server.pool, ws, Kind::Embedding).await.unwrap();
+        let usage = budget::usage(&server.pool, ws, Kind::Embedding, Direction::Input).await.unwrap();
         assert_eq!(usage.month, 65);
         assert!(matches!(
-            budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, 35).await.unwrap(),
+            budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, Direction::Input, 35).await.unwrap(),
             Reserved::Ok(_)
         ));
         assert!(matches!(
-            budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, 1).await.unwrap(),
+            budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, Direction::Input, 1).await.unwrap(),
             Reserved::Exhausted { first: false }
         ));
 
         // 上限を変えると「断った」の印が消え、上げた分だけ再開する
-        budget::set_limits(&server.pool, ws, Kind::Embedding, Some(150), None, admin_id)
+        budget::set_limits(&server.pool, ws, Kind::Embedding, Direction::Input, Some(150), None, admin_id)
             .await
             .unwrap();
         assert_eq!(
-            budget::usage(&server.pool, ws, Kind::Embedding).await.unwrap().exhausted_at,
+            budget::usage(&server.pool, ws, Kind::Embedding, Direction::Input).await.unwrap().exhausted_at,
             None
         );
         assert!(matches!(
-            budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, 50).await.unwrap(),
+            budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, Direction::Input, 50).await.unwrap(),
             Reserved::Ok(_)
         ));
 
@@ -120,7 +127,7 @@ async fn reservations_never_exceed_the_effective_limit() {
         .await
         .unwrap();
         assert!(matches!(
-            budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, 1).await.unwrap(),
+            budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, Direction::Input, 1).await.unwrap(),
             Reserved::Exhausted { .. }
         ));
     })
@@ -139,7 +146,7 @@ async fn the_ceiling_defaults_to_zero() {
         enroll(&server, &root).await;
         let ws = workspace(&server, &root, "zero").await;
         assert!(matches!(
-            budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, 1)
+            budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, Direction::Input, 1)
                 .await
                 .unwrap(),
             Reserved::Exhausted { first: true }

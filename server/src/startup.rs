@@ -338,6 +338,30 @@ fn check_llm(llm: &crate::config::LlmConfig, exceptions: &[String]) -> Vec<Probl
         llm.embedding_price_per_million_tokens,
         ("embedding_model", "embedding_dimensions"),
     ));
+    // 回答の生成のモデル（M4）
+    if llm
+        .chat_model
+        .as_deref()
+        .is_some_and(|m| m.trim().is_empty())
+    {
+        problems.push(Problem::fatal("`llm.chat_model` is empty"));
+    }
+    for (name, price) in [
+        (
+            "chat_input_price_per_million_tokens",
+            llm.chat_input_price_per_million_tokens,
+        ),
+        (
+            "chat_output_price_per_million_tokens",
+            llm.chat_output_price_per_million_tokens,
+        ),
+    ] {
+        if price.is_some_and(|p| !p.is_finite() || p < 0.0) {
+            problems.push(Problem::fatal(format!(
+                "`llm.{name}` must be a non-negative number"
+            )));
+        }
+    }
     // 切り替え先のモデル（接続先とキーは、書いたものだけを検査する。省略すれば今のものを使う）
     if let Some(next) = &llm.next_embedding {
         const P: &str = "llm.next_embedding";
@@ -623,6 +647,13 @@ mod tests {
             embedding_price_per_million_tokens: None,
             default_workspace_embedding_tokens_per_month: None,
             default_workspace_embedding_tokens_per_day: None,
+            chat_model: None,
+            chat_input_price_per_million_tokens: None,
+            chat_output_price_per_million_tokens: None,
+            default_workspace_answer_input_tokens_per_month: None,
+            default_workspace_answer_input_tokens_per_day: None,
+            default_workspace_answer_output_tokens_per_month: None,
+            default_workspace_answer_output_tokens_per_day: None,
             next_embedding: Some(next.clone()),
         };
         let none: &[String] = &[];
@@ -705,6 +736,13 @@ mod tests {
             embedding_price_per_million_tokens: Some(0.02),
             default_workspace_embedding_tokens_per_month: None,
             default_workspace_embedding_tokens_per_day: None,
+            chat_model: None,
+            chat_input_price_per_million_tokens: None,
+            chat_output_price_per_million_tokens: None,
+            default_workspace_answer_input_tokens_per_month: None,
+            default_workspace_answer_input_tokens_per_day: None,
+            default_workspace_answer_output_tokens_per_month: None,
+            default_workspace_answer_output_tokens_per_day: None,
             next_embedding: None,
         };
         let none: &[String] = &[];

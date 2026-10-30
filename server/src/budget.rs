@@ -1,4 +1,5 @@
-//! LLMの予算（10-llm-and-budget.md「予算」、Q13, Q70, Q138）。M3は「埋め込みの作成」の入力だけ。
+//! LLMの予算（10-llm-and-budget.md「予算」、Q13, Q70, Q138）。「埋め込みの作成」（入力だけ）と、
+//! 「訪問者向けの回答」（入力・出力別。M4）。
 //!
 //! - 上限は2段。サーバー管理者がワークスペースごとの天井（`workspace_limits`。なければ設定ファイルの既定値、それもなければ 0）を
 //!   決め、ワークスペースは重い権限（manageLlm）で、その範囲の上限（`workspace_budgets`）を決める。
@@ -17,22 +18,38 @@ use crate::audit;
 use crate::config::Config;
 use crate::llm::{Embeddings, Llm, LlmError, estimate_tokens};
 
-/// 予算の種類。M3で使うのは埋め込みだけ。
+/// 予算の種類。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Embedding,
+    /// 訪問者向けの回答（回答の生成。M4）。
+    VisitorAnswers,
 }
 
 impl Kind {
     pub fn as_str(self) -> &'static str {
         match self {
             Kind::Embedding => "embedding",
+            Kind::VisitorAnswers => "visitor_answers",
         }
     }
 }
 
-/// 数える向き（埋め込みは入力だけ）。
-const INPUT: &str = "input";
+/// 数える向き（埋め込みは入力だけ。回答は入力と出力を別に数える）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Input,
+    Output,
+}
+
+impl Direction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Direction::Input => "input",
+            Direction::Output => "output",
+        }
+    }
+}
 
 /// 月と日の上限（トークン数）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -70,22 +87,55 @@ fn to_i64(v: Option<u64>) -> i64 {
 }
 
 /// サーバー管理者の天井（ワークスペースごとの値、なければ設定ファイルの既定値、それもなければ 0）。
-pub async fn ceiling(pool: &PgPool, config: &Config, workspace_id: Uuid) -> Result<Pair> {
-    let set: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
-        "SELECT embedding_tokens_per_month, embedding_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(pool)
-    .await?;
+/// 天井のない組み合わせ（埋め込みの出力など）は 0。
+pub async fn ceiling(
+    pool: &PgPool,
+    config: &Config,
+    workspace_id: Uuid,
+    kind: Kind,
+    direction: Direction,
+) -> Result<Pair> {
+    use crate::config::LlmConfig as L;
+    type Default = fn(&L) -> (Option<u64>, Option<u64>);
+    let (sql, defaults): (&str, Default) = match (kind, direction) {
+        (Kind::Embedding, Direction::Input) => (
+            "SELECT embedding_tokens_per_month, embedding_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
+            |l| {
+                (
+                    l.default_workspace_embedding_tokens_per_month,
+                    l.default_workspace_embedding_tokens_per_day,
+                )
+            },
+        ),
+        (Kind::VisitorAnswers, Direction::Input) => (
+            "SELECT answer_input_tokens_per_month, answer_input_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
+            |l| {
+                (
+                    l.default_workspace_answer_input_tokens_per_month,
+                    l.default_workspace_answer_input_tokens_per_day,
+                )
+            },
+        ),
+        (Kind::VisitorAnswers, Direction::Output) => (
+            "SELECT answer_output_tokens_per_month, answer_output_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
+            |l| {
+                (
+                    l.default_workspace_answer_output_tokens_per_month,
+                    l.default_workspace_answer_output_tokens_per_day,
+                )
+            },
+        ),
+        (Kind::Embedding, Direction::Output) => return Ok(Pair::default()),
+    };
+    let set: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(sql)
+        .bind(workspace_id)
+        .fetch_optional(pool)
+        .await?;
     let (month, day) = set.unwrap_or((None, None));
-    let defaults = config.llm.as_ref();
+    let (default_month, default_day) = config.llm.as_ref().map_or((None, None), defaults);
     Ok(Pair {
-        per_month: month.unwrap_or_else(|| {
-            to_i64(defaults.and_then(|l| l.default_workspace_embedding_tokens_per_month))
-        }),
-        per_day: day.unwrap_or_else(|| {
-            to_i64(defaults.and_then(|l| l.default_workspace_embedding_tokens_per_day))
-        }),
+        per_month: month.unwrap_or_else(|| to_i64(default_month)),
+        per_day: day.unwrap_or_else(|| to_i64(default_day)),
     })
 }
 
@@ -95,15 +145,16 @@ pub async fn limits(
     config: &Config,
     workspace_id: Uuid,
     kind: Kind,
+    direction: Direction,
 ) -> Result<Limits> {
-    let ceiling = ceiling(pool, config, workspace_id).await?;
+    let ceiling = ceiling(pool, config, workspace_id, kind, direction).await?;
     let set: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
         "SELECT tokens_per_month, tokens_per_day FROM cms.workspace_budgets
          WHERE workspace_id = $1 AND kind = $2 AND direction = $3",
     )
     .bind(workspace_id)
     .bind(kind.as_str())
-    .bind(INPUT)
+    .bind(direction.as_str())
     .fetch_optional(pool)
     .await?;
     let (month, day) = set.unwrap_or((None, None));
@@ -119,6 +170,7 @@ pub async fn set_limits(
     pool: &PgPool,
     workspace_id: Uuid,
     kind: Kind,
+    direction: Direction,
     month: Option<i64>,
     day: Option<i64>,
     actor: Uuid,
@@ -131,7 +183,7 @@ pub async fn set_limits(
     )
     .bind(workspace_id)
     .bind(kind.as_str())
-    .bind(INPUT)
+    .bind(direction.as_str())
     .bind(month)
     .bind(day)
     .bind(actor)
@@ -164,7 +216,12 @@ pub struct Usage {
     pub exhausted_at: Option<String>,
 }
 
-pub async fn usage(pool: &PgPool, workspace_id: Uuid, kind: Kind) -> Result<Usage> {
+pub async fn usage(
+    pool: &PgPool,
+    workspace_id: Uuid,
+    kind: Kind,
+    direction: Direction,
+) -> Result<Usage> {
     let rows: Vec<(String, i64, Option<String>)> = sqlx::query_as(
         r#"SELECT period, tokens, to_char(exhausted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM cms.budget_usage
          WHERE workspace_id = $1 AND kind = $2 AND direction = $3
@@ -173,7 +230,7 @@ pub async fn usage(pool: &PgPool, workspace_id: Uuid, kind: Kind) -> Result<Usag
     )
     .bind(workspace_id)
     .bind(kind.as_str())
-    .bind(INPUT)
+    .bind(direction.as_str())
     .fetch_all(pool)
     .await?;
     let mut out = Usage::default();
@@ -193,6 +250,7 @@ pub async fn usage(pool: &PgPool, workspace_id: Uuid, kind: Kind) -> Result<Usag
 pub struct Reservation {
     pub workspace_id: Uuid,
     kind: Kind,
+    direction: Direction,
     /// 確保した期間の初日（`YYYY-MM-DD`）。
     month_start: String,
     day_start: String,
@@ -216,9 +274,12 @@ pub async fn reserve(
     config: &Config,
     workspace_id: Uuid,
     kind: Kind,
+    direction: Direction,
     tokens: i64,
 ) -> Result<Reserved> {
-    let limit = limits(pool, config, workspace_id, kind).await?.effective();
+    let limit = limits(pool, config, workspace_id, kind, direction)
+        .await?
+        .effective();
     let mut tx = pool.begin().await?;
     let (month_start, day_start): (String, String) = sqlx::query_as(
         "SELECT date_trunc('month', now() AT TIME ZONE 'UTC')::date::text, (now() AT TIME ZONE 'UTC')::date::text",
@@ -232,7 +293,7 @@ pub async fn reserve(
     )
     .bind(workspace_id)
     .bind(kind.as_str())
-    .bind(INPUT)
+    .bind(direction.as_str())
     .bind(&month_start)
     .bind(&day_start)
     .execute(&mut *tx)
@@ -247,7 +308,7 @@ pub async fn reserve(
     )
     .bind(workspace_id)
     .bind(kind.as_str())
-    .bind(INPUT)
+    .bind(direction.as_str())
     .bind(&month_start)
     .bind(&day_start)
     .fetch_all(&mut *tx)
@@ -263,7 +324,7 @@ pub async fn reserve(
         )
         .bind(workspace_id)
         .bind(kind.as_str())
-        .bind(INPUT)
+        .bind(direction.as_str())
         .bind(&month_start)
         .bind(&day_start)
         .bind(tokens)
@@ -273,6 +334,7 @@ pub async fn reserve(
         return Ok(Reserved::Ok(Reservation {
             workspace_id,
             kind,
+            direction,
             month_start,
             day_start,
             tokens,
@@ -287,7 +349,7 @@ pub async fn reserve(
     )
     .bind(workspace_id)
     .bind(kind.as_str())
-    .bind(INPUT)
+    .bind(direction.as_str())
     .bind(&month_start)
     .bind(&day_start)
     .bind(!month_ok)
@@ -313,7 +375,7 @@ pub async fn settle(pool: &PgPool, reservation: &Reservation, actual: i64) -> Re
     )
     .bind(reservation.workspace_id)
     .bind(reservation.kind.as_str())
-    .bind(INPUT)
+    .bind(reservation.direction.as_str())
     .bind(&reservation.month_start)
     .bind(&reservation.day_start)
     .bind(delta)
@@ -334,7 +396,7 @@ pub enum Embedded {
 
 /// 相手が処理を始める前に失敗した（料金がかかっていない）とみなせるか。
 /// 応答を受け取ったあとの失敗や、上限の時間を超えたもの（相手が処理したかわからない）は、確保した分を使ったものとして残す。
-fn not_charged(e: LlmError) -> bool {
+pub fn not_charged(e: LlmError) -> bool {
     use crate::egress::EgressError as E;
     match e {
         LlmError::Status(_) => true,
@@ -361,7 +423,16 @@ pub async fn embed(
     inputs: &[String],
 ) -> Result<Embedded> {
     let estimate = i64::try_from(estimate_tokens(inputs)).unwrap_or(i64::MAX);
-    let reservation = match reserve(pool, config, workspace_id, Kind::Embedding, estimate).await? {
+    let reservation = match reserve(
+        pool,
+        config,
+        workspace_id,
+        Kind::Embedding,
+        Direction::Input,
+        estimate,
+    )
+    .await?
+    {
         Reserved::Ok(r) => r,
         Reserved::Exhausted { first } => {
             if first {

@@ -305,6 +305,13 @@ mod tests {
             embedding_price_per_million_tokens: None,
             default_workspace_embedding_tokens_per_month: None,
             default_workspace_embedding_tokens_per_day: None,
+            chat_model: None,
+            chat_input_price_per_million_tokens: None,
+            chat_output_price_per_million_tokens: None,
+            default_workspace_answer_input_tokens_per_month: None,
+            default_workspace_answer_input_tokens_per_day: None,
+            default_workspace_answer_output_tokens_per_month: None,
+            default_workspace_answer_output_tokens_per_day: None,
             next_embedding: next.map(|(m, d)| NextEmbeddingConfig {
                 model: m.into(),
                 dimensions: d,

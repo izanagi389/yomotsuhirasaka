@@ -284,7 +284,13 @@ pub async fn todo(
         Vec::new()
     };
     if state.config.llm.is_some() && access.has(Permission::ManageLlm) {
-        let usage = crate::budget::usage(&state.pool, ws, crate::budget::Kind::Embedding).await?;
+        let usage = crate::budget::usage(
+            &state.pool,
+            ws,
+            crate::budget::Kind::Embedding,
+            crate::budget::Direction::Input,
+        )
+        .await?;
         if let Some(at) = usage.exhausted_at {
             items.push(Item {
                 kind: Kind::BudgetExhausted,

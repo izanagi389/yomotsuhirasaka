@@ -38,6 +38,17 @@ pub const SEARCH_HIT_TYPE: &str = "CmsSearchHit";
 pub const SEARCH_AVAILABILITY_TYPE: &str = "CmsSearchAvailability";
 pub const SEARCH_MODE_TYPE: &str = "CmsSearchMode";
 pub const SEARCH_MATCH_TYPE: &str = "CmsSearchMatch";
+/// 回答API（M4、09-qa-chatbot.md）。まとめて返す Query のフィールドと、判定先行のストリーミングの Subscription のフィールド。
+pub const ANSWER_FIELD: &str = "answer";
+pub const ANSWER_STREAM_FIELD: &str = "answerStream";
+pub const SUBSCRIPTION_TYPE: &str = "Subscription";
+pub const ANSWER_TYPE: &str = "CmsAnswer";
+pub const ANSWER_STATUS_TYPE: &str = "CmsAnswerStatus";
+pub const ANSWER_SOURCE_TYPE: &str = "CmsAnswerSource";
+pub const ANSWER_EVENT_TYPE: &str = "CmsAnswerEvent";
+pub const ANSWER_VERDICT_TYPE: &str = "CmsAnswerVerdict";
+pub const ANSWER_DELTA_TYPE: &str = "CmsAnswerDelta";
+pub const ANSWER_FINAL_TYPE: &str = "CmsAnswerFinal";
 /// 記事の型のCMSのフィールド（関連記事。M3）。テンプレートのフィールド名（英小文字・数字・_）とはぶつからない。
 pub const RELATED_ENTRIES_FIELD: &str = "relatedEntries";
 pub const RELATED_ENTRY_TYPE: &str = "CmsRelatedEntry";
@@ -105,6 +116,7 @@ pub fn problems(m: &Manifest) -> Vec<String> {
         AI_TRAINING_OPT_OUTS_FIELD.to_owned(),
         AI_MARKDOWN_BY_URL_FIELD.to_owned(),
         SEARCH_FIELD.to_owned(),
+        ANSWER_FIELD.to_owned(),
     ]);
     for (i, ct) in m.content_types.iter().enumerate() {
         let t = type_name(&ct.name);

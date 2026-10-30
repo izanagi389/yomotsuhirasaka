@@ -22,7 +22,7 @@ use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::access::Permission;
 use crate::audit::{self, action};
-use crate::budget::{self, Kind};
+use crate::budget::{self, Direction, Kind};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,8 +49,15 @@ pub struct BudgetView {
 }
 
 async fn view(state: &AppState, ws: Uuid) -> Result<BudgetView, ApiError> {
-    let limits = budget::limits(&state.pool, &state.config, ws, Kind::Embedding).await?;
-    let usage = budget::usage(&state.pool, ws, Kind::Embedding).await?;
+    let limits = budget::limits(
+        &state.pool,
+        &state.config,
+        ws,
+        Kind::Embedding,
+        Direction::Input,
+    )
+    .await?;
+    let usage = budget::usage(&state.pool, ws, Kind::Embedding, Direction::Input).await?;
     let effective = limits.effective();
     let price = state
         .config
@@ -111,7 +118,14 @@ pub async fn set_embedding(
         ));
     }
     // 天井の範囲でだけ決められる（天井は使う瞬間にも照合する）
-    let ceiling = budget::ceiling(&state.pool, &state.config, ws).await?;
+    let ceiling = budget::ceiling(
+        &state.pool,
+        &state.config,
+        ws,
+        Kind::Embedding,
+        Direction::Input,
+    )
+    .await?;
     if req.tokens_per_month.is_some_and(|t| t > ceiling.per_month)
         || req.tokens_per_day.is_some_and(|t| t > ceiling.per_day)
     {
@@ -125,6 +139,7 @@ pub async fn set_embedding(
         &state.pool,
         ws,
         Kind::Embedding,
+        Direction::Input,
         req.tokens_per_month,
         req.tokens_per_day,
         current.user_id,

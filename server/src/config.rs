@@ -426,7 +426,7 @@ fn default_oidc_display_name() -> String {
     "SSO".to_owned()
 }
 
-/// LLMの接続先（OpenAI互換のAPI）。M3は埋め込みだけ。送信は外部への送信の共通の仕組みを通す。
+/// LLMの接続先（OpenAI互換のAPI）。埋め込みと、回答の生成（チャット。M4）。送信は外部への送信の共通の仕組みを通す。
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LlmConfig {
@@ -449,6 +449,24 @@ pub struct LlmConfig {
     /// 同じく、UTCの暦の日。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_workspace_embedding_tokens_per_day: Option<u64>,
+    /// 回答の生成に使うチャットのモデル名（M4、09-qa-chatbot.md）。なければ回答APIを使えない。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_model: Option<String>,
+    /// チャットの単価（100万トークンあたり、入力・出力。任意）。あれば費用も出す（Q138）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_input_price_per_million_tokens: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_output_price_per_million_tokens: Option<f64>,
+    /// ワークスペースの訪問者向けの回答の予算の天井の既定値（トークン数、入力・出力別、UTCの暦の月・日）。
+    /// サーバー管理者がワークスペースごとに決めていなければ、これが効く。なければ 0（回答しない）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_workspace_answer_input_tokens_per_month: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_workspace_answer_input_tokens_per_day: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_workspace_answer_output_tokens_per_month: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_workspace_answer_output_tokens_per_day: Option<u64>,
     /// 切り替え先の埋め込みのモデル（08-search-and-related.md「モデルの変更」、Q30）。書いただけでは何もしない。
     /// サーバー管理者が見積もりを見て開始すると、ワークスペースごとに新しい埋め込みを作り、そろった時点で切り替える。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -541,6 +559,31 @@ impl std::fmt::Debug for LlmConfig {
             .field(
                 "default_workspace_embedding_tokens_per_day",
                 &self.default_workspace_embedding_tokens_per_day,
+            )
+            .field("chat_model", &self.chat_model)
+            .field(
+                "chat_input_price_per_million_tokens",
+                &self.chat_input_price_per_million_tokens,
+            )
+            .field(
+                "chat_output_price_per_million_tokens",
+                &self.chat_output_price_per_million_tokens,
+            )
+            .field(
+                "default_workspace_answer_input_tokens_per_month",
+                &self.default_workspace_answer_input_tokens_per_month,
+            )
+            .field(
+                "default_workspace_answer_input_tokens_per_day",
+                &self.default_workspace_answer_input_tokens_per_day,
+            )
+            .field(
+                "default_workspace_answer_output_tokens_per_month",
+                &self.default_workspace_answer_output_tokens_per_month,
+            )
+            .field(
+                "default_workspace_answer_output_tokens_per_day",
+                &self.default_workspace_answer_output_tokens_per_day,
             )
             .field("next_embedding", &self.next_embedding)
             .finish()
