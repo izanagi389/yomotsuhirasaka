@@ -13,7 +13,7 @@ use std::sync::{Arc, RwLock};
 use async_graphql::Value as GqlValue;
 use async_graphql::dynamic::{
     Enum, EnumItem, Field, FieldFuture, FieldValue, InputValue, Object, ResolverContext, Scalar,
-    Schema, TypeRef,
+    Schema, Subscription, TypeRef,
 };
 use serde_json::Value;
 use sqlx::{Postgres, Transaction};
@@ -62,7 +62,7 @@ pub struct QueryLimits {
     pub complexity: usize,
 }
 
-fn internal(e: anyhow::Error) -> async_graphql::Error {
+pub(super) fn internal(e: anyhow::Error) -> async_graphql::Error {
     tracing::error!("delivery resolver failed: {e:#}");
     async_graphql::Error::new("internal error")
 }
@@ -71,7 +71,7 @@ fn parent<'a>(ctx: &'a ResolverContext<'a>) -> async_graphql::Result<&'a Entry> 
     ctx.parent_value.try_downcast_ref::<Entry>()
 }
 
-fn request<'a>(ctx: &'a ResolverContext<'a>) -> async_graphql::Result<&'a RequestData> {
+pub(super) fn request<'a>(ctx: &'a ResolverContext<'a>) -> async_graphql::Result<&'a RequestData> {
     Ok(ctx.data::<Arc<RequestData>>()?.as_ref())
 }
 
@@ -140,7 +140,7 @@ fn alternate_type() -> Object {
 }
 
 /// 返す値の型 `T` の1つのフィールド（`get` が値を取り出す）。
-fn value_field<T, F>(name: &str, ty: TypeRef, get: F) -> Field
+pub(super) fn value_field<T, F>(name: &str, ty: TypeRef, get: F) -> Field
 where
     T: Send + Sync + 'static,
     F: Fn(&T) -> Option<GqlValue> + Send + Sync + 'static,
@@ -1148,7 +1148,23 @@ pub fn build(
     for ct in &manifest.content_types {
         query = root_fields(query, ct);
     }
-    let mut builder = Schema::build(QUERY_TYPE, None, None)
+    // 回答API（M4）。今は名前がぶつかるテンプレートをデプロイの時点で止めるが、それより前に適用されたテンプレートが
+    // `answer` という名前を使っていれば、そのワークスペースでは置かない（配信を止めない）
+    let answer_free = !manifest.content_types.iter().any(|ct| {
+        [
+            names::single(&ct.name),
+            names::by_slug(&ct.name),
+            names::list(&ct.name),
+        ]
+        .iter()
+        .any(|n| n == names::ANSWER_FIELD)
+    });
+    if answer_free {
+        query = query.field(super::answer::answer_field(shared.clone()));
+    }
+    let subscription = Subscription::new(names::SUBSCRIPTION_TYPE)
+        .field(super::answer::answer_stream_field(shared.clone()));
+    let mut builder = Schema::build(QUERY_TYPE, None, Some(names::SUBSCRIPTION_TYPE))
         .register(
             Scalar::new(JSON_SCALAR).description("A JSON value (rich text bodies as Tiptap JSON)."),
         )
@@ -1164,12 +1180,18 @@ pub fn build(
         .register(search_mode_type())
         .register(search_match_type())
         .register(related_entry_type())
+        .register(subscription)
         .limit_depth(limits.depth)
         .limit_complexity(limits.complexity)
         .disable_suggestions();
     for ct in &manifest.content_types {
         builder = builder.register(entry_type(ct, shared.clone()));
     }
+    let (answer_objects, answer_status, answer_event) = super::answer::types();
+    for o in answer_objects {
+        builder = builder.register(o);
+    }
+    builder = builder.register(answer_status).register(answer_event);
     if !introspection {
         builder = builder.disable_introspection();
     }
