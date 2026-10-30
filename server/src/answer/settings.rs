@@ -107,6 +107,45 @@ async fn row(conn: &mut PgConnection) -> Result<Row> {
     .await?)
 }
 
+/// 拒否する語の数と長さの上限。
+pub const MAX_REFUSE_WORDS: usize = 100;
+pub const MAX_REFUSE_WORD_CHARS: usize = 100;
+
+/// 答えない質問の決まり（09-qa-chatbot.md「拒否する語」）。
+pub async fn refusal(conn: &mut PgConnection) -> Result<super::refuse::Rules> {
+    let (words, credit_card, my_number): (Vec<String>, bool, bool) = sqlx::query_as(
+        "SELECT refuse_words, refuse_credit_card, refuse_my_number FROM answer_settings",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(super::refuse::Rules {
+        words,
+        credit_card,
+        my_number,
+    })
+}
+
+/// 管理APIで返す、答えない質問の決まり。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefusalView {
+    pub words: Vec<String>,
+    pub credit_card: bool,
+    pub my_number: bool,
+}
+
+/// 答えない質問の決まりの変更（書いた項目だけを変える。words は書けば一覧ごと置き換える）。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RefusalChange {
+    #[serde(default)]
+    pub words: Option<Vec<String>>,
+    #[serde(default)]
+    pub credit_card: Option<bool>,
+    #[serde(default)]
+    pub my_number: Option<bool>,
+}
+
 /// 今の語り口。
 pub async fn tone(conn: &mut PgConnection) -> Result<Tone> {
     let (politeness, length, enabled, text) = row(conn).await?;
@@ -138,6 +177,7 @@ pub struct View {
     pub length: Length,
     pub free_prompt: FreePrompt,
     pub phrases: BTreeMap<String, Phrase>,
+    pub refusal: RefusalView,
 }
 
 pub async fn view(conn: &mut PgConnection, manifest: &Manifest) -> Result<View> {
@@ -162,11 +202,17 @@ pub async fn view(conn: &mut PgConnection, manifest: &Manifest) -> Result<View> 
             )
         })
         .collect();
+    let r = refusal(conn).await?;
     Ok(View {
         politeness: Politeness::parse(&politeness),
         length: Length::parse(&length),
         free_prompt: FreePrompt { enabled, text },
         phrases,
+        refusal: RefusalView {
+            words: r.words,
+            credit_card: r.credit_card,
+            my_number: r.my_number,
+        },
     })
 }
 
@@ -191,6 +237,8 @@ pub struct Change {
     pub free_prompt: Option<FreePromptChange>,
     #[serde(default)]
     pub phrases: Option<BTreeMap<String, Phrase>>,
+    #[serde(default)]
+    pub refusal: Option<RefusalChange>,
 }
 
 impl Change {
@@ -213,6 +261,17 @@ impl Change {
         }
         if let Some(p) = &self.phrases {
             out.extend(p.keys().map(|l| format!("phrases.{l}")));
+        }
+        if let Some(r) = &self.refusal {
+            for (set, name) in [
+                (r.words.is_some(), "refusal.words"),
+                (r.credit_card.is_some(), "refusal.creditCard"),
+                (r.my_number.is_some(), "refusal.myNumber"),
+            ] {
+                if set {
+                    out.push(name.to_owned());
+                }
+            }
         }
         out
     }
@@ -264,9 +323,52 @@ pub async fn apply(
             ));
         }
     }
+    // 拒否する語: 前後の空白を除き、空の語と重複を除く（語そのものは問題の説明に書かない）
+    let words: Option<Vec<String>> =
+        change
+            .refusal
+            .as_ref()
+            .and_then(|r| r.words.as_ref())
+            .map(|ws| {
+                let mut out: Vec<String> = Vec::new();
+                for w in ws.iter().map(|w| w.trim()).filter(|w| !w.is_empty()) {
+                    if !out.iter().any(|x| x == w) {
+                        out.push(w.to_owned());
+                    }
+                }
+                out
+            });
+    if let Some(ws) = &words {
+        if ws.len() > MAX_REFUSE_WORDS {
+            problems.push(format!("refusal.words: at most {MAX_REFUSE_WORDS} words"));
+        }
+        for (i, w) in ws.iter().enumerate() {
+            if w.chars().count() > MAX_REFUSE_WORD_CHARS {
+                problems.push(format!(
+                    "refusal.words[{i}]: must be at most {MAX_REFUSE_WORD_CHARS} characters"
+                ));
+            } else if w.chars().any(char::is_control) {
+                problems.push(format!(
+                    "refusal.words[{i}]: must not contain control characters"
+                ));
+            }
+        }
+    }
     if !problems.is_empty() {
         return Ok(Err(problems));
     }
+    let r = change.refusal.clone().unwrap_or_default();
+    sqlx::query(
+        "UPDATE answer_settings SET
+           refuse_words = COALESCE($1, refuse_words),
+           refuse_credit_card = COALESCE($2, refuse_credit_card),
+           refuse_my_number = COALESCE($3, refuse_my_number)",
+    )
+    .bind(words)
+    .bind(r.credit_card)
+    .bind(r.my_number)
+    .execute(&mut *conn)
+    .await?;
     sqlx::query(
         "UPDATE answer_settings SET
            politeness = COALESCE($1, politeness), length = COALESCE($2, length),
