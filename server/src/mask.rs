@@ -3,12 +3,14 @@
 //! 外部のLLMへの送信と埋め込みの作成の前に、決まった形の個人情報を伏せる。規則はここ1か所に置き、サイト内検索の検索語（M3）と、
 //! チャットボットの質問文・質問ログ（M4）で同じものを使う。
 //! - メールアドレス → `[email]`
+//! - IPアドレス（IPv4・ポート付きのIPv4・IPv6。全角の数字・`．`・`：` も）→ `[ip]`（2026-10-30に追加）
 //! - 10桁以上の数字の並び（電話番号・カード番号・口座番号など。空白・ハイフン・括弧・`+`・`.` で区切られていてもよい）→ `[number]`
 //! - 全角の数字と `＠` も同じように扱う。
 //!
 //! 氏名や住所のような自由な書き方は伏せられない（マスクの限界。管理画面で知らせる）。
 
 const EMAIL: &str = "[email]";
+const IP: &str = "[ip]";
 const NUMBER: &str = "[number]";
 /// これだけの桁数の数字の並びを伏せる（日本の電話番号は10〜11桁）。
 const MIN_DIGITS: usize = 10;
@@ -60,6 +62,62 @@ fn email_at(chars: &[char], at: usize) -> Option<(usize, usize)> {
     valid.then_some((start, end))
 }
 
+/// IPアドレスに使う文字（全角の数字・`．`・`：` は半角にする）。
+fn ip_char(c: char) -> Option<char> {
+    match c {
+        '０'..='９' => char::from_u32(c as u32 - '０' as u32 + '0' as u32),
+        '．' => Some('.'),
+        '：' => Some(':'),
+        c if c.is_ascii_hexdigit() || c == '.' || c == ':' => Some(c),
+        _ => None,
+    }
+}
+
+/// IPアドレスか（IPv4、ポート付きのIPv4、IPv6）。IPv6 は、`::` だけのような短いもの（`std::net` の一部など）を除くため、
+/// コロンが2つ以上で、空でない区切りが2つ以上あるものに限る。
+fn is_ip(s: &str) -> bool {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+    if s.parse::<Ipv4Addr>().is_ok() {
+        return true;
+    }
+    if let Some((host, port)) = s.rsplit_once(':')
+        && !host.contains(':')
+        && host.parse::<Ipv4Addr>().is_ok()
+        && port.parse::<u16>().is_ok()
+    {
+        return true;
+    }
+    s.matches(':').count() >= 2
+        && s.split(':').filter(|g| !g.is_empty()).count() >= 2
+        && s.parse::<Ipv6Addr>().is_ok()
+}
+
+/// IPアドレスの範囲（文字の位置）。末尾の `.` と `:` は含めない（文の終わりなど）。
+fn ip_spans(chars: &[char]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if ip_char(chars[i]).is_none() {
+            i += 1;
+            continue;
+        }
+        let mut j = i;
+        while j < chars.len() && ip_char(chars[j]).is_some() {
+            j += 1;
+        }
+        let mut end = j;
+        while end > i && matches!(ip_char(chars[end - 1]), Some('.' | ':')) {
+            end -= 1;
+        }
+        let text: String = chars[i..end].iter().filter_map(|c| ip_char(*c)).collect();
+        if is_ip(&text) {
+            out.push((i, end));
+        }
+        i = j;
+    }
+    out
+}
+
 /// 決まった形の個人情報を伏せる。
 pub fn mask(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
@@ -75,6 +133,13 @@ pub fn mask(text: &str) -> String {
             spans.push((s, e, EMAIL));
         }
     }
+    // IPアドレスも先に伏せる（IPv4 を数字の並びとして伏せないように）。メールアドレスと重なるものは除く
+    for (s, e) in ip_spans(&chars) {
+        if !spans.iter().any(|(es, ee, _)| s < *ee && *es < e) {
+            spans.push((s, e, IP));
+        }
+    }
+    spans.sort_by_key(|(s, _, _)| *s);
     let mut next_span = 0;
     while i < chars.len() {
         if let Some((s, e, label)) = spans.get(next_span).copied()
@@ -156,6 +221,26 @@ mod tests {
         assert_eq!(mask("123456789"), "123456789");
         // 区切りで終わる数字の並びは、区切りを残す
         assert_eq!(mask("番号 0312345678- です"), "番号 [number]- です");
+    }
+
+    #[test]
+    fn ip_addresses_are_masked() {
+        assert_eq!(mask("接続元 192.168.10.20 から"), "接続元 [ip] から");
+        assert_eq!(mask("203.0.113.5:8080 に"), "[ip] に");
+        assert_eq!(mask("サーバーは 10.0.0.1."), "サーバーは [ip].");
+        assert_eq!(mask("１９２．１６８．０．１ です"), "[ip] です");
+        assert_eq!(mask("v6 は 2001:db8::1 と fe80::1:2"), "v6 は [ip] と [ip]");
+        assert_eq!(mask("[2001:db8:0:0:0:0:0:1]:443"), "[[ip]]:443");
+        assert_eq!(mask("192.168.0.0/24"), "[ip]/24");
+        // IPアドレスでないものはそのまま
+        assert_eq!(mask("std::net と a:b と 1.2.3"), "std::net と a:b と 1.2.3");
+        assert_eq!(mask("版 1.2.3.400"), "版 1.2.3.400");
+        assert_eq!(mask("deadbeef cafe 12:30"), "deadbeef cafe 12:30");
+        // メールアドレスや長い数字の並びとの組み合わせ
+        assert_eq!(
+            mask("a@example.com と 8.8.8.8 と 090-1234-5678"),
+            "[email] と [ip] と [number]"
+        );
     }
 
     #[test]
