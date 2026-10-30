@@ -14,7 +14,6 @@ inv_qa_07
 inv_qa_08
 inv_qa_09
 # 予算と回数の制限
-inv_qa_14
 inv_bud_02
 # 質問ログ
 inv_log_01

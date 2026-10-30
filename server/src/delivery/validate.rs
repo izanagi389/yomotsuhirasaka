@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use super::names::{ANSWER_FIELD, ANSWER_STREAM_FIELD};
+use super::names::{ANSWER_FIELD, ANSWER_STREAM_FIELD, VISITOR_ID_ARG};
 use super::queries::MAX_QUERY_BYTES;
 use super::schema::RequestData;
 
@@ -42,7 +42,27 @@ pub struct Shape {
     pub roots: Vec<String>,
     /// 回答のフィールド（`answer`・`answerStream`）を選んだ回数（別名・フラグメントの分も数える）。
     pub answer_fields: usize,
+    /// 回答のフィールドの `visitorId` の引数（回数制限を、実行の前に数えるため）。
+    pub visitor: VisitorArg,
 }
+
+/// 回答のフィールドの `visitorId` の引数の書き方。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum VisitorArg {
+    #[default]
+    Absent,
+    /// 文に直接書いた値。
+    Literal(async_graphql::Value),
+    /// 変数（`default` は変数の既定値）。
+    Variable {
+        name: String,
+        default: Option<async_graphql::Value>,
+    },
+}
+
+/// `visitorId` の値が文字列でない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidVisitorId;
 
 impl Shape {
     /// 回答のフィールドを含むか。
@@ -53,6 +73,26 @@ impl Shape {
     /// 回答のフィールドを、ほかのフィールドと混ぜずに1回だけ選んでいるか（1回のリクエストでLLMを何度も呼ばせない）。
     pub fn answer_alone(&self) -> bool {
         self.answer_fields == 1 && self.roots.len() == 1
+    }
+
+    /// 回答のフィールドの `visitorId` の値（変数は、送られた値か、なければ既定値で解く。実行のときと同じ）。
+    /// 指定がない・null なら None。
+    pub fn visitor_id(&self, variables: &Value) -> Result<Option<String>, InvalidVisitorId> {
+        let value = match &self.visitor {
+            VisitorArg::Absent => None,
+            VisitorArg::Literal(v) => Some(v.clone()),
+            VisitorArg::Variable { name, default } => match variables.get(name) {
+                Some(json) => Some(
+                    async_graphql::Value::from_json(json.clone()).map_err(|_| InvalidVisitorId)?,
+                ),
+                None => default.clone(),
+            },
+        };
+        match value {
+            None | Some(async_graphql::Value::Null) => Ok(None),
+            Some(async_graphql::Value::String(s)) => Ok(Some(s)),
+            Some(_) => Err(InvalidVisitorId),
+        }
     }
 }
 
@@ -73,6 +113,7 @@ pub fn shape(query: &str) -> Option<Shape> {
         subscription: op.node.ty == OperationType::Subscription,
         roots: Vec::new(),
         answer_fields: 0,
+        visitor: VisitorArg::Absent,
     };
     let mut visited = 0;
     collect_roots(
@@ -82,6 +123,15 @@ pub fn shape(query: &str) -> Option<Shape> {
         &mut visited,
         0,
     )?;
+    if let VisitorArg::Variable { name, default } = &mut shape.visitor {
+        *default = op
+            .node
+            .variable_definitions
+            .iter()
+            .find(|d| d.node.name.node.as_str() == name)
+            .and_then(|d| d.node.default_value.as_ref())
+            .map(|v| v.node.clone());
+    }
     Some(shape)
 }
 
@@ -111,6 +161,27 @@ fn collect_roots(
                 let name = f.node.name.node.as_str();
                 if is_answer(name) {
                     out.answer_fields += 1;
+                    out.visitor = match f.node.get_argument(VISITOR_ID_ARG) {
+                        None => VisitorArg::Absent,
+                        Some(v) => {
+                            let mut variable = None;
+                            let literal = v
+                                .node
+                                .clone()
+                                .into_const_with(|name| {
+                                    variable = Some(name.to_string());
+                                    Ok::<_, std::convert::Infallible>(async_graphql::Value::Null)
+                                })
+                                .unwrap_or(async_graphql::Value::Null);
+                            match variable {
+                                Some(name) => VisitorArg::Variable {
+                                    name,
+                                    default: None,
+                                },
+                                None => VisitorArg::Literal(literal),
+                            }
+                        }
+                    };
                 }
                 // `__typename` は何も読まない。`__schema`・`__type` はスキーマを読むので、ほかのフィールドと同じに数える
                 if name != "__typename" && !out.roots.iter().any(|n| n == name) {

@@ -57,6 +57,9 @@ pub struct Config {
     /// 配信API（13-security.md「GraphQL」）。
     #[serde(default)]
     pub delivery: DeliveryConfig,
+    /// 回答API（13-security.md「チャットボットへの悪用」。M4）。
+    #[serde(default)]
+    pub answer: AnswerConfig,
     /// 外部へのHTTPの送信（13-security.md「外部への送信」）。
     #[serde(default)]
     pub egress: EgressConfig,
@@ -288,6 +291,28 @@ impl Default for DeliveryConfig {
             shared_cache: false,
             shared_cache_seconds: 60,
             query_check_unused_days: 90,
+        }
+    }
+}
+
+/// 回答APIの回数制限（13-security.md「チャットボットへの悪用」、Q116）。配信APIの回数制限とは別に数える。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct AnswerConfig {
+    /// APIキーごとの、1分あたりの回答の回数の上限（既定は60）。
+    pub key_requests_per_minute: u32,
+    /// 訪問者の識別子（中継サーバーが渡すもの）ごとの、1分あたりの回答の回数の上限（既定は10）。
+    pub visitor_requests_per_minute: u32,
+    /// 同じく、1日あたり（既定は100）。1人の訪問者による予算の食いつぶしを止める。
+    pub visitor_requests_per_day: u32,
+}
+
+impl Default for AnswerConfig {
+    fn default() -> Self {
+        Self {
+            key_requests_per_minute: 60,
+            visitor_requests_per_minute: 10,
+            visitor_requests_per_day: 100,
         }
     }
 }

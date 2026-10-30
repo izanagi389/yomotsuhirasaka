@@ -41,6 +41,8 @@ pub const SEARCH_MATCH_TYPE: &str = "CmsSearchMatch";
 /// 回答API（M4、09-qa-chatbot.md）。まとめて返す Query のフィールドと、判定先行のストリーミングの Subscription のフィールド。
 pub const ANSWER_FIELD: &str = "answer";
 pub const ANSWER_STREAM_FIELD: &str = "answerStream";
+/// 回答のフィールドの、訪問者の識別子の引数（訪問者ごとの回数制限。13-security.md「チャットボットへの悪用」）。
+pub const VISITOR_ID_ARG: &str = "visitorId";
 pub const SUBSCRIPTION_TYPE: &str = "Subscription";
 pub const ANSWER_TYPE: &str = "CmsAnswer";
 pub const ANSWER_STATUS_TYPE: &str = "CmsAnswerStatus";

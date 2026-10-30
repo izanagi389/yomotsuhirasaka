@@ -177,3 +177,81 @@ async fn answer_api_entrance() {
     })
     .await;
 }
+
+const VISITOR_ANSWER: &str = "query($q: String!, $v: String) { answer(question: $q, locale: \"ja\", visitorId: $v) { status text } }";
+
+/// 回答の回数制限（APIキーごとの回答の回数と、訪問者ごとの回数）。上限を超えたら、質問の検査より前に 429 で断る。
+#[tokio::test]
+async fn answer_rate_limits() {
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.answer.key_requests_per_minute = 4;
+        cfg.answer.visitor_requests_per_minute = 2;
+        let server = start(cfg).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        assert_eq!(
+            deploy(&server, &token, "blog", &blog_manifest(), "")
+                .await
+                .status,
+            200
+        );
+        let ws = workspace_with_template(&server, &root, "A", "blog").await;
+        let reg = api_key(&server, &root, ws, &["register"]).await;
+        let answer = api_key(&server, &root, ws, &["answer"]).await;
+        let res = register(&server, ws, &reg, VISITOR_ANSWER).await;
+        assert_eq!(res.status, 201, "{}", res.body);
+        let id = res.json_str("id").unwrap();
+        let ask = |visitor: Value| {
+            let (server, answer, id) = (&server, &answer, &id);
+            async move {
+                post(
+                    server,
+                    ws,
+                    answer,
+                    id,
+                    json!({"q": "質問です", "v": visitor}),
+                )
+                .await
+            }
+        };
+        let error = |res: &Resp| (res.status, res.json_str("error"));
+
+        // 文字列でない・長すぎる識別子は拒否する（数えない）
+        for bad in [json!(12), json!("x".repeat(129))] {
+            let res = ask(bad).await;
+            assert_eq!(
+                error(&res),
+                (400, Some("visitor_id_invalid".into())),
+                "{}",
+                res.body
+            );
+        }
+        // 訪問者ごとの上限（1分2回）。この設定には回答の生成のモデルがないので、上限の内側は「使えない」と返る
+        for _ in 0..2 {
+            assert_eq!(
+                codes(&ask(json!("visitor-a")).await),
+                vec!["ANSWER_UNAVAILABLE"]
+            );
+        }
+        let res = ask(json!("visitor-a")).await;
+        assert_eq!(
+            error(&res),
+            (429, Some("visitor_rate_limited".into())),
+            "{}",
+            res.body
+        );
+        assert!(res.header("retry-after").is_some());
+        // 空の識別子は、渡していないのと同じ（訪問者では数えない）
+        assert_eq!(codes(&ask(json!("")).await), vec!["ANSWER_UNAVAILABLE"]);
+        // キーごとの回答の上限（1分4回。訪問者で断ったものも、キーでは数える）
+        let res = ask(json!("visitor-b")).await;
+        assert_eq!(
+            error(&res),
+            (429, Some("answer_rate_limited".into())),
+            "{}",
+            res.body
+        );
+        assert!(res.header("retry-after").is_some());
+    })
+    .await;
+}
