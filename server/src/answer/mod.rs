@@ -440,7 +440,7 @@ fn cache_key(
         &secret,
         req.workspace_id,
         locale,
-        &cache::settings(model),
+        &cache::settings(model, &req.manifest),
         &cache::normalize(masked),
     ))
 }

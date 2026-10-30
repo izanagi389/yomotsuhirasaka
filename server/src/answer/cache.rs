@@ -1,6 +1,7 @@
 //! 回答キャッシュ（09-qa-chatbot.md「回答キャッシュ」、Q29, Q31, Q45, Q134）。
 //!
-//! - 完全一致のキャッシュ。キーは、正規化してマスクした質問文・ワークスペース・ロケール・設定（モデル・プロンプトの形式）を、
+//! - 完全一致のキャッシュ。キーは、正規化してマスクした質問文・ワークスペース・ロケール・設定（モデル・プロンプトの形式・
+//!   検索の対象のフィールドの決め方）を、
 //!   サーバーの鍵から導いた鍵で HMAC-SHA256 したもの。質問文の平文は保存しない（INV-QA-08）。DBを読めても、よくある質問を
 //!   試して当てられないよう、鍵付きにする。
 //! - 保存するのは、引用の照合を通った「回答できた」最終判定だけ（違反を検知したもの・「情報なし」・エラーは保存しない）。
@@ -58,15 +59,23 @@ pub fn normalize(question: &str) -> String {
     out
 }
 
-/// 回答を左右する設定のハッシュ（回答のモデル・プロンプトの組み立て方・回答の形式）。
-pub fn settings(chat_model: &str) -> String {
-    let digest = Sha256::new()
+/// 回答を左右する設定のハッシュ（回答のモデル・プロンプトの組み立て方・回答の形式・検索の対象のフィールドの決め方）。
+/// 検索の対象のフィールドを変えたら、前の決め方のチャンクから作った回答を返さない（検索と同じ。INV-SRC-03）。
+pub fn settings(chat_model: &str, manifest: &Manifest) -> String {
+    let (types, keys) = access::current_keys(manifest);
+    let mut hasher = Sha256::new()
         .chain_update(PROMPT_VERSION.as_bytes())
         .chain_update([0])
         .chain_update(chat_model.as_bytes())
         .chain_update([0])
-        .chain_update(super::format::FORMAT_JSON.as_bytes())
-        .finalize();
+        .chain_update(super::format::FORMAT_JSON.as_bytes());
+    for (t, k) in types.iter().zip(&keys) {
+        hasher.update([0]);
+        hasher.update(t.as_bytes());
+        hasher.update([0]);
+        hasher.update(k.as_bytes());
+    }
+    let digest = hasher.finalize();
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -305,6 +314,15 @@ mod tests {
         assert_ne!(base, k(&a, ws, "ja", "s", "r"));
         // 項目の境目をずらしても、同じキーにならない
         assert_ne!(k(&a, ws, "ja", "sq", ""), k(&a, ws, "ja", "s", "q"));
-        assert_ne!(settings("model-a"), settings("model-b"));
+        let m = crate::schema::manifest::tests::sample();
+        assert_ne!(settings("model-a", &m), settings("model-b", &m));
+        // 検索の対象のフィールドを変えたら、設定も変わる
+        let mut changed = m.clone();
+        for ct in &mut changed.content_types {
+            for f in &mut ct.fields {
+                f.searchable = !f.searchable;
+            }
+        }
+        assert_ne!(settings("model-a", &m), settings("model-a", &changed));
     }
 }
