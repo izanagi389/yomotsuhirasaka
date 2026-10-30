@@ -102,6 +102,7 @@ export function toManifest(t: TemplateSpec): unknown {
         : undefined,
       description: ct.description,
       devNote: ct.devNote,
+      review: ct.review ? { intervalDays: ct.review.intervalDays } : undefined,
       fields: ct.fields.map((f) => ({
         // 検索・質問応答の対象（M3、Q16）。既定は対象外なので、対象のときだけ書く
         ...(f.searchable ? { searchable: true } : {}),

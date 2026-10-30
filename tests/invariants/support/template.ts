@@ -71,6 +71,8 @@ export interface ContentTypeSpec {
   aiMarkdown?: { title: string; meta?: string[]; fields?: string[]; relations?: string[] };
   description?: string;
   devNote?: string;
+  /** 確認期限の既定値（M2、06-corrections-and-freshness.md）。最終確認日からの日数。 */
+  review?: { intervalDays: number };
 }
 
 /** カスタムノードの属性の型。 */
@@ -161,4 +163,6 @@ export function postType(t: TemplateSpec): ContentTypeSpec {
  */
 export const SEARCHABLE_TEMPLATE: TemplateSpec = cloneTemplate("inv-searchable", (t) => {
   for (const f of postType(t).fields) if (f.name === "body") f.searchable = true;
+  // 回答の出典の確認期限（INV-QA-09）。最短の1日
+  postType(t).review = { intervalDays: 1 };
 });
