@@ -88,13 +88,18 @@ impl ApiError {
     }
 
     pub fn rate_limited(retry_after: u64) -> Self {
+        Self::too_many(
+            "rate_limited",
+            "Too many requests. Try again later.",
+            retry_after,
+        )
+    }
+
+    /// 回数制限で断る（429 と Retry-After）。何の上限かをエラーコードで分ける。
+    pub fn too_many(code: &'static str, message: &'static str, retry_after: u64) -> Self {
         Self {
             retry_after: Some(retry_after),
-            ..Self::new(
-                StatusCode::TOO_MANY_REQUESTS,
-                "rate_limited",
-                "Too many requests. Try again later.",
-            )
+            ..Self::new(StatusCode::TOO_MANY_REQUESTS, code, message)
         }
     }
 

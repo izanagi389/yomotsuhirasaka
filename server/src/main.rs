@@ -381,6 +381,7 @@ fn init(config_path: &Path, key_path: &Path, options: InitOptions) -> Result<()>
         login_history: config::LoginHistoryConfig::default(),
         media: config::MediaConfig::at(media_root),
         delivery: config::DeliveryConfig::default(),
+        answer: config::AnswerConfig::default(),
         egress: config::EgressConfig {
             internal_destination_exceptions,
             ..config::EgressConfig::default()
