@@ -38,7 +38,7 @@ fn placeholder(ty: &Type) -> Value {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shape {
     pub subscription: bool,
-    /// ルートのフィールドの名前（フラグメントの中のものも含む。`__typename` などは含めない）。
+    /// ルートのフィールドの名前（フラグメントの中のものも含む。`__typename` だけは含めない。`__schema` などは含める）。
     pub roots: Vec<String>,
     /// 回答のフィールド（`answer`・`answerStream`）を選んだ回数（別名・フラグメントの分も数える）。
     pub answer_fields: usize,
@@ -74,17 +74,27 @@ pub fn shape(query: &str) -> Option<Shape> {
         roots: Vec::new(),
         answer_fields: 0,
     };
-    collect_roots(&doc, &op.node.selection_set.node, &mut shape, 0)?;
+    let mut visited = 0;
+    collect_roots(
+        &doc,
+        &op.node.selection_set.node,
+        &mut shape,
+        &mut visited,
+        0,
+    )?;
     Some(shape)
 }
 
 /// フラグメントをたどる深さの上限。超えたら読み切れないものとする。
 const MAX_FRAGMENT_DEPTH: usize = 32;
+/// たどる選択の数の上限（同じフラグメントを何度も使って、たどる数を倍々に増やす文を止める）。超えたら読み切れないものとする。
+const MAX_VISITED_SELECTIONS: usize = 10_000;
 
 fn collect_roots(
     doc: &ExecutableDocument,
     set: &SelectionSet,
     out: &mut Shape,
+    visited: &mut usize,
     depth: usize,
 ) -> Option<()> {
     // フラグメントの循環は検証で拒否されるが、ここでも深さで止める
@@ -92,23 +102,28 @@ fn collect_roots(
         return None;
     }
     for item in &set.items {
+        *visited += 1;
+        if *visited > MAX_VISITED_SELECTIONS {
+            return None;
+        }
         match &item.node {
             Selection::Field(f) => {
                 let name = f.node.name.node.as_str();
                 if is_answer(name) {
                     out.answer_fields += 1;
                 }
-                if !name.starts_with("__") && !out.roots.iter().any(|n| n == name) {
+                // `__typename` は何も読まない。`__schema`・`__type` はスキーマを読むので、ほかのフィールドと同じに数える
+                if name != "__typename" && !out.roots.iter().any(|n| n == name) {
                     out.roots.push(name.to_owned());
                 }
             }
             Selection::InlineFragment(f) => {
-                collect_roots(doc, &f.node.selection_set.node, out, depth + 1)?
+                collect_roots(doc, &f.node.selection_set.node, out, visited, depth + 1)?
             }
             Selection::FragmentSpread(s) => {
                 // 定義のないフラグメントは、中身を数えられないので拒否する
                 let f = doc.fragments.get(&s.node.fragment_name.node)?;
-                collect_roots(doc, &f.node.selection_set.node, out, depth + 1)?;
+                collect_roots(doc, &f.node.selection_set.node, out, visited, depth + 1)?;
             }
         }
     }
@@ -230,6 +245,26 @@ mod tests {
         assert_eq!(shape(&q), None);
         // 定義のないフラグメント
         assert_eq!(shape("query { ...Missing }"), None);
+        // 同じフラグメントを2回ずつ使って、たどる数を倍々に増やす文
+        let mut q = String::from("query { ...G0 }");
+        for i in 0..30 {
+            q.push_str(&format!(
+                " fragment G{i} on Query {{ ...G{n} ...G{n} }}",
+                n = i + 1
+            ));
+        }
+        q.push_str(" fragment G30 on Query { redirects { from } }");
+        assert_eq!(shape(&q), None);
+        // イントロスペクションは、ほかのフィールドと同じに数える（回答と混ぜられない）
+        let meta =
+            shape(r#"query { __schema { queryType { name } } answer(question: "q", locale: "ja") { text } }"#)
+                .unwrap();
+        assert!(meta.answering() && !meta.answer_alone());
+        assert!(
+            shape(r#"query { __typename answer(question: "q", locale: "ja") { text } }"#)
+                .unwrap()
+                .answer_alone()
+        );
         // ふつうの深さなら読める
         let ok = shape("query { ...A } fragment A on Query { ...B } fragment B on Query { redirects { from } }").unwrap();
         assert_eq!(ok.roots, vec!["redirects".to_owned()]);
