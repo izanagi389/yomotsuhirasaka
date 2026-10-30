@@ -14,6 +14,7 @@
 pub mod cache;
 pub mod check;
 pub mod format;
+pub mod log;
 mod prompt;
 pub mod settings;
 pub mod urls;
@@ -157,6 +158,8 @@ pub fn start(app: AppState, req: Request) -> mpsc::Receiver<Result<Event, Refusa
     let (tx, rx) = mpsc::channel(64);
     tokio::spawn(async move {
         if let Err(refusal) = run(&app, &req, &tx).await {
+            // 断った依頼は、日ごとの件数だけを残す（質問文は残さない）
+            note(&app, &req, log::Outcome::Error, None).await;
             let _ = tx.send(Err(refusal)).await;
         }
     });
@@ -243,6 +246,7 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
         if req.streaming {
             let _ = out.send(Ok(Event::Delta(hit.text.clone()))).await;
         }
+        note(app, req, log::Outcome::Answered, None).await;
         let _ = out
             .send(Ok(Event::Final(Answer {
                 status: Status::Answered,
@@ -263,6 +267,7 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
                 sources: Vec::new(),
             }))
             .await;
+        note(app, req, log::Outcome::NoInformation, Some(&masked)).await;
         let _ = out.send(Ok(Event::Final(grounds.no_information()))).await;
         return Ok(());
     }
@@ -396,8 +401,21 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
             answer
         }
     };
+    // 質問ログ（答えられなかった質問だけ文を残す）と日ごとの件数。最終判定を送る前に記録する
+    if answer.status == Status::NoInformation {
+        note(app, req, log::Outcome::NoInformation, Some(&masked)).await;
+    } else {
+        note(app, req, log::Outcome::Answered, None).await;
+    }
     let _ = out.send(Ok(Event::Final(answer))).await;
     Ok(())
+}
+
+/// 回答の結果を質問ログに記録する。記録できなくても、回答は返す（ログには質問文を出さない）。
+async fn note(app: &AppState, req: &Request, outcome: log::Outcome, masked: Option<&str>) {
+    if let Err(e) = log::record(&app.pool, &req.db, outcome, &req.locale, masked).await {
+        tracing::warn!(workspace = %req.workspace_id, "question log record failed: {e:#}");
+    }
 }
 
 /// 検査の段階をイベントにして送る。受け取る側がいなければ false。

@@ -149,6 +149,10 @@ pub fn spawn_sweeper(state: AppState) -> tokio::task::JoinHandle<()> {
             if let Err(e) = crate::notifications::sweep(&state.pool).await {
                 tracing::error!("notification reads sweeper: {e:#}");
             }
+            // 保存期間を過ぎた質問ログ（INV-LOG-02）
+            if let Err(e) = crate::answer::log::sweep(&state.pool).await {
+                tracing::error!("question log sweeper: {e:#}");
+            }
             // 寿命の過ぎた回答キャッシュ
             if let Err(e) = crate::answer::cache::sweep(&state.pool).await {
                 tracing::error!("answer cache sweeper: {e:#}");

@@ -631,6 +631,11 @@
       },
       "related": {
         "recompute_started": "関連記事の一括再計算の開始"
+      },
+      "question_log": {
+        "settings_changed": "質問ログの設定を変更",
+        "viewed": "質問ログの閲覧",
+        "candidate_deleted": "質問ログの候補の削除"
       }
     },
     "you": "あなた",

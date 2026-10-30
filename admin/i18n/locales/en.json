@@ -631,6 +631,11 @@
       },
       "related": {
         "recompute_started": "Related entries recomputation started"
+      },
+      "question_log": {
+        "settings_changed": "Question log settings changed",
+        "viewed": "Question log viewed",
+        "candidate_deleted": "Question log candidate deleted"
       }
     },
     "you": "You",
