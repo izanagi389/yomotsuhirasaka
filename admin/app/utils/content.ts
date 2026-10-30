@@ -449,7 +449,7 @@ export interface TodoItem {
   /** 管理者への通知（監査ログの記録。計画の15番）。 */
   notification?: import("~/utils/admin").AuditEntry;
   /** 予算切れの予算の種類。 */
-  budget?: "embedding";
+  budget?: "embedding" | "visitor_answers";
 }
 
 /** GET/PUT /workspaces/{ws}/entries/{id}/related（固定と除外は翻訳グループ。current は今返している一覧）。 */
@@ -483,10 +483,8 @@ export interface EmbeddingSwitch {
   }[];
 }
 
-/** GET/PUT /workspaces/{ws}/budgets/embedding（埋め込みの作成の予算。トークン数、UTCの暦の月・日）。 */
-export interface EmbeddingBudget {
-  /** LLMの接続先が設定されているか。なければ埋め込みは作らない。 */
-  llmConfigured: boolean;
+/** 1つの予算（埋め込みの作成、回答の入力・出力）の上限と使用量。トークン数、UTCの暦の月・日。 */
+export interface BudgetPart {
   /** ワークスペースが決めた上限（null は上限なし＝天井）。 */
   tokensPerMonth: number | null;
   tokensPerDay: number | null;
@@ -502,6 +500,20 @@ export interface EmbeddingBudget {
   exhaustedAt: string | null;
   pricePerMillionTokens: number | null;
   costThisMonth: number | null;
+}
+
+/** GET/PUT /workspaces/{ws}/budgets/embedding（埋め込みの作成の予算）。 */
+export interface EmbeddingBudget extends BudgetPart {
+  /** LLMの接続先が設定されているか。なければ埋め込みは作らない。 */
+  llmConfigured: boolean;
+}
+
+/** GET/PUT /workspaces/{ws}/budgets/answer（訪問者向けの回答の予算。入力・出力別。M4）。 */
+export interface AnswerBudget {
+  /** 回答の生成のモデル（`[llm] chat_model`）が設定されているか。なければ回答しない。 */
+  chatConfigured: boolean;
+  input: BudgetPart;
+  output: BudgetPart;
 }
 
 /** POST .../entries/{id}/preview-tokens */
