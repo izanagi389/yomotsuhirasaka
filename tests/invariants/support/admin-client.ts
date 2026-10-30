@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, AnswerError, AnswerSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, AnswerError, AnswerSettings, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -402,6 +402,10 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     request("POST", mediaPath(workspaceId), { auth, extras, rawBody: { contentType: file.contentType, bytes: file.bytes } });
   const setAnswerSettingsRaw = (auth: Auth, workspaceId: string, settings: AnswerSettings, extras?: RequestExtras): Promise<HttpResponse> =>
     request("PUT", `${ADMIN}/workspaces/${workspaceId}/answer-settings`, { auth, extras, body: settings });
+  const setQuestionLogSettingsRaw = (auth: Auth, workspaceId: string, settings: QuestionLogSettings, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("PUT", `${ADMIN}/workspaces/${workspaceId}/question-log/settings`, { auth, extras, body: settings });
+  const questionLogRaw = (auth: Auth, workspaceId: string, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("GET", `${ADMIN}/workspaces/${workspaceId}/question-log`, { auth, extras });
   const setWorkspaceLimitsRaw = (auth: Auth, workspaceId: string, limits: WorkspaceLimits, extras?: RequestExtras): Promise<HttpResponse> => {
     // 書いた項目だけを送る（サーバーは、書いた項目だけを変える）
     const body: Record<string, number | null> = {};
@@ -982,6 +986,17 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       ensure("回答の設定の変更", await setAnswerSettingsRaw(session(s), workspaceId, settings));
     },
     setAnswerSettingsRaw: (auth: Auth, workspaceId: string, settings: AnswerSettings) => setAnswerSettingsRaw(auth, workspaceId, settings),
+    async setQuestionLogSettings(s: Session, workspaceId: string, settings: QuestionLogSettings): Promise<void> {
+      ensure("質問ログの設定の変更", await setQuestionLogSettingsRaw(session(s), workspaceId, settings));
+    },
+    setQuestionLogSettingsRaw: (auth: Auth, workspaceId: string, settings: QuestionLogSettings) => setQuestionLogSettingsRaw(auth, workspaceId, settings),
+    async questionCandidates(s: Session, workspaceId: string): Promise<QuestionCandidate[]> {
+      const res = ensure("質問ログの読み取り", await questionLogRaw(session(s), workspaceId));
+      const { candidates } = JSON.parse(res.text) as { candidates?: unknown };
+      if (!Array.isArray(candidates)) throw new SetupError("質問ログの候補の読み取り", res);
+      return candidates as QuestionCandidate[];
+    },
+    questionLogRaw: (auth: Auth, workspaceId: string) => questionLogRaw(auth, workspaceId),
     async eraseCandidates(s: Session, workspaceId: string, entryId: string, versionId: string): Promise<string[]> {
       const res = ensure("抹消の候補の取得", await eraseCandidatesRaw(session(s), workspaceId, entryId, versionId));
       const { media } = JSON.parse(res.text) as { media?: unknown };

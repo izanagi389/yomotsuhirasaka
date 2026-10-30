@@ -36,6 +36,7 @@
 | `budget.test.ts` | 予算（BUD-01） |
 | `answer.test.ts` | 質問応答（QA-01〜05, 10〜15） |
 | `answer-cache.test.ts` | 回答キャッシュ（QA-06〜09） |
+| `question-log.test.ts` | 質問ログと拒否する語（LOG-01, 02, QA-16） |
 | `search.test.ts` | サイト内検索（SRC-01〜04） |
 | `meta.test.ts` | 約束の一覧・テスト・`pending.txt` の整合。CMSなしで動く |
 

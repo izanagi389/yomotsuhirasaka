@@ -68,6 +68,28 @@ export interface AnswerSettings {
   length?: "short" | "standard" | "detailed";
   freePrompt?: { enabled?: boolean; text?: string };
   phrases?: Record<string, { noInformation: string }>;
+  /**
+   * 答えない質問（09-qa-chatbot.md「拒否する語」）。words は拒否する語の一覧（書けば置き換える）、
+   * creditCard・myNumber は組み込みの種類（クレジットカード番号らしい並び・マイナンバーらしい12桁）の ON/OFF。
+   */
+  refusal?: { words?: string[]; creditCard?: boolean; myNumber?: boolean };
+}
+
+/** 質問ログの設定（09-qa-chatbot.md「質問ログ」。ワークスペースの管理者が変える）。書いた項目だけを変える。 */
+export interface QuestionLogSettings {
+  enabled?: boolean;
+  /** 保存期間（日）。 */
+  retentionDays?: number;
+}
+
+/** 質問ログ（「書くべき記事の候補」）。答えられなかった質問を、同じ質問ごとにまとめたもの。 */
+export interface QuestionCandidate {
+  id: string;
+  /** マスクした質問文。 */
+  question: string;
+  locale: string;
+  count: number;
+  lastAskedAt: string;
 }
 
 /** サーバー管理者が決めるワークスペースの上限。書いた項目だけを変える。 */
@@ -643,6 +665,12 @@ export interface CmsClient {
   /** 回答の設定を変える（重い権限 manageLlm と再認証が要る。M4）。 */
   setAnswerSettings(session: Session, workspaceId: string, settings: AnswerSettings): Promise<void>;
   setAnswerSettingsRaw(auth: Auth, workspaceId: string, settings: AnswerSettings): Promise<HttpResponse>;
+  /** 質問ログの設定を変える（ワークスペースの管理者と再認証。M4）。 */
+  setQuestionLogSettings(session: Session, workspaceId: string, settings: QuestionLogSettings): Promise<void>;
+  setQuestionLogSettingsRaw(auth: Auth, workspaceId: string, settings: QuestionLogSettings): Promise<HttpResponse>;
+  /** 質問ログの「書くべき記事の候補」を読む（重い権限 viewQuestionLog と再認証）。 */
+  questionCandidates(session: Session, workspaceId: string): Promise<QuestionCandidate[]>;
+  questionLogRaw(auth: Auth, workspaceId: string): Promise<HttpResponse>;
   /**
    * ワークスペースの埋め込みの作成の予算（トークン数、UTCの暦の月・日。null は上限なし（天井の範囲で））を決める（応答をそのまま返す）。
    * 重い権限（manageLlm）の操作で、再認証が要る。
@@ -1004,6 +1032,13 @@ export const driver = {
           if (Number(res.rows[0]?.n ?? 0) > 0) found.push(`${col.s}.${col.t}.${col.c}`);
         }
         return found;
+      });
+    },
+    /** ワークスペースの質問ログの記録の時刻を、すべて今（DBの時刻）から `secondsAgo` 秒前にずらす（保存期間を過ぎさせるため）。 */
+    async setQuestionLogAgo(config: ServerConfig, workspaceId: string, secondsAgo: number): Promise<void> {
+      await withClient(superuserUrlFor(config), async (c) => {
+        const schema = `ws_${workspaceId.replace(/-/g, "")}`;
+        await c.query(`UPDATE ${ident(schema)}.question_log SET asked_at = now() - make_interval(secs => $1)`, [secondsAgo]);
       });
     },
     /** 記事の最終確認日を、今（DBの時刻）から `secondsAgo` 秒前にずらす（確認期限をテストの間に来させるため）。 */

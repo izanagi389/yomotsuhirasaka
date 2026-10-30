@@ -188,6 +188,8 @@ export interface AnswerWorkspace {
   /** ワークスペースの管理者（回答の設定を変えられる）。再認証には admin を使う。 */
   admin: Member;
   adminSession: Session;
+  /** 編集者（重い権限の付与の対象に使う）。 */
+  editor: Member;
   readKey: IssuedSecret;
   /** 回答APIを呼ぶキー（answer のスコープだけ）。 */
   answerKey: IssuedSecret;
@@ -222,7 +224,7 @@ const LARGE_BUDGET = 10_000_000;
  * キーごとなので、他のテストと混ざらない）。同じファイルのテストは順に流れるので、このキーを共有する。
  * 各テストは、使い終わったら擬似LLMの障害と回答の組み立て方を元に戻す。
  */
-export async function createAnswerWorld(options: Pick<ServerConfig, "answerRateLimits"> = {}): Promise<AnswerWorld> {
+export async function createAnswerWorld(options: Pick<ServerConfig, "answerRateLimits" | "loginHistoryRetention"> = {}): Promise<AnswerWorld> {
   const llmKey = `inv-answer-${randomUUID().slice(0, 8)}`;
   const instance = await driver.createIsolatedInstance();
   // 舞台の準備のログインと招待の承諾は同じアドレスから続くので、テストの舞台のCMSと同じく回数制限を大きくする（global-setup.ts）
@@ -269,6 +271,7 @@ export async function createAnswerWorld(options: Pick<ServerConfig, "answerRateL
         editorSession,
         admin,
         adminSession,
+        editor,
         readKey,
         answerKey,
         searchQuery: await cms.registerQuery(id, registerKey.secret, { kind: "search" }),
