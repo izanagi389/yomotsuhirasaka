@@ -60,7 +60,8 @@ fn is_answer(name: &str) -> bool {
     name == ANSWER_FIELD || name == ANSWER_STREAM_FIELD
 }
 
-/// 文の形を読む。1つの操作だけを含む文でなければ None。
+/// 文の形を読む。1つの操作だけを含む文でなければ None。フラグメントが深すぎて読み切れない文も None（数え漏れたフィールドの
+/// スコープを確かめずに通さないため。読めない文は拒否する）。
 pub fn shape(query: &str) -> Option<Shape> {
     let doc = async_graphql::parser::parse_query(query).ok()?;
     let op = match &doc.operations {
@@ -73,14 +74,22 @@ pub fn shape(query: &str) -> Option<Shape> {
         roots: Vec::new(),
         answer_fields: 0,
     };
-    collect_roots(&doc, &op.node.selection_set.node, &mut shape, 0);
+    collect_roots(&doc, &op.node.selection_set.node, &mut shape, 0)?;
     Some(shape)
 }
 
-fn collect_roots(doc: &ExecutableDocument, set: &SelectionSet, out: &mut Shape, depth: usize) {
+/// フラグメントをたどる深さの上限。超えたら読み切れないものとする。
+const MAX_FRAGMENT_DEPTH: usize = 32;
+
+fn collect_roots(
+    doc: &ExecutableDocument,
+    set: &SelectionSet,
+    out: &mut Shape,
+    depth: usize,
+) -> Option<()> {
     // フラグメントの循環は検証で拒否されるが、ここでも深さで止める
-    if depth > 32 {
-        return;
+    if depth > MAX_FRAGMENT_DEPTH {
+        return None;
     }
     for item in &set.items {
         match &item.node {
@@ -94,15 +103,16 @@ fn collect_roots(doc: &ExecutableDocument, set: &SelectionSet, out: &mut Shape, 
                 }
             }
             Selection::InlineFragment(f) => {
-                collect_roots(doc, &f.node.selection_set.node, out, depth + 1)
+                collect_roots(doc, &f.node.selection_set.node, out, depth + 1)?
             }
             Selection::FragmentSpread(s) => {
-                if let Some(f) = doc.fragments.get(&s.node.fragment_name.node) {
-                    collect_roots(doc, &f.node.selection_set.node, out, depth + 1);
-                }
+                // 定義のないフラグメントは、中身を数えられないので拒否する
+                let f = doc.fragments.get(&s.node.fragment_name.node)?;
+                collect_roots(doc, &f.node.selection_set.node, out, depth + 1)?;
             }
         }
     }
+    Some(())
 }
 
 /// クエリを検証する。問題があれば、その説明の一覧を返す。
@@ -124,10 +134,13 @@ pub async fn check(schema: &Schema, query: &str) -> Result<(), Vec<String>> {
     };
     // 回答のフィールドは、1つの文に1回だけ、ほかのフィールドと混ぜずに選ぶ（別名で何度も選ぶと、1回のリクエストで
     // LLMを何度も呼べてしまう）
-    if let Some(shape) = shape(query)
-        && shape.answering()
-        && !shape.answer_alone()
-    {
+    // 実行のときに読めない文（フラグメントが深すぎる）は、登録もさせない
+    let Some(shape) = shape(query) else {
+        return Err(vec![
+            "the query nests fragments too deeply or uses an undefined fragment".to_owned(),
+        ]);
+    };
+    if shape.answering() && !shape.answer_alone() {
         return Err(vec![
             "select `answer` or `answerStream` once, without other fields".to_owned(),
         ]);
@@ -204,5 +217,21 @@ mod tests {
                 .unwrap();
         assert!(mixed.answering() && !mixed.answer_alone());
         assert!(!shape("query { redirects { from } }").unwrap().answering());
+    }
+
+    #[test]
+    fn unreadable_documents_are_refused() {
+        // 33段より深いフラグメント（奥のフィールドを数えられない）
+        let mut q = String::from("query { ...F0 }");
+        for i in 0..40 {
+            q.push_str(&format!(" fragment F{i} on Query {{ ...F{} }}", i + 1));
+        }
+        q.push_str(" fragment F40 on Query { redirects { from } }");
+        assert_eq!(shape(&q), None);
+        // 定義のないフラグメント
+        assert_eq!(shape("query { ...Missing }"), None);
+        // ふつうの深さなら読める
+        let ok = shape("query { ...A } fragment A on Query { ...B } fragment B on Query { redirects { from } }").unwrap();
+        assert_eq!(ok.roots, vec!["redirects".to_owned()]);
     }
 }

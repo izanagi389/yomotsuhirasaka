@@ -331,7 +331,8 @@ async fn execute(
         .ok_or_else(|| ApiError::bad_request("The query is not valid."))?;
     let is_answer = |r: &String| r == ANSWER_FIELD || r == ANSWER_STREAM_FIELD;
     let answering = shape.answering();
-    let reading = !shape.roots.iter().all(is_answer);
+    // 回答のフィールドだけを選ぶ文のほかは、すべて read の範囲を求める（ルートのフィールドが空の文も含む）
+    let reading = shape.roots.is_empty() || !shape.roots.iter().all(is_answer);
     let missing = ApiError::new(
         StatusCode::FORBIDDEN,
         "insufficient_scope",
