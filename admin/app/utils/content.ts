@@ -508,6 +508,16 @@ export interface EmbeddingBudget extends BudgetPart {
   llmConfigured: boolean;
 }
 
+/** GET/PUT /workspaces/{ws}/answer-settings（回答の語り口と「情報なし」の文。M4）。PUT は書いた項目だけを変える。 */
+export interface AnswerSettings {
+  politeness: "polite" | "casual";
+  length: "short" | "standard" | "detailed";
+  /** 自由記述のシステムプロンプト（enabled が false なら、文を保存しても使わない）。 */
+  freePrompt: { enabled: boolean; text: string };
+  /** コンテンツのロケールごとの「情報なし」の文（テンプレートのロケール）。 */
+  phrases: Record<string, { noInformation: string }>;
+}
+
 /** GET/PUT /workspaces/{ws}/budgets/answer（訪問者向けの回答の予算。入力・出力別。M4）。 */
 export interface AnswerBudget {
   /** 回答の生成のモデル（`[llm] chat_model`）が設定されているか。なければ回答しない。 */
