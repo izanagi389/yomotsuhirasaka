@@ -516,6 +516,23 @@ export interface AnswerSettings {
   freePrompt: { enabled: boolean; text: string };
   /** コンテンツのロケールごとの「情報なし」の文（テンプレートのロケール）。 */
   phrases: Record<string, { noInformation: string }>;
+  /** 答えない質問（拒否する語と、組み込みの種類）。 */
+  refusal: { words: string[]; creditCard: boolean; myNumber: boolean };
+}
+
+/** GET/PUT /workspaces/{ws}/question-log/settings（質問ログ。ワークスペースの管理者。M4）。 */
+export interface QuestionLogSettings {
+  enabled: boolean;
+  /** 保存期間（日。7〜365）。 */
+  retentionDays: number;
+}
+
+/** GET /workspaces/{ws}/question-log（重い権限 viewQuestionLog と再認証）。 */
+export interface QuestionLogView extends QuestionLogSettings {
+  /** 「書くべき記事の候補」（答えられなかった質問を、同じ質問ごとにまとめたもの。件数の多い順）。 */
+  candidates: { id: string; question: string; locale: string; count: number; lastAskedAt: string }[];
+  /** 直近の日ごとの件数（新しい日が先）。 */
+  daily: { date: string; answered: number; noInformation: number; refused: number; error: number }[];
 }
 
 /** GET/PUT /workspaces/{ws}/budgets/answer（訪問者向けの回答の予算。入力・出力別。M4）。 */

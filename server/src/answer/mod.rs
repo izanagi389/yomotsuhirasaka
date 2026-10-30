@@ -14,7 +14,9 @@
 pub mod cache;
 pub mod check;
 pub mod format;
+pub mod log;
 mod prompt;
+pub mod refuse;
 pub mod settings;
 pub mod urls;
 
@@ -112,6 +114,8 @@ pub enum Refusal {
     BudgetExhausted,
     /// LLMの呼び出しに失敗した（タイムアウト・429・5xx・途中で切れた応答など）。リトライはしない。
     LlmUnavailable,
+    /// ワークスペースが答えないと決めた質問（拒否する語・組み込みの種類。INV-QA-16）。
+    QuestionRefused,
     Internal,
 }
 
@@ -124,6 +128,7 @@ impl Refusal {
             Self::Unavailable => "ANSWER_UNAVAILABLE",
             Self::BudgetExhausted => "ANSWER_BUDGET_EXHAUSTED",
             Self::LlmUnavailable => "LLM_UNAVAILABLE",
+            Self::QuestionRefused => "QUESTION_REFUSED",
             Self::Internal => "INTERNAL_ERROR",
         }
     }
@@ -136,6 +141,7 @@ impl Refusal {
             Self::Unavailable => "Answers are not configured on this server.",
             Self::BudgetExhausted => "The answer budget of this workspace is used up.",
             Self::LlmUnavailable => "The language model could not be reached. Try again later.",
+            Self::QuestionRefused => "This workspace does not answer this question.",
             Self::Internal => "internal error",
         }
     }
@@ -157,6 +163,13 @@ pub fn start(app: AppState, req: Request) -> mpsc::Receiver<Result<Event, Refusa
     let (tx, rx) = mpsc::channel(64);
     tokio::spawn(async move {
         if let Err(refusal) = run(&app, &req, &tx).await {
+            // 断った依頼は、日ごとの件数だけを残す（質問文は残さない）
+            let outcome = if refusal == Refusal::QuestionRefused {
+                log::Outcome::Refused
+            } else {
+                log::Outcome::Error
+            };
+            note(&app, &req, outcome, None).await;
             let _ = tx.send(Err(refusal)).await;
         }
     });
@@ -221,6 +234,14 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     let Some(locale) = req.manifest.locales.iter().find(|l| **l == req.locale) else {
         return Err(Refusal::LocaleNotSupported);
     };
+    // 答えない質問（拒否する語・組み込みの種類）。検索・埋め込み・LLM・回答キャッシュのどれよりも前に照合する
+    if load_refusal(app, req)
+        .await
+        .map_err(internal)?
+        .refuses(question)
+    {
+        return Err(Refusal::QuestionRefused);
+    }
     let (Some(llm_config), Some(egress)) = (app.config.llm.as_ref(), app.egress.as_ref()) else {
         return Err(Refusal::Unavailable);
     };
@@ -243,6 +264,7 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
         if req.streaming {
             let _ = out.send(Ok(Event::Delta(hit.text.clone()))).await;
         }
+        note(app, req, log::Outcome::Answered, None).await;
         let _ = out
             .send(Ok(Event::Final(Answer {
                 status: Status::Answered,
@@ -263,6 +285,7 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
                 sources: Vec::new(),
             }))
             .await;
+        note(app, req, log::Outcome::NoInformation, Some(&masked)).await;
         let _ = out.send(Ok(Event::Final(grounds.no_information()))).await;
         return Ok(());
     }
@@ -396,8 +419,21 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
             answer
         }
     };
+    // 質問ログ（答えられなかった質問だけ文を残す）と日ごとの件数。最終判定を送る前に記録する
+    if answer.status == Status::NoInformation {
+        note(app, req, log::Outcome::NoInformation, Some(&masked)).await;
+    } else {
+        note(app, req, log::Outcome::Answered, None).await;
+    }
     let _ = out.send(Ok(Event::Final(answer))).await;
     Ok(())
+}
+
+/// 回答の結果を質問ログに記録する。記録できなくても、回答は返す（ログには質問文を出さない）。
+async fn note(app: &AppState, req: &Request, outcome: log::Outcome, masked: Option<&str>) {
+    if let Err(e) = log::record(&app.pool, &req.db, outcome, &req.locale, masked).await {
+        tracing::warn!(workspace = %req.workspace_id, "question log record failed: {e:#}");
+    }
 }
 
 /// 検査の段階をイベントにして送る。受け取る側がいなければ false。
@@ -447,6 +483,14 @@ fn cache_key(
         &cache::settings(model, &req.manifest, &tone.fingerprint()),
         &cache::normalize(masked),
     ))
+}
+
+/// 答えない質問の決まりを読む（自分の短いトランザクションで）。
+async fn load_refusal(app: &AppState, req: &Request) -> Result<refuse::Rules> {
+    let mut tx = workspace_db::begin_owned(&app.pool, &req.db).await?;
+    let rules = settings::refusal(&mut tx).await?;
+    tx.commit().await?;
+    Ok(rules)
 }
 
 /// 語り口を読む（自分の短いトランザクションで）。
