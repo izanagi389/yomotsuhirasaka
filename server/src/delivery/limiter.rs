@@ -16,8 +16,12 @@ use crate::config::AnswerConfig;
 
 const MINUTE: Duration = Duration::from_secs(60);
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
-/// メモリに持つ記録の数の上限の目安。超えたら、期限の切れた記録を捨てる。
+/// 記録の数がこれを超えたら、期限の切れた記録を捨てる（捨てた後に残った数の2倍になるまでは、次の掃除をしない）。
 const PRUNE_THRESHOLD: usize = 50_000;
+/// 訪問者の記録の数の上限。1日の記録は長く残るので、識別子を変え続けるリクエストでメモリと掃除の手間が増え続けないよう、
+/// 上限を設ける。満ちたら、記録のない（新しい）訪問者の回答は断る（予算を守るほうを選ぶ）。期限の切れた記録の掃除は、
+/// 満ちている間は1分に1回まで。
+const MAX_VISITOR_RECORDS: usize = 200_000;
 
 /// 何を数えるか。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -56,21 +60,89 @@ pub enum AnswerLimited {
     Visitor(u64),
 }
 
-#[derive(Default)]
+/// 記録の表。
+struct Counters {
+    map: HashMap<Subject, (Instant, u32)>,
+    /// 記録の数がこれに達したら掃除する。
+    prune_at: usize,
+    /// 最後に掃除した時刻。
+    pruned: Option<Instant>,
+    /// 記録の数の上限（なければ上限なし）。
+    cap: Option<usize>,
+}
+
+impl Counters {
+    fn new(cap: Option<usize>) -> Self {
+        Self {
+            map: HashMap::new(),
+            prune_at: PRUNE_THRESHOLD,
+            pruned: None,
+            cap,
+        }
+    }
+
+    /// 新しい記録を置けるか（必要なら、先に期限の切れた記録を捨てる）。すでに記録があれば、いつも置ける。
+    fn room_for(&mut self, subject: &Subject, now: Instant) -> bool {
+        if self.map.contains_key(subject) {
+            return true;
+        }
+        let full = self.cap.is_some_and(|c| self.map.len() >= c);
+        let due = self.map.len() >= self.prune_at
+            || (full && self.pruned.is_none_or(|t| now.duration_since(t) >= MINUTE));
+        if due {
+            self.map
+                .retain(|s, (start, _)| now.duration_since(*start) < s.window());
+            self.pruned = Some(now);
+            let next = (self.map.len() * 2).max(PRUNE_THRESHOLD);
+            // 上限のある表で、次の掃除の目安が上限を超えるなら、満ちたときの（1分に1回の）掃除に任せる
+            self.prune_at = match self.cap {
+                Some(c) if next >= c => usize::MAX,
+                _ => next,
+            };
+        }
+        self.cap.is_none_or(|c| self.map.len() < c)
+    }
+}
+
+/// 数える状態（訪問者の記録は、上限のある別の表に持つ）。
+struct State {
+    general: Counters,
+    visitors: Counters,
+}
+
 pub struct Limiter {
-    state: Mutex<HashMap<Subject, (Instant, u32)>>,
+    state: Mutex<State>,
+}
+
+impl Default for Limiter {
+    fn default() -> Self {
+        Self::with_visitor_cap(MAX_VISITOR_RECORDS)
+    }
 }
 
 impl Limiter {
+    fn with_visitor_cap(cap: usize) -> Self {
+        Self {
+            state: Mutex::new(State {
+                general: Counters::new(None),
+                visitors: Counters::new(Some(cap)),
+            }),
+        }
+    }
+
     /// 1回を数える（区切りは数えるものの期間。1分か1日）。上限を超えていれば、次に試せるまでの秒数を返す（数えない）。
     pub fn check(&self, subject: Subject, limit: u32) -> Result<(), u64> {
         let now = Instant::now();
         let window = subject.window();
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if state.len() >= PRUNE_THRESHOLD {
-            state.retain(|s, (start, _)| now.duration_since(*start) < s.window());
+        let counters = match subject {
+            Subject::Visitor { .. } => &mut state.visitors,
+            _ => &mut state.general,
+        };
+        if !counters.room_for(&subject, now) {
+            return Err(MINUTE.as_secs());
         }
-        let entry = state.entry(subject).or_insert((now, 0));
+        let entry = counters.map.entry(subject).or_insert((now, 0));
         if now.duration_since(entry.0) >= window {
             *entry = (now, 0);
         }
@@ -185,6 +257,45 @@ mod tests {
             l.check_answer(a, ka, Some("v3"), &limits),
             Err(AnswerLimited::Key(_))
         ));
+    }
+
+    #[test]
+    fn visitor_records_are_capped() {
+        let limits = AnswerConfig {
+            key_requests_per_minute: 100,
+            visitor_requests_per_minute: 100,
+            visitor_requests_per_day: 100,
+        };
+        // 訪問者1人につき、1分と1日の2つの記録
+        let l = Limiter::with_visitor_cap(4);
+        let (ws, key) = (Uuid::new_v4(), Uuid::new_v4());
+        assert!(l.check_answer(ws, key, Some("v1"), &limits).is_ok());
+        assert!(l.check_answer(ws, key, Some("v2"), &limits).is_ok());
+        // 満ちたら、新しい訪問者は断る。記録のある訪問者と、識別子のないリクエストは数え続ける
+        assert!(matches!(
+            l.check_answer(ws, key, Some("v3"), &limits),
+            Err(AnswerLimited::Visitor(_))
+        ));
+        assert!(l.check_answer(ws, key, Some("v1"), &limits).is_ok());
+        assert!(l.check_answer(ws, key, None, &limits).is_ok());
+        let state = l.state.lock().unwrap();
+        assert_eq!(state.visitors.map.len(), 4);
+    }
+
+    #[test]
+    fn pruning_is_not_repeated_on_every_call() {
+        let mut c = Counters::new(None);
+        let now = Instant::now();
+        for i in 0..PRUNE_THRESHOLD {
+            c.map
+                .insert(Subject::Workspace(Uuid::from_u128(i as u128)), (now, 1));
+        }
+        // 期限の切れていない記録ばかりなら、捨てた後の2倍まで、次の掃除をしない
+        assert!(c.room_for(&Subject::Workspace(Uuid::new_v4()), now));
+        assert_eq!(c.prune_at, PRUNE_THRESHOLD * 2);
+        let pruned = c.pruned;
+        assert!(c.room_for(&Subject::Workspace(Uuid::new_v4()), now));
+        assert_eq!(c.pruned, pruned);
     }
 
     #[test]
