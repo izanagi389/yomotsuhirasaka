@@ -84,6 +84,14 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
                     Outcome::Retry("internal_error")
                 })
         }
+        (Some(payload), crate::assist::conflicts::JOB_KIND) => {
+            crate::assist::conflicts::run(state, payload)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(job_id = %job.id, "conflict detection: {e:#}");
+                    Outcome::Fail("internal_error")
+                })
+        }
         (Some(payload), hooks::JOB_KIND) => {
             hooks::run(&state.pool, &state.scripts, state.egress.as_ref(), payload)
                 .await
@@ -156,6 +164,10 @@ pub fn spawn_sweeper(state: AppState) -> tokio::task::JoinHandle<()> {
             // 寿命の過ぎた回答キャッシュ
             if let Err(e) = crate::answer::cache::sweep(&state.pool).await {
                 tracing::error!("answer cache sweeper: {e:#}");
+            }
+            // 残す時間を過ぎた矛盾の検知の結果
+            if let Err(e) = crate::assist::conflicts::sweep(&state.pool).await {
+                tracing::error!("conflict detection sweeper: {e:#}");
             }
             // 保存期間を過ぎた監査ログ（専用のロールの関数だけが消せる。送り終えていない記録は残す）
             match sqlx::query_scalar::<_, i64>("SELECT cms.purge_audit_log($1)")

@@ -179,6 +179,8 @@ pub async fn erase(
     }
     // その版を引用した回答キャッシュも消す（Q134）
     crate::answer::cache::forget_version(conn, version_id).await?;
+    // その版と比べた矛盾の検知の結果も消す（説明に本文の内容が含まれうるため）
+    crate::assist::conflicts::forget_version(conn, version_id).await?;
     let mut ids = delete_media.to_vec();
     ids.sort();
     ids.dedup();

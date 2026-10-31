@@ -343,6 +343,10 @@ pub fn router(state: AppState) -> Router {
             get(admin_publishing::publish_check),
         )
         .route(
+            "/workspaces/{ws}/entries/{id}/assist/conflicts",
+            get(admin_assist::get_conflicts).post(admin_assist::start_conflicts),
+        )
+        .route(
             "/workspaces/{ws}/entries/{id}/unpublish",
             post(admin_publishing::unpublish),
         )

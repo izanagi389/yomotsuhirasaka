@@ -258,7 +258,7 @@ pub async fn compute_url(
 }
 
 /// いちばん新しい版の番号と、本文（抹消していれば None）。
-async fn latest_version(
+pub(crate) async fn latest_version(
     conn: &mut PgConnection,
     entry_id: Uuid,
 ) -> Result<Option<(i32, Option<Value>)>> {
@@ -286,7 +286,7 @@ async fn url_taken(conn: &mut PgConnection, url: &str, entry_id: Uuid) -> Result
 }
 
 /// 本文のフィールドの名前と値（フィールドの順。値が本文でないものは除く）。
-pub(super) fn rich_text_fields<'a>(
+pub(crate) fn rich_text_fields<'a>(
     ct: &'a ContentType,
     values: &'a Map<String, Value>,
 ) -> Vec<(&'a str, &'a Value)> {

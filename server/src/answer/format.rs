@@ -19,6 +19,8 @@ struct Raw {
     not_answerable_declaration: String,
     source_separator: String,
     citation: String,
+    conflict_line: String,
+    no_conflict: String,
 }
 
 pub struct Format {
@@ -32,6 +34,10 @@ pub struct Format {
     pub source_separator: String,
     /// 本文の中の引用記号。1つ目の組が番号。
     pub citation: Regex,
+    /// 矛盾の検知（編集者向けのAI支援）の出力の、食い違いの行。1つ目の組が断片の番号、2つ目が説明。
+    pub conflict_line: Regex,
+    /// 同じく、食い違いがないときの行。
+    pub no_conflict: String,
 }
 
 pub static FORMAT: LazyLock<Format> = LazyLock::new(|| {
@@ -44,6 +50,8 @@ pub static FORMAT: LazyLock<Format> = LazyLock::new(|| {
         not_answerable_declaration: raw.not_answerable_declaration,
         source_separator: raw.source_separator,
         citation: re(&raw.citation),
+        conflict_line: re(&raw.conflict_line),
+        no_conflict: raw.no_conflict,
     }
 });
 

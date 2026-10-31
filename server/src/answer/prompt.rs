@@ -93,7 +93,7 @@ pub fn messages(
 }
 
 /// 改行を空白にする（質問文が断片の行に見えないように）。
-fn one_line(s: &str) -> String {
+pub(crate) fn one_line(s: &str) -> String {
     s.chars()
         .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
         .collect()
