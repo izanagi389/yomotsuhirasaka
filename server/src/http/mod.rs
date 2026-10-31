@@ -2,6 +2,7 @@
 
 pub mod admin_answer_settings;
 pub mod admin_api_keys;
+pub mod admin_assist;
 pub mod admin_audit;
 pub mod admin_audit_sinks;
 pub mod admin_auth;
@@ -617,6 +618,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/budgets/answer",
             get(admin_budgets::get_answer).put(admin_budgets::set_answer),
+        )
+        .route(
+            "/workspaces/{ws}/budgets/assist",
+            get(admin_budgets::get_assist).put(admin_budgets::set_assist),
+        )
+        .route(
+            "/workspaces/{ws}/assist-settings",
+            get(admin_assist::get_settings).put(admin_assist::put_settings),
         )
         .route(
             "/workspaces/{ws}/answer-settings",

@@ -155,6 +155,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "workspace_embedding",
         include_str!("../migrations/0032_workspace_embedding.sql"),
     ),
+    (
+        33,
+        "assist_budgets",
+        include_str!("../migrations/0033_assist_budgets.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。

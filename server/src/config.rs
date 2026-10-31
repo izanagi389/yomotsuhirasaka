@@ -492,6 +492,16 @@ pub struct LlmConfig {
     pub default_workspace_answer_output_tokens_per_month: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_workspace_answer_output_tokens_per_day: Option<u64>,
+    /// ワークスペースの編集者向けの支援の予算の天井の既定値（トークン数、入力・出力別、UTCの暦の月・日。M4、Q70）。
+    /// サーバー管理者がワークスペースごとに決めていなければ、これが効く。なければ 0（支援で LLM を呼ばない）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_workspace_assist_input_tokens_per_month: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_workspace_assist_input_tokens_per_day: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_workspace_assist_output_tokens_per_month: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_workspace_assist_output_tokens_per_day: Option<u64>,
     /// 切り替え先の埋め込みのモデル（08-search-and-related.md「モデルの変更」、Q30）。書いただけでは何もしない。
     /// サーバー管理者が見積もりを見て開始すると、ワークスペースごとに新しい埋め込みを作り、そろった時点で切り替える。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -639,6 +649,22 @@ impl std::fmt::Debug for LlmConfig {
             .field(
                 "default_workspace_answer_output_tokens_per_day",
                 &self.default_workspace_answer_output_tokens_per_day,
+            )
+            .field(
+                "default_workspace_assist_input_tokens_per_month",
+                &self.default_workspace_assist_input_tokens_per_month,
+            )
+            .field(
+                "default_workspace_assist_input_tokens_per_day",
+                &self.default_workspace_assist_input_tokens_per_day,
+            )
+            .field(
+                "default_workspace_assist_output_tokens_per_month",
+                &self.default_workspace_assist_output_tokens_per_month,
+            )
+            .field(
+                "default_workspace_assist_output_tokens_per_day",
+                &self.default_workspace_assist_output_tokens_per_day,
             )
             .field("next_embedding", &self.next_embedding)
             .finish()

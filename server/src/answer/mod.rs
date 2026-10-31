@@ -650,7 +650,7 @@ async fn reserve(
         .map_err(internal)?
     {
         Reserved::Ok(r) => r,
-        Reserved::Exhausted { first } => return exhausted(first).await,
+        Reserved::Exhausted { first, .. } => return exhausted(first).await,
     };
     let output_max = i64::from(MAX_OUTPUT_TOKENS);
     match budget::reserve(pool, config, ws, kind, Direction::Output, output_max)
@@ -658,7 +658,7 @@ async fn reserve(
         .map_err(internal)?
     {
         Reserved::Ok(output) => Ok((input, output)),
-        Reserved::Exhausted { first } => {
+        Reserved::Exhausted { first, .. } => {
             budget::settle(pool, &input, 0).await.map_err(internal)?;
             exhausted(first).await
         }

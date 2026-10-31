@@ -1,4 +1,5 @@
-//! 管理API: LLMの予算（10-llm-and-budget.md「予算」、Q70）。「埋め込みの作成」と「訪問者向けの回答」（M4。入力・出力別）。
+//! 管理API: LLMの予算（10-llm-and-budget.md「予算」、Q70）。「埋め込みの作成」と、「訪問者向けの回答」「編集者向けの支援」
+//! （M4。入力・出力別）。
 //!
 //! | メソッド | パス | 内容 | 誰が |
 //! |---|---|---|---|
@@ -6,11 +7,13 @@
 //! | PUT | /api/admin/workspaces/{ws}/budgets/embedding | ワークスペースの上限を変える（天井の範囲で。null は上限なし） | 同上（再認証） |
 //! | GET | /api/admin/workspaces/{ws}/budgets/answer | 訪問者向けの回答の予算（入力・出力のそれぞれに、埋め込みと同じ項目） | 同上 |
 //! | PUT | /api/admin/workspaces/{ws}/budgets/answer | 同じく、ワークスペースの上限を変える（`input`・`output`。項目がなければ変えない） | 同上（再認証） |
+//! | GET | /api/admin/workspaces/{ws}/budgets/assist | 編集者向けの支援の予算（回答と同じ形） | 同上 |
+//! | PUT | /api/admin/workspaces/{ws}/budgets/assist | 同じく、ワークスペースの上限を変える | 同上（再認証） |
 //!
 //! - 天井はサーバー管理者が `PUT /api/admin/workspaces/{ws}/limits` で決める。
 //! - 変更は監査ログに残す（値は書かない）。
 //! - 単価を設定していれば（`[llm] embedding_price_per_million_tokens`、回答は `chat_input/output_price_per_million_tokens`）、
-//!   今月の使用量の費用も返す（Q138）。
+//!   今月の使用量の費用も返す（Q138）。支援も回答と同じチャットのモデルと単価を使う。
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -62,7 +65,7 @@ pub struct BudgetView {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnswerBudgetView {
-    /// 回答の生成の設定（`[llm] chat_model`）があるか。なければ回答しない。
+    /// チャットのモデルの設定（`[llm] chat_model`）があるか。なければ回答も支援もしない。
     chat_configured: bool,
     input: PartView,
     output: PartView,
@@ -105,9 +108,9 @@ async fn view(state: &AppState, ws: Uuid) -> Result<BudgetView, ApiError> {
     })
 }
 
-async fn answer_view(state: &AppState, ws: Uuid) -> Result<AnswerBudgetView, ApiError> {
+/// 入力・出力別の予算（回答と支援）。
+async fn answer_view(state: &AppState, ws: Uuid, kind: Kind) -> Result<AnswerBudgetView, ApiError> {
     let llm = state.config.llm.as_ref();
-    let kind = Kind::VisitorAnswers;
     // 単価は、ワークスペースの上書きが効いていれば上書きのもの（Q26）
     let (input_price, output_price) =
         crate::workspace_llm::chat_prices(&state.pool, &state.config, ws).await?;
@@ -135,7 +138,17 @@ pub async fn get_answer(
 ) -> Result<Json<AnswerBudgetView>, ApiError> {
     let ws = parse(&ws)?;
     holder(&state, &current, ws, Permission::ManageLlm).await?;
-    Ok(Json(answer_view(&state, ws).await?))
+    Ok(Json(answer_view(&state, ws, Kind::VisitorAnswers).await?))
+}
+
+pub async fn get_assist(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path(ws): Path<String>,
+) -> Result<Json<AnswerBudgetView>, ApiError> {
+    let ws = parse(&ws)?;
+    holder(&state, &current, ws, Permission::ManageLlm).await?;
+    Ok(Json(answer_view(&state, ws, Kind::EditorAssist).await?))
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -226,6 +239,26 @@ pub async fn set_answer(
     Path(ws): Path<String>,
     JsonBody(req): JsonBody<SetAnswerBudget>,
 ) -> Result<Json<AnswerBudgetView>, ApiError> {
+    set_pair(state, current, ws, Kind::VisitorAnswers, req).await
+}
+
+pub async fn set_assist(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path(ws): Path<String>,
+    JsonBody(req): JsonBody<SetAnswerBudget>,
+) -> Result<Json<AnswerBudgetView>, ApiError> {
+    set_pair(state, current, ws, Kind::EditorAssist, req).await
+}
+
+/// 入力・出力別の予算（回答と支援）の上限を変える。
+async fn set_pair(
+    state: AppState,
+    current: crate::auth::session::Current,
+    ws: String,
+    kind: Kind,
+    req: SetAnswerBudget,
+) -> Result<Json<AnswerBudgetView>, ApiError> {
     let ws = parse(&ws)?;
     holder(&state, &current, ws, Permission::ManageLlm).await?;
     if !current.reauth_fresh {
@@ -238,7 +271,7 @@ pub async fn set_answer(
     // 両方を確かめてから変える（片方だけが変わらないように）
     for (direction, set) in parts {
         if let Some(set) = set {
-            check_budget(&state, ws, Kind::VisitorAnswers, direction, set).await?;
+            check_budget(&state, ws, kind, direction, set).await?;
         }
     }
     let mut changed = false;
@@ -247,7 +280,7 @@ pub async fn set_answer(
             budget::set_limits(
                 &state.pool,
                 ws,
-                Kind::VisitorAnswers,
+                kind,
                 direction,
                 set.tokens_per_month,
                 set.tokens_per_day,
@@ -267,5 +300,5 @@ pub async fn set_answer(
         )
         .await?;
     }
-    Ok(Json(answer_view(&state, ws).await?))
+    Ok(Json(answer_view(&state, ws, kind).await?))
 }

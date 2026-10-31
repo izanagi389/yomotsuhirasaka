@@ -371,6 +371,15 @@ pub struct SetLimits {
     answer_output_tokens_per_month: Option<Option<i64>>,
     #[serde(default, deserialize_with = "present")]
     answer_output_tokens_per_day: Option<Option<i64>>,
+    /// 編集者向けの支援の予算の天井（トークン数、入力・出力別、UTCの暦の月・日。M4）。null と「項目なし」は埋め込みと同じ。
+    #[serde(default, deserialize_with = "present")]
+    assist_input_tokens_per_month: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "present")]
+    assist_input_tokens_per_day: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "present")]
+    assist_output_tokens_per_month: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "present")]
+    assist_output_tokens_per_day: Option<Option<i64>>,
     /// ワークスペースに LLM の接続設定の上書きを許すか（M4、Q26）。false にしたら、保存してある上書き（キーを含む）を消す。
     #[serde(default)]
     llm_override: Option<bool>,
@@ -435,6 +444,33 @@ pub async fn set_limits(
             "The answer token limits must not be negative.",
         ));
     }
+    // 支援の予算の天井（決まった4つの列。SQL は固定の文）
+    let assist = [
+        (
+            "UPDATE cms.workspace_limits SET assist_input_tokens_per_month = $2 WHERE workspace_id = $1",
+            req.assist_input_tokens_per_month,
+        ),
+        (
+            "UPDATE cms.workspace_limits SET assist_input_tokens_per_day = $2 WHERE workspace_id = $1",
+            req.assist_input_tokens_per_day,
+        ),
+        (
+            "UPDATE cms.workspace_limits SET assist_output_tokens_per_month = $2 WHERE workspace_id = $1",
+            req.assist_output_tokens_per_month,
+        ),
+        (
+            "UPDATE cms.workspace_limits SET assist_output_tokens_per_day = $2 WHERE workspace_id = $1",
+            req.assist_output_tokens_per_day,
+        ),
+    ];
+    if assist
+        .iter()
+        .any(|(_, v)| v.flatten().is_some_and(|t| t < 0))
+    {
+        return Err(ApiError::bad_request(
+            "The assist token limits must not be negative.",
+        ));
+    }
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     sqlx::query(
         "INSERT INTO cms.workspace_limits (workspace_id, updated_by) VALUES ($1, $2)
@@ -482,7 +518,7 @@ pub async fn set_limits(
         .await
         .map_err(anyhow::Error::from)?;
     }
-    for (sql, value) in answer {
+    for (sql, value) in answer.into_iter().chain(assist) {
         if let Some(v) = value {
             sqlx::query(sql)
                 .bind(ws)
@@ -495,6 +531,9 @@ pub async fn set_limits(
     tx.commit().await.map_err(anyhow::Error::from)?;
     if answer.iter().any(|(_, v)| v.is_some()) {
         crate::budget::resumed(&state.pool, ws, crate::budget::Kind::VisitorAnswers).await?;
+    }
+    if assist.iter().any(|(_, v)| v.is_some()) {
+        crate::budget::resumed(&state.pool, ws, crate::budget::Kind::EditorAssist).await?;
     }
     if req.embedding_tokens_per_month.is_some() || req.embedding_tokens_per_day.is_some() {
         crate::budget::resumed(&state.pool, ws, crate::budget::Kind::Embedding).await?;

@@ -1,5 +1,5 @@
 //! LLMの予算（10-llm-and-budget.md「予算」、Q13, Q70, Q138）。「埋め込みの作成」（入力だけ）と、
-//! 「訪問者向けの回答」（入力・出力別。M4）。
+//! 「訪問者向けの回答」と「編集者向けの支援」（どちらも入力・出力別。M4）。
 //!
 //! - 上限は2段。サーバー管理者がワークスペースごとの天井（`workspace_limits`。なければ設定ファイルの既定値、それもなければ 0）を
 //!   決め、ワークスペースは重い権限（manageLlm）で、その範囲の上限（`workspace_budgets`）を決める。
@@ -24,6 +24,8 @@ pub enum Kind {
     Embedding,
     /// 訪問者向けの回答（回答の生成。M4）。
     VisitorAnswers,
+    /// 編集者向けの支援（矛盾の検知など。M4）。尽きても公開は妨げない（INV-BUD-02）。
+    EditorAssist,
 }
 
 impl Kind {
@@ -31,6 +33,7 @@ impl Kind {
         match self {
             Kind::Embedding => "embedding",
             Kind::VisitorAnswers => "visitor_answers",
+            Kind::EditorAssist => "editor_assist",
         }
     }
 }
@@ -122,6 +125,24 @@ pub async fn ceiling(
                 (
                     l.default_workspace_answer_output_tokens_per_month,
                     l.default_workspace_answer_output_tokens_per_day,
+                )
+            },
+        ),
+        (Kind::EditorAssist, Direction::Input) => (
+            "SELECT assist_input_tokens_per_month, assist_input_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
+            |l| {
+                (
+                    l.default_workspace_assist_input_tokens_per_month,
+                    l.default_workspace_assist_input_tokens_per_day,
+                )
+            },
+        ),
+        (Kind::EditorAssist, Direction::Output) => (
+            "SELECT assist_output_tokens_per_month, assist_output_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
+            |l| {
+                (
+                    l.default_workspace_assist_output_tokens_per_month,
+                    l.default_workspace_assist_output_tokens_per_day,
                 )
             },
         ),
@@ -257,13 +278,31 @@ pub struct Reservation {
     pub tokens: i64,
 }
 
+/// 予算の期間（UTCの暦の月・日）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Period {
+    Month,
+    Day,
+}
+
+impl Period {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Period::Month => "month",
+            Period::Day => "day",
+        }
+    }
+}
+
 /// 確保の結果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reserved {
     Ok(Reservation),
     /// 予算が足りない。`first` は、この期間で初めて断ったか（知らせるか）。
+    /// `period` は足りなかった期間（両方なら月）。
     Exhausted {
         first: bool,
+        period: Period,
     },
 }
 
@@ -359,6 +398,7 @@ pub async fn reserve(
     tx.commit().await?;
     Ok(Reserved::Exhausted {
         first: !marked.is_empty(),
+        period: if month_ok { Period::Day } else { Period::Month },
     })
 }
 
@@ -434,7 +474,7 @@ pub async fn embed(
     .await?
     {
         Reserved::Ok(r) => r,
-        Reserved::Exhausted { first } => {
+        Reserved::Exhausted { first, .. } => {
             if first {
                 audit::record(
                     pool,
