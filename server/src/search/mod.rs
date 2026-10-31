@@ -110,16 +110,24 @@ pub async fn usable_by_every_role<'e>(
     Ok(ok.unwrap_or(false))
 }
 
-/// 埋め込みを作る・検索に使うモデルと次元数（設定の今のモデルと、切り替え先のモデル）。
+/// 埋め込みを作る・検索に使うモデルと次元数（設定の今のモデル、切り替え先のモデル、ワークスペースが選べるモデル）。
 pub fn embedding_models(config: &Config) -> Vec<(String, u32)> {
     let Some(llm) = &config.llm else {
         return Vec::new();
     };
-    [Some(llm.current()), llm.next()]
+    let mut out: Vec<(String, u32)> = [Some(llm.current()), llm.next()]
         .into_iter()
         .flatten()
         .map(|l| (l.embedding_model, l.embedding_dimensions))
-        .collect()
+        .chain(
+            llm.allowed_embedding_models
+                .iter()
+                .map(|m| (m.model.clone(), m.dimensions)),
+        )
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// モデルと次元数ごとの HNSW の索引の名前（モデル名は任意の文字列なので、要約から作る）。

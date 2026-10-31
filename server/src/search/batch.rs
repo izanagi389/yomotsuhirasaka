@@ -101,7 +101,7 @@ pub async fn run(
         return Ok(Outcome::Fail("invalid_payload"));
     };
     let ws = job.workspace_id;
-    let changed = run_workspace(pool, config, ws).await?;
+    let changed = run_workspace(pool, keys, config, ws).await?;
     if changed.is_empty() {
         return Ok(Outcome::Done);
     }
@@ -121,15 +121,21 @@ pub async fn run(
 }
 
 /// ワークスペースの関連記事を計算し直し、返す一覧が変わった記事のIDを返す。計算できないワークスペースは空。
-pub async fn run_workspace(pool: &PgPool, config: &Config, ws: Uuid) -> Result<Vec<Uuid>> {
+pub async fn run_workspace(
+    pool: &PgPool,
+    keys: &KeyRing,
+    config: &Config,
+    ws: Uuid,
+) -> Result<Vec<Uuid>> {
     let (Some(applied), Some(db)) = (
         crate::content::applied_schema(pool, ws).await?,
         workspace_db::lookup(pool, ws).await?,
     ) else {
         return Ok(Vec::new());
     };
+    let setup = crate::workspace_llm::embedding(pool, keys, config, ws).await?;
     let mut tx = workspace_db::begin(pool, &db).await?;
-    let serving = switch::serving(config, &mut tx).await?;
+    let serving = switch::serving(setup.as_ref().map(|s| &s.llm), &mut tx).await?;
     tx.commit().await?;
     let (Some(s), Some(vs)) = (serving, super::vector_schema(pool).await?) else {
         return Ok(Vec::new());

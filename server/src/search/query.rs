@@ -161,6 +161,8 @@ pub struct Outcome {
 pub struct Services<'a> {
     pub pool: &'a sqlx::PgPool,
     pub config: &'a Config,
+    /// ワークスペースの埋め込みの接続先（上書きを含む。`workspace_llm::embedding`）。なければベクトル検索は使えない。
+    pub embedding: Option<&'a crate::config::LlmConfig>,
     pub egress: Option<&'a Egress>,
     pub cache: &'a Cache,
 }
@@ -194,7 +196,7 @@ pub async fn search(
 ) -> Result<Outcome> {
     // 設定の上で、それぞれの検索が使えるか
     // ベクトル検索は、ワークスペースが今使っているモデルで行う（モデルの切り替えの途中は旧モデル。`super::switch`）
-    let serving = super::switch::serving(services.config, tx).await?;
+    let serving = super::switch::serving(services.embedding, tx).await?;
     let vector_setup = match (serving, services.egress) {
         (Some(c), Some(e)) => super::vector_schema(&mut **tx).await?.map(|vs| (c, e, vs)),
         _ => None,
@@ -357,7 +359,7 @@ pub async fn fragments(
     if k == 0 || masked.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let serving = super::switch::serving(services.config, tx).await?;
+    let serving = super::switch::serving(services.embedding, tx).await?;
     let vector_setup = match (serving, services.egress) {
         (Some(c), Some(e)) => super::vector_schema(&mut **tx).await?.map(|vs| (c, e, vs)),
         _ => None,

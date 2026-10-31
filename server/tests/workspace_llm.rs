@@ -5,7 +5,7 @@
 
 mod common;
 
-use cms_server::config::{AllowedEndpoint, LlmConfig};
+use cms_server::config::{AllowedEmbeddingModel, AllowedEndpoint, LlmConfig};
 use cms_server::workspace_llm;
 use common::content::*;
 use common::server::*;
@@ -42,6 +42,11 @@ async fn workspace_llm_api() {
                 name: "primary".into(),
                 base_url: "https://primary.example.test/v1".into(),
             }],
+            allowed_embedding_models: vec![AllowedEmbeddingModel {
+                model: "ws-embed".into(),
+                dimensions: 16,
+                embedding_price_per_million_tokens: Some(0.1),
+            }],
         });
         let server = start(cfg.clone()).await;
         let (root, token) = root_with_deploy_token(&server).await;
@@ -62,7 +67,12 @@ async fn workspace_llm_api() {
 
         // 既定: 上書きは許されていない。選べる接続先の名前だけが見える
         let v = parse(&get(&server, &path, &root).await);
-        assert_eq!(v, json!({"allowed": false, "endpoints": ["primary"], "settings": null}));
+        assert_eq!(v["allowed"], false);
+        assert_eq!(v["endpoints"], json!(["primary"]));
+        assert_eq!(v["embeddingModels"], json!(["ws-embed"]));
+        assert_eq!(v["settings"], Value::Null);
+        assert_eq!(v["embedding"]["state"], "switched");
+        assert_eq!(v["embedding"]["activeModel"], "m");
         assert_eq!(get(&server, &path, &editor).await.status, 403);
         let res = put(json!({"endpoint": "primary", "apiKey": SECRET})).await;
         assert_eq!(error(&res), (403, Some("llm_override_not_allowed".into())));
@@ -134,9 +144,38 @@ async fn workspace_llm_api() {
         let (c, endpoint) = effective().await;
         assert_eq!((endpoint.as_str(), c.api_key.as_str()), ("", "instance-key"));
 
-        // 上書きをやめる（DELETE）
+        // 埋め込みのモデルの上書き: 許可の一覧の名前だけ。選んだだけでは切り替えず、見積もりを見て開始する
         send(&server, "PUT", &format!("/api/admin/workspaces/{ws}/limits"), &root, Some(r#"{"llmOverride":true}"#)).await;
         assert_eq!(put(json!({"endpoint": "primary", "apiKey": SECRET})).await.status, 200);
+        assert_eq!(error(&put(json!({"endpoint": "primary", "embeddingModel": "other"})).await), (422, Some("unknown_embedding_model".into())));
+        let v = parse(&put(json!({"endpoint": "primary", "embeddingModel": "ws-embed"})).await);
+        assert_eq!(v["settings"]["embeddingModel"], "ws-embed");
+        assert_eq!((v["embedding"]["state"].as_str(), v["embedding"]["desiredModel"].as_str()), (Some("notStarted"), Some("ws-embed")));
+        assert_eq!(v["embedding"]["activeModel"], "m");
+        // 埋め込みは、上書きの接続先とキーで作る（切り替え先として渡す）
+        let setup = workspace_llm::embedding(&server.pool, &server.state.keys, &cfg, ws).await.unwrap().unwrap();
+        let next = setup.llm.next().unwrap();
+        assert_eq!((next.embedding_model.as_str(), next.embedding_dimensions), ("ws-embed", 16));
+        assert_eq!((next.base_url.as_str(), next.api_key.as_str()), ("https://primary.example.test/v1", SECRET));
+        assert!(setup.overridden && setup.started.is_empty());
+        // 開始する（切り替え先の埋め込みを作っている間は、前のモデルで検索する）
+        let start = format!("{path}/embedding-switch");
+        let res = send(&server, "POST", &start, &root, None).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        assert_eq!(parse(&res)["embedding"]["state"], "inProgress");
+        // 次元数が合わなければ、切り替えを止めて理由を見せる（開始し直せる）
+        assert!(workspace_llm::embedding_switch_failed(&server.pool, ws, &("ws-embed".into(), 16), "dimension_mismatch").await.unwrap());
+        let v = parse(&get(&server, &path, &root).await);
+        assert_eq!((v["embedding"]["state"].as_str(), v["embedding"]["failedCode"].as_str()), (Some("notStarted"), Some("dimension_mismatch")));
+        assert_eq!(send(&server, "POST", &start, &root, None).await.status, 200);
+        assert_eq!(parse(&get(&server, &path, &root).await)["embedding"]["failedCode"], Value::Null);
+        // 上書きのモデルを外すと、インスタンスのモデルのまま（切り替えるものはない）
+        let v = parse(&put(json!({"endpoint": "primary", "embeddingModel": null})).await);
+        assert_eq!(v["settings"]["embeddingModel"], Value::Null);
+        assert_eq!(v["embedding"]["state"], "switched");
+        assert_eq!(error(&send(&server, "POST", &start, &root, None).await), (409, Some("no_embedding_switch".into())));
+
+        // 上書きをやめる（DELETE）
         assert_eq!(send(&server, "DELETE", &path, &root, None).await.status, 204);
         assert_eq!(parse(&get(&server, &path, &root).await)["settings"], Value::Null);
     })

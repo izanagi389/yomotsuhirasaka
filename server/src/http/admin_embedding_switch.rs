@@ -65,10 +65,14 @@ async fn view(state: &AppState) -> Result<SwitchView, ApiError> {
             let Some(db) = workspace_db::lookup(&state.pool, id).await? else {
                 continue;
             };
-            let Some(s) = switch::status(&state.pool, &state.config, &db, started.as_ref()).await?
+            // ワークスペースの上書き（埋め込みのモデル）を含めた状態
+            let Some(setup) =
+                crate::workspace_llm::embedding(&state.pool, &state.keys, &state.config, id)
+                    .await?
             else {
                 continue;
             };
+            let s = switch::status(&state.pool, &setup.llm, &db, &setup.started).await?;
             workspaces.push(WorkspaceStatus {
                 workspace_id: id,
                 name,

@@ -192,7 +192,10 @@ pub async fn put(
     .map_err(anyhow::Error::from)?;
     // その記事の関連記事を、その場で計算し直す（固定・除外は返すときにも照合するので、計算できなくても効く）
     if state.config.llm.is_some() {
-        let serving = crate::search::switch::serving(&state.config, &mut tx).await?;
+        let setup =
+            crate::workspace_llm::embedding(&state.pool, &state.keys, &state.config, ws).await?;
+        let serving =
+            crate::search::switch::serving(setup.as_ref().map(|s| &s.llm), &mut tx).await?;
         let vs = crate::search::vector_schema(&mut *tx).await?;
         let applied = crate::content::applied_schema(&state.pool, ws).await?;
         if let (Some(s), Some(vs), Some(applied)) = (serving, vs, applied) {

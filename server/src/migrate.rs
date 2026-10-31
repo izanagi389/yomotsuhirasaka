@@ -150,6 +150,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "workspace_llm",
         include_str!("../migrations/0031_workspace_llm.sql"),
     ),
+    (
+        32,
+        "workspace_embedding",
+        include_str!("../migrations/0032_workspace_embedding.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -184,6 +189,11 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("workspace_limits", "SELECT, INSERT, UPDATE"),
     // ワークスペースの LLM の接続設定の上書き（M4。キーは暗号化して持つ）
     ("workspace_llm", "SELECT, INSERT, UPDATE, DELETE"),
+    // ワークスペースの埋め込みのモデルの切り替えの開始の記録（M4）
+    (
+        "workspace_embedding_switch",
+        "SELECT, INSERT, UPDATE, DELETE",
+    ),
     // LLMの予算と使用量（確保・精算で更新する。古い期間の行も残す）
     ("workspace_budgets", "SELECT, INSERT, UPDATE"),
     ("budget_usage", "SELECT, INSERT, UPDATE"),
