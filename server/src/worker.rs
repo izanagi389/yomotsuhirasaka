@@ -92,6 +92,14 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
                     Outcome::Fail("internal_error")
                 })
         }
+        (Some(payload), crate::assist::tasks::JOB_KIND) => {
+            crate::assist::tasks::run(state, payload)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(job_id = %job.id, "editor assist: {e:#}");
+                    Outcome::Fail("internal_error")
+                })
+        }
         (Some(payload), hooks::JOB_KIND) => {
             hooks::run(&state.pool, &state.scripts, state.egress.as_ref(), payload)
                 .await
@@ -165,7 +173,7 @@ pub fn spawn_sweeper(state: AppState) -> tokio::task::JoinHandle<()> {
             if let Err(e) = crate::answer::cache::sweep(&state.pool).await {
                 tracing::error!("answer cache sweeper: {e:#}");
             }
-            // 残す時間を過ぎた矛盾の検知の結果
+            // 残す時間を過ぎた支援の結果（候補がなくなった構成案も）
             if let Err(e) = crate::assist::conflicts::sweep(&state.pool).await {
                 tracing::error!("conflict detection sweeper: {e:#}");
             }

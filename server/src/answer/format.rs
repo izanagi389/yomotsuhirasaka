@@ -21,6 +21,7 @@ struct Raw {
     citation: String,
     conflict_line: String,
     no_conflict: String,
+    stale_line: String,
 }
 
 pub struct Format {
@@ -38,6 +39,8 @@ pub struct Format {
     pub conflict_line: Regex,
     /// 同じく、食い違いがないときの行。
     pub no_conflict: String,
+    /// 見直しの手がかりの出力の行。1つ目の組が本文から引いた語句、2つ目が理由。
+    pub stale_line: Regex,
 }
 
 pub static FORMAT: LazyLock<Format> = LazyLock::new(|| {
@@ -52,6 +55,7 @@ pub static FORMAT: LazyLock<Format> = LazyLock::new(|| {
         citation: re(&raw.citation),
         conflict_line: re(&raw.conflict_line),
         no_conflict: raw.no_conflict,
+        stale_line: re(&raw.stale_line),
     }
 });
 
