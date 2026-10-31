@@ -174,7 +174,6 @@ async fn workspace_llm_api() {
         assert_eq!(v["settings"]["embeddingModel"], Value::Null);
         assert_eq!(v["embedding"]["state"], "switched");
         assert_eq!(error(&send(&server, "POST", &start, &root, None).await), (409, Some("no_embedding_switch".into())));
-
         // 上書きをやめる（DELETE）
         assert_eq!(send(&server, "DELETE", &path, &root, None).await.status, 204);
         assert_eq!(parse(&get(&server, &path, &root).await)["settings"], Value::Null);

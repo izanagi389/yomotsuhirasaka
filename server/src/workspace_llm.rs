@@ -173,6 +173,21 @@ pub async fn embedding(
     }))
 }
 
+/// ワークスペースから切り替えを始めてよいか。ワークスペースが選んだモデルへの切り替えと、インスタンスの今のモデルへ戻す切り替え
+/// だけ。インスタンスの切り替え先（`[llm.next_embedding]`）への切り替えは、サーバー管理者が始める。
+pub fn workspace_may_start(setup: &EmbeddingSetup, desired: &ModelId) -> bool {
+    let chosen = setup
+        .overridden
+        .then(|| setup.llm.next())
+        .flatten()
+        .map(|n| (n.embedding_model, n.embedding_dimensions));
+    let instance_current = (
+        setup.llm.embedding_model.clone(),
+        setup.llm.embedding_dimensions,
+    );
+    chosen.as_ref() == Some(desired) || *desired == instance_current
+}
+
 /// ワークスペースの埋め込みのモデルの切り替えを開始する（前の記録は書き直す）。
 pub async fn start_embedding_switch(
     pool: &PgPool,
@@ -541,6 +556,52 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn workspaces_start_only_their_own_or_back_to_the_instance_model() {
+        let base = LlmConfig {
+            base_url: "https://llm.example.test/v1".into(),
+            api_key: "k".into(),
+            embedding_model: "current".into(),
+            embedding_dimensions: 8,
+            embedding_price_per_million_tokens: None,
+            default_workspace_embedding_tokens_per_month: None,
+            default_workspace_embedding_tokens_per_day: None,
+            chat_model: None,
+            chat_input_price_per_million_tokens: None,
+            chat_output_price_per_million_tokens: None,
+            default_workspace_answer_input_tokens_per_month: None,
+            default_workspace_answer_input_tokens_per_day: None,
+            default_workspace_answer_output_tokens_per_month: None,
+            default_workspace_answer_output_tokens_per_day: None,
+            next_embedding: Some(NextEmbeddingConfig {
+                model: "next".into(),
+                dimensions: 16,
+                base_url: None,
+                api_key: None,
+                embedding_price_per_million_tokens: None,
+            }),
+            allowed_endpoints: Vec::new(),
+            allowed_embedding_models: Vec::new(),
+        };
+        let id = |m: &str, d: u32| (m.to_owned(), d);
+        // 上書きしていない: インスタンスの切り替え先へは始められない。今のモデルへ戻すのはよい
+        let instance = EmbeddingSetup {
+            llm: base.clone(),
+            started: Vec::new(),
+            overridden: false,
+        };
+        assert!(!workspace_may_start(&instance, &id("next", 16)));
+        assert!(workspace_may_start(&instance, &id("current", 8)));
+        // 上書きしている: 選んだモデル（切り替え先として渡したもの）へは始められる
+        let own = EmbeddingSetup {
+            llm: base,
+            started: Vec::new(),
+            overridden: true,
+        };
+        assert!(workspace_may_start(&own, &id("next", 16)));
+        assert!(!workspace_may_start(&own, &id("other", 4)));
     }
 
     #[test]

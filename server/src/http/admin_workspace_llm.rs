@@ -202,6 +202,15 @@ pub async fn start_embedding_switch(
     if s.desired == s.active {
         return Err(nothing_to_switch());
     }
+    // ワークスペースから始められるのは、ワークスペースが選んだモデルへの切り替えと、インスタンスの今のモデルへ戻す切り替えだけ。
+    // インスタンスの切り替え先（[llm.next_embedding]）への切り替えは、サーバー管理者が始める（/api/admin/embedding-switch）
+    if !workspace_llm::workspace_may_start(&setup, &s.desired) {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "embedding_switch_server_admin",
+            "Only a server administrator can start the switch to the server's next embedding model.",
+        ));
+    }
     workspace_llm::start_embedding_switch(&state.pool, ws, &s.desired, current.user_id).await?;
     audit::record(
         &state.pool,
