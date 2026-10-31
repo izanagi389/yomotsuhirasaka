@@ -637,6 +637,10 @@
         "settings_changed": "質問ログの設定を変更",
         "viewed": "質問ログの閲覧",
         "candidate_deleted": "質問ログの候補の削除"
+      },
+      "llm": {
+        "override_changed": "LLMの接続設定の上書きを変更",
+        "override_removed": "LLMの接続設定の上書きをやめた"
       }
     },
     "you": "あなた",
@@ -1108,5 +1112,44 @@
     "noInformation": "情報なし",
     "refused": "拒否",
     "error": "エラー"
+  },
+  "llmOverride": {
+    "title": "LLMの接続設定（このワークスペース）",
+    "help": "サーバー管理者が許可した接続先の中から、このワークスペースの回答と埋め込みに使うLLMを選べます。選ばなければ、サーバーの設定で動きます。",
+    "allow": "このワークスペースに、LLMの接続設定の上書きを許す（サーバー管理者）",
+    "notAllowed": "このワークスペースでは、サーバーの設定のLLMを使います（上書きはサーバー管理者が許したときだけ）。",
+    "noEndpoints": "サーバー管理者が許可した接続先がありません。",
+    "endpoint": "接続先",
+    "apiKey": "APIキー",
+    "apiKeySet": "設定済み（{at}）。変えるときだけ入れてください。保存したキーは表示されません。",
+    "apiKeyRequired": "初めて設定するときは、APIキーが必要です。保存したキーは表示されません。",
+    "chatModel": "回答のモデル",
+    "chatModelPlaceholder": "空ならサーバーの設定のモデル",
+    "inputPrice": "入力の単価（100万トークンあたり）",
+    "outputPrice": "出力の単価（100万トークンあたり）",
+    "priceInvalid": "単価は0以上の数で入れてください。",
+    "embeddingModel": "埋め込みのモデル",
+    "embeddingInstance": "サーバーの設定のモデル",
+    "embeddingHelp": "モデルを変えると、すべての記事の埋め込みを作り直します。保存しただけでは切り替わりません。下の見積もりを見てから開始してください。",
+    "egressNote": "記事の本文と訪問者の質問文（マスクした上で）は、選んだ接続先のLLMの提供会社に送られます。",
+    "remove": "上書きをやめる",
+    "removeTitle": "LLMの接続設定の上書きをやめますか？",
+    "removeDescription": "保存したAPIキーは削除され、サーバーの設定のLLMに戻ります。埋め込みのモデルを変えていた場合は、サーバーの設定のモデルへ切り替えが必要になることがあります。",
+    "saved": "保存しました。",
+    "allowSaved": "保存しました。",
+    "removed": "上書きをやめました。",
+    "switchStarted": "切り替えを開始しました。",
+    "embeddingSwitchTitle": "埋め込みのモデルの切り替え",
+    "state": {
+      "notStarted": "{desired} への切り替えは、まだ開始していません（今は {active} で検索しています）。",
+      "inProgress": "{desired} の埋め込みを作っています。そろうまでは {active} で検索します。",
+      "paused": "予算が尽きたため、{desired} の埋め込みの作成を止めています（今は {active} で検索しています）。",
+      "switched": "{active} で検索しています。",
+      "needsMigration": "今のモデル（{active}）は使えません。{desired} への切り替えが必要です（それまでベクトル検索は使えません）。"
+    },
+    "switchFailed": "切り替えを止めました（理由: {code}）。モデルの次元数が設定と合っているか、サーバー管理者に確かめてもらってから、開始し直してください。",
+    "estimate": "作り直すチャンクは {chunks} 件、約 {tokens} トークンです。",
+    "estimateCost": "費用の見積もりは約 {cost} です。",
+    "startSwitch": "見積もりを確かめて、切り替えを開始"
   }
 }

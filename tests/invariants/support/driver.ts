@@ -103,6 +103,21 @@ export interface WorkspaceLimits {
   answerInputTokensPerDay?: number | null;
   answerOutputTokensPerMonth?: number | null;
   answerOutputTokensPerDay?: number | null;
+  /** ワークスペースが LLM の接続設定を上書きしてよいか（M4、10-llm-and-budget.md「接続設定の単位」）。 */
+  llmOverride?: boolean;
+}
+
+/**
+ * ワークスペースの LLM の接続設定の上書き（M4、Q26）。接続先はサーバー管理者が許可した一覧の名前で選ぶ。
+ * apiKey は保存だけ（読み出せない）。embeddingModel はサーバー管理者が許可した埋め込みのモデルの名前。
+ */
+export interface WorkspaceLlm {
+  endpoint: string;
+  apiKey?: string;
+  chatModel?: string;
+  chatInputPrice?: number;
+  chatOutputPrice?: number;
+  embeddingModel?: string;
 }
 
 /** ワークスペースの埋め込みの作成の予算（トークン数）。null は上限なし（サーバー管理者の天井の範囲で）。 */
@@ -665,6 +680,14 @@ export interface CmsClient {
   /** 回答の設定を変える（重い権限 manageLlm と再認証が要る。M4）。 */
   setAnswerSettings(session: Session, workspaceId: string, settings: AnswerSettings): Promise<void>;
   setAnswerSettingsRaw(auth: Auth, workspaceId: string, settings: AnswerSettings): Promise<HttpResponse>;
+  /**
+   * ワークスペースの LLM の接続設定の上書きを保存する（重い権限 manageLlm と再認証。応答をそのまま返す）。
+   * body はそのまま送る（許可していない項目を混ぜた依頼を確かめるため、WorkspaceLlm 以外の項目も渡せる）。
+   */
+  setWorkspaceLlmRaw(auth: Auth, workspaceId: string, body: WorkspaceLlm | Record<string, unknown>): Promise<HttpResponse>;
+  getWorkspaceLlmRaw(auth: Auth, workspaceId: string): Promise<HttpResponse>;
+  /** ワークスペースの埋め込みのモデルの切り替えを開始する（重い権限 manageLlm と再認証。応答をそのまま返す）。 */
+  startWorkspaceEmbeddingSwitchRaw(auth: Auth, workspaceId: string): Promise<HttpResponse>;
   /** 質問ログの設定を変える（ワークスペースの管理者と再認証。M4）。 */
   setQuestionLogSettings(session: Session, workspaceId: string, settings: QuestionLogSettings): Promise<void>;
   setQuestionLogSettingsRaw(auth: Auth, workspaceId: string, settings: QuestionLogSettings): Promise<HttpResponse>;
@@ -906,6 +929,10 @@ export interface ServerConfig {
     embeddingDimensions: number;
     /** 回答の生成に使うチャットのモデル（`[llm] chat_model`。M4）。なければ回答APIを使えない。 */
     chatModel?: string;
+    /** ワークスペースが上書きで選べる接続先（`[[llm.allowed_endpoints]]`。M4、Q26）。 */
+    allowedEndpoints?: { name: string; baseUrl: string }[];
+    /** ワークスペースが上書きで選べる埋め込みのモデル（`[[llm.allowed_embedding_models]]`。M4）。 */
+    allowedEmbeddingModels?: { model: string; dimensions: number }[];
     pricePerMillionTokens?: number;
     /**
      * 切り替え先の埋め込みのモデル（`[llm.next_embedding]`）。接続先とキーは、省略すれば今のものを使う。

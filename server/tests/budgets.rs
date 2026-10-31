@@ -40,6 +40,8 @@ fn llm(per_month: Option<u64>, per_day: Option<u64>) -> LlmConfig {
         default_workspace_answer_output_tokens_per_month: None,
         default_workspace_answer_output_tokens_per_day: None,
         next_embedding: None,
+        allowed_endpoints: Vec::new(),
+        allowed_embedding_models: Vec::new(),
     }
 }
 

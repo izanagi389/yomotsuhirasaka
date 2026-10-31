@@ -520,6 +520,34 @@ export interface AnswerSettings {
   refusal: { words: string[]; creditCard: boolean; myNumber: boolean };
 }
 
+/** GET/PUT/DELETE /workspaces/{ws}/llm（LLMの接続設定の上書き。M4、Q26）。キーは読み出せない（設定済みかだけ）。 */
+export interface WorkspaceLlmView {
+  /** サーバー管理者が上書きを許しているか。 */
+  allowed: boolean;
+  /** 選べる接続先の名前・埋め込みのモデルの名前（サーバーの設定の許可の一覧）。 */
+  endpoints: string[];
+  embeddingModels: string[];
+  settings: {
+    endpoint: string;
+    chatModel: string | null;
+    chatInputPrice: number | null;
+    chatOutputPrice: number | null;
+    embeddingModel: string | null;
+    apiKeySet: boolean;
+    apiKeyUpdatedAt: string;
+  } | null;
+  /** 埋め込みのモデルの切り替えの状態と見積もり（LLM の設定がなければ null）。 */
+  embedding: {
+    state: "notStarted" | "inProgress" | "paused" | "switched" | "needsMigration";
+    activeModel: string;
+    desiredModel: string;
+    chunksToEmbed: number;
+    estimatedTokens: number;
+    estimatedCost: number | null;
+    failedCode: string | null;
+  } | null;
+}
+
 /** GET/PUT /workspaces/{ws}/question-log/settings（質問ログ。ワークスペースの管理者。M4）。 */
 export interface QuestionLogSettings {
   enabled: boolean;

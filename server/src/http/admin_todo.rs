@@ -161,9 +161,13 @@ pub async fn todo(
     };
     let rejected = reviews::rejected_for(&mut tx, current.user_id).await?;
     // 使っているモデルが設定にない（時刻は今。状態が続く間ずっと出す）
-    let model_missing: Option<String> = if access.server_admin
-        && state.config.llm.is_some()
-        && crate::search::switch::serving(&state.config, &mut tx)
+    let setup = if access.server_admin {
+        crate::workspace_llm::embedding(&state.pool, &state.keys, &state.config, ws).await?
+    } else {
+        None
+    };
+    let model_missing: Option<String> = if let Some(setup) = &setup
+        && crate::search::switch::serving(Some(&setup.llm), &mut tx)
             .await?
             .is_none()
     {

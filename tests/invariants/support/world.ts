@@ -210,7 +210,7 @@ export interface AnswerWorld {
    * visitorId を true にすると、回答のクエリを、訪問者の識別子の変数 visitorId も受け取る形で登録する。
    * cached を true にすると、回答のクエリで、回答キャッシュから返したか（cached）も選ぶ。
    */
-  workspace(label: string, options?: { answerCeiling?: number; visitorId?: boolean; cached?: boolean }): Promise<AnswerWorkspace>;
+  workspace(label: string, options?: { answerCeiling?: number; visitorId?: boolean; cached?: boolean; llmOverride?: boolean }): Promise<AnswerWorkspace>;
   /** このインスタンスのサーバーの設定（driver.storage に渡す）。 */
   config: ServerConfig;
   stop(): Promise<void>;
@@ -224,15 +224,17 @@ const LARGE_BUDGET = 10_000_000;
  * キーごとなので、他のテストと混ざらない）。同じファイルのテストは順に流れるので、このキーを共有する。
  * 各テストは、使い終わったら擬似LLMの障害と回答の組み立て方を元に戻す。
  */
-export async function createAnswerWorld(options: Pick<ServerConfig, "answerRateLimits" | "loginHistoryRetention"> = {}): Promise<AnswerWorld> {
+export async function createAnswerWorld(
+  options: Pick<ServerConfig, "answerRateLimits" | "loginHistoryRetention"> & { llm?: Partial<NonNullable<ServerConfig["llm"]>> } = {},
+): Promise<AnswerWorld> {
   const llmKey = `inv-answer-${randomUUID().slice(0, 8)}`;
   const instance = await driver.createIsolatedInstance();
   // 舞台の準備のログインと招待の承諾は同じアドレスから続くので、テストの舞台のCMSと同じく回数制限を大きくする（global-setup.ts）
   const config: ServerConfig = {
     ...instance.config,
     loginAttemptsPerIpPerMinute: 100_000,
-    llm: { ...mockLlm.connection(llmKey), chatModel: mockLlm.chatModel },
     ...options,
+    llm: { ...mockLlm.connection(llmKey), chatModel: mockLlm.chatModel, ...options.llm },
   };
   const started = await driver.startServer(config);
   if (started.outcome !== "ready") throw new Error(`擬似LLMにつないだサーバーが起動しない:\n${started.output}`);
@@ -257,6 +259,7 @@ export async function createAnswerWorld(options: Pick<ServerConfig, "answerRateL
         answerInputTokensPerDay: answer,
         answerOutputTokensPerMonth: answer,
         answerOutputTokensPerDay: answer,
+        ...(options.llmOverride ? { llmOverride: true } : {}),
       });
       const admin = await cms.createMember(sa, id, "admin");
       const adminSession = await cms.login(admin);

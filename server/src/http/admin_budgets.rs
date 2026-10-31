@@ -108,24 +108,13 @@ async fn view(state: &AppState, ws: Uuid) -> Result<BudgetView, ApiError> {
 async fn answer_view(state: &AppState, ws: Uuid) -> Result<AnswerBudgetView, ApiError> {
     let llm = state.config.llm.as_ref();
     let kind = Kind::VisitorAnswers;
+    // 単価は、ワークスペースの上書きが効いていれば上書きのもの（Q26）
+    let (input_price, output_price) =
+        crate::workspace_llm::chat_prices(&state.pool, &state.config, ws).await?;
     Ok(AnswerBudgetView {
         chat_configured: llm.is_some_and(|l| l.chat_model.is_some()),
-        input: part(
-            state,
-            ws,
-            kind,
-            Direction::Input,
-            llm.and_then(|l| l.chat_input_price_per_million_tokens),
-        )
-        .await?,
-        output: part(
-            state,
-            ws,
-            kind,
-            Direction::Output,
-            llm.and_then(|l| l.chat_output_price_per_million_tokens),
-        )
-        .await?,
+        input: part(state, ws, kind, Direction::Input, input_price).await?,
+        output: part(state, ws, kind, Direction::Output, output_price).await?,
     })
 }
 

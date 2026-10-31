@@ -30,6 +30,7 @@ pub mod admin_tokens;
 pub mod admin_translations;
 pub mod admin_ui;
 pub mod admin_webhooks;
+pub mod admin_workspace_llm;
 pub mod admin_workspaces;
 pub mod delivery;
 pub mod error;
@@ -620,6 +621,16 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/answer-settings",
             get(admin_answer_settings::get).put(admin_answer_settings::put),
+        )
+        .route(
+            "/workspaces/{ws}/llm",
+            get(admin_workspace_llm::get)
+                .put(admin_workspace_llm::put)
+                .delete(admin_workspace_llm::delete),
+        )
+        .route(
+            "/workspaces/{ws}/llm/embedding-switch",
+            post(admin_workspace_llm::start_embedding_switch),
         )
         .route(
             "/workspaces/{ws}/question-log/settings",

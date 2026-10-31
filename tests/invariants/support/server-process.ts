@@ -161,6 +161,12 @@ export function renderConfig(config: ServerConfig, listen: string): string {
     if (config.llm.defaultWorkspaceTokensPerDay !== undefined) {
       lines.push(`default_workspace_embedding_tokens_per_day = ${config.llm.defaultWorkspaceTokensPerDay}`);
     }
+    for (const e of config.llm.allowedEndpoints ?? []) {
+      lines.push("", "[[llm.allowed_endpoints]]", `name = ${tomlString(e.name)}`, `base_url = ${tomlString(e.baseUrl)}`);
+    }
+    for (const m of config.llm.allowedEmbeddingModels ?? []) {
+      lines.push("", "[[llm.allowed_embedding_models]]", `model = ${tomlString(m.model)}`, `dimensions = ${m.dimensions}`);
+    }
     const next = config.llm.nextEmbedding;
     if (next) {
       lines.push("", "[llm.next_embedding]", `model = ${tomlString(next.model)}`, `dimensions = ${next.dimensions}`);

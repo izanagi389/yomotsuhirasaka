@@ -36,3 +36,4 @@ pub mod timefmt;
 pub mod webhooks;
 pub mod worker;
 pub mod workspace_db;
+pub mod workspace_llm;

@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, AnswerError, AnswerSettings, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, AnswerError, AnswerSettings, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -408,7 +408,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     request("GET", `${ADMIN}/workspaces/${workspaceId}/question-log`, { auth, extras });
   const setWorkspaceLimitsRaw = (auth: Auth, workspaceId: string, limits: WorkspaceLimits, extras?: RequestExtras): Promise<HttpResponse> => {
     // 書いた項目だけを送る（サーバーは、書いた項目だけを変える）
-    const body: Record<string, number | null> = {};
+    const body: Record<string, number | boolean | null> = {};
+    if ("llmOverride" in limits) body["llmOverride"] = limits.llmOverride ?? false;
     if ("mediaBytes" in limits) body["mediaBytes"] = limits.mediaBytes ?? null;
     if ("embeddingTokensPerMonth" in limits) body["embeddingTokensPerMonth"] = limits.embeddingTokensPerMonth ?? null;
     if ("embeddingTokensPerDay" in limits) body["embeddingTokensPerDay"] = limits.embeddingTokensPerDay ?? null;
@@ -666,6 +667,15 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     // 回答の語り口と定型文（M4。重い権限 manageLlm）。何も変えない変更を送る
     op("getAnswerSettings", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/answer-settings`, { auth, extras })),
     op("setAnswerSettings", true, "workspace", (auth, t, extras) => setAnswerSettingsRaw(auth, t.workspaceId, {}, extras)),
+    // LLMの接続設定の上書き（M4。重い権限 manageLlm）。変更・削除は、許されていないワークスペースでは断られる
+    op("getWorkspaceLlm", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/llm`, { auth, extras })),
+    op("setWorkspaceLlm", true, "workspace", (auth, t, extras) =>
+      request("PUT", `${ADMIN}/workspaces/${t.workspaceId}/llm`, { auth, extras, body: { endpoint: "inv-operation" } }),
+    ),
+    op("deleteWorkspaceLlm", true, "workspace", (auth, t, extras) => request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/llm`, { auth, extras })),
+    op("startWorkspaceEmbeddingSwitch", true, "workspace", (auth, t, extras) =>
+      request("POST", `${ADMIN}/workspaces/${t.workspaceId}/llm/embedding-switch`, { auth, extras }),
+    ),
     // 質問ログ（M4）: 設定はワークスペースの管理者、閲覧と候補の削除は重い権限 viewQuestionLog。削除の対象は存在しない候補
     op("getQuestionLogSettings", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/question-log/settings`, { auth, extras })),
     op("setQuestionLogSettings", true, "workspace", (auth, t, extras) => setQuestionLogSettingsRaw(auth, t.workspaceId, {}, extras)),
@@ -993,6 +1003,11 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       ensure("回答の設定の変更", await setAnswerSettingsRaw(session(s), workspaceId, settings));
     },
     setAnswerSettingsRaw: (auth: Auth, workspaceId: string, settings: AnswerSettings) => setAnswerSettingsRaw(auth, workspaceId, settings),
+    setWorkspaceLlmRaw: (auth: Auth, workspaceId: string, body: WorkspaceLlm | Record<string, unknown>) =>
+      request("PUT", `${ADMIN}/workspaces/${workspaceId}/llm`, { auth, body }),
+    getWorkspaceLlmRaw: (auth: Auth, workspaceId: string) => request("GET", `${ADMIN}/workspaces/${workspaceId}/llm`, { auth }),
+    startWorkspaceEmbeddingSwitchRaw: (auth: Auth, workspaceId: string) =>
+      request("POST", `${ADMIN}/workspaces/${workspaceId}/llm/embedding-switch`, { auth }),
     async setQuestionLogSettings(s: Session, workspaceId: string, settings: QuestionLogSettings): Promise<void> {
       ensure("質問ログの設定の変更", await setQuestionLogSettingsRaw(session(s), workspaceId, settings));
     },
