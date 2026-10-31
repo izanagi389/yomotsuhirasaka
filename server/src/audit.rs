@@ -91,6 +91,10 @@ pub mod action {
     pub const BUDGET_EXHAUSTED: &str = "budget.exhausted";
     /// 訪問者向けの回答の予算が足りずに回答を断った（M4。期間ごとに1回。ワークスペースの管理者に知らせる）。
     pub const ANSWER_BUDGET_EXHAUSTED: &str = "budget.answer_exhausted";
+    /// 編集者向けの支援の予算が足りずに支援を断った（M4。期間ごとに1回。ワークスペースの管理者に知らせる）。
+    pub const ASSIST_BUDGET_EXHAUSTED: &str = "budget.assist_exhausted";
+    /// 編集者向けのAI支援の有効・無効を変えた（M4。重い権限 manageLlm。詳細は変えた後の値）。
+    pub const ASSIST_SETTINGS_CHANGED: &str = "assist.settings_changed";
     /// 回答の語り口と定型文を変えた（M4。重い権限 manageLlm。詳細は変えた項目の名前だけ）。
     pub const ANSWER_SETTINGS_CHANGED: &str = "answer.settings_changed";
     /// 質問ログの有効・無効と保存期間を変えた（ワークスペースの管理者。詳細は変えた後の値）。
@@ -156,6 +160,7 @@ pub const NOTIFY: &[&str] = &[
     action::AUDIT_SINK_DELETED,
     action::BUDGET_EXHAUSTED,
     action::ANSWER_BUDGET_EXHAUSTED,
+    action::ASSIST_BUDGET_EXHAUSTED,
 ];
 
 /// 知らせるかを記録する側が決める記録。

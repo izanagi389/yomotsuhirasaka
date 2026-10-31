@@ -39,6 +39,10 @@ fn llm(per_month: Option<u64>, per_day: Option<u64>) -> LlmConfig {
         default_workspace_answer_input_tokens_per_day: None,
         default_workspace_answer_output_tokens_per_month: None,
         default_workspace_answer_output_tokens_per_day: None,
+        default_workspace_assist_input_tokens_per_month: None,
+        default_workspace_assist_input_tokens_per_day: None,
+        default_workspace_assist_output_tokens_per_month: None,
+        default_workspace_assist_output_tokens_per_day: None,
         next_embedding: None,
         allowed_endpoints: Vec::new(),
         allowed_embedding_models: Vec::new(),
@@ -86,7 +90,7 @@ async fn reservations_never_exceed_the_effective_limit() {
         // 「初めて断った」は、この期間で1回だけ
         let firsts = results
             .iter()
-            .filter(|r| matches!(r.as_ref().unwrap(), Reserved::Exhausted { first: true }))
+            .filter(|r| matches!(r.as_ref().unwrap(), Reserved::Exhausted { first: true, .. }))
             .count();
         assert_eq!(firsts, 1, "{results:?}");
         let usage = budget::usage(&server.pool, ws, Kind::Embedding, Direction::Input).await.unwrap();
@@ -103,7 +107,7 @@ async fn reservations_never_exceed_the_effective_limit() {
         ));
         assert!(matches!(
             budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, Direction::Input, 1).await.unwrap(),
-            Reserved::Exhausted { first: false }
+            Reserved::Exhausted { first: false, .. }
         ));
 
         // 上限を変えると「断った」の印が消え、上げた分だけ再開する
@@ -151,7 +155,7 @@ async fn the_ceiling_defaults_to_zero() {
             budget::reserve(&server.pool, &cfg, ws, Kind::Embedding, Direction::Input, 1)
                 .await
                 .unwrap(),
-            Reserved::Exhausted { first: true }
+            Reserved::Exhausted { first: true, .. }
         ));
     })
     .await;
@@ -232,7 +236,7 @@ async fn answer_budget_api() {
         // 予算が尽きたら、使用量の画面とやることの一覧に出る（どの予算かを示す）
         assert!(matches!(
             budget::reserve(&server.pool, &cfg, ws, Kind::VisitorAnswers, Direction::Output, 401).await.unwrap(),
-            Reserved::Exhausted { first: true }
+            Reserved::Exhausted { first: true, .. }
         ));
         assert!(get(&root).await["output"]["exhaustedAt"].is_string());
         let res = send(&server, "GET", &format!("/api/admin/workspaces/{ws}/todo"), &root, None).await;
@@ -247,6 +251,105 @@ async fn answer_budget_api() {
             .filter_map(|i| i["budget"].as_str())
             .collect();
         assert_eq!(budgets, vec!["visitor_answers"]);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn assist_budget_api_and_settings() {
+    with_scratch(|app, migration| async move {
+        // 編集者向けの支援の予算（M4、Q70）: 天井は設定ファイルの既定値、なければ 0。尽きた期間を返す
+        let mut cfg = config(&app, &migration);
+        let mut l = llm(None, None);
+        l.chat_model = Some("chat".into());
+        l.default_workspace_assist_output_tokens_per_month = Some(300);
+        cfg.llm = Some(l);
+        let server = start(cfg.clone()).await;
+        let (root, token) = common::content::root_with_deploy_token(&server).await;
+        let manifest = common::content::blog_manifest();
+        assert_eq!(common::content::deploy(&server, &token, "blog", &manifest, "").await.status, 200);
+        let ws = common::content::workspace_with_template(&server, &root, "assist", "blog").await;
+        let path = format!("/api/admin/workspaces/{ws}/budgets/assist");
+        let get = || async {
+            let res = send(&server, "GET", &path, &root, None).await;
+            assert_eq!(res.status, 200, "{}", res.body);
+            serde_json::from_str::<serde_json::Value>(&res.body).unwrap()
+        };
+
+        let v = get().await;
+        assert_eq!(v["input"]["ceilingTokensPerMonth"], 0);
+        assert_eq!(v["output"]["ceilingTokensPerMonth"], 300);
+        // サーバー管理者が天井を決める
+        let res = send(
+            &server,
+            "PUT",
+            &format!("/api/admin/workspaces/{ws}/limits"),
+            &root,
+            Some(r#"{"assistInputTokensPerMonth":1000,"assistInputTokensPerDay":100}"#),
+        )
+        .await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        let v = get().await;
+        assert_eq!((v["input"]["ceilingTokensPerMonth"].clone(), v["input"]["ceilingTokensPerDay"].clone()), (1000.into(), 100.into()));
+        // 天井を超える上限は 400
+        let res = send(&server, "PUT", &path, &root, Some(r#"{"input":{"tokensPerMonth":1001,"tokensPerDay":null}}"#)).await;
+        assert_eq!((res.status, res.json_str("error").as_deref()), (400, Some("budget_exceeds_ceiling")));
+        let res = send(&server, "PUT", &path, &root, Some(r#"{"input":{"tokensPerMonth":500,"tokensPerDay":50}}"#)).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        assert_eq!(get().await["input"]["effectiveTokensPerMonth"], 500);
+        // 他の予算とは別に数える
+        assert_eq!(
+            budget::limits(&server.pool, &cfg, ws, Kind::VisitorAnswers, Direction::Input).await.unwrap().effective().per_month,
+            0
+        );
+
+        // 尽きた期間: 日の上限（50）だけを超える → day、月の上限（500）を超える → month
+        let reserve = |n| budget::reserve(&server.pool, &cfg, ws, Kind::EditorAssist, Direction::Input, n);
+        assert!(matches!(
+            reserve(51).await.unwrap(),
+            Reserved::Exhausted { first: true, period: budget::Period::Day }
+        ));
+        assert!(matches!(
+            reserve(501).await.unwrap(),
+            Reserved::Exhausted { first: true, period: budget::Period::Month }
+        ));
+        assert!(matches!(reserve(50).await.unwrap(), Reserved::Ok(_)));
+
+        // 支援の予算が尽きたことも、やることの一覧に出る
+        let res = send(&server, "GET", &format!("/api/admin/workspaces/{ws}/todo"), &root, None).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        let todo: serde_json::Value = serde_json::from_str(&res.body).unwrap();
+        let budgets: Vec<&str> = todo["items"]
+            .as_array()
+            .or_else(|| todo.as_array())
+            .unwrap()
+            .iter()
+            .filter(|i| i["kind"] == "budgetExhausted")
+            .filter_map(|i| i["budget"].as_str())
+            .collect();
+        assert_eq!(budgets, vec!["editor_assist"]);
+
+        // 支援のスイッチ: 既定は無効。重い権限 manageLlm のない人は見られない。変えたら監査ログに残る
+        let settings = format!("/api/admin/workspaces/{ws}/assist-settings");
+        let res = send(&server, "GET", &settings, &root, None).await;
+        assert_eq!((res.status, res.body.as_str()), (200, r#"{"enabled":false}"#));
+        create_user(&server.pool, "editor@example.test", false).await;
+        common::content::add_member(&server, ws, "editor@example.test", "editor").await;
+        let editor = login(&server, "editor@example.test", PASSWORD).await;
+        assert_eq!(send(&server, "GET", &settings, &editor, None).await.status, 403);
+        assert_eq!(send(&server, "PUT", &settings, &editor, Some(r#"{"enabled":true}"#)).await.status, 403);
+        assert_eq!(send(&server, "PUT", &settings, &root, Some(r#"{"enabled":true,"x":1}"#)).await.status, 400);
+        let res = send(&server, "PUT", &settings, &root, Some(r#"{"enabled":true}"#)).await;
+        assert_eq!((res.status, res.body.as_str()), (200, r#"{"enabled":true}"#));
+        assert_eq!(send(&server, "GET", &settings, &root, None).await.body, r#"{"enabled":true}"#);
+        let changed: Vec<String> = sqlx::query_scalar(
+            "SELECT details::text FROM cms.audit_log WHERE workspace_id = $1 AND action = 'assist.settings_changed'",
+        )
+        .bind(ws)
+        .fetch_all(&server.pool)
+        .await
+        .unwrap();
+        assert_eq!(changed, vec![r#"{"enabled": true}"#.to_owned()]);
     })
     .await;
 }

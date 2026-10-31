@@ -37,6 +37,10 @@ async fn workspace_llm_api() {
             default_workspace_answer_input_tokens_per_day: None,
             default_workspace_answer_output_tokens_per_month: None,
             default_workspace_answer_output_tokens_per_day: None,
+            default_workspace_assist_input_tokens_per_month: None,
+            default_workspace_assist_input_tokens_per_day: None,
+            default_workspace_assist_output_tokens_per_month: None,
+            default_workspace_assist_output_tokens_per_day: None,
             next_embedding: None,
             allowed_endpoints: vec![AllowedEndpoint {
                 name: "primary".into(),

@@ -322,6 +322,10 @@ mod tests {
             default_workspace_answer_input_tokens_per_day: None,
             default_workspace_answer_output_tokens_per_month: None,
             default_workspace_answer_output_tokens_per_day: None,
+            default_workspace_assist_input_tokens_per_month: None,
+            default_workspace_assist_input_tokens_per_day: None,
+            default_workspace_assist_output_tokens_per_month: None,
+            default_workspace_assist_output_tokens_per_day: None,
             next_embedding: next.map(|(m, d)| NextEmbeddingConfig {
                 model: m.into(),
                 dimensions: d,

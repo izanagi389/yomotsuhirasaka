@@ -289,11 +289,15 @@ pub async fn todo(
     };
     if state.config.llm.is_some() && access.has(Permission::ManageLlm) {
         use crate::budget::{Direction, Kind as Budget};
-        // 予算ごとに1枚（回答は入力・出力のどちらかが尽きていれば）。`budget` でどの予算かを示す
+        // 予算ごとに1枚（回答と支援は入力・出力のどちらかが尽きていれば）。`budget` でどの予算かを示す
         for (budget, directions) in [
             (Budget::Embedding, &[Direction::Input][..]),
             (
                 Budget::VisitorAnswers,
+                &[Direction::Input, Direction::Output][..],
+            ),
+            (
+                Budget::EditorAssist,
                 &[Direction::Input, Direction::Output][..],
             ),
         ] {
