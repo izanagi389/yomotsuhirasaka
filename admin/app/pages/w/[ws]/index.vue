@@ -114,7 +114,7 @@ function detail(i: TodoItem): string {
           <span class="flex flex-wrap items-center gap-2">
             <Badge :variant="urgent(i.kind) ? 'destructive' : 'outline'">{{ t(`todo.kind.${i.kind}`) }}</Badge>
             <Badge v-if="i.request?.assignedToMe && i.kind === 'reviewWaiting'" variant="secondary">{{ t("review.assignedToMe") }}</Badge>
-            <span class="font-medium">{{ i.kind === "budgetExhausted" ? t(i.budget === "visitor_answers" ? "todo.answerBudgetExhausted" : "todo.budgetExhausted") : i.kind === "embeddingModelMissing" ? t("todo.embeddingModelMissing") : titleOf(i) || t("entries.untitled") }}</span>
+            <span class="font-medium">{{ i.kind === "budgetExhausted" ? t(i.budget === "visitor_answers" ? "todo.answerBudgetExhausted" : i.budget === "editor_assist" ? "todo.assistBudgetExhausted" : "todo.budgetExhausted") : i.kind === "embeddingModelMissing" ? t("todo.embeddingModelMissing") : titleOf(i) || t("entries.untitled") }}</span>
             <span class="text-muted-foreground">{{ i.entry?.locale }}</span>
             <span class="ml-auto text-muted-foreground">{{ detail(i) }}</span>
           </span>

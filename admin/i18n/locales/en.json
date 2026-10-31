@@ -622,7 +622,8 @@
       "budget": {
         "changed": "LLM budget changed",
         "exhausted": "LLM budget exhausted (embeddings)",
-        "answer_exhausted": "LLM budget exhausted (visitor answers)"
+        "answer_exhausted": "LLM budget exhausted (visitor answers)",
+        "assist_exhausted": "LLM budget exhausted (editor assist)"
       },
       "answer": {
         "settings_changed": "Answer tone and phrases changed"
@@ -641,6 +642,9 @@
       "llm": {
         "override_changed": "LLM settings override changed",
         "override_removed": "LLM settings override removed"
+      },
+      "assist": {
+        "settings_changed": "Changed the editor AI assist setting"
       }
     },
     "you": "You",
@@ -924,7 +928,8 @@
     "budgetExhausted": "The embedding budget is used up. Search data for new entries is not created until the limit is raised or the next period (UTC) starts.",
     "embeddingModelMissing": "The embedding model this workspace uses is no longer in the server config. Vector search is off until the switch is started.",
     "embeddingModelMissingDetail": "Server configuration: [llm.next_embedding]",
-    "answerBudgetExhausted": "The visitor answer budget is used up. The answer API returns a budget error until the limit is raised or the next period (UTC) starts."
+    "answerBudgetExhausted": "The visitor answer budget is used up. The answer API returns a budget error until the limit is raised or the next period (UTC) starts.",
+    "assistBudgetExhausted": "The editor assist budget is used up. AI assist stops until you raise the limit or the next period (UTC) starts. Publishing works as usual."
   },
   "preview": {
     "noUrl": "The preview cannot open because the entry has no public URL yet. Enter a slug.",
@@ -999,6 +1004,13 @@
     "direction": {
       "input": "Input (question and fragments)",
       "output": "Output (answer)"
+    },
+    "assistTitle": "Editor assist budget",
+    "assistHelp": "Used for conflict detection, review hints and article outlines. Input and output are counted separately, in tokens. When it runs out, only the assist stops; publishing is never blocked.",
+    "assistExhaustedHelp": "Since {at}, assist has been stopped because the budget is used up. It resumes when you raise the limit or the next period (UTC) starts. Publishing still works.",
+    "assistDirection": {
+      "input": "Input (drafts, article fragments, questions)",
+      "output": "Output (assist results)"
     }
   },
   "embeddingSwitch": {
@@ -1151,5 +1163,28 @@
     "estimate": "{chunks} chunks to rebuild, about {tokens} tokens.",
     "estimateCost": "Estimated cost: about {cost}.",
     "startSwitch": "Check the estimate and start the switch"
+  },
+  "assist": {
+    "settingsTitle": "AI assist for editors",
+    "settingsHelp": "Enables conflict detection on the publish screen, review hints for overdue articles and article outlines from the question log. It runs within the editor assist budget.",
+    "egressNote": "When enabled, unpublished drafts are sent to the external LLM provider. For sites with confidential content, we recommend a local LLM.",
+    "enable": "Use AI assist",
+    "disabled": "AI assist is disabled in this workspace.",
+    "running": "The AI is checking…",
+    "failed": "The AI check could not be completed. Please try again later.",
+    "budgetExhaustedMonth": "This month's limit has been reached.",
+    "budgetExhaustedDay": "Today's limit has been reached.",
+    "conflictsTitle": "Conflicts with other articles (AI)",
+    "noConflicts": "No conflicts with similar articles were found.",
+    "openOther": "Open the other article",
+    "conflictsNote": "This is an AI check and may miss things or be wrong. You can publish without waiting for it.",
+    "staleTitle": "Review hints (AI)",
+    "staleHelp": "The AI lists places in the saved draft that may be outdated (version numbers, prices, dates, external links).",
+    "staleStart": "Find possibly outdated places",
+    "noHints": "Nothing that looks outdated was found.",
+    "outlineStart": "Draft an outline (AI)",
+    "outlineNote": "This outline was written by AI. Check the facts when you write the article.",
+    "copy": "Copy",
+    "copied": "Copied."
   }
 }

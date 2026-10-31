@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// LLMの予算（10-llm-and-budget.md「予算」）。「埋め込みの作成」と「訪問者向けの回答」（M4。入力・出力別）。
+// LLMの予算（10-llm-and-budget.md「予算」）。「埋め込みの作成」と、「訪問者向けの回答」「編集者向けの支援」（M4。入力・出力別）。
 // 重い権限 manageLlm を持つ人とサーバー管理者が使う。1つの予算の使用量・上限・天井のフォームは BudgetPartForm。
 // - 天井はサーバー管理者だけが変えられる（PUT /workspaces/{ws}/limits）。ほかの人には見るだけ
 // 権限・天井の範囲・再認証の判断はサーバーが行う。期間は UTC の暦の月・日で区切る。
@@ -21,10 +21,13 @@ const { data: budget, error, refresh } = await useAsyncData(`budget:${ws}`, () =
 const { data: answer, error: answerError, refresh: refreshAnswer } = await useAsyncData(`answer-budget:${ws}`, () =>
   allowed.value ? api.get<AnswerBudget>(`/workspaces/${ws}/budgets/answer`) : Promise.resolve(null),
 );
+const { data: assist, error: assistError, refresh: refreshAssist } = await useAsyncData(`assist-budget:${ws}`, () =>
+  allowed.value ? api.get<AnswerBudget>(`/workspaces/${ws}/budgets/assist`) : Promise.resolve(null),
+);
 const { refresh: refreshTodo } = useTodo(ws);
 
 /** 保存の対象（予算の部分）と、保存できたもの。 */
-type PartKey = "embedding" | "answerInput" | "answerOutput";
+type PartKey = "embedding" | "answerInput" | "answerOutput" | "assistInput" | "assistOutput";
 const saving = ref(false);
 const saveError = ref<unknown>(null);
 const saved = ref<{ part: PartKey; what: "limits" | "ceiling" } | null>(null);
@@ -35,7 +38,7 @@ async function run(part: PartKey, what: "limits" | "ceiling", call: () => Promis
   saved.value = null;
   try {
     await call();
-    await Promise.all([refresh(), refreshAnswer()]);
+    await Promise.all([refresh(), refreshAnswer(), refreshAssist()]);
     await refreshTodo();
     saved.value = { part, what };
   } catch (e) {
@@ -52,6 +55,8 @@ const CEILING_KEYS: Record<PartKey, { month: string; day: string }> = {
   embedding: { month: "embeddingTokensPerMonth", day: "embeddingTokensPerDay" },
   answerInput: { month: "answerInputTokensPerMonth", day: "answerInputTokensPerDay" },
   answerOutput: { month: "answerOutputTokensPerMonth", day: "answerOutputTokensPerDay" },
+  assistInput: { month: "assistInputTokensPerMonth", day: "assistInputTokensPerDay" },
+  assistOutput: { month: "assistOutputTokensPerMonth", day: "assistOutputTokensPerDay" },
 };
 function saveCeiling(part: PartKey, c: Ceiling) {
   const body: Record<string, number | null> = {};
@@ -64,19 +69,23 @@ const saveEmbedding = (l: Limits) => run("embedding", "limits", () => api.put(`/
 const saveAnswer = (part: "answerInput" | "answerOutput", l: Limits) =>
   run(part, "limits", () => api.put(`/workspaces/${ws}/budgets/answer`, part === "answerInput" ? { input: l } : { output: l }));
 
-/** 回答の予算が尽きた時刻（入力・出力の早いほう）。 */
-const answerExhaustedAt = computed(() => {
-  const a = answer.value;
+const saveAssist = (part: "assistInput" | "assistOutput", l: Limits) =>
+  run(part, "limits", () => api.put(`/workspaces/${ws}/budgets/assist`, part === "assistInput" ? { input: l } : { output: l }));
+
+/** 入力・出力別の予算が尽きた時刻（早いほう）。 */
+function exhaustedAt(a: AnswerBudget | null | undefined): string | null {
   if (!a) return null;
   const times = [a.input.exhaustedAt, a.output.exhaustedAt].filter((x): x is string => !!x).sort();
   return times[0] ?? null;
-});
+}
+const answerExhaustedAt = computed(() => exhaustedAt(answer.value));
+const assistExhaustedAt = computed(() => exhaustedAt(assist.value));
 </script>
 
 <template>
   <div class="grid gap-6">
     <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="allowed" :questions="hasPermission(workspace, 'viewQuestionLog')" />
-    <FormError :error="wsError ?? error ?? answerError ?? saveError" />
+    <FormError :error="wsError ?? error ?? answerError ?? assistError ?? saveError" />
     <p v-if="workspace && !allowed" class="text-muted-foreground">{{ t("errors.forbidden") }}</p>
 
     <template v-else>
@@ -138,6 +147,42 @@ const answerExhaustedAt = computed(() => {
             :saved="savedOf('answerOutput')"
             @save-limits="(l) => saveAnswer('answerOutput', l)"
             @save-ceiling="(c) => saveCeiling('answerOutput', c)"
+          />
+        </div>
+      </section>
+      <!-- 編集者向けの支援（M4）。尽きても公開は妨げない -->
+      <section v-if="assist" class="grid gap-4 border-t pt-6" data-testid="budget-assist">
+        <h2 class="text-lg font-semibold">{{ t("budget.assistTitle") }}</h2>
+        <p v-if="!assist.chatConfigured" class="text-sm text-muted-foreground">{{ t("budget.noChat") }}</p>
+        <template v-else>
+          <Alert v-if="assistExhaustedAt" variant="destructive" data-testid="budget-assist-exhausted">
+            <AlertTitle>{{ t("budget.exhaustedTitle") }}</AlertTitle>
+            <AlertDescription>{{ t("budget.assistExhaustedHelp", { at: formatDateTime(assistExhaustedAt, locale) }) }}</AlertDescription>
+          </Alert>
+          <p class="text-sm text-muted-foreground">{{ t("budget.assistHelp") }}</p>
+        </template>
+        <div class="grid gap-6 md:grid-cols-2">
+          <BudgetPartForm
+            :part="assist.input"
+            id-prefix="assist-input"
+            :heading="t('budget.assistDirection.input')"
+            :configured="assist.chatConfigured"
+            :server-admin="!!me?.isServerAdmin"
+            :saving="saving"
+            :saved="savedOf('assistInput')"
+            @save-limits="(l) => saveAssist('assistInput', l)"
+            @save-ceiling="(c) => saveCeiling('assistInput', c)"
+          />
+          <BudgetPartForm
+            :part="assist.output"
+            id-prefix="assist-output"
+            :heading="t('budget.assistDirection.output')"
+            :configured="assist.chatConfigured"
+            :server-admin="!!me?.isServerAdmin"
+            :saving="saving"
+            :saved="savedOf('assistOutput')"
+            @save-limits="(l) => saveAssist('assistOutput', l)"
+            @save-ceiling="(c) => saveCeiling('assistOutput', c)"
           />
         </div>
       </section>
