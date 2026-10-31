@@ -242,7 +242,15 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     {
         return Err(Refusal::QuestionRefused);
     }
-    let (Some(llm_config), Some(egress)) = (app.config.llm.as_ref(), app.egress.as_ref()) else {
+    let Some(egress) = app.egress.as_ref() else {
+        return Err(Refusal::Unavailable);
+    };
+    // ワークスペースの上書き（許されていて、許可の一覧にある接続先なら）か、インスタンスの設定（Q26）
+    let Some((llm_config, endpoint)) =
+        crate::workspace_llm::effective(&app.pool, &app.keys, &app.config, req.workspace_id)
+            .await
+            .map_err(internal)?
+    else {
         return Err(Refusal::Unavailable);
     };
     let Some(model) = llm_config.chat_model.clone() else {
@@ -253,7 +261,16 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     // 回答キャッシュ（出典を今の状態と照合してから返す。予算・埋め込み・LLMは使わない）
     // 語り口（回答キャッシュのキーとプロンプトに使う）
     let tone = load_tone(app, req).await.map_err(internal)?;
-    let cache_key = cache_key(app, req, locale, &model, &tone, &masked).map_err(internal)?;
+    // 回答キャッシュの設定には、接続先の名前とモデルを入れる（上書きを変えたら、前のキャッシュに当たらない）
+    let cache_key = cache_key(
+        app,
+        req,
+        locale,
+        &format!("{endpoint}\u{0}{model}"),
+        &tone,
+        &masked,
+    )
+    .map_err(internal)?;
     if let Some(hit) = cached(app, req, &cache_key).await.map_err(internal)? {
         let _ = out
             .send(Ok(Event::Verdict {
@@ -307,7 +324,7 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     let pool = &app.pool;
     let ws = req.workspace_id;
     let (input, output) = reserve(app, ws, input_estimate).await?;
-    let llm = Llm::new(egress.clone(), llm_config.current());
+    let llm = Llm::new(egress.clone(), llm_config.clone());
     let mut stream = match llm.chat_stream(&model, &messages, MAX_OUTPUT_TOKENS).await {
         Ok(s) => s,
         Err(e) => {
@@ -535,10 +552,14 @@ fn fragment_text(f: &Fragment) -> String {
 
 /// 根拠の断片と出典の情報を、読み取りのトランザクションで集める（LLMを呼ぶ前に閉じる）。
 async fn grounds(app: &AppState, req: &Request, masked: &str) -> Result<Grounds> {
+    let setup =
+        crate::workspace_llm::embedding(&app.pool, &app.keys, &app.config, req.workspace_id)
+            .await?;
     let mut tx = workspace_db::begin_owned(&app.pool, &req.db).await?;
     let services = search::Services {
         pool: &app.pool,
         config: &app.config,
+        embedding: setup.as_ref().map(|s| &s.llm),
         egress: app.egress.as_ref(),
         cache: &app.search_cache,
     };

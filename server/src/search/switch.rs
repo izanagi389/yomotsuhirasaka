@@ -116,7 +116,8 @@ pub struct Plan {
 }
 
 /// 設定・記録・開始の操作から、ワークスペースのやることを決める（DBに触れない）。
-pub fn plan(llm: &LlmConfig, rec: &Recorded, started: Option<&ModelId>) -> Plan {
+/// `started` は開始の操作で記録された切り替え先（インスタンスの切り替えと、ワークスペースの切り替え）。
+pub fn plan(llm: &LlmConfig, rec: &Recorded, started: &[ModelId]) -> Plan {
     let current = llm.current();
     let next = llm.next();
     let active = rec.active.clone().unwrap_or_else(|| id_of(&current));
@@ -141,7 +142,7 @@ pub fn plan(llm: &LlmConfig, rec: &Recorded, started: Option<&ModelId>) -> Plan 
             state: State::Switched,
         };
     }
-    let confirmed = started == Some(&desired);
+    let confirmed = started.contains(&desired);
     // 期間の中で、切り替える前のモデルへ戻すときは、開始の操作は要らない（埋め込みは残っている）
     let rollback = rec.within_retention && rec.previous.as_ref() == Some(&desired);
     if confirmed || rollback {
@@ -180,9 +181,13 @@ pub fn kept(llm: &LlmConfig, rec: &Recorded, plan: &Plan) -> Vec<ModelId> {
     keep
 }
 
-/// 検索に使うモデルの接続先（ワークスペースの記録と設定から）。LLMの接続先がない・使っているモデルが設定になければ None。
-pub async fn serving(config: &Config, conn: &mut PgConnection) -> Result<Option<LlmConfig>> {
-    let Some(llm) = &config.llm else {
+/// 検索に使うモデルの接続先（ワークスペースの記録と、ワークスペースの埋め込みの設定 `workspace_llm::embedding` から）。
+/// LLMの接続先がない・使っているモデルが設定になければ None。
+pub async fn serving(
+    llm: Option<&LlmConfig>,
+    conn: &mut PgConnection,
+) -> Result<Option<LlmConfig>> {
+    let Some(llm) = llm else {
         return Ok(None);
     };
     let rec = recorded(conn).await?;
@@ -198,6 +203,8 @@ pub struct Status {
     pub state: State,
     /// 今使っているモデル。
     pub active: ModelId,
+    /// 切り替え先として望まれているモデル。
+    pub desired: ModelId,
     /// 切り替え先として望まれているモデルの埋め込みが、まだないチャンクの数。
     pub chunks_to_embed: i64,
     /// そのトークン数の見積もり（1文字を1トークンとして多めに数える。予算の確保と同じ。Q138）。
@@ -206,16 +213,13 @@ pub struct Status {
     pub estimated_cost: Option<f64>,
 }
 
-/// ワークスペースの切り替えの状態と見積もりを読む。LLMの接続先がなければ None。
+/// ワークスペースの切り替えの状態と見積もりを読む（`llm` と `started` は `workspace_llm::embedding` のもの）。
 pub async fn status(
     pool: &PgPool,
-    config: &Config,
+    llm: &LlmConfig,
     db: &crate::workspace_db::WorkspaceDb,
-    started: Option<&ModelId>,
-) -> Result<Option<Status>> {
-    let Some(llm) = &config.llm else {
-        return Ok(None);
-    };
+    started: &[ModelId],
+) -> Result<Status> {
     let mut tx = crate::workspace_db::begin(pool, db).await?;
     let rec = recorded(&mut tx).await?;
     let p = plan(llm, &rec, started);
@@ -240,13 +244,14 @@ pub async fn status(
     let price = llm
         .for_model(&p.desired.0, p.desired.1)
         .and_then(|c| c.embedding_price_per_million_tokens);
-    Ok(Some(Status {
+    Ok(Status {
         state: p.state,
         active: p.active,
+        desired: p.desired.clone(),
         chunks_to_embed: chunks,
         estimated_tokens: tokens,
         estimated_cost: price.map(|pr| pr * tokens as f64 / 1_000_000.0),
-    }))
+    })
 }
 
 /// 開始する（切り替え先のモデルを記録する。前の記録は書き直す）。
@@ -265,7 +270,11 @@ pub async fn start(pool: &PgPool, model: &ModelId, user_id: uuid::Uuid) -> Resul
 }
 
 /// 使っているモデルが設定にないワークスペースを、起動のときにログに出す（ワークスペースのIDだけ）。
-pub async fn warn_unconfigured(pool: &PgPool, config: &Config) -> Result<()> {
+pub async fn warn_unconfigured(
+    pool: &PgPool,
+    keys: &crate::keys::KeyRing,
+    config: &Config,
+) -> Result<()> {
     if config.llm.is_none() {
         return Ok(());
     }
@@ -277,8 +286,9 @@ pub async fn warn_unconfigured(pool: &PgPool, config: &Config) -> Result<()> {
         let Some(db) = crate::workspace_db::lookup(pool, id).await? else {
             continue;
         };
+        let setup = crate::workspace_llm::embedding(pool, keys, config, id).await?;
         let mut tx = crate::workspace_db::begin(pool, &db).await?;
-        let serving = serving(config, &mut tx).await?;
+        let serving = serving(setup.as_ref().map(|s| &s.llm), &mut tx).await?;
         tx.commit().await?;
         if serving.is_none() {
             tracing::warn!(
@@ -319,6 +329,8 @@ mod tests {
                 api_key: None,
                 embedding_price_per_million_tokens: None,
             }),
+            allowed_endpoints: Vec::new(),
+            allowed_embedding_models: Vec::new(),
         }
     }
 
@@ -332,7 +344,7 @@ mod tests {
 
     #[test]
     fn without_a_next_model_the_current_one_is_used() {
-        let p = plan(&llm(None), &Recorded::default(), None);
+        let p = plan(&llm(None), &Recorded::default(), &[]);
         assert_eq!(p.state, State::Switched);
         assert_eq!(p.active, id("old", 8));
         assert_eq!(models(&p), vec![id("old", 8)]);
@@ -342,7 +354,7 @@ mod tests {
     #[test]
     fn a_next_model_waits_for_the_start() {
         let c = llm(Some(("new", 4)));
-        let p = plan(&c, &Recorded::default(), None);
+        let p = plan(&c, &Recorded::default(), &[]);
         assert_eq!(p.state, State::NotStarted);
         assert_eq!(
             models(&p),
@@ -352,11 +364,11 @@ mod tests {
         assert!(p.target.is_none());
         // 別のモデルを開始していても、設定の切り替え先でなければ始まらない
         assert_eq!(
-            plan(&c, &Recorded::default(), Some(&id("other", 4))).state,
+            plan(&c, &Recorded::default(), &[id("other", 4)]).state,
             State::NotStarted
         );
         // 開始すると、旧モデルを先に、新しいモデルも作り、そろえば切り替える。検索は旧モデルのまま
-        let p = plan(&c, &Recorded::default(), Some(&id("new", 4)));
+        let p = plan(&c, &Recorded::default(), &[id("new", 4)]);
         assert_eq!(p.state, State::InProgress);
         assert_eq!(models(&p), vec![id("old", 8), id("new", 4)]);
         assert_eq!(p.target, Some(id("new", 4)));
@@ -365,7 +377,7 @@ mod tests {
             paused: true,
             ..Recorded::default()
         };
-        assert_eq!(plan(&c, &paused, Some(&id("new", 4))).state, State::Paused);
+        assert_eq!(plan(&c, &paused, &[id("new", 4)]).state, State::Paused);
     }
 
     #[test]
@@ -377,7 +389,7 @@ mod tests {
             within_retention: true,
             paused: false,
         };
-        let p = plan(&c, &switched, Some(&id("new", 4)));
+        let p = plan(&c, &switched, &[id("new", 4)]);
         assert_eq!(p.state, State::Switched);
         assert_eq!(p.serving.as_ref().map(id_of), Some(id("new", 4)));
         assert_eq!(
@@ -386,7 +398,7 @@ mod tests {
             "期間の中は旧モデルの分も作る"
         );
         // 切り替え先を設定から消せば、すぐに戻る（開始の操作は要らない）
-        let back = plan(&llm(None), &switched, None);
+        let back = plan(&llm(None), &switched, &[]);
         assert!(back.serving.is_none(), "新しいモデルは、もう呼べない");
         assert_eq!(back.target, Some(id("old", 8)));
         assert_eq!(back.state, State::InProgress);
@@ -395,7 +407,7 @@ mod tests {
             within_retention: false,
             ..switched.clone()
         };
-        let p = plan(&llm(None), &expired, None);
+        let p = plan(&llm(None), &expired, &[]);
         assert_eq!(p.state, State::NeedsMigration);
         assert!(p.embed.is_empty(), "埋め込みは開始してから作る");
         assert_eq!(
@@ -404,7 +416,7 @@ mod tests {
             "埋め込みがそろっていれば（費用なしで）切り替える"
         );
         assert_eq!(
-            plan(&llm(None), &expired, Some(&id("old", 8))).state,
+            plan(&llm(None), &expired, &[id("old", 8)]).state,
             State::InProgress
         );
     }
@@ -418,13 +430,13 @@ mod tests {
             within_retention: false,
             paused: false,
         };
-        let p = plan(&c, &old, None);
+        let p = plan(&c, &old, &[]);
         assert_eq!(kept(&c, &old, &p), vec![id("old", 8)]);
         let recent = Recorded {
             within_retention: true,
             ..old
         };
-        let p = plan(&c, &recent, None);
+        let p = plan(&c, &recent, &[]);
         assert_eq!(kept(&c, &recent, &p), vec![id("old", 8), id("older", 8)]);
     }
 }

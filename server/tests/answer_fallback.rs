@@ -84,6 +84,7 @@ async fn answer_fragments_fall_back_to_the_default_locale() {
         let services = Services {
             pool: &state.pool,
             config: &state.config,
+            embedding: state.config.llm.as_ref(),
             egress: state.egress.as_ref(),
             cache: &state.search_cache,
         };

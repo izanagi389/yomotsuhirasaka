@@ -340,6 +340,8 @@ fn init_llm(
         default_workspace_answer_output_tokens_per_month: None,
         default_workspace_answer_output_tokens_per_day: None,
         next_embedding: None,
+        allowed_endpoints: Vec::new(),
+        allowed_embedding_models: Vec::new(),
     }))
 }
 
@@ -906,7 +908,8 @@ async fn serve(config: Config) -> Result<()> {
         tracing::error!("cannot queue search indexing: {e:#}");
     }
     // 使っているモデルが設定にないワークスペースを知らせる（埋め込みモデルの切り替え）
-    if let Err(e) = cms_server::search::switch::warn_unconfigured(&state.pool, &state.config).await
+    if let Err(e) =
+        cms_server::search::switch::warn_unconfigured(&state.pool, &state.keys, &state.config).await
     {
         tracing::error!("cannot check the embedding models of workspaces: {e:#}");
     }

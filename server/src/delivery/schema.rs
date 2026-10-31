@@ -634,9 +634,13 @@ fn search_field(manifest: Arc<Manifest>) -> Field {
                     keyword: Availability::Disabled,
                 })));
             };
+            let setup = crate::workspace_llm::embedding(&app.pool, &app.keys, &app.config, req.workspace_id)
+                .await
+                .map_err(internal)?;
             let services = search::Services {
                 pool: &app.pool,
                 config: &app.config,
+                embedding: setup.as_ref().map(|s| &s.llm),
                 egress: app.egress.as_ref(),
                 cache: &app.search_cache,
             };

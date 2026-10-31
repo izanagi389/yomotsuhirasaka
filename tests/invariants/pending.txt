@@ -12,5 +12,3 @@
 inv_bud_02
 # 質問ログと拒否する語
 # LLMの接続先とAPIキー
-inv_llm_01
-inv_llm_02

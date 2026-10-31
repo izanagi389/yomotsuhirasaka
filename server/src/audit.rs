@@ -94,6 +94,9 @@ pub mod action {
     /// 回答の語り口と定型文を変えた（M4。重い権限 manageLlm。詳細は変えた項目の名前だけ）。
     pub const ANSWER_SETTINGS_CHANGED: &str = "answer.settings_changed";
     /// 質問ログの有効・無効と保存期間を変えた（ワークスペースの管理者。詳細は変えた後の値）。
+    /// ワークスペースの LLM の接続設定の上書きを保存した・やめた（M4。詳細は変えた項目の名前だけ。キーは残さない）。
+    pub const LLM_OVERRIDE_CHANGED: &str = "llm.override_changed";
+    pub const LLM_OVERRIDE_REMOVED: &str = "llm.override_removed";
     pub const QUESTION_LOG_SETTINGS_CHANGED: &str = "question_log.settings_changed";
     /// 質問ログを見た（重い権限 viewQuestionLog。見るたびに記録する）。
     pub const QUESTION_LOG_VIEWED: &str = "question_log.viewed";

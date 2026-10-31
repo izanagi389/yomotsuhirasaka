@@ -325,6 +325,8 @@ pub async fn delete(
 pub struct Limits {
     media_bytes: i64,
     media_bytes_used: i64,
+    /// LLM の接続設定の上書きを許しているか（M4）。
+    llm_override: bool,
 }
 
 async fn limits_of(state: &AppState, ws: Uuid) -> Result<Limits, ApiError> {
@@ -335,6 +337,7 @@ async fn limits_of(state: &AppState, ws: Uuid) -> Result<Limits, ApiError> {
     Ok(Limits {
         media_bytes: quota(state, ws).await?,
         media_bytes_used: used,
+        llm_override: crate::workspace_llm::allowed(&state.pool, ws).await?,
     })
 }
 
@@ -368,6 +371,9 @@ pub struct SetLimits {
     answer_output_tokens_per_month: Option<Option<i64>>,
     #[serde(default, deserialize_with = "present")]
     answer_output_tokens_per_day: Option<Option<i64>>,
+    /// ワークスペースに LLM の接続設定の上書きを許すか（M4、Q26）。false にしたら、保存してある上書き（キーを含む）を消す。
+    #[serde(default)]
+    llm_override: Option<bool>,
 }
 
 /// 項目が「ない」ことと「null」を区別する（ない: None、null: Some(None)）。
@@ -439,6 +445,17 @@ pub async fn set_limits(
     .execute(&mut *tx)
     .await
     .map_err(anyhow::Error::from)?;
+    if let Some(allow) = req.llm_override {
+        sqlx::query("UPDATE cms.workspace_limits SET llm_override = $2 WHERE workspace_id = $1")
+            .bind(ws)
+            .bind(allow)
+            .execute(&mut *tx)
+            .await
+            .map_err(anyhow::Error::from)?;
+        if !allow {
+            crate::workspace_llm::remove(&mut *tx, ws).await?;
+        }
+    }
     if let Some(v) = req.media_bytes {
         sqlx::query("UPDATE cms.workspace_limits SET media_bytes = $2 WHERE workspace_id = $1")
             .bind(ws)
