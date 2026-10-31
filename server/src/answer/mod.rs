@@ -15,7 +15,7 @@ pub mod cache;
 pub mod check;
 pub mod format;
 pub mod log;
-mod prompt;
+pub(crate) mod prompt;
 pub mod refuse;
 pub mod settings;
 pub mod urls;

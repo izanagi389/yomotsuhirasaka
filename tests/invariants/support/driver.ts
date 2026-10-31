@@ -144,6 +144,7 @@ export interface AssistSettings {
 
 /**
  * 矛盾の検知の結果（M4、10-llm-and-budget.md「編集者向けのAI支援」）。公開の確認画面で始め、いまの下書きについて読む。
+ * - notStarted: いまの下書きについては、まだ始めていない
  * - running: 動いている途中
  * - done: 終わった（conflicts は見つかった食い違い。なければ空）
  * - failed: LLM の障害などで終わらなかった
@@ -151,7 +152,7 @@ export interface AssistSettings {
  * - budgetExhausted: 編集者向けの支援の予算が尽きた（period は尽きた期間。画面は「今月の上限に達しました」などと出す）
  */
 export interface ConflictCheck {
-  state: "running" | "done" | "failed" | "disabled" | "budgetExhausted";
+  state: "notStarted" | "running" | "done" | "failed" | "disabled" | "budgetExhausted";
   period?: "month" | "day";
   conflicts: { entryId: string; explanation: string }[];
 }
