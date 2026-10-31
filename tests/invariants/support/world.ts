@@ -209,10 +209,13 @@ export interface AnswerWorld {
    * answerCeiling は回答の予算の天井（トークン数。入力・出力、月・日のすべてに同じ値）。
    * visitorId を true にすると、回答のクエリを、訪問者の識別子の変数 visitorId も受け取る形で登録する。
    * cached を true にすると、回答のクエリで、回答キャッシュから返したか（cached）も選ぶ。
+   * assistCeiling は編集者向けの支援の予算の天井（トークン数。入力・出力、月・日のすべてに同じ値）。指定したときだけ設定する。
    */
-  workspace(label: string, options?: { answerCeiling?: number; visitorId?: boolean; cached?: boolean; llmOverride?: boolean }): Promise<AnswerWorkspace>;
+  workspace(label: string, options?: { answerCeiling?: number; assistCeiling?: number; visitorId?: boolean; cached?: boolean; llmOverride?: boolean }): Promise<AnswerWorkspace>;
   /** このインスタンスのサーバーの設定（driver.storage に渡す）。 */
   config: ServerConfig;
+  /** このインスタンスのサーバー管理者（ワークスペースの上限を変えるときに使う）。 */
+  serverAdmin: Member;
   stop(): Promise<void>;
 }
 
@@ -248,6 +251,7 @@ export async function createAnswerWorld(
     cms,
     llmKey,
     config,
+    serverAdmin: instance.serverAdmin,
     async workspace(label, options = {}) {
       await cms.reauthenticate(sa, instance.serverAdmin);
       const { id } = await cms.createWorkspace(sa, `inv-${label}-${randomUUID().slice(0, 8)}`, { template: SEARCHABLE_TEMPLATE.name });
@@ -260,6 +264,14 @@ export async function createAnswerWorld(
         answerOutputTokensPerMonth: answer,
         answerOutputTokensPerDay: answer,
         ...(options.llmOverride ? { llmOverride: true } : {}),
+        ...(options.assistCeiling !== undefined
+          ? {
+              assistInputTokensPerMonth: options.assistCeiling,
+              assistInputTokensPerDay: options.assistCeiling,
+              assistOutputTokensPerMonth: options.assistCeiling,
+              assistOutputTokensPerDay: options.assistCeiling,
+            }
+          : {}),
       });
       const admin = await cms.createMember(sa, id, "admin");
       const adminSession = await cms.login(admin);
