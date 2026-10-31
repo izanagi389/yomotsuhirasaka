@@ -19,15 +19,14 @@ use serde_json::Value;
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
+use super::llm::Called;
 use super::settings;
 use crate::answer::format::{self, FORMAT};
 use crate::answer::prompt::one_line;
-use crate::audit;
-use crate::budget::{self, Direction, Kind, Reserved};
 use crate::content::{applied_schema, entries, publishing, sections};
 use crate::http::AppState;
 use crate::jobs::{self, Outcome};
-use crate::llm::{ChatMessage, Llm};
+use crate::llm::ChatMessage;
 use crate::search::query as search;
 use crate::workspace_db;
 
@@ -443,78 +442,11 @@ async fn check(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) ->
         return finish(pool, db, p, "done", None, &[]).await;
     }
 
-    // LLM（ワークスペースの上書きか、インスタンスの設定）
-    let (Some(egress), Some((llm_config, _))) = (
-        state.egress.as_ref(),
-        crate::workspace_llm::effective(pool, &state.keys, &state.config, ws).await?,
-    ) else {
-        return failed().await;
-    };
-    let Some(model) = llm_config.chat_model.clone() else {
-        return failed().await;
-    };
+    // LLM（「編集者向けの支援」の予算の範囲で）
     let texts: Vec<String> = fragments.iter().map(|f| f.text.clone()).collect();
     let msgs = messages(&changed, &texts);
-    let input_estimate = crate::answer::prompt::estimate_tokens(&msgs);
-
-    // 「編集者向けの支援」の予算（入力の見積もりと出力の上限を確保する。足りなければ呼ばない）
-    let exhausted = |first: bool, period: budget::Period| async move {
-        if first {
-            audit::record(
-                pool,
-                Some(ws),
-                None,
-                audit::action::ASSIST_BUDGET_EXHAUSTED,
-                &[ws],
-            )
-            .await?;
-        }
-        finish(pool, db, p, "budgetExhausted", Some(period.as_str()), &[]).await
-    };
-    let kind = Kind::EditorAssist;
-    let config = &state.config;
-    let input =
-        match budget::reserve(pool, config, ws, kind, Direction::Input, input_estimate).await? {
-            Reserved::Ok(r) => r,
-            Reserved::Exhausted { first, period } => return exhausted(first, period).await,
-        };
-    let output_max = i64::from(MAX_OUTPUT_TOKENS);
-    let output =
-        match budget::reserve(pool, config, ws, kind, Direction::Output, output_max).await? {
-            Reserved::Ok(r) => r,
-            Reserved::Exhausted { first, period } => {
-                budget::settle(pool, &input, 0).await?;
-                return exhausted(first, period).await;
-            }
-        };
-
-    let llm = Llm::new(egress.clone(), llm_config);
-    let reply = async {
-        let mut stream = llm.chat_stream(&model, &msgs, MAX_OUTPUT_TOKENS).await?;
-        let mut text = String::new();
-        while let Some(t) = stream.next_text().await? {
-            text.push_str(&t);
-            if text.chars().count() > MAX_REPLY_CHARS {
-                break;
-            }
-        }
-        Ok::<_, crate::llm::LlmError>((text, stream.usage()))
-    }
-    .await;
-    match reply {
-        Ok((text, usage)) => {
-            let (input_used, output_used) = match usage {
-                Some(u) => (
-                    i64::try_from(u.prompt_tokens).unwrap_or(i64::MAX),
-                    i64::try_from(u.completion_tokens).unwrap_or(i64::MAX),
-                ),
-                None => (
-                    input_estimate,
-                    i64::try_from(text.chars().count().max(1)).unwrap_or(i64::MAX),
-                ),
-            };
-            budget::settle(pool, &input, input_used).await?;
-            budget::settle(pool, &output, output_used).await?;
+    match super::llm::call(state, ws, &msgs, MAX_OUTPUT_TOKENS, MAX_REPLY_CHARS).await? {
+        Called::Reply(text) => {
             let conflicts: Vec<Conflict> = parse(&text, fragments.len())
                 .into_iter()
                 .map(|(n, explanation)| {
@@ -528,15 +460,10 @@ async fn check(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) ->
                 .collect();
             finish(pool, db, p, "done", None, &conflicts).await
         }
-        Err(e) => {
-            // 相手が処理を始める前の失敗だけ戻す（それ以外は確保した分を使ったものとして残す）
-            if budget::not_charged(e) {
-                budget::settle(pool, &input, 0).await?;
-                budget::settle(pool, &output, 0).await?;
-            }
-            tracing::warn!(entry_id = %p.entry_id, code = e.code(), "conflict detection: LLM call failed");
-            failed().await
+        Called::Exhausted(period) => {
+            finish(pool, db, p, "budgetExhausted", Some(period.as_str()), &[]).await
         }
+        Called::Failed => failed().await,
     }
 }
 
@@ -551,7 +478,7 @@ pub async fn forget_version(conn: &mut PgConnection, version_id: Uuid) -> Result
     Ok(())
 }
 
-/// 残す時間を過ぎた結果を、すべてのワークスペースで消す（常駐の処理から呼ぶ）。
+/// 残す時間を過ぎた支援の結果（矛盾の検知と、ボタンで動く支援）を、すべてのワークスペースで消す（常駐の処理から呼ぶ）。
 pub async fn sweep(pool: &PgPool) -> Result<u64> {
     let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM cms.workspaces ORDER BY created_at")
         .fetch_all(pool)
@@ -569,6 +496,7 @@ pub async fn sweep(pool: &PgPool) -> Result<u64> {
         .execute(&mut *tx)
         .await?
         .rows_affected();
+        removed += super::tasks::sweep_workspace(&mut tx).await?;
         tx.commit().await?;
     }
     Ok(removed)

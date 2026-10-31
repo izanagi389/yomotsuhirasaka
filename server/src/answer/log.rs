@@ -155,6 +155,8 @@ pub async fn change_settings(
         sqlx::query("DELETE FROM question_log")
             .execute(&mut *conn)
             .await?;
+        // 質問文から作った構成案も消す
+        crate::assist::tasks::forget_outlines(conn, None).await?;
     }
     Ok(Ok(now))
 }
@@ -246,12 +248,15 @@ pub async fn view(conn: &mut PgConnection) -> Result<View> {
 
 /// 候補（同じ質問の記録すべて）を消す。消したものがなければ false。
 pub async fn delete_candidate(conn: &mut PgConnection, id: &str) -> Result<bool> {
-    Ok(sqlx::query("DELETE FROM question_log WHERE key = $1")
+    let deleted = sqlx::query("DELETE FROM question_log WHERE key = $1")
         .bind(id)
         .execute(&mut *conn)
         .await?
         .rows_affected()
-        > 0)
+        > 0;
+    // 候補から作った構成案も消す
+    crate::assist::tasks::forget_outlines(conn, Some(id)).await?;
+    Ok(deleted)
 }
 
 /// 保存期間を過ぎた質問ログを、すべてのワークスペースで消す（常駐の処理から1時間ごとに呼ぶ）。

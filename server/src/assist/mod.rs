@@ -6,4 +6,6 @@
 //! - 既定は無効。有効にするのは重い権限 manageLlm を持つ人（公開前の下書きが外部のLLMの提供会社に送られるため）。
 
 pub mod conflicts;
+pub mod llm;
 pub mod settings;
+pub mod tasks;
