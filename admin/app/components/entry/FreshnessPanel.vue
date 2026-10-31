@@ -3,12 +3,14 @@
 // - 「確認済み」は記事ごとの操作だけで、一括の操作は作らない。メモは管理画面だけに残る（INV-FRS-01）
 // - 確認期限は、スキーマの既定・記事ごとの日数・期限なしから選ぶ
 // - 「確認済み」の記録は、重い権限「訂正としての公開と確認済みの記録」を持つ人（Q76）。期限の変更は、公開できる人
+// - 確認期限切れなら、編集できる人に「見直しの手がかり」（AI支援。M4）を出す
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { FreshnessDetail } from "~/utils/content";
+import StaleHintsPanel from "~/components/assist/StaleHintsPanel.vue";
 
 const props = defineProps<{ workspaceId: string; entryId: string; editable: boolean; canVerify: boolean }>();
 const { t, locale } = useI18n();
@@ -78,6 +80,8 @@ function saveReview() {
           <Badge v-if="detail.reviewExpired" variant="destructive" data-testid="review-expired">{{ t("freshness.expired") }}</Badge>
         </dd>
       </dl>
+
+      <StaleHintsPanel v-if="detail.reviewExpired && editable" :workspace-id="workspaceId" :entry-id="entryId" />
 
       <section v-if="canVerify" class="grid gap-2">
         <h3 class="font-medium">{{ t("freshness.verify") }}</h3>

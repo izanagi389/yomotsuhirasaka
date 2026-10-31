@@ -449,7 +449,7 @@ export interface TodoItem {
   /** 管理者への通知（監査ログの記録。計画の15番）。 */
   notification?: import("~/utils/admin").AuditEntry;
   /** 予算切れの予算の種類。 */
-  budget?: "embedding" | "visitor_answers";
+  budget?: "embedding" | "visitor_answers" | "editor_assist";
 }
 
 /** GET/PUT /workspaces/{ws}/entries/{id}/related（固定と除外は翻訳グループ。current は今返している一覧）。 */
@@ -578,4 +578,33 @@ export interface PreviewToken {
   expiresAt: string;
   /** 下書きから作った公開URL（作れなければ null）。 */
   url: string | null;
+}
+
+/** GET/PUT /workspaces/{ws}/assist-settings（編集者向けのAI支援。M4）。既定は無効。 */
+export interface AssistSettings {
+  enabled: boolean;
+}
+
+/**
+ * 支援の結果の状態（矛盾の検知・見直しの手がかり・構成案。M4）。
+ * budgetExhausted のときは period（month・day）で、どの期間の上限に達したかを示す。
+ */
+export type AssistState = "notStarted" | "running" | "done" | "failed" | "disabled" | "budgetExhausted";
+
+/** GET/POST .../entries/{id}/assist/conflicts */
+export interface ConflictCheck {
+  revision: number | null;
+  state: AssistState;
+  period?: "month" | "day";
+  conflicts: { entryId: string; versionId: string; explanation: string }[];
+}
+
+/** GET/POST .../entries/{id}/assist/stale と .../question-log/candidates/{id}/outline */
+export interface AssistTask {
+  state: AssistState;
+  period?: "month" | "day";
+  /** 見直しの手がかり（下書きにそのまま含まれる語句と、その理由）。 */
+  hints?: { quote: string; reason: string }[];
+  /** 構成案（Markdown の文。HTML にせず、文字のまま見せる）。 */
+  outline?: string;
 }

@@ -622,7 +622,8 @@
       "budget": {
         "changed": "LLMの予算を変更",
         "exhausted": "LLMの予算切れ（埋め込みの作成）",
-        "answer_exhausted": "LLMの予算切れ（訪問者向けの回答）"
+        "answer_exhausted": "LLMの予算切れ（訪問者向けの回答）",
+        "assist_exhausted": "LLMの予算切れ（編集者向けの支援）"
       },
       "answer": {
         "settings_changed": "回答の語り口と定型文を変更"
@@ -641,6 +642,9 @@
       "llm": {
         "override_changed": "LLMの接続設定の上書きを変更",
         "override_removed": "LLMの接続設定の上書きをやめた"
+      },
+      "assist": {
+        "settings_changed": "編集者向けのAI支援の設定を変更"
       }
     },
     "you": "あなた",
@@ -924,7 +928,8 @@
     "budgetExhausted": "埋め込みの作成の予算が尽きました。上限を上げるか、次の期間（UTC）になるまで、新しい記事の検索用のデータは作られません。",
     "embeddingModelMissing": "このワークスペースが使っている埋め込みのモデルが、サーバーの設定にありません。切り替えを開始するまで、ベクトル検索は使えません。",
     "embeddingModelMissingDetail": "サーバーの設定: [llm.next_embedding]",
-    "answerBudgetExhausted": "訪問者向けの回答の予算が尽きました。上限を上げるか、次の期間（UTC）になるまで、回答APIは予算切れのエラーを返します。"
+    "answerBudgetExhausted": "訪問者向けの回答の予算が尽きました。上限を上げるか、次の期間（UTC）になるまで、回答APIは予算切れのエラーを返します。",
+    "assistBudgetExhausted": "編集者向けの支援の予算が尽きました。上限を上げるか、次の期間（UTC）になるまで、AI支援は動きません。記事の公開はこれまでどおりできます。"
   },
   "preview": {
     "noUrl": "公開URLを作れないため、プレビューを開けません。スラッグを入力してください。",
@@ -999,6 +1004,13 @@
     "direction": {
       "input": "入力（質問と記事の断片）",
       "output": "出力（回答）"
+    },
+    "assistTitle": "編集者向けの支援の予算",
+    "assistHelp": "矛盾の検知・見直しの手がかり・構成案に使う予算です。入力と出力を別々に、トークン数で数えます。足りなければ支援だけが止まり、記事の公開は妨げません。",
+    "assistExhaustedHelp": "{at} から、予算が足りないため支援を止めています。上限を上げるか、次の期間（UTC）になると再開します。記事の公開はできます。",
+    "assistDirection": {
+      "input": "入力（下書き・記事の断片・質問）",
+      "output": "出力（支援の結果）"
     }
   },
   "embeddingSwitch": {
@@ -1151,5 +1163,28 @@
     "estimate": "作り直すチャンクは {chunks} 件、約 {tokens} トークンです。",
     "estimateCost": "費用の見積もりは約 {cost} です。",
     "startSwitch": "見積もりを確かめて、切り替えを開始"
+  },
+  "assist": {
+    "settingsTitle": "編集者向けのAI支援",
+    "settingsHelp": "公開の確認画面での矛盾の検知、確認期限切れの記事の見直しの手がかり、質問ログからの構成案を使えるようにします。「編集者向けの支援」の予算の範囲で動きます。",
+    "egressNote": "有効にすると、公開前の下書きが外部のLLMの提供会社に送られます。機密性の高いサイトでは、ローカルのLLMを使うことをおすすめします。",
+    "enable": "AI支援を使う",
+    "disabled": "このワークスペースでは、AI支援が無効です。",
+    "running": "AIが確認しています…",
+    "failed": "AIの確認ができませんでした。時間をおいて、もう一度お試しください。",
+    "budgetExhaustedMonth": "今月の上限に達しました。",
+    "budgetExhaustedDay": "今日の上限に達しました。",
+    "conflictsTitle": "ほかの記事との食い違い（AI）",
+    "noConflicts": "意味の近いほかの記事との食い違いは見つかりませんでした。",
+    "openOther": "相手の記事を開く",
+    "conflictsNote": "AIによる確認です。見落としや誤りがありえます。公開はこの結果を待たずにできます。",
+    "staleTitle": "見直しの手がかり（AI）",
+    "staleHelp": "保存済みの下書きから、古くなっていそうな箇所（バージョン番号、価格、日付、外部リンク）をAIが挙げます。",
+    "staleStart": "古くなっていそうな箇所を探す",
+    "noHints": "古くなっていそうな箇所は見つかりませんでした。",
+    "outlineStart": "構成案を作る（AI）",
+    "outlineNote": "AIによる構成案です。事実は記事を書くときに確かめてください。",
+    "copy": "コピー",
+    "copied": "コピーしました。"
   }
 }

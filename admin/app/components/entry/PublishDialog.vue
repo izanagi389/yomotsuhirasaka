@@ -9,6 +9,7 @@
 // 予約公開（Q78）では、同じ確認の後に公開の時刻を選ぶ。予約のときにサーバーが公開と同じ検査と計算を済ませ、その時点の下書きを
 // 予約版として固定する（訂正は予約できない）。時刻はブラウザのタイムゾーンで入力し、UTC で送る。
 // 翻訳の記事で原文に未確認の更新があれば知らせ、その場で差分を見て「反映済み」にできる。公開は止めない（Q162, Q164）。
+// AI支援が有効なら、意味の近い他の記事との食い違いを確かめる（ConflictPanel。M4）。結果を待たずに公開できる（INV-BUD-02）。
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import SourceDiffDialog from "~/components/entry/SourceDiffDialog.vue";
+import ConflictPanel from "~/components/assist/ConflictPanel.vue";
 import type { CorrectionTemplate, PublishCheck, Published } from "~/utils/content";
 
 const props = defineProps<{
@@ -207,6 +209,8 @@ function sectionName(s: { anchor: string | null; title: string | null; field: st
             <Button size="sm" variant="outline" @click="diffOpen = true">{{ t("sourceUpdate.showDiff") }}</Button>
           </div>
         </section>
+
+        <ConflictPanel :workspace-id="workspaceId" :entry-id="entryId" />
 
         <p v-if="correction && !check.canCorrect" class="text-destructive">{{ t("errors.nothing_to_correct") }}</p>
 

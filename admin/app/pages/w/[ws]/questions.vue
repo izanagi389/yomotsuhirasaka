@@ -3,9 +3,11 @@
 // （管理者にも既定では付かない）。見るには再認証が要り、見るたびに監査ログに残る（サーバー）。
 // - 候補: 答えられなかった質問を同じ質問ごとにまとめたもの（件数の多い順）。質問文はマスクしたもの。消せる
 // - 直近の日ごとの件数（答えた・情報なし・拒否・エラー）
+// - 候補から、書くべき記事の構成案を作れる（AI支援。M4。OutlinePanel）
 // 質問文は文字として出す（v-html は使わない）。
 import { Button } from "@/components/ui/button";
 import type { QuestionLogView } from "~/utils/content";
+import OutlinePanel from "~/components/assist/OutlinePanel.vue";
 
 const route = useRoute();
 const ws = route.params.ws as string;
@@ -55,6 +57,7 @@ async function remove() {
             <span class="tabular-nums">{{ t("questionLog.count", { count: c.count }) }}</span>
             <span class="text-muted-foreground">{{ formatDateTime(c.lastAskedAt, locale) }}</span>
             <Button variant="outline" size="sm" @click="deleting = c">{{ t("questionLog.delete") }}</Button>
+            <OutlinePanel :workspace-id="ws" :candidate-id="c.id" />
           </li>
         </ul>
       </section>
