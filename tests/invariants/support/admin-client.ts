@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, AnswerError, AnswerSettings, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, AnswerError, AnswerSettings, AssistBudget, AssistSettings, ConflictCheck, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -413,13 +413,27 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     if ("mediaBytes" in limits) body["mediaBytes"] = limits.mediaBytes ?? null;
     if ("embeddingTokensPerMonth" in limits) body["embeddingTokensPerMonth"] = limits.embeddingTokensPerMonth ?? null;
     if ("embeddingTokensPerDay" in limits) body["embeddingTokensPerDay"] = limits.embeddingTokensPerDay ?? null;
-    for (const k of ["answerInputTokensPerMonth", "answerInputTokensPerDay", "answerOutputTokensPerMonth", "answerOutputTokensPerDay"] as const) {
+    for (const k of [
+      "answerInputTokensPerMonth",
+      "answerInputTokensPerDay",
+      "answerOutputTokensPerMonth",
+      "answerOutputTokensPerDay",
+      "assistInputTokensPerMonth",
+      "assistInputTokensPerDay",
+      "assistOutputTokensPerMonth",
+      "assistOutputTokensPerDay",
+    ] as const) {
       if (k in limits) body[k] = limits[k] ?? null;
     }
     return request("PUT", `${ADMIN}/workspaces/${workspaceId}/limits`, { auth, extras, body });
   };
   const setEmbeddingBudgetRaw = (auth: Auth, workspaceId: string, budget: EmbeddingBudget, extras?: RequestExtras): Promise<HttpResponse> =>
     request("PUT", `${ADMIN}/workspaces/${workspaceId}/budgets/embedding`, { auth, extras, body: budget });
+  const setAssistBudgetRaw = (auth: Auth, workspaceId: string, budget: AssistBudget, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("PUT", `${ADMIN}/workspaces/${workspaceId}/budgets/assist`, { auth, extras, body: budget });
+  const setAssistSettingsRaw = (auth: Auth, workspaceId: string, settings: AssistSettings, extras?: RequestExtras): Promise<HttpResponse> =>
+    request("PUT", `${ADMIN}/workspaces/${workspaceId}/assist-settings`, { auth, extras, body: settings });
+  const conflictsPath = (workspaceId: string, entryId: string) => `${entriesPath(workspaceId)}/${entryId}/assist/conflicts`;
   // 操作の一覧で使う小さな画像（1×1のPNG）
   const TINY_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
@@ -988,6 +1002,21 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     },
     setEmbeddingBudgetRaw(auth: Auth, workspaceId: string, budget: EmbeddingBudget): Promise<HttpResponse> {
       return setEmbeddingBudgetRaw(auth, workspaceId, budget);
+    },
+    setAssistBudgetRaw: (auth: Auth, workspaceId: string, budget: AssistBudget) => setAssistBudgetRaw(auth, workspaceId, budget),
+    async setAssistSettings(s: Session, workspaceId: string, settings: AssistSettings): Promise<void> {
+      ensure("編集者向けのAI支援の設定の変更", await setAssistSettingsRaw(session(s), workspaceId, settings));
+    },
+    setAssistSettingsRaw: (auth: Auth, workspaceId: string, settings: AssistSettings) => setAssistSettingsRaw(auth, workspaceId, settings),
+    startConflictCheckRaw: (auth: Auth, workspaceId: string, entryId: string) => request("POST", conflictsPath(workspaceId, entryId), { auth }),
+    async startConflictCheck(s: Session, workspaceId: string, entryId: string): Promise<void> {
+      ensure("矛盾の検知の開始", await request("POST", conflictsPath(workspaceId, entryId), { auth: session(s) }));
+    },
+    async conflictCheck(s: Session, workspaceId: string, entryId: string): Promise<ConflictCheck> {
+      const res = ensure("矛盾の検知の結果の読み取り", await request("GET", conflictsPath(workspaceId, entryId), { auth: session(s) }));
+      const r = JSON.parse(res.text) as Partial<ConflictCheck>;
+      if (typeof r.state !== "string" || !Array.isArray(r.conflicts)) throw new SetupError("矛盾の検知の結果の読み取り", res);
+      return r as ConflictCheck;
     },
     async embeddingSwitch(s: Session): Promise<EmbeddingSwitchStatus> {
       const res = ensure("埋め込みモデルの切り替えの状態", await request("GET", `${ADMIN}/embedding-switch`, { auth: session(s) }));
