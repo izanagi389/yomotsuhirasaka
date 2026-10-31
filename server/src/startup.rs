@@ -389,6 +389,19 @@ fn check_llm(llm: &crate::config::LlmConfig, exceptions: &[String]) -> Vec<Probl
             )));
         }
     }
+    // ワークスペースが選べる接続先（名前は空でなく重ならない。URL は今の接続先と同じ規則。Q26）
+    for (i, e) in llm.allowed_endpoints.iter().enumerate() {
+        let prefix = format!("llm.allowed_endpoints[{i}]");
+        if e.name.trim().is_empty() {
+            problems.push(Problem::fatal(format!("`{prefix}.name` is empty")));
+        }
+        if llm.allowed_endpoints[..i].iter().any(|o| o.name == e.name) {
+            problems.push(Problem::fatal(format!(
+                "`{prefix}.name` is used by another allowed endpoint"
+            )));
+        }
+        problems.extend(check_base_url(&prefix, &e.base_url, exceptions));
+    }
     problems
 }
 
@@ -399,6 +412,15 @@ fn check_endpoint(
     api_key: &str,
     exceptions: &[String],
 ) -> Vec<Problem> {
+    let mut problems = check_base_url(prefix, base_url, exceptions);
+    if api_key.trim().is_empty() {
+        problems.push(Problem::fatal(format!("`{prefix}.api_key` is empty")));
+    }
+    problems
+}
+
+/// LLMの接続先の URL の検査（本番では https。http は外部への送信の例外に入れたホストだけ）。
+fn check_base_url(prefix: &str, base_url: &str, exceptions: &[String]) -> Vec<Problem> {
     let mut problems = Vec::new();
     match url::Url::parse(base_url) {
         Ok(u) if u.host_str().is_none() => {
@@ -416,9 +438,6 @@ fn check_endpoint(
         _ => problems.push(Problem::fatal(format!(
             "`{prefix}.base_url` is not an http(s) URL"
         ))),
-    }
-    if api_key.trim().is_empty() {
-        problems.push(Problem::fatal(format!("`{prefix}.api_key` is empty")));
     }
     problems
 }
@@ -655,6 +674,7 @@ mod tests {
             default_workspace_answer_output_tokens_per_month: None,
             default_workspace_answer_output_tokens_per_day: None,
             next_embedding: Some(next.clone()),
+            allowed_endpoints: Vec::new(),
         };
         let none: &[String] = &[];
         assert!(check_llm(&base, none).is_empty());
@@ -744,6 +764,7 @@ mod tests {
             default_workspace_answer_output_tokens_per_month: None,
             default_workspace_answer_output_tokens_per_day: None,
             next_embedding: None,
+            allowed_endpoints: Vec::new(),
         };
         let none: &[String] = &[];
         assert!(check_llm(&ok, none).is_empty());

@@ -145,6 +145,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "answer_scope",
         include_str!("../migrations/0030_answer_scope.sql"),
     ),
+    (
+        31,
+        "workspace_llm",
+        include_str!("../migrations/0031_workspace_llm.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -177,6 +182,8 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("template_versions", "SELECT"),
     // サーバー管理者が上限を変える
     ("workspace_limits", "SELECT, INSERT, UPDATE"),
+    // ワークスペースの LLM の接続設定の上書き（M4。キーは暗号化して持つ）
+    ("workspace_llm", "SELECT, INSERT, UPDATE, DELETE"),
     // LLMの予算と使用量（確保・精算で更新する。古い期間の行も残す）
     ("workspace_budgets", "SELECT, INSERT, UPDATE"),
     ("budget_usage", "SELECT, INSERT, UPDATE"),

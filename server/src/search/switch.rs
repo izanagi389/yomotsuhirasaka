@@ -319,6 +319,7 @@ mod tests {
                 api_key: None,
                 embedding_price_per_million_tokens: None,
             }),
+            allowed_endpoints: Vec::new(),
         }
     }
 

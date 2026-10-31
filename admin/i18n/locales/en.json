@@ -637,6 +637,10 @@
         "settings_changed": "Question log settings changed",
         "viewed": "Question log viewed",
         "candidate_deleted": "Question log candidate deleted"
+      },
+      "llm": {
+        "override_changed": "LLM settings override changed",
+        "override_removed": "LLM settings override removed"
       }
     },
     "you": "You",

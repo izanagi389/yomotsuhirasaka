@@ -637,6 +637,10 @@
         "settings_changed": "質問ログの設定を変更",
         "viewed": "質問ログの閲覧",
         "candidate_deleted": "質問ログの候補の削除"
+      },
+      "llm": {
+        "override_changed": "LLMの接続設定の上書きを変更",
+        "override_removed": "LLMの接続設定の上書きをやめた"
       }
     },
     "you": "あなた",

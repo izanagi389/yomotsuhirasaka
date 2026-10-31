@@ -667,6 +667,12 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     // 回答の語り口と定型文（M4。重い権限 manageLlm）。何も変えない変更を送る
     op("getAnswerSettings", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/answer-settings`, { auth, extras })),
     op("setAnswerSettings", true, "workspace", (auth, t, extras) => setAnswerSettingsRaw(auth, t.workspaceId, {}, extras)),
+    // LLMの接続設定の上書き（M4。重い権限 manageLlm）。変更・削除は、許されていないワークスペースでは断られる
+    op("getWorkspaceLlm", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/llm`, { auth, extras })),
+    op("setWorkspaceLlm", true, "workspace", (auth, t, extras) =>
+      request("PUT", `${ADMIN}/workspaces/${t.workspaceId}/llm`, { auth, extras, body: { endpoint: "inv-operation" } }),
+    ),
+    op("deleteWorkspaceLlm", true, "workspace", (auth, t, extras) => request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/llm`, { auth, extras })),
     // 質問ログ（M4）: 設定はワークスペースの管理者、閲覧と候補の削除は重い権限 viewQuestionLog。削除の対象は存在しない候補
     op("getQuestionLogSettings", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/question-log/settings`, { auth, extras })),
     op("setQuestionLogSettings", true, "workspace", (auth, t, extras) => setQuestionLogSettingsRaw(auth, t.workspaceId, {}, extras)),

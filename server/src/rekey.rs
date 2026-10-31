@@ -10,6 +10,7 @@
 //! - `cms.jobs.payload_enc`（ジョブの中身。メールの宛先や本文、Webhookの送信）
 //! - `cms.webhooks.secret_enc`, `cms.webhooks.previous_secret_enc`（Webhookの署名用の秘密）
 //! - `cms.audit_sinks.secret_enc`（監査ログの書き出し先の署名用の秘密）
+//! - `cms.workspace_llm.api_key`（ワークスペースの LLM の接続設定の上書きの APIキー。M4）
 //!
 //! 暗号化し直さないもの: `cms.oidc_logins.pkce_verifier`（SSOのログインの途中の値。10分で失効する）。
 //! 古い版の鍵を外した時点で途中だったSSOのログインは、やり直しになる。
@@ -49,6 +50,8 @@ pub async fn versions_in_use(pool: &PgPool) -> Result<BTreeMap<u32, u64>> {
              SELECT substring(previous_secret_enc FROM 1 FOR 4) FROM cms.webhooks WHERE previous_secret_enc IS NOT NULL
              UNION ALL
              SELECT substring(secret_enc FROM 1 FOR 4) FROM cms.audit_sinks
+             UNION ALL
+             SELECT substring(api_key FROM 1 FOR 4) FROM cms.workspace_llm
          ) s GROUP BY v",
     )
     .fetch_all(pool)
@@ -75,7 +78,49 @@ pub async fn reencrypt_all(pool: &PgPool, keys: &KeyRing) -> Result<Outcome> {
         reencrypt_webhooks(pool, keys, &active, column, &mut outcome).await?;
     }
     reencrypt_audit_sinks(pool, keys, &active, &mut outcome).await?;
+    reencrypt_workspace_llm(pool, keys, &active, &mut outcome).await?;
     Ok(outcome)
+}
+
+async fn reencrypt_workspace_llm(
+    pool: &PgPool,
+    keys: &KeyRing,
+    active: &[u8],
+    outcome: &mut Outcome,
+) -> Result<()> {
+    let ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT workspace_id FROM cms.workspace_llm WHERE substring(api_key FROM 1 FOR 4) <> $1",
+    )
+    .bind(active)
+    .fetch_all(pool)
+    .await?;
+    for chunk in ids.chunks(BATCH) {
+        let mut tx = pool.begin().await?;
+        let rows: Vec<(Uuid, Vec<u8>)> = sqlx::query_as(
+            "SELECT workspace_id, api_key FROM cms.workspace_llm
+             WHERE workspace_id = ANY($1) AND substring(api_key FROM 1 FOR 4) <> $2
+             FOR UPDATE",
+        )
+        .bind(chunk)
+        .bind(active)
+        .fetch_all(&mut *tx)
+        .await?;
+        for (ws, sealed) in rows {
+            let aad = crate::workspace_llm::key_aad(ws);
+            let Ok(plain) = keys.decrypt(&sealed, &aad) else {
+                outcome.failed += 1;
+                continue;
+            };
+            sqlx::query("UPDATE cms.workspace_llm SET api_key = $2 WHERE workspace_id = $1")
+                .bind(ws)
+                .bind(keys.encrypt(&plain, &aad)?)
+                .execute(&mut *tx)
+                .await?;
+            outcome.reencrypted += 1;
+        }
+        tx.commit().await?;
+    }
+    Ok(())
 }
 
 async fn reencrypt_audit_sinks(
