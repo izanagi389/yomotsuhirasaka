@@ -5,6 +5,7 @@
 // 権限・天井の範囲・再認証の判断はサーバーが行う。期間は UTC の暦の月・日で区切る。
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import BudgetPartForm from "~/components/admin/BudgetPartForm.vue";
+import LlmOverridePanel from "~/components/admin/LlmOverridePanel.vue";
 import type { AnswerBudget, EmbeddingBudget } from "~/utils/content";
 
 const route = useRoute();
@@ -141,6 +142,11 @@ const answerExhaustedAt = computed(() => {
         </div>
       </section>
       <p v-if="budget || answer" class="text-xs text-muted-foreground">{{ t("budget.utc") }}</p>
+
+      <!-- LLMの接続設定の上書き（M4） -->
+      <div class="border-t pt-6">
+        <LlmOverridePanel :workspace-id="ws" :server-admin="!!me?.isServerAdmin" />
+      </div>
     </template>
   </div>
 </template>
