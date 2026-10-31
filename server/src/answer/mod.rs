@@ -552,10 +552,14 @@ fn fragment_text(f: &Fragment) -> String {
 
 /// 根拠の断片と出典の情報を、読み取りのトランザクションで集める（LLMを呼ぶ前に閉じる）。
 async fn grounds(app: &AppState, req: &Request, masked: &str) -> Result<Grounds> {
+    let setup =
+        crate::workspace_llm::embedding(&app.pool, &app.keys, &app.config, req.workspace_id)
+            .await?;
     let mut tx = workspace_db::begin_owned(&app.pool, &req.db).await?;
     let services = search::Services {
         pool: &app.pool,
         config: &app.config,
+        embedding: setup.as_ref().map(|s| &s.llm),
         egress: app.egress.as_ref(),
         cache: &app.search_cache,
     };

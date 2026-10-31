@@ -629,6 +629,10 @@ pub fn router(state: AppState) -> Router {
                 .delete(admin_workspace_llm::delete),
         )
         .route(
+            "/workspaces/{ws}/llm/embedding-switch",
+            post(admin_workspace_llm::start_embedding_switch),
+        )
+        .route(
             "/workspaces/{ws}/question-log/settings",
             get(admin_question_log::get_settings).put(admin_question_log::put_settings),
         )

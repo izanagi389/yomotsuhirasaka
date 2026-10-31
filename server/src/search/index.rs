@@ -214,12 +214,14 @@ pub async fn run(
     }
 
     // 3. 埋め込みを作る（LLMの接続先がなければ、チャンクだけ）。モデルの切り替えの途中なら、旧モデルの分を先に作る（`switch`）
-    if let (Some(llm_config), Some(egress)) = (&config.llm, egress) {
+    // 埋め込みの接続先とモデルは、ワークスペースの上書きを含めたもの（`workspace_llm::embedding`）
+    let setup = crate::workspace_llm::embedding(pool, keys, config, ws).await?;
+    if let (Some(setup), Some(egress)) = (&setup, egress) {
+        let llm_config = &setup.llm;
         let mut tx = workspace_db::begin(pool, &db).await?;
         let rec = switch::recorded(&mut tx).await?;
         tx.commit().await?;
-        let started = switch::started(pool).await?;
-        let plan = switch::plan(llm_config, &rec, started.as_ref());
+        let plan = switch::plan(llm_config, &rec, &setup.started);
         prepare_models(pool, &db, llm_config, &rec, &plan).await?;
         for target in &plan.embed {
             let llm = Llm::new(egress.clone(), target.clone());
@@ -231,6 +233,16 @@ pub async fn run(
                     schedule(pool, keys, ws, OVER_BUDGET_RETRY_SECONDS).await?;
                     return Ok(Outcome::Done);
                 }
+                // ワークスペースが開始した切り替え先の次元数が合わなければ、切り替えを止めて理由を記録する（前のモデルで続ける）
+                Step::Failed(code)
+                    if code == "dimension_mismatch"
+                        && crate::workspace_llm::embedding_switch_failed(
+                            pool,
+                            ws,
+                            &(target.embedding_model.clone(), target.embedding_dimensions),
+                            code,
+                        )
+                        .await? => {}
                 Step::Failed(code) => return Ok(Outcome::Retry(code)),
             }
         }
@@ -240,7 +252,7 @@ pub async fn run(
         }
         // 4. 記事のベクトルと関連記事（今使っているモデルで。外部とは通信しない）
         let mut tx = workspace_db::begin(pool, &db).await?;
-        let serving = switch::serving(config, &mut tx).await?;
+        let serving = switch::serving(Some(llm_config), &mut tx).await?;
         tx.commit().await?;
         if let (Some(s), Some(vs)) = (serving, super::vector_schema(pool).await?) {
             super::related::refresh(

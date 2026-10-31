@@ -686,6 +686,8 @@ export interface CmsClient {
    */
   setWorkspaceLlmRaw(auth: Auth, workspaceId: string, body: WorkspaceLlm | Record<string, unknown>): Promise<HttpResponse>;
   getWorkspaceLlmRaw(auth: Auth, workspaceId: string): Promise<HttpResponse>;
+  /** ワークスペースの埋め込みのモデルの切り替えを開始する（重い権限 manageLlm と再認証。応答をそのまま返す）。 */
+  startWorkspaceEmbeddingSwitchRaw(auth: Auth, workspaceId: string): Promise<HttpResponse>;
   /** 質問ログの設定を変える（ワークスペースの管理者と再認証。M4）。 */
   setQuestionLogSettings(session: Session, workspaceId: string, settings: QuestionLogSettings): Promise<void>;
   setQuestionLogSettingsRaw(auth: Auth, workspaceId: string, settings: QuestionLogSettings): Promise<HttpResponse>;

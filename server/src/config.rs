@@ -500,6 +500,22 @@ pub struct LlmConfig {
     /// 「接続設定の単位」、Q26）。ワークスペースは名前で選び、URL は書けない（SSRF対策）。サーバー管理者が設定ファイルで決める。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_endpoints: Vec<AllowedEndpoint>,
+    /// ワークスペースが上書きで選べる埋め込みのモデル（`[[llm.allowed_embedding_models]]`。M4）。
+    /// 起動のときに、モデルごとの検索の索引を作っておく（強い権限の接続を、ふだんの処理から使わないため）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_embedding_models: Vec<AllowedEmbeddingModel>,
+}
+
+/// ワークスペースが選べる埋め込みのモデル（`[[llm.allowed_embedding_models]]`）。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AllowedEmbeddingModel {
+    pub model: String,
+    /// 次元数（1〜2000）。応答のベクトルの長さと照合する。
+    pub dimensions: u32,
+    /// 単価（100万トークンあたり。任意）。あれば見積もりで費用も出す。
+    #[serde(default)]
+    pub embedding_price_per_million_tokens: Option<f64>,
 }
 
 /// ワークスペースが選べる LLM の接続先（`[[llm.allowed_endpoints]]`）。

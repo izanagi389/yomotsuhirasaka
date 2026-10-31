@@ -402,6 +402,26 @@ fn check_llm(llm: &crate::config::LlmConfig, exceptions: &[String]) -> Vec<Probl
         }
         problems.extend(check_base_url(&prefix, &e.base_url, exceptions));
     }
+    // ワークスペースが選べる埋め込みのモデル
+    for (i, m) in llm.allowed_embedding_models.iter().enumerate() {
+        let prefix = format!("llm.allowed_embedding_models[{i}]");
+        problems.extend(check_model(
+            &prefix,
+            &m.model,
+            m.dimensions,
+            m.embedding_price_per_million_tokens,
+            ("model", "dimensions"),
+        ));
+        // ワークスペースはモデルの名前で選ぶので、名前は重ならないようにする
+        if llm.allowed_embedding_models[..i]
+            .iter()
+            .any(|o| o.model == m.model)
+        {
+            problems.push(Problem::fatal(format!(
+                "`{prefix}.model` is listed more than once"
+            )));
+        }
+    }
     problems
 }
 
@@ -675,6 +695,7 @@ mod tests {
             default_workspace_answer_output_tokens_per_day: None,
             next_embedding: Some(next.clone()),
             allowed_endpoints: Vec::new(),
+            allowed_embedding_models: Vec::new(),
         };
         let none: &[String] = &[];
         assert!(check_llm(&base, none).is_empty());
@@ -765,6 +786,7 @@ mod tests {
             default_workspace_answer_output_tokens_per_day: None,
             next_embedding: None,
             allowed_endpoints: Vec::new(),
+            allowed_embedding_models: Vec::new(),
         };
         let none: &[String] = &[];
         assert!(check_llm(&ok, none).is_empty());

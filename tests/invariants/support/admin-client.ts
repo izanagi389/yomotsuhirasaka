@@ -673,6 +673,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       request("PUT", `${ADMIN}/workspaces/${t.workspaceId}/llm`, { auth, extras, body: { endpoint: "inv-operation" } }),
     ),
     op("deleteWorkspaceLlm", true, "workspace", (auth, t, extras) => request("DELETE", `${ADMIN}/workspaces/${t.workspaceId}/llm`, { auth, extras })),
+    op("startWorkspaceEmbeddingSwitch", true, "workspace", (auth, t, extras) =>
+      request("POST", `${ADMIN}/workspaces/${t.workspaceId}/llm/embedding-switch`, { auth, extras }),
+    ),
     // 質問ログ（M4）: 設定はワークスペースの管理者、閲覧と候補の削除は重い権限 viewQuestionLog。削除の対象は存在しない候補
     op("getQuestionLogSettings", false, "workspace", (auth, t, extras) => request("GET", `${ADMIN}/workspaces/${t.workspaceId}/question-log/settings`, { auth, extras })),
     op("setQuestionLogSettings", true, "workspace", (auth, t, extras) => setQuestionLogSettingsRaw(auth, t.workspaceId, {}, extras)),
@@ -1003,6 +1006,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     setWorkspaceLlmRaw: (auth: Auth, workspaceId: string, body: WorkspaceLlm | Record<string, unknown>) =>
       request("PUT", `${ADMIN}/workspaces/${workspaceId}/llm`, { auth, body }),
     getWorkspaceLlmRaw: (auth: Auth, workspaceId: string) => request("GET", `${ADMIN}/workspaces/${workspaceId}/llm`, { auth }),
+    startWorkspaceEmbeddingSwitchRaw: (auth: Auth, workspaceId: string) =>
+      request("POST", `${ADMIN}/workspaces/${workspaceId}/llm/embedding-switch`, { auth }),
     async setQuestionLogSettings(s: Session, workspaceId: string, settings: QuestionLogSettings): Promise<void> {
       ensure("質問ログの設定の変更", await setQuestionLogSettingsRaw(session(s), workspaceId, settings));
     },
