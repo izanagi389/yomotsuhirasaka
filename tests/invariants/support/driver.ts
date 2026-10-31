@@ -103,6 +103,11 @@ export interface WorkspaceLimits {
   answerInputTokensPerDay?: number | null;
   answerOutputTokensPerMonth?: number | null;
   answerOutputTokensPerDay?: number | null;
+  /** 編集者向けの支援の予算の天井（トークン数、入力・出力別。M4、Q70）。null は設定ファイルの既定値。 */
+  assistInputTokensPerMonth?: number | null;
+  assistInputTokensPerDay?: number | null;
+  assistOutputTokensPerMonth?: number | null;
+  assistOutputTokensPerDay?: number | null;
   /** ワークスペースが LLM の接続設定を上書きしてよいか（M4、10-llm-and-budget.md「接続設定の単位」）。 */
   llmOverride?: boolean;
 }
@@ -124,6 +129,31 @@ export interface WorkspaceLlm {
 export interface EmbeddingBudget {
   tokensPerMonth: number | null;
   tokensPerDay: number | null;
+}
+
+/** ワークスペースの編集者向けの支援の予算（トークン数、入力・出力別。M4、Q70）。書いた向きだけを変える。 */
+export interface AssistBudget {
+  input?: EmbeddingBudget;
+  output?: EmbeddingBudget;
+}
+
+/** 編集者向けのAI支援の設定（M4、10-llm-and-budget.md「編集者向けのAI支援」）。既定は無効。 */
+export interface AssistSettings {
+  enabled: boolean;
+}
+
+/**
+ * 矛盾の検知の結果（M4、10-llm-and-budget.md「編集者向けのAI支援」）。公開の確認画面で始め、いまの下書きについて読む。
+ * - running: 動いている途中
+ * - done: 終わった（conflicts は見つかった食い違い。なければ空）
+ * - failed: LLM の障害などで終わらなかった
+ * - disabled: ワークスペースで支援が無効
+ * - budgetExhausted: 編集者向けの支援の予算が尽きた（period は尽きた期間。画面は「今月の上限に達しました」などと出す）
+ */
+export interface ConflictCheck {
+  state: "running" | "done" | "failed" | "disabled" | "budgetExhausted";
+  period?: "month" | "day";
+  conflicts: { entryId: string; explanation: string }[];
 }
 
 /** 埋め込みモデルの切り替えの、ワークスペースごとの状態（M3、08-search-and-related.md「モデルの変更」）。 */
@@ -699,6 +729,19 @@ export interface CmsClient {
    * 重い権限（manageLlm）の操作で、再認証が要る。
    */
   setEmbeddingBudgetRaw(auth: Auth, workspaceId: string, budget: EmbeddingBudget): Promise<HttpResponse>;
+  /**
+   * ワークスペースの編集者向けの支援の予算（入力・出力別、トークン数、UTCの暦の月・日。null は上限なし（天井の範囲で））を決める
+   * （応答をそのまま返す）。重い権限（manageLlm）の操作で、再認証が要る。
+   */
+  setAssistBudgetRaw(auth: Auth, workspaceId: string, budget: AssistBudget): Promise<HttpResponse>;
+  /** 編集者向けのAI支援の設定を変える（重い権限 manageLlm と再認証が要る。M4）。 */
+  setAssistSettings(session: Session, workspaceId: string, settings: AssistSettings): Promise<void>;
+  setAssistSettingsRaw(auth: Auth, workspaceId: string, settings: AssistSettings): Promise<HttpResponse>;
+  /** いまの下書きについて、矛盾の検知を始める（公開の確認画面が行うこと。応答をそのまま返す）。 */
+  startConflictCheckRaw(auth: Auth, workspaceId: string, entryId: string): Promise<HttpResponse>;
+  startConflictCheck(session: Session, workspaceId: string, entryId: string): Promise<void>;
+  /** いまの下書きについての、矛盾の検知の結果を1回読む（待たない）。 */
+  conflictCheck(session: Session, workspaceId: string, entryId: string): Promise<ConflictCheck>;
   /** 埋め込みモデルの切り替えの見積もりと進み具合（サーバー管理者）。成功しなければ失敗する。 */
   embeddingSwitch(serverAdminSession: Session): Promise<EmbeddingSwitchStatus>;
   /**

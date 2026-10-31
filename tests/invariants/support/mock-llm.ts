@@ -112,6 +112,7 @@ const FORMAT = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tools/moc
   answerableDeclaration: string;
   notAnswerableDeclaration: string;
   sourceSeparator: string;
+  noConflict: string;
 };
 
 /** 回答の組み立て方 `fixed` に渡す回答（1行目が判定の先行宣言、2行目からが本文）。sources が空なら「答えられない」の宣言。 */
@@ -120,6 +121,9 @@ export function fixedAnswer(sources: readonly number[], body: string): string {
     sources.length === 0 ? FORMAT.notAnswerableDeclaration : FORMAT.answerableDeclaration.replace("{sources}", sources.join(FORMAT.sourceSeparator));
   return `${declaration}\n${body}`;
 }
+
+/** 矛盾の検知（編集者向けのAI支援。M4）で、食い違いがないときの LLM の出力（format.json の noConflict）。 */
+export const noConflictOutput = (): string => FORMAT.noConflict;
 
 /** 本文の中の引用記号（`[n]` の形。format.json の citation と同じ）。 */
 export const citation = (n: number): string => `[${n}]`;
