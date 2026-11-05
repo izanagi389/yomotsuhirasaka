@@ -1,6 +1,6 @@
 # @new-cms/nuxt
 
-CMSの公式Nuxtモジュールです。配信APIからの取得、本文の描画、CMSのリダイレクト一覧による転送、CMSからのWebhookの受け口、訂正の一覧とフィード、削除済みアンカーの案内、AI向けの素材（記事のMarkdown版・`llms.txt`・学習拒否）を持ちます（プレビューなどはこれから）。
+CMSの公式Nuxtモジュールです。配信APIからの取得、本文の描画、CMSのリダイレクト一覧による転送、CMSからのWebhookの受け口、訂正の一覧とフィード、削除済みアンカーの案内、AI向けの素材（記事のMarkdown版・`llms.txt`・学習拒否）、サイト内検索、チャットボットの回答の中継を持ちます（プレビューなどはこれから）。
 
 ## 使い方
 
@@ -27,6 +27,7 @@ export default defineNuxtConfig({
 | `CMS_REGISTER_KEY` | ビルドのとき | クエリの登録用のAPIキー（`register` の範囲） |
 | `NUXT_CMS_READ_KEY` | サイトのサーバーの実行時（SSG ならビルドのとき） | 読むためのAPIキー（`read` の範囲）。非公開の設定に入る |
 | `NUXT_CMS_WEBHOOK_SECRET` | サイトのサーバーの実行時 | CMSのWebhookの署名の秘密。入れ替え中はカンマで区切って新旧の両方を書く。非公開の設定に入る |
+| `NUXT_CMS_ANSWER_KEY` | サイトのサーバーの実行時 | 回答のAPIキー（`answer` の範囲。`answer` を設定したとき）。お金がかかるので、サイトのサーバーだけに置く。非公開の設定に入る |
 
 ### クエリ
 
@@ -202,6 +203,46 @@ const { text, result, status } = useCmsSearch({ locale: "ja", mode: "HYBRID", fi
 - `<CmsSearchBox>` は、`<search>` の中にラベル付きの検索欄と結果の `<ol>` を描きます。クラスもスタイルも、決まった文言も持ちません。状態はスロット（`loading`・`empty`・`budgetExhausted`・`keywordDisabled`・`rateLimited`・`error`）でだけ描きます。結果1件は `#hit="{ hit, href, segments }"` で置き換えられます。既定は、パンくず（なければURL）のリンクと、一致した箇所を `<mark>` で囲んだ抜粋です。
 - 結果の `breadcrumb` に記事のタイトルが入るのは、タイトルのフィールドが検索の対象のときだけです。`vectorSearch` が `BUDGET_EXHAUSTED` なら埋め込みの予算切れ（キーワード検索の結果だけ）、`keywordSearch` が `DISABLED` なら日本語の全文検索の拡張がないCMSです。
 - 検索のクエリはモジュールが登録します（`cms/queries/cmsSearch.graphql` という名前は使えません）。
+
+### チャットボットの回答（`answer` を設定したとき）
+
+CMSの回答API（判定先行のストリーミング）を、サイトのサーバーのルート（既定は `POST /_cms/answer`）が中継します。ブラウザからCMSは呼びません。回答のキーは `NUXT_CMS_ANSWER_KEY`（`answer` の範囲。非公開の設定に入ります）です。サイトのサーバーが要るので、`nuxt generate` では使えません（ビルドを止めます）。チャットの画面の部品は配布しません。画面はサイトが作ります。
+
+```ts
+// nuxt.config.ts
+cms: { answer: { ipHeader: "cf-connecting-ip" } }
+```
+
+```vue
+<script setup lang="ts">
+const { state, ask, stop } = useCmsAnswer();
+const question = ref("");
+</script>
+
+<template>
+  <form @submit.prevent="ask(question, 'ja')">
+    <input v-model="question" maxlength="500" aria-label="質問" />
+  </form>
+  <CmsAnswerText v-if="state.text" :text="state.text" :sources="state.sources" />
+  <ol v-if="state.phase === 'done'">
+    <li v-for="s in state.sources" :key="s.citation"><a :href="`${s.url}#${s.anchor}`">[{{ s.citation }}] {{ s.breadcrumb.join(" › ") }}</a></li>
+  </ol>
+  <p v-if="state.error?.code === 'ANSWER_BUDGET_EXHAUSTED'">いまは回答できません。</p>
+</template>
+```
+
+| 設定 | 内容 |
+|---|---|
+| `route` | サイトのサーバーのルート（既定は `/_cms/answer`）。`POST` で JSON の `{ "question": "…", "locale": "ja" }` を送る |
+| `ipHeader` | 訪問者のIPアドレスを読むヘッダー（検索と同じ。手前のプロキシが付けるものだけ） |
+
+- ルートは SSE で、`verdict`（判定。`answerable` が false なら本文は来ない）→ `delta`（本文の断片）→ `final`（最終判定）の順にイベントを返します。途中で `error` が来たら終わりです。
+- **回答キャッシュから返したか（`cached`）は渡しません**（クエリでも選びません）。CMSのエラーのメッセージも渡さず、コード（`RATE_LIMITED`・`ANSWER_BUDGET_EXHAUSTED`・`QUESTION_EMPTY`・`QUESTION_TOO_LONG`・`QUESTION_REFUSED`・`LOCALE_NOT_SUPPORTED`・`LLM_UNAVAILABLE`・`ANSWER_FAILED`）だけを渡します。ストリームが始まる前に断られたら、状態コードと `{ "code": "…" }` を返します（回数の制限は 429 と `Retry-After`）。
+- 訪問者ごとの回数は CMS が数えます。訪問者の識別子は、訪問者のIPアドレスを回答のキーで HMAC-SHA256 にかけたもので、IPアドレスそのものは CMS に送りません。CDN やリバースプロキシの後ろでは `ipHeader` を設定してください（しなければ、訪問者全員で1つの上限を共有します）。
+- 回答は Markdown です。`<CmsAnswerText>` は段落・箇条書き・太字・リンク（http・https だけ）・インラインのコード・コードのかたまりだけを、`v-html` を使わずに描きます。画像は描きません。見出しは太字の段落になります。クラスもスタイルも付けません。
+- 本文の `[n]` は、`citation` が同じ出典のセクションへのリンク（`<sup><a href="url#anchor">[n]</a></sup>`）です。`#citation="{ n, source, href }"` のスロットで置き換えられます。
+- 質問のロケールは必ず渡します（CMSは質問文からロケールを推測しません）。応答は `Cache-Control: no-store` です。
+- 回答のクエリはモジュールが登録します（`cms/queries/cmsAnswer.graphql` という名前は使えません）。
 
 ### 関連記事
 
