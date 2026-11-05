@@ -22,7 +22,7 @@
     "@tiptap/pm": "3.32.0",
     "@tiptap/starter-kit": "3.32.0",
     "esbuild": "0.28.2",
-    "markdown-it": "15.0.2",
+    "markdown-it": "15.0.3",
     "yaml": "2.9.1"
   },
   "devDependencies": {

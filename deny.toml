@@ -1,0 +1,50 @@
+# cargo-deny の設定（13-security.md「依存ライブラリと配布物」、14-release.md）。CI と手元で `cargo deny check` を流す。
+# - advisories: RustSec の脆弱性の情報に載った依存があれば失敗させる
+# - licenses: Apache-2.0 と両立するライセンスだけを許す（下の一覧。足すときは持ち主の承認）
+# - sources: crates.io だけから取る（git や別のレジストリは拒否）
+
+[graph]
+# 配布する Linux のバイナリ（x86_64・arm64）と、手元の開発（macOS）
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+
+[advisories]
+# 例外にするときは、ID と理由と見直す時期を書く（持ち主の承認）
+ignore = []
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unicode-3.0",
+    "Unlicense",
+    "CC0-1.0",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+# ワークスペースの中のクレート（cms-server。publish = false）はライセンスの検査から外さない
+ignore = false
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

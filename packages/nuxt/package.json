@@ -25,7 +25,7 @@
   "peerDependencies": {
     "h3": "^1.15.0",
     "nitropack": "^2.13.0",
-    "nuxt": "^4.6.1",
+    "nuxt": "^4.6.4",
     "vue": "^3.5.0"
   },
   "devDependencies": {
