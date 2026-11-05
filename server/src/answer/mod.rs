@@ -102,6 +102,8 @@ pub enum Event {
     },
     Delta(String),
     Final(Answer),
+    /// テストのときだけ、最終判定の前に1回（検索された断片・判定の宣言・LLMの出力）。配信APIには来ない。
+    Trace(Box<Trace>),
 }
 
 /// 回答できなかった理由（GraphQL のエラーの `extensions.code`）。
@@ -158,7 +160,49 @@ pub struct Request {
     pub locale: String,
     /// ストリーミングか（まとめて返すときは、本文の断片を送らない）。
     pub streaming: bool,
+    /// 管理画面のテスト画面からの依頼か（配信APIからは None）。
+    pub test: Option<Test>,
 }
+
+/// 管理画面の回答のテスト画面（09-qa-chatbot.md「根拠と判定」「語り口」）。拒否する語・マスク・予算・回答の検査は本番と同じに
+/// 効かせ、回答キャッシュは読みも書きもせず、質問ログには質問文も件数も残さない。
+#[derive(Debug, Clone, Default)]
+pub struct Test {
+    /// 保存する前の語り口で試す（None なら保存済みの語り口）。
+    pub tone: Option<settings::Tone>,
+}
+
+/// テストで見せる、検索された断片（プロンプトの番号の順）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraceFragment {
+    /// プロンプトの番号（本文の `[n]` の n）。
+    pub n: usize,
+    pub entry_id: Uuid,
+    pub locale: String,
+    pub anchor: Option<String>,
+    pub breadcrumb: Vec<String>,
+    /// 本文の抜粋（[`TRACE_EXCERPT_CHARS`] 文字まで）。
+    pub excerpt: String,
+    pub score: f64,
+    pub vector_similarity: Option<f64>,
+    pub keyword_score: Option<f64>,
+}
+
+/// テストで見せるもの（最終判定の前に1回送る）。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Trace {
+    /// マスクした後の質問文（LLMと埋め込みに送ったもの）。
+    pub masked_question: String,
+    pub fragments: Vec<TraceFragment>,
+    /// LLMの判定の宣言（答えられるなら使う番号、答えられないなら空。宣言を読めなければ None）。
+    pub declaration: Option<Vec<usize>>,
+    /// LLMの出力そのもの（検査の前。[`TRACE_OUTPUT_CHARS`] 文字まで）。
+    pub raw_output: String,
+}
+
+/// テストで見せる抜粋と、LLMの出力の文字数の上限。
+pub const TRACE_EXCERPT_CHARS: usize = 300;
+pub const TRACE_OUTPUT_CHARS: usize = 8000;
 
 /// 回答を始める。イベントを順に受け取る（最後は `Final` か、エラー）。受け取る側を落とすと、LLMの応答を読むのをやめる。
 pub fn start(app: AppState, req: Request) -> mpsc::Receiver<Result<Event, Refusal>> {
@@ -263,7 +307,10 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     let masked = crate::mask::mask(question);
     // 回答キャッシュ（出典を今の状態と照合してから返す。予算・埋め込み・LLMは使わない）
     // 語り口（回答キャッシュのキーとプロンプトに使う）
-    let tone = load_tone(app, req).await.map_err(internal)?;
+    let tone = match req.test.as_ref().and_then(|t| t.tone.clone()) {
+        Some(t) => t,
+        None => load_tone(app, req).await.map_err(internal)?,
+    };
     // 回答キャッシュの設定には、接続先の名前とモデルを入れる（上書きを変えたら、前のキャッシュに当たらない）
     let cache_key = cache_key(
         app,
@@ -274,7 +321,13 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
         &masked,
     )
     .map_err(internal)?;
-    if let Some(hit) = cached(app, req, &cache_key).await.map_err(internal)? {
+    // テストのときは、回答キャッシュを読まない（毎回 LLM を呼ぶ）
+    let hit = if req.test.is_none() {
+        cached(app, req, &cache_key).await.map_err(internal)?
+    } else {
+        None
+    };
+    if let Some(hit) = hit {
         let _ = out
             .send(Ok(Event::Verdict {
                 answerable: true,
@@ -297,6 +350,27 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
         return Ok(());
     }
     let grounds = grounds(app, req, &masked).await.map_err(internal)?;
+    let mut trace = req.test.as_ref().map(|_| Trace {
+        masked_question: masked.clone(),
+        fragments: grounds
+            .fragments
+            .iter()
+            .enumerate()
+            .map(|(i, f)| TraceFragment {
+                n: i + 1,
+                entry_id: f.entry_id,
+                locale: f.locale.clone(),
+                anchor: f.anchor.clone(),
+                breadcrumb: f.breadcrumb.clone(),
+                excerpt: f.content.chars().take(TRACE_EXCERPT_CHARS).collect(),
+                score: f.score,
+                vector_similarity: f.vector_similarity,
+                keyword_score: f.keyword_score,
+            })
+            .collect(),
+        declaration: None,
+        raw_output: String::new(),
+    });
     if grounds.fragments.is_empty() {
         // 根拠がなければ、LLMを呼ばない（予算も使わない）
         let _ = out
@@ -306,6 +380,9 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
             }))
             .await;
         note(app, req, log::Outcome::NoInformation, Some(&masked)).await;
+        if let Some(t) = trace {
+            let _ = out.send(Ok(Event::Trace(Box::new(t)))).await;
+        }
         let _ = out.send(Ok(Event::Final(grounds.no_information()))).await;
         return Ok(());
     }
@@ -374,7 +451,12 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
             }
         };
         received_chars += i64::try_from(text.chars().count()).unwrap_or(i64::MAX);
+        if let Some(t) = trace.as_mut() {
+            let room = TRACE_OUTPUT_CHARS.saturating_sub(t.raw_output.chars().count());
+            t.raw_output.extend(text.chars().take(room));
+        }
         for step in checker.push(&text) {
+            note_declaration(trace.as_mut(), &step);
             if !send_step(&grounds, req.streaming, out, step, &mut refused).await {
                 // 受け取る側がいない（訪問者が離れた）。読むのをやめる
                 break 'read;
@@ -404,6 +486,7 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
 
     let (rest, verdict) = checker.finish();
     for step in rest {
+        note_declaration(trace.as_mut(), &step);
         send_step(&grounds, req.streaming, out, step, &mut refused).await;
     }
     let answer = match verdict {
@@ -430,7 +513,8 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
             };
             // 回答キャッシュに保存する。違反を検知したもの・終わりまで読まなかったもの（訪問者が離れたなど。長さの上限で
             // 打ち切ったものは除く）は保存しない。保存できなくても、回答は返す
-            if !violation
+            if req.test.is_none()
+                && !violation
                 && (completed || checker.truncated())
                 && let Err(e) = remember(app, req, &cache_key, &answer).await
             {
@@ -445,12 +529,30 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     } else {
         note(app, req, log::Outcome::Answered, None).await;
     }
+    if let Some(t) = trace {
+        let _ = out.send(Ok(Event::Trace(Box::new(t)))).await;
+    }
     let _ = out.send(Ok(Event::Final(answer))).await;
     Ok(())
 }
 
+/// テストで見せる判定の宣言を覚える。
+fn note_declaration(trace: Option<&mut Trace>, step: &Step) {
+    if let Some(t) = trace {
+        match step {
+            Step::Answerable(sources) => t.declaration = Some(sources.clone()),
+            Step::Refused => t.declaration = Some(Vec::new()),
+            _ => {}
+        }
+    }
+}
+
 /// 回答の結果を質問ログに記録する。記録できなくても、回答は返す（ログには質問文を出さない）。
 async fn note(app: &AppState, req: &Request, outcome: log::Outcome, masked: Option<&str>) {
+    // テストのときは、質問文も件数も残さない
+    if req.test.is_some() {
+        return;
+    }
     if let Err(e) = log::record(&app.pool, &req.db, outcome, &req.locale, masked).await {
         tracing::warn!(workspace = %req.workspace_id, "question log record failed: {e:#}");
     }

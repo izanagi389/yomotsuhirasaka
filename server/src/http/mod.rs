@@ -1,6 +1,7 @@
 //! HTTPの受け付け: ルーティング、共通の応答ヘッダー、アプリの状態。
 
 pub mod admin_answer_settings;
+pub mod admin_answer_test;
 pub mod admin_api_keys;
 pub mod admin_assist;
 pub mod admin_audit;
@@ -638,6 +639,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/workspaces/{ws}/assist-settings",
             get(admin_assist::get_settings).put(admin_assist::put_settings),
+        )
+        .route(
+            "/workspaces/{ws}/answer-test",
+            post(admin_answer_test::post),
         )
         .route(
             "/workspaces/{ws}/answer-settings",

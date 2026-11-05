@@ -64,6 +64,7 @@ async fn answer_request(
             question,
             locale,
             streaming,
+            test: None,
         },
     )))
 }
@@ -151,6 +152,8 @@ pub fn answer_stream_field(manifest: Arc<Manifest>) -> SubscriptionField {
                         Ok(FieldValue::owned_any(DeltaValue(text)).with_type(ANSWER_DELTA_TYPE))
                     }
                     Ok(Event::Final(a)) => Ok(FieldValue::owned_any(a).with_type(ANSWER_FINAL_TYPE)),
+                    // テストのときだけ送られる（配信APIの依頼は test を持たない）
+                    Ok(Event::Trace(_)) => Err(internal(anyhow::anyhow!("unexpected trace event"))),
                     Err(r) => Err(refusal_error(r)),
                 });
                 Ok(events.boxed())

@@ -336,6 +336,11 @@ pub struct Fragment {
     pub breadcrumb: Vec<String>,
     /// チャンクの本文（変換器の Markdown）。
     pub content: String,
+    /// 並べた点数（RRF）と、もとの点数（ベクトル検索のコサイン類似度・キーワード検索の点数。その方式の候補でなければ None）。
+    /// 管理画面の回答のテスト画面で見せる（09-qa-chatbot.md「根拠と判定」）。
+    pub score: f64,
+    pub vector_similarity: Option<f64>,
+    pub keyword_score: Option<f64>,
 }
 
 /// 質問に近い断片を、チャンクのまま `k` 件まで選ぶ（質問応答の根拠。M4）。
@@ -417,41 +422,65 @@ pub async fn fragments(
     }
     Ok(fuse_chunks(vector_rows, keyword_rows, k)
         .into_iter()
-        .map(
-            |(entry_id, locale, anchor, breadcrumb, content, _)| Fragment {
+        .map(|f| {
+            let (entry_id, locale, anchor, breadcrumb, content, _) = f.row;
+            Fragment {
                 entry_id,
                 locale,
                 anchor,
                 breadcrumb,
                 content,
-            },
-        )
+                score: f.score,
+                vector_similarity: f.vector,
+                keyword_score: f.keyword,
+            }
+        })
         .collect())
 }
 
+/// 混ぜた後のチャンク（RRF の点数と、それぞれの方式のもとの点数）。
+struct Fused {
+    score: f64,
+    row: HitRow,
+    vector: Option<f64>,
+    keyword: Option<f64>,
+}
+
 /// RRF で2つの並びを、チャンクのまま混ぜる（同じチャンクは記事・アンカー・本文で見分ける）。
-fn fuse_chunks(vector: Vec<HitRow>, keyword: Vec<HitRow>, k: usize) -> Vec<HitRow> {
+fn fuse_chunks(vector: Vec<HitRow>, keyword: Vec<HitRow>, k: usize) -> Vec<Fused> {
     type Key = (Uuid, Option<String>, String);
-    let mut scores: HashMap<Key, (f64, HitRow)> = HashMap::new();
+    let mut scores: HashMap<Key, Fused> = HashMap::new();
     let rrf = |rank: usize| 1.0 / (RRF_K + rank as f64);
-    for rows in [vector, keyword] {
+    for (is_vector, rows) in [(true, vector), (false, keyword)] {
         let r = ranks(&rows);
         for (rank, row) in r.into_iter().zip(rows) {
             let key = (row.0, row.2.clone(), row.4.clone());
-            scores
-                .entry(key)
-                .and_modify(|e| e.0 += rrf(rank))
-                .or_insert((rrf(rank), row));
+            let original = row.5;
+            let e = scores.entry(key).or_insert(Fused {
+                score: 0.0,
+                row,
+                vector: None,
+                keyword: None,
+            });
+            e.score += rrf(rank);
+            // 同じチャンクが2回あれば、先（点数の高いほう）の点数を残す
+            let slot = if is_vector {
+                &mut e.vector
+            } else {
+                &mut e.keyword
+            };
+            slot.get_or_insert(original);
         }
     }
-    let mut fused: Vec<(f64, HitRow)> = scores.into_values().collect();
+    let mut fused: Vec<Fused> = scores.into_values().collect();
     fused.sort_by(|a, b| {
-        b.0.total_cmp(&a.0)
-            .then(a.1.0.cmp(&b.1.0))
-            .then(a.1.4.cmp(&b.1.4))
+        b.score
+            .total_cmp(&a.score)
+            .then(a.row.0.cmp(&b.row.0))
+            .then(a.row.4.cmp(&b.row.4))
     });
     fused.truncate(k);
-    fused.into_iter().map(|(_, row)| row).collect()
+    fused
 }
 
 /// 候補を取る範囲（見せてよいチャンクの条件に渡すもの）。
