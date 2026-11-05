@@ -37,6 +37,11 @@ pub enum Subject {
         workspace: Uuid,
         key: Uuid,
     },
+    /// 管理画面の回答のテストの、人ごとの回数（1分あたり）。
+    AnswerTest {
+        workspace: Uuid,
+        user: Uuid,
+    },
     /// 訪問者ごとの回答の回数（`day` なら1日あたり、でなければ1分あたり）。`visitor` は識別子のハッシュ。
     Visitor {
         workspace: Uuid,
