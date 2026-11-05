@@ -4,6 +4,7 @@
 import { useFetch, useHead, useRuntimeConfig } from "nuxt/app";
 import { type MaybeRefOrGetter, type Ref, computed, onScopeDispose, ref, toValue, watch } from "vue";
 
+import { type CmsAnswerErrorCode, type CmsAnswerEvent, type CmsAnswerState, INITIAL_ANSWER_STATE, SseReader, applyAnswerEvent } from "./answer.ts";
 import { type CmsSearchMode, type CmsSearchResult, MAX_QUERY_CHARS } from "./search.ts";
 import type { CmsCorrectionItem } from "./server/feed.ts";
 
@@ -116,4 +117,77 @@ export function useCmsSearch(options: CmsSearchOptions): {
     onScopeDispose(() => clearTimeout(timer));
   }
   return { text, result, status, error };
+}
+
+/**
+ * チャットボットの回答（nuxt.config で `cms.answer` を設定したときに使える）。`ask(question, locale)` で送り、
+ * 判定・本文の断片・最終判定を、届いた順に state に反映する。送り直すと前の回答は止める。`stop()` で止める。
+ * 送るのはサイトのサーバーのルート（ブラウザから CMS を直接呼ばない）。本文は <CmsAnswerText> で描く（v-html は使わない）。
+ */
+export function useCmsAnswer(): {
+  state: Ref<CmsAnswerState>;
+  ask: (question: string, locale: string) => Promise<void>;
+  stop: () => void;
+} {
+  const route = (useRuntimeConfig().public as { cms?: { answerRoute?: string } }).cms?.answerRoute ?? "";
+  const state = ref<CmsAnswerState>({ ...INITIAL_ANSWER_STATE });
+  let controller: AbortController | null = null;
+
+  function stop() {
+    controller?.abort();
+    controller = null;
+  }
+
+  async function ask(question: string, locale: string) {
+    if (!route) throw new Error("useCmsAnswer: set cms.answer in nuxt.config");
+    stop();
+    const mine = new AbortController();
+    controller = mine;
+    let s: CmsAnswerState = { ...INITIAL_ANSWER_STATE, phase: "asking" };
+    state.value = s;
+    const apply = (e: CmsAnswerEvent) => {
+      if (controller !== mine) return;
+      s = applyAnswerEvent(s, e);
+      state.value = s;
+    };
+    try {
+      const res = await fetch(route, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({ question, locale }),
+        signal: mine.signal,
+      });
+      if (!res.ok || !res.body) {
+        let code: CmsAnswerErrorCode = res.status === 429 ? "RATE_LIMITED" : "ANSWER_FAILED";
+        try {
+          const body = (await res.json()) as { code?: CmsAnswerErrorCode };
+          if (body.code) code = body.code;
+        } catch {
+          // 本文が読めなければ、状態コードから決めたコードのまま
+        }
+        const after = Number(res.headers.get("retry-after"));
+        apply({ type: "error", code, ...(Number.isFinite(after) && after > 0 ? { retryAfter: after } : {}) });
+        return;
+      }
+      const reader = res.body.getReader();
+      const sse = new SseReader();
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (const { event, data } of sse.push(decoder.decode(value, { stream: true }))) {
+          apply({ type: event, ...(JSON.parse(data) as object) } as CmsAnswerEvent);
+        }
+      }
+      if (s.phase !== "done" && s.phase !== "error") apply({ type: "error", code: "ANSWER_FAILED" });
+    } catch {
+      // 止めたときは何もしない
+      if (!mine.signal.aborted) apply({ type: "error", code: "ANSWER_FAILED" });
+    } finally {
+      if (controller === mine) controller = null;
+    }
+  }
+
+  onScopeDispose(stop);
+  return { state, ask, stop };
 }

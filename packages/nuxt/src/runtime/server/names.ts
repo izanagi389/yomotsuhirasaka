@@ -14,5 +14,9 @@ export const AI_OPT_OUTS_QUERY_TEXT = "{ aiTrainingOptOuts }";
 export const SEARCH_QUERY = "cmsSearch";
 export const SEARCH_QUERY_TEXT =
   "query ($text: String!, $locale: String!, $mode: CmsSearchMode, $first: Int) { search(text: $text, locale: $locale, mode: $mode, first: $first) { vectorSearch keywordSearch hits { entryId locale url anchor breadcrumb excerpt matches { start length } score } } }";
+export const ANSWER_QUERY = "cmsAnswer";
+/** 回答のストリーミング。回答キャッシュから返したか（cached）は選ばない（ブラウザに渡さないため）。 */
+export const ANSWER_QUERY_TEXT =
+  "subscription ($question: String!, $locale: String!, $visitorId: String) { answerStream(question: $question, locale: $locale, visitorId: $visitorId) { __typename ... on CmsAnswerVerdict { answerable sources { citation entryId locale url anchor breadcrumb versionId lastReviewedAt reviewExpired } } ... on CmsAnswerDelta { text } ... on CmsAnswerFinal { status text truncated sources { citation entryId locale url anchor breadcrumb versionId lastReviewedAt reviewExpired } } } }";
 /** サイトの cms/queries で使えない名前。 */
-export const RESERVED_QUERIES = [REDIRECTS_QUERY, CORRECTIONS_QUERY, AI_CATALOG_QUERY, AI_MARKDOWN_QUERY, AI_OPT_OUTS_QUERY, SEARCH_QUERY];
+export const RESERVED_QUERIES = [REDIRECTS_QUERY, CORRECTIONS_QUERY, AI_CATALOG_QUERY, AI_MARKDOWN_QUERY, AI_OPT_OUTS_QUERY, SEARCH_QUERY, ANSWER_QUERY];
