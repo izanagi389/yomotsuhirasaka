@@ -41,6 +41,11 @@ jobs:
             - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
             - run: cargo fmt --check
             - run: cargo clippy --locked --all-targets -- -D warnings
+            # 依存の脆弱性・ライセンス・取得元（deny.toml。13-security.md「依存ライブラリと配布物」）。cargo-deny 0.20.2
+            - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+              with:
+                  command: check
+                  rust-version: stable
             # pg_bigm と pgvector の入った PostgreSQL（deploy/postgres.Dockerfile。公式の Docker Compose と同じイメージ）
             - run: |
                   docker build -q -t cms-postgres-bigm -f deploy/postgres.Dockerfile deploy
@@ -85,6 +90,9 @@ jobs:
             # 管理画面・CLI と、それらが共有するパッケージ（ルートの npm workspaces）
             - name: Install the admin UI, the CLI and shared packages
               run: npm ci --ignore-scripts
+            # 既知の脆弱性（重要度 high 以上）があれば失敗させる（13-security.md「依存ライブラリと配布物」）
+            - name: Audit the npm dependencies
+              run: npm audit --audit-level=high
             - name: Build and test the shared editor schema
               run: |
                   npm run typecheck -w @new-cms/editor-schema
@@ -125,7 +133,9 @@ jobs:
                   npm run generate
             - name: Install test dependencies
               working-directory: tests/invariants
-              run: npm ci --ignore-scripts
+              run: |
+                  npm ci --ignore-scripts
+                  npm audit --audit-level=high
             # inv.test のゾーンだけを、テストの実行環境のDNSサーバーに回す（Webhookなどの外部への送信の確認。INV-WH-*）
             - name: Route inv.test to the test DNS server
               run: |

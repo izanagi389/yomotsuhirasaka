@@ -1,0 +1,34 @@
+# 依存の自動の更新提案（13-security.md「依存ライブラリと配布物」）。依存の追加・更新は持ち主の承認で取り込む（CODEOWNERS）。
+# 提案が多すぎないよう、週に1回、種類ごとにまとめる。セキュリティの更新は、Dependabot のセキュリティの更新として別に届く。
+version: 2
+updates:
+    - package-ecosystem: cargo
+      directory: /
+      schedule:
+          interval: weekly
+      groups:
+          rust:
+              patterns: ["*"]
+    - package-ecosystem: npm
+      # 管理画面・CLI・共有パッケージ（ルートの npm workspaces）
+      directory: /
+      schedule:
+          interval: weekly
+      groups:
+          npm:
+              patterns: ["*"]
+    - package-ecosystem: npm
+      directory: /tests/invariants
+      schedule:
+          interval: weekly
+      groups:
+          invariants:
+              patterns: ["*"]
+    - package-ecosystem: github-actions
+      directory: /
+      schedule:
+          interval: weekly
+    - package-ecosystem: docker
+      directory: /deploy
+      schedule:
+          interval: weekly
