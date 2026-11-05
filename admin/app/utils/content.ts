@@ -608,3 +608,33 @@ export interface AssistTask {
   /** 構成案（Markdown の文。HTML にせず、文字のまま見せる）。 */
   outline?: string;
 }
+
+/** POST /workspaces/{ws}/answer-test（回答のテスト。M4、09-qa-chatbot.md「根拠と判定」）。 */
+export interface AnswerTestResult {
+  /** マスクした後の質問文（LLM と埋め込みに送ったもの）。 */
+  maskedQuestion: string;
+  /** 検索された断片（プロンプトの番号の順）。点数は、その方式の候補でなければ null。 */
+  fragments: {
+    n: number;
+    entryId: string;
+    locale: string;
+    anchor: string | null;
+    breadcrumb: string[];
+    excerpt: string;
+    score: number;
+    vectorSimilarity: number | null;
+    keywordScore: number | null;
+  }[];
+  /** LLM の判定の宣言（読めなければ null）。 */
+  declaration: { answerable: boolean; sources: number[] } | null;
+  /** LLM の出力そのもの（検査の前）。LLM を呼ばなかったら null。 */
+  rawOutput: string | null;
+  result: {
+    status: "ANSWERED" | "NO_INFORMATION" | "VIOLATION_DETECTED";
+    text: string;
+    truncated: boolean;
+    sources: { citation: number; entryId: string; locale: string; url: string | null; anchor: string | null; breadcrumb: string[]; versionId: string; reviewExpired: boolean }[];
+  } | null;
+  /** 回答できなかった理由（配信APIと同じコード）。 */
+  error: { code: string } | null;
+}

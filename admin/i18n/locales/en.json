@@ -169,7 +169,8 @@
     "idp_unreachable": "The identity provider could not be reached or is not configured correctly.",
     "reauth_method_not_allowed": "This method cannot be used to confirm your identity.",
     "csrf_already_issued": "Please sign in again.",
-    "budget_exceeds_ceiling": "This exceeds the limit set by the server administrator."
+    "budget_exceeds_ceiling": "This exceeds the limit set by the server administrator.",
+    "answer_test_rate_limited": "Too many answer tests in a row. Wait about a minute and try again."
   },
   "editor": {
     "toolbar": "Formatting",
@@ -1186,5 +1187,42 @@
     "outlineNote": "This outline was written by AI. Check the facts when you write the article.",
     "copy": "Copy",
     "copied": "Copied."
+  },
+  "answerTest": {
+    "title": "Try an answer",
+    "help": "Ask a test question to see the fragments found and their scores, the AI's verdict and the answer. It uses the tone you are editing above, even before you save it.",
+    "question": "Question (up to {max} characters)",
+    "locale": "Locale",
+    "run": "Try",
+    "running": "Writing the answer…",
+    "note": "This uses the visitor answer budget. The answer cache is not used and nothing is written to the question log. Refused words and masking apply as in production.",
+    "masked": "Question sent to the LLM (after masking)",
+    "fragments": "Fragments found",
+    "noFragments": "No fragments were found, so the LLM was not called and the answer is \"no information\".",
+    "declared": "Declared by the AI",
+    "scores": "Rank score {score} / vector similarity {vector} / keyword score {keyword}",
+    "declaration": "The AI's declaration",
+    "noDeclaration": "The declaration could not be read, so the answer is \"no information\".",
+    "notAnswerable": "It declared that it cannot answer.",
+    "answerable": "It declared that it can answer (fragments: {sources}).",
+    "rawOutput": "The AI's raw output (before checks)",
+    "final": "Final result",
+    "truncated": "Cut at the length limit",
+    "reviewExpired": "Review overdue",
+    "status": {
+      "ANSWERED": "Answered",
+      "NO_INFORMATION": "No information",
+      "VIOLATION_DETECTED": "Rule violation detected"
+    },
+    "errors": {
+      "ANSWER_BUDGET_EXHAUSTED": "The visitor answer budget is used up, so no answer was made.",
+      "QUESTION_REFUSED": "The question contains a refused word, so no answer was made (nothing was sent to the LLM or for embedding).",
+      "QUESTION_TOO_LONG": "The question is too long.",
+      "QUESTION_EMPTY": "The question is empty.",
+      "LOCALE_NOT_SUPPORTED": "This locale is not one of the template's locales.",
+      "ANSWER_UNAVAILABLE": "No chat model is configured, so answers are not available ([llm] chat_model in the server config).",
+      "LLM_UNAVAILABLE": "The LLM could not be reached. Try again later.",
+      "INTERNAL_ERROR": "An error occurred on the server."
+    }
   }
 }
