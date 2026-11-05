@@ -33,7 +33,8 @@ pub const MAX_ROWS: i64 = 10_000;
 /// キーを作る鍵の用途の名前（`KeyRing::derive`）。
 pub const KEY_PURPOSE: &str = "answer-cache";
 /// プロンプトの組み立て方の版。プロンプトや検査を変えて、同じ質問でも回答が変わるときに上げる（設定のハッシュに入る）。
-const PROMPT_VERSION: &str = "answer-prompt-1";
+/// 2: 出典に引用の番号（`citation`）を保存するようにした（それより前のキャッシュには番号がないので使わない）。
+const PROMPT_VERSION: &str = "answer-prompt-2";
 
 /// 質問文の正規化（空白をまとめて前後を切り、全角の英数字・記号・空白を半角にして、小文字にする）。
 /// 正規化は狭くとどめる（意味の違う質問が同じキャッシュに当たらないように）。
@@ -104,6 +105,7 @@ pub fn key(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Cited {
+    citation: usize,
     entry_id: Uuid,
     version_id: Uuid,
     locale: String,
@@ -208,6 +210,7 @@ async fn current(
         }
     }
     Ok(Some(Source {
+        citation: c.citation,
         entry_id: c.entry_id,
         locale: c.locale,
         url: url.filter(|u| !u.is_empty()),
@@ -230,6 +233,7 @@ pub async fn store(
     let cited: Vec<Cited> = sources
         .iter()
         .map(|s| Cited {
+            citation: s.citation,
             entry_id: s.entry_id,
             version_id: s.version_id,
             locale: s.locale.clone(),

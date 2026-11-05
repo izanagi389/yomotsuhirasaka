@@ -130,6 +130,7 @@ async fn erasing_version_bodies() {
         // 回答キャッシュ: v1 を引用したものと、v2 を引用したもの（抹消で消えるのは v1 を引用したものだけ。Q134）
         let db = cms_server::workspace_db::lookup(&server.pool, ws).await.unwrap().unwrap();
         let cite = |vid: &str| cms_server::answer::Source {
+            citation: 1,
             entry_id: id.parse().unwrap(),
             locale: "ja".into(),
             url: None,
