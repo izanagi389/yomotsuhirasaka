@@ -70,6 +70,8 @@ impl Status {
 /// 回答の出典（記事の該当セクション）。
 #[derive(Debug, Clone)]
 pub struct Source {
+    /// 本文の引用記号 `[n]` の番号（プロンプトの断片の番号）。本文と出典を結び付ける。
+    pub citation: usize,
     pub entry_id: Uuid,
     pub locale: String,
     pub url: Option<String>,
@@ -189,6 +191,7 @@ impl Grounds {
         let f = self.fragments.get(n.checked_sub(1)?)?;
         let (url, version_id, last, expired) = self.entries.get(&f.entry_id)?.clone();
         Some(Source {
+            citation: n,
             entry_id: f.entry_id,
             locale: f.locale.clone(),
             url,

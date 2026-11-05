@@ -221,6 +221,14 @@ fn source_type() -> Object {
     let text = |v: &Option<String>| Some(v.clone().map_or(GqlValue::Null, GqlValue::from));
     Object::new(ANSWER_SOURCE_TYPE)
         .description("A section of a published entry that the answer is based on.")
+        .field(
+            value_field::<Source, _>("citation", TypeRef::named_nn(TypeRef::INT), |s| {
+                Some(GqlValue::from(i64::try_from(s.citation).unwrap_or(i64::MAX)))
+            })
+            .description(
+                "The number of the citation markers such as [1] in the text that refer to this source.",
+            ),
+        )
         .field(value_field::<Source, _>(
             "entryId",
             TypeRef::named_nn(TypeRef::ID),

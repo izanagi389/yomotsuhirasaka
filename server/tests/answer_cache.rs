@@ -42,6 +42,7 @@ async fn cached_answers_are_checked_against_the_current_entries() {
 
         let db = workspace_db::lookup(&server.pool, ws).await.unwrap().unwrap();
         let source = Source {
+            citation: 3,
             entry_id: id.parse().unwrap(),
             locale: "ja".into(),
             url: None,
@@ -77,6 +78,8 @@ async fn cached_answers_are_checked_against_the_current_entries() {
         assert_eq!(hit.text, "答え [1]");
         assert_eq!(hit.sources[0].url.as_deref(), Some("https://site.example.test/ja/blog/s"));
         assert!(!hit.sources[0].review_expired);
+        // 本文の引用記号の番号も、保存したとおりに返る
+        assert_eq!(hit.sources[0].citation, 3);
 
         // 確認期限が、キャッシュを作った後に来た: 捨てる
         sql("UPDATE entries SET last_verified_at = now() - interval '1 day' + interval '2 seconds' WHERE id = $1").await;
