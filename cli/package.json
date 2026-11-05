@@ -18,16 +18,16 @@
   },
   "dependencies": {
     "@new-cms/editor-schema": "0.1.0",
-    "@tiptap/core": "3.32.0",
-    "@tiptap/pm": "3.32.0",
-    "@tiptap/starter-kit": "3.32.0",
+    "@tiptap/core": "3.32.2",
+    "@tiptap/pm": "3.32.2",
+    "@tiptap/starter-kit": "3.32.2",
     "esbuild": "0.28.2",
     "markdown-it": "15.0.3",
     "yaml": "2.9.1"
   },
   "devDependencies": {
-    "@types/node": "26.6.5",
-    "typescript": "7.0.2"
+    "@types/node": "26.6.6",
+    "typescript": "^7.0.2"
   },
   "exports": {
     "./types": {
