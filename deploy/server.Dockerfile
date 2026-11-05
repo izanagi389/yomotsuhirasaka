@@ -10,9 +10,11 @@ COPY admin/package.json admin/
 COPY cli/package.json cli/
 COPY packages/editor-schema/package.json packages/editor-schema/
 COPY packages/nuxt/package.json packages/nuxt/
+COPY packages/preview/package.json packages/preview/
 RUN npm ci --ignore-scripts
 COPY packages ./packages
-RUN npm run build -w @new-cms/editor-schema
+# 管理画面が使う共有パッケージ（本文の部品の定義と、ライブプレビューのメッセージの決まり）
+RUN npm run build -w @new-cms/editor-schema && npm run build -w @new-cms/preview
 COPY admin ./admin
 WORKDIR /src/admin
 RUN npx nuxt prepare && npm run generate
