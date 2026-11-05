@@ -169,7 +169,8 @@
     "idp_unreachable": "IdPにつながらないか、IdPの設定に問題があります。",
     "reauth_method_not_allowed": "この方法では本人を確認できません。",
     "csrf_already_issued": "ログインし直してください。",
-    "budget_exceeds_ceiling": "サーバー管理者が決めた天井を超えています。"
+    "budget_exceeds_ceiling": "サーバー管理者が決めた天井を超えています。",
+    "answer_test_rate_limited": "回答のテストを続けて行いすぎました。1分ほど待ってから試してください。"
   },
   "editor": {
     "toolbar": "本文の書式",
@@ -1186,5 +1187,42 @@
     "outlineNote": "AIによる構成案です。事実は記事を書くときに確かめてください。",
     "copy": "コピー",
     "copied": "コピーしました。"
+  },
+  "answerTest": {
+    "title": "回答を試す",
+    "help": "テスト用の質問で、検索された断片と点数、AIの判定、回答を確かめます。上で編集している語り口（保存前でも）で試します。",
+    "question": "質問（{max}文字まで）",
+    "locale": "ロケール",
+    "run": "試す",
+    "running": "回答を作っています…",
+    "note": "訪問者向けの回答の予算を使います。回答キャッシュは使わず、質問ログにも残りません。拒否する語とマスクは本番と同じに効きます。",
+    "masked": "LLMに送った質問文（マスクした後）",
+    "fragments": "検索された断片",
+    "noFragments": "根拠になる断片が見つからなかったため、LLMを呼ばずに「情報なし」にしました。",
+    "declared": "AIが使うと宣言",
+    "scores": "並びの点数 {score}／ベクトルの類似度 {vector}／キーワードの点数 {keyword}",
+    "declaration": "AIの判定の宣言",
+    "noDeclaration": "判定の宣言を読めなかったため、「情報なし」にしました。",
+    "notAnswerable": "答えられない、と宣言しました。",
+    "answerable": "答えられる、と宣言しました（使う断片: {sources}）。",
+    "rawOutput": "AIの出力そのもの（検査の前）",
+    "final": "最終の結果",
+    "truncated": "長さの上限で打ち切り",
+    "reviewExpired": "確認期限切れ",
+    "status": {
+      "ANSWERED": "回答",
+      "NO_INFORMATION": "情報なし",
+      "VIOLATION_DETECTED": "規則違反を検知"
+    },
+    "errors": {
+      "ANSWER_BUDGET_EXHAUSTED": "訪問者向けの回答の予算が尽きているため、回答しませんでした。",
+      "QUESTION_REFUSED": "拒否する語に当たったため、回答しませんでした（LLMにも埋め込みにも送っていません）。",
+      "QUESTION_TOO_LONG": "質問が長すぎます。",
+      "QUESTION_EMPTY": "質問が空です。",
+      "LOCALE_NOT_SUPPORTED": "このロケールは、テンプレートのロケールではありません。",
+      "ANSWER_UNAVAILABLE": "回答の生成のモデルが設定されていないため、回答できません（サーバーの設定ファイルの [llm] chat_model）。",
+      "LLM_UNAVAILABLE": "LLMを呼べませんでした。時間をおいて試してください。",
+      "INTERNAL_ERROR": "サーバーでエラーが起きました。"
+    }
   }
 }

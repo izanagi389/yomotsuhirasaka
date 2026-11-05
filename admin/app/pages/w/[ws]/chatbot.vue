@@ -3,6 +3,7 @@
 // - 語り口（丁寧さ・回答の長さ）。長さはLLMへの指示だけで、回答の長さの上限は変わらない
 // - 自由記述のシステムプロンプト（上級者向け。既定は使わない。使うときは警告を出す）。使わない設定でも文は保存する
 // - 答えられないときの文（コンテンツのロケールごと）
+// - 回答のテスト（AnswerTestPanel。いま編集している語り口で、保存せずに試せる）
 // - 編集者向けのAI支援を使うか（AssistSettingsPanel。すぐに保存する）
 // 保存は変えた項目だけを送る。再認証・権限・値の検査はサーバーが行う（再認証のダイアログは useApi が出す）。
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -12,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { AnswerSettings } from "~/utils/content";
 import AssistSettingsPanel from "~/components/assist/AssistSettingsPanel.vue";
+import AnswerTestPanel from "~/components/admin/AnswerTestPanel.vue";
 
 const MAX_FREE_PROMPT = 2000;
 const MAX_PHRASE = 500;
@@ -198,6 +200,9 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
         <span v-if="saved" class="text-muted-foreground" role="status">{{ t("chatbot.saved") }}</span>
       </div>
     </form>
+    <div v-if="allowed && form" class="border-t pt-6">
+      <AnswerTestPanel :workspace-id="ws" :locales="phraseLocales" :tone="form" />
+    </div>
     <div v-if="allowed" class="border-t pt-6">
       <AssistSettingsPanel :workspace-id="ws" />
     </div>
