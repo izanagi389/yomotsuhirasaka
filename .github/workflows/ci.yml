@@ -38,7 +38,7 @@ jobs:
             # パスキーの照合（webauthn-rs）が OpenSSL を使う
             - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config >/dev/null
             - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
-            - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+            - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
             - run: cargo fmt --check
             - run: cargo clippy --locked --all-targets -- -D warnings
             # 依存の脆弱性・ライセンス・取得元（deny.toml。13-security.md「依存ライブラリと配布物」）。cargo-deny 0.20.2
@@ -78,7 +78,7 @@ jobs:
             # パスキーの照合（webauthn-rs）が OpenSSL を使う
             - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config >/dev/null
             - run: rustup toolchain install stable --profile minimal && rustup default stable
-            - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+            - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
             - run: cargo build --locked
             - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
               with:
