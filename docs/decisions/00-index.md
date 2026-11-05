@@ -19,3 +19,4 @@
 | `11-permissions-and-audit.md` | ロールと権限、ワークスペースと利用者、監査ログ |
 | `12-dev-environment.md` | 開発環境、擬似LLM |
 | `13-security.md` | 脅威モデル、ログイン、OIDC、セッション、デプロイ、SQLとDBの権限、鍵、GraphQLの制限、外部への送信、メディア、本文、チャットボットへの悪用、依存ライブラリ、運用 |
+| `14-release.md` | v1.0 の公開（M5）: 配布物、リリース、SECURITY.md、手順書、公開前の確認 |

@@ -9,7 +9,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const testsDir = resolve(here, "..");
 export const repoRoot = resolve(testsDir, "..", "..");
 
-export const MILESTONES = ["M1", "M2", "M3", "M4"] as const;
+export const MILESTONES = ["M1", "M2", "M3", "M4", "M5"] as const;
 export type Milestone = (typeof MILESTONES)[number];
 
 export interface InvariantRow {
