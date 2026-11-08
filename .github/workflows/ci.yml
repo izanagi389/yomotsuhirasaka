@@ -6,6 +6,8 @@ on:
     pull_request:
     push:
         branches: [main]
+    # リリースのワークフローが、公開の前に呼ぶ（release.yml）
+    workflow_call:
 
 permissions:
     contents: read

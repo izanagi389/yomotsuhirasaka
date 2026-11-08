@@ -14,15 +14,19 @@ M4 までで全機能がそろったので、M5 で v1.0 の公開の準備を�
 
 ## 配布物
 
-- コンテナイメージ（CMSのサーバー。GitHub Container Registry）。
-- サーバーのバイナリ（Linux の x86_64 と arm64。GitHub Releases）。
-- npm のパッケージ: CLI と Nuxt モジュール。それらが使う共有のパッケージ（editor-schema・converter・preview）も公開する。擬似LLMは配らない。
-- 配るものには、OIDCによる鍵なしの署名（Sigstore の cosign）と SBOM を付ける（`13-security.md`）。
+- コンテナイメージ（CMSのサーバー。`ghcr.io/izanagi389/yomotsuhirasaka`。x86_64 と arm64 のマルチアーキテクチャ）。
+- サーバーのバイナリ（Linux の x86_64 と arm64 の glibc 向けの `tar.gz`。GitHub Releases）。中身はサーバーのバイナリと管理画面のファイル。Debian trixie でビルドするので、同じ世代以降の glibc と libssl3 が要る（パスキーの照合が OpenSSL を使うため、静的リンクにしない）。
+- 配るものには、OIDCによる鍵なしの署名（Sigstore の cosign）と SBOM（SPDX JSON）を付ける（`13-security.md`）。イメージは署名と attestation、バイナリは `SHA256SUMS`、ファイルごとの `.sigstore` のバンドル、SBOM を GitHub Releases に置く。
+- npm では当面公開しない（2026-11-08）。CLI と Nuxt モジュールは、リポジトリのソースからビルドして使う。擬似LLMは配らない。
 
 ## リリース
 
-- ふだんの確認はローカルで行う。GitHub Actions は、タグを付けたときだけ動くリリースのワークフローに使う（鍵なしの署名が GitHub の OIDC を前提とするため）。
-- リリースのワークフローは、ビルド、公開、署名、SBOM の添付を行う。外部のアクションはコミットのSHAで固定し、権限は必要な分だけにする（`13-security.md`）。
+- ふだんの確認はローカルで行う。GitHub Actions は、タグを付けたときだけ動くリリースのワークフロー（`.github/workflows/release.yml`）に使う（鍵なしの署名が GitHub の OIDC を前提とするため）。
+- リリースのワークフローは、ビルド、公開、署名、SBOM の添付を行う。外部のアクションはコミットのSHAで固定し、権限はジョブごとに必要な分だけにする（`13-security.md`）。
+- 版の番号は、配布物のすべてで同じにする。タグは `v1.0.0` の形で、候補の版は `v1.0.0-rc.1` の形。`server/Cargo.toml` の版と一致しないタグは断る。
+- 守り: `main` の上のタグだけを受け付ける。公開の前に `ci.yml` をすべて流す。公開は GitHub の Environment `release` で持ち主の承認を必須にする。
+- イメージとバイナリは、QEMU を使わず、x86_64 と arm64 のランナーでそれぞれビルドする。
+- 試し方: リポジトリを公開するまでは、公開も署名もしない手動の実行（`workflow_dispatch`）と `actionlint` で確かめる。本番の試しは、公開の後の `v1.0.0-rc.1` で行う。
 
 ## SECURITY.md
 
