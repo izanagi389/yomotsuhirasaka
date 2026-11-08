@@ -9,6 +9,11 @@ updates:
       groups:
           rust:
               patterns: ["*"]
+      ignore:
+          # パスキーの照合。0.6 は API が変わり、修正版のない脆弱性のある rsa（RUSTSEC-2023-0071）を連れてくる（2026-11-08）。
+          # 移行は、変更点を調べてから専用の PR で行う（人間のレビューが必須の領域）
+          - dependency-name: webauthn-rs
+            update-types: ["version-update:semver-major", "version-update:semver-minor"]
     - package-ecosystem: npm
       # 管理画面・CLI・共有パッケージ（ルートの npm workspaces）
       directory: /
