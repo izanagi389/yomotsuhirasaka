@@ -29,6 +29,11 @@ COPY server ./server
 COPY tools/mock-llm/src/format.json ./tools/mock-llm/src/format.json
 RUN cargo build --release --locked -p yomi-server
 
+# 配布するバイナリの中身（.github/workflows/release.yml が `--target dist --output type=local` で取り出す）
+FROM scratch AS dist
+COPY --from=build /src/target/release/yomi-server /yomi-server
+COPY --from=admin /src/admin/.output/public /admin
+
 FROM debian:trixie-slim
 RUN apt-get update -q && apt-get install -y --no-install-recommends libssl3t64 ca-certificates && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin yomi
