@@ -322,7 +322,7 @@
     "setSourceDescription": "The {locale} entry becomes the source. The reflected version becomes its current version."
   },
   "settings": {
-    "note": "Changes to these switches are announced by webhook. Materials for external AI and the AI-training opt-out are applied by the site integration. The effect on the chatbot comes in a later version.",
+    "note": "Changes to these switches are announced by webhook. Materials for external AI and the AI-training opt-out are applied by the site integration. \"Use for the chatbot\" applies from the next answer.",
     "changedFromDefault": "Changed from the default",
     "showDefaults": "Show settings left at their defaults ({n})",
     "hideDefaults": "Hide settings left at their defaults",
