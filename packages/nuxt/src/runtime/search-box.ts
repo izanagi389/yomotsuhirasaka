@@ -1,38 +1,38 @@
-// サイト内検索の、飾りのない意味のあるHTMLの部品（`<CmsSearchBox label="サイト内を検索" locale="ja" />`）。
+// サイト内検索の、飾りのない意味のあるHTMLの部品（`<YomiSearchBox label="サイト内を検索" locale="ja" />`）。
 // - 見た目はサイトが決める（原則1）。クラスもスタイルも付けない
 // - 部品の中に決まった文言を持たない。ラベルは必ず渡す。読み込み中・結果なし・予算切れ・キーワード検索が使えない・
 //   回数の制限・失敗は、スロット（loading・empty・budgetExhausted・keywordDisabled・rateLimited・error）でだけ描く
 // - 結果1件の描き方は `hit` のスロットで置き換えられる。既定は、パンくず（なければURL）のリンクと、一致した箇所を
 //   `<mark>` で囲んだ抜粋。`v-html` は使わない
-// - 検索は useCmsSearch（サイトのサーバーのルートを通す。ブラウザから配信APIを直接呼ばない）
+// - 検索は useYomiSearch（サイトのサーバーのルートを通す。ブラウザから配信APIを直接呼ばない）
 
 import { type PropType, type SlotsType, type VNode, defineComponent, h, useId } from "vue";
 
-import { useCmsSearch } from "./composables.ts";
+import { useYomiSearch } from "./composables.ts";
 import { hrefAllowed } from "./href.ts";
-import { type CmsHighlightSegment, type CmsSearchHit, type CmsSearchMode, MAX_QUERY_CHARS, cmsHighlight } from "./search.ts";
+import { type YomiHighlightSegment, type YomiSearchHit, type YomiSearchMode, MAX_QUERY_CHARS, yomiHighlight } from "./search.ts";
 
 /** 結果のリンク先（記事のURLと、当たったセクションのアンカー）。描いてよいURLでなければ null。 */
-export function hitHref(hit: CmsSearchHit): string | null {
+export function hitHref(hit: YomiSearchHit): string | null {
   if (!hit.url) return null;
   const href = hit.anchor ? `${hit.url}#${encodeURIComponent(hit.anchor)}` : hit.url;
   return hrefAllowed(href) ? href : null;
 }
 
 export default defineComponent({
-  name: "CmsSearchBox",
+  name: "YomiSearchBox",
   props: {
     /** 検索欄のラベル（必須。サイトのロケールの文言で）。 */
     label: { type: String, required: true },
     /** 検索するロケール（必須）。 */
     locale: { type: String, required: true },
-    mode: { type: String as PropType<CmsSearchMode>, default: undefined },
+    mode: { type: String as PropType<YomiSearchMode>, default: undefined },
     first: { type: Number, default: undefined },
     placeholder: { type: String, default: undefined },
     debounceMs: { type: Number, default: undefined },
   },
   slots: Object as SlotsType<{
-    hit: { hit: CmsSearchHit; href: string | null; segments: CmsHighlightSegment[] };
+    hit: { hit: YomiSearchHit; href: string | null; segments: YomiHighlightSegment[] };
     loading: Record<string, never>;
     empty: Record<string, never>;
     budgetExhausted: Record<string, never>;
@@ -41,16 +41,16 @@ export default defineComponent({
     error: Record<string, never>;
   }>,
   setup(props, { slots }) {
-    const { text, result, status } = useCmsSearch({
+    const { text, result, status } = useYomiSearch({
       locale: () => props.locale,
       mode: () => props.mode,
       first: () => props.first,
       ...(props.debounceMs === undefined ? {} : { debounceMs: props.debounceMs }),
     });
     const inputId = useId();
-    const renderHit = (hit: CmsSearchHit): VNode => {
+    const renderHit = (hit: YomiSearchHit): VNode => {
       const href = hitHref(hit);
-      const segments = cmsHighlight(hit.excerpt, hit.matches);
+      const segments = yomiHighlight(hit.excerpt, hit.matches);
       const content = slots.hit
         ? slots.hit({ hit, href, segments })
         : [

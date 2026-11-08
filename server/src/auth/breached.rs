@@ -72,7 +72,7 @@ pub async fn check(
             ),
             (
                 hyper::header::USER_AGENT,
-                hyper::header::HeaderValue::from_static("cms-password-check/1"),
+                hyper::header::HeaderValue::from_static("yomi-password-check/1"),
             ),
         ],
         body: Vec::new(),

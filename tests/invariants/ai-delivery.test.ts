@@ -30,65 +30,65 @@ interface Site {
 
 /** post の aiMarkdown を指定したテンプレートをデプロイし、それを使うワークスペースを作る。 */
 async function siteWith(label: string, aiMarkdown: NonNullable<TemplateSpec["contentTypes"][number]["aiMarkdown"]>): Promise<Site> {
-  const { cms, serverAdmin, serverAdminSession } = await world();
+  const { yomi, serverAdmin, serverAdminSession } = await world();
   const name = templateName(label);
   const template = cloneTemplate(name, (t) => {
     postType(t).aiMarkdown = aiMarkdown;
   });
-  expectSuccess(await cms.deployTemplateRaw(asBearer(await cms.deployToken(serverAdminSession, serverAdmin)), template), "aiMarkdown を指定したテンプレートのデプロイ");
-  await cms.reauthenticate(serverAdminSession, serverAdmin);
-  const { id } = await cms.createWorkspace(serverAdminSession, `${name}-ws`, { template: name });
-  const admin = await cms.createMember(serverAdminSession, id, "admin");
-  const adminSession = await cms.login(admin);
-  const editor = await cms.createMember(adminSession, id, "editor");
-  const editorSession = await cms.login(editor);
-  await cms.reauthenticate(adminSession, admin);
-  const readKey = await cms.createApiKey(adminSession, id, ["read"]);
-  const registerKey = await cms.createApiKey(adminSession, id, ["register"]);
+  expectSuccess(await yomi.deployTemplateRaw(asBearer(await yomi.deployToken(serverAdminSession, serverAdmin)), template), "aiMarkdown を指定したテンプレートのデプロイ");
+  await yomi.reauthenticate(serverAdminSession, serverAdmin);
+  const { id } = await yomi.createWorkspace(serverAdminSession, `${name}-ws`, { template: name });
+  const admin = await yomi.createMember(serverAdminSession, id, "admin");
+  const adminSession = await yomi.login(admin);
+  const editor = await yomi.createMember(adminSession, id, "editor");
+  const editorSession = await yomi.login(editor);
+  await yomi.reauthenticate(adminSession, admin);
+  const readKey = await yomi.createApiKey(adminSession, id, ["read"]);
+  const registerKey = await yomi.createApiKey(adminSession, id, ["register"]);
   return { id, adminSession, editorSession, readKey, registerKey };
 }
 
 /** 記事を作って公開する。 */
 async function publish(site: Site, input: { title: string; slug?: string; body: string; fields?: Record<string, unknown> }): Promise<string> {
-  const { cms } = await world();
-  const { id } = await cms.createEntry(site.editorSession, site.id, { title: input.title, slug: input.slug, body: doc(paragraph(input.body)), fields: input.fields });
-  await cms.publishEntry(site.editorSession, site.id, id);
+  const { yomi } = await world();
+  const { id } = await yomi.createEntry(site.editorSession, site.id, { title: input.title, slug: input.slug, body: doc(paragraph(input.body)), fields: input.fields });
+  await yomi.publishEntry(site.editorSession, site.id, id);
   return id;
 }
 
 /** 記事の翻訳グループのID（参照フィールドの値）。 */
 async function groupOf(site: Site, entryId: string): Promise<string> {
-  const { cms } = await world();
-  return (await cms.getTranslationInfo(site.editorSession, site.id, entryId)).groupId;
+  const { yomi } = await world();
+  return (await yomi.getTranslationInfo(site.editorSession, site.id, entryId)).groupId;
 }
 
 /** 記事のMarkdown版（配信APIの応答のまま）。記事そのものの項目は id だけを取る。 */
 async function markdownOf(site: Site, entryId: string): Promise<HttpResponse> {
-  const { cms } = await world();
-  const query = await cms.registerQuery(site.id, site.registerKey.secret, { kind: "byId", fields: ["id"], include: ["aiMarkdown"] });
-  const res = await cms.deliveryRaw(site.id, site.readKey.secret, query, { id: entryId, locale: "ja" });
+  const { yomi } = await world();
+  const query = await yomi.registerQuery(site.id, site.registerKey.secret, { kind: "byId", fields: ["id"], include: ["aiMarkdown"] });
+  const res = await yomi.deliveryRaw(site.id, site.readKey.secret, query, { id: entryId, locale: "ja" });
   expectSuccess(res, "配信APIでのMarkdown版の取得");
   return res;
 }
 
 /** 公開URLで取る記事のMarkdown版（配信APIの応答のまま。連携部品の `.md` が使う）。 */
 async function markdownByUrl(site: Site, entryId: string): Promise<HttpResponse> {
-  const { cms } = await world();
-  const byId = await cms.registerQuery(site.id, site.registerKey.secret, { kind: "byId", fields: ["id", "url"] });
-  const entry = await cms.deliveryRaw(site.id, site.readKey.secret, byId, { id: entryId, locale: "ja" });
+  const { yomi } = await world();
+  const byId = await yomi.registerQuery(site.id, site.registerKey.secret, { kind: "byId", fields: ["id", "url"] });
+  const entry = await yomi.deliveryRaw(site.id, site.readKey.secret, byId, { id: entryId, locale: "ja" });
   expectSuccess(entry, "配信APIでの記事のURLの取得");
   const url = (JSON.parse(entry.text) as { data: Record<string, { url: string } | null> }).data;
-  const query = await cms.registerQuery(site.id, site.registerKey.secret, { kind: "aiMarkdownByUrl" });
-  const res = await cms.deliveryRaw(site.id, site.readKey.secret, query, { url: Object.values(url)[0]!.url });
+  const query = await yomi.registerQuery(site.id, site.registerKey.secret, { kind: "aiMarkdownByUrl" });
+  const res = await yomi.deliveryRaw(site.id, site.readKey.secret, query, { url: Object.values(url)[0]!.url });
   expectSuccess(res, "配信APIでの公開URLによるMarkdown版の取得");
   return res;
 }
 
 /** 記事の目録（配信APIの応答のまま）。 */
 async function catalogOf(site: Site): Promise<HttpResponse> {
-  const { cms } = await world();
-  const query = await cms.registerQuery(site.id, site.registerKey.secret, { kind: "aiCatalog" });
-  const res = await cms.deliveryRaw(site.id, site.readKey.secret, query, { locale: "ja", limit: 1000 });
+  const { yomi } = await world();
+  const query = await yomi.registerQuery(site.id, site.registerKey.secret, { kind: "aiCatalog" });
+  const res = await yomi.deliveryRaw(site.id, site.readKey.secret, query, { locale: "ja", limit: 1000 });
   expectSuccess(res, "配信APIでの目録の取得");
   return res;
 }
@@ -96,7 +96,7 @@ async function catalogOf(site: Site): Promise<HttpResponse> {
 const has = (res: HttpResponse, value: string) => res.text.includes(value);
 
 inv("inv_aix_01", "「外部AI向けの素材に含める」がOFFの記事は、Markdown版・目録・他の記事の関係の相手のいずれにも含まれない", async () => {
-  const { cms } = await world();
+  const { yomi } = await world();
   const site = await siteWith("aix01", { title: "title", fields: ["body"], relations: ["related"] });
   // 関係の相手（後でOFFにする記事）と、それを関係に持つ記事。相手は、URLに入るスラッグとタイトルの目印で見分ける
   const targetTitle = marker("aix01-target");
@@ -111,7 +111,7 @@ inv("inv_aix_01", "「外部AI向けの素材に含める」がOFFの記事は�
   expect(has(await markdownOf(site, source), targetSlug), "関係の相手（「含める」の記事）のURLが、もう一方の記事のMarkdown版にない").toBe(true);
 
   // OFFにしたら、保存済みの素材を信用せず、すぐにどこからも消える（原則3）。方針のスイッチは、既定では管理者だけが変えられる
-  await cms.setIncludeInAiMaterials(site.adminSession, site.id, target, false);
+  await yomi.setIncludeInAiMaterials(site.adminSession, site.id, target, false);
   for (const value of [targetTitle, targetSlug]) {
     expectNotLeaked(await markdownOf(site, target), value, "OFFの記事のMarkdown版");
     expectNotLeaked(await markdownByUrl(site, target), value, "公開URLで取ったOFFの記事のMarkdown版");

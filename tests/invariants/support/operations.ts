@@ -1,7 +1,7 @@
 // 管理APIの操作の一覧（ドライバーの adminOperations）を使うための補助。
 
 import { expect } from "vitest";
-import type { AdminOperation, CmsClient } from "./driver.js";
+import type { AdminOperation, YomiClient } from "./driver.js";
 
 /**
  * M1の管理APIに必ずある操作。ドライバーの一覧にこれらが欠けていたら、テストは失敗する。
@@ -70,8 +70,8 @@ export const REQUIRED_OPERATIONS = {
 } as const satisfies Record<string, AdminOperation["scope"]>;
 
 /** 操作の一覧を取り出し、必須の操作がそろっていることを確かめる。 */
-export function operationsOf(cms: CmsClient): AdminOperation[] {
-  const ops = cms.adminOperations;
+export function operationsOf(yomi: YomiClient): AdminOperation[] {
+  const ops = yomi.adminOperations;
   const names = new Set(ops.map((o) => o.name));
   const missing = Object.keys(REQUIRED_OPERATIONS).filter((n) => !names.has(n));
   expect(missing, "ドライバーの adminOperations に欠けている操作").toEqual([]);

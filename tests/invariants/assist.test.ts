@@ -32,10 +32,10 @@ const wordMarker = (label: string): string => marker(label).replace(/\d/g, (d) =
 
 /** 記事が配信API（検索）に出るまで待つ。時間内に出なければ失敗する。 */
 async function waitSearchable(ws: AnswerWorkspace, entryId: string, word: string, what: string): Promise<void> {
-  const { cms } = await world();
+  const { yomi } = await world();
   const deadline = Date.now() + 120_000;
   for (;;) {
-    const r = await cms.search(ws.id, ws.readKey.secret, ws.searchQuery, { text: word, first: 50 });
+    const r = await yomi.search(ws.id, ws.readKey.secret, ws.searchQuery, { text: word, first: 50 });
     if (r.hits.some((h) => h.entryId === entryId)) return;
     expect(Date.now() < deadline, `${what}: 公開した記事が配信APIに出ない`).toBe(true);
     await sleep(1);
@@ -44,10 +44,10 @@ async function waitSearchable(ws: AnswerWorkspace, entryId: string, word: string
 
 /** 矛盾の検知が running でなくなるまで待つ。 */
 async function settled(ws: AnswerWorkspace, entryId: string): Promise<ConflictCheck> {
-  const { cms } = await world();
+  const { yomi } = await world();
   const deadline = Date.now() + 180_000;
   for (;;) {
-    const r = await cms.conflictCheck(ws.editorSession, ws.id, entryId);
+    const r = await yomi.conflictCheck(ws.editorSession, ws.id, entryId);
     if (r.state !== "running") return r;
     expect(Date.now() < deadline, "矛盾の検知が終わらない").toBe(true);
     await sleep(1);
@@ -56,23 +56,23 @@ async function settled(ws: AnswerWorkspace, entryId: string): Promise<ConflictCh
 
 /** 比べる相手の記事と言葉を共有する下書き（まだ公開しない）。own はこの下書きだけの検索語。 */
 async function draftAbout(ws: AnswerWorkspace, topic: string, own: string): Promise<string> {
-  const { cms } = await world();
+  const { yomi } = await world();
   const text = `${topic} の料金と提供時間について説明します。${own} の手順もあわせて案内します。`;
-  return (await cms.createEntry(ws.editorSession, ws.id, { title: marker("bud02-draft"), body: doc(paragraph(text)) })).id;
+  return (await yomi.createEntry(ws.editorSession, ws.id, { title: marker("bud02-draft"), body: doc(paragraph(text)) })).id;
 }
 
 /** 編集者が公開する。公開の応答が成功し、その記事が配信APIに出ることを確かめる。 */
 async function expectPublished(ws: AnswerWorkspace, entryId: string, own: string, what: string): Promise<void> {
-  const { cms } = await world();
-  expectSuccess(await cms.publishRaw(asSession(ws.editorSession), ws.id, entryId), `${what}: 公開`);
+  const { yomi } = await world();
+  expectSuccess(await yomi.publishRaw(asSession(ws.editorSession), ws.id, entryId), `${what}: 公開`);
   await waitSearchable(ws, entryId, own, what);
 }
 
 async function setBudget(ws: AnswerWorkspace, month: number | null, day: number | null): Promise<void> {
-  const { cms } = await world();
-  await cms.reauthenticate(ws.adminSession, ws.admin);
+  const { yomi } = await world();
+  await yomi.reauthenticate(ws.adminSession, ws.admin);
   const pair = { tokensPerMonth: month, tokensPerDay: day };
-  expectSuccess(await cms.setAssistBudgetRaw(asSession(ws.adminSession), ws.id, { input: pair, output: pair }), "管理者による支援の予算の設定");
+  expectSuccess(await yomi.setAssistBudgetRaw(asSession(ws.adminSession), ws.id, { input: pair, output: pair }), "管理者による支援の予算の設定");
 }
 
 inv(
@@ -80,18 +80,18 @@ inv(
   "編集者向けの支援の予算が尽きても、記事の公開は妨げられない",
   async () => {
     const w = await world();
-    const { cms, llmKey } = w;
+    const { yomi, llmKey } = w;
     const ws = await w.workspace("bud02", { assistCeiling: LARGE });
-    await cms.reauthenticate(ws.adminSession, ws.admin);
-    await cms.setAssistSettings(ws.adminSession, ws.id, { enabled: true });
+    await yomi.reauthenticate(ws.adminSession, ws.admin);
+    await yomi.setAssistSettings(ws.adminSession, ws.id, { enabled: true });
 
     // 比べる相手: 意味の近い、公開中の別の記事
     const topic = wordMarker("bud02-topic");
-    const other = await cms.createEntry(ws.editorSession, ws.id, {
+    const other = await yomi.createEntry(ws.editorSession, ws.id, {
       title: marker("bud02-other"),
       body: doc(paragraph(`${topic} の料金は月ごとに決まり、提供時間は平日の朝から夕方までです。`)),
     });
-    await cms.publishEntry(ws.editorSession, ws.id, other.id);
+    await yomi.publishEntry(ws.editorSession, ws.id, other.id);
     await waitSearchable(ws, other.id, topic, "比べる相手の記事");
     await mockLlm.setStrategy(llmKey, { kind: "fixed", content: noConflictOutput() });
 
@@ -100,7 +100,7 @@ inv(
       await mockLlm.clearRequests(llmKey);
       const own = wordMarker(`bud02-${label}`);
       const id = await draftAbout(ws, topic, own);
-      await cms.startConflictCheck(ws.editorSession, ws.id, id);
+      await yomi.startConflictCheck(ws.editorSession, ws.id, id);
       const result = await settled(ws, id);
       const chats = chatRequests(await mockLlm.waitUntilQuiet(llmKey, 3_000)).length;
       return { id, own, result, chats };
@@ -130,9 +130,9 @@ inv(
 
     // --- 3. サーバー管理者の天井が 0（ワークスペースの上限は決めていない） ---
     await setBudget(ws, null, null);
-    const sa = await cms.login(w.serverAdmin);
-    await cms.reauthenticate(sa, w.serverAdmin);
-    await cms.setWorkspaceLimits(sa, ws.id, {
+    const sa = await yomi.login(w.serverAdmin);
+    await yomi.reauthenticate(sa, w.serverAdmin);
+    await yomi.setWorkspaceLimits(sa, ws.id, {
       assistInputTokensPerMonth: 0,
       assistInputTokensPerDay: 0,
       assistOutputTokensPerMonth: 0,
@@ -142,7 +142,7 @@ inv(
     expect(zero.result.state, "天井が 0 なのに、支援の状態が予算切れでない").toBe("budgetExhausted");
     expect(zero.chats, "天井が 0 なのに、LLM が呼ばれた").toBe(0);
     await expectPublished(ws, zero.id, zero.own, "天井が 0 のとき");
-    await cms.setWorkspaceLimits(sa, ws.id, {
+    await yomi.setWorkspaceLimits(sa, ws.id, {
       assistInputTokensPerMonth: LARGE,
       assistInputTokensPerDay: LARGE,
       assistOutputTokensPerMonth: LARGE,
@@ -155,11 +155,11 @@ inv(
     try {
       const own = wordMarker("bud02-running");
       const id = await draftAbout(ws, topic, own);
-      await cms.startConflictCheck(ws.editorSession, ws.id, id);
+      await yomi.startConflictCheck(ws.editorSession, ws.id, id);
       await mockLlm.waitForRequests(llmKey, (r) => chatRequests(r).length > 0);
-      expect((await cms.conflictCheck(ws.editorSession, ws.id, id)).state, "LLM が応答していないのに、矛盾の検知が終わった").toBe("running");
+      expect((await yomi.conflictCheck(ws.editorSession, ws.id, id)).state, "LLM が応答していないのに、矛盾の検知が終わった").toBe("running");
       const started = Date.now();
-      expectSuccess(await cms.publishRaw(asSession(ws.editorSession), ws.id, id), "支援が動いている途中の公開");
+      expectSuccess(await yomi.publishRaw(asSession(ws.editorSession), ws.id, id), "支援が動いている途中の公開");
       expect(Date.now() - started, "公開が、支援の LLM の応答を待たされた").toBeLessThan(15_000);
       await waitSearchable(ws, id, own, "支援が動いている途中");
 

@@ -1,4 +1,4 @@
-// 管理APIの呼び出し（個人トークン）。トークンは環境変数 CMS_TOKEN で受け取り、ログに出さない。
+// 管理APIの呼び出し（個人トークン）。トークンは環境変数 YOMI_TOKEN で受け取り、ログに出さない。
 
 export class ApiError extends Error {
   constructor(

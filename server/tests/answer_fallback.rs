@@ -1,18 +1,18 @@
 //! 質問応答の根拠の、既定のロケールへのフォールバック（09-qa-chatbot.md、M4）の結合テスト。
 //! 断片の選び方（`search::query::fragments`）を、キーワード検索だけで確かめる（LLMの接続先は設定しない）。
 //!
-//! 環境変数 `CMS_TEST_PG_BIGM_URL` に、pg_bigm の入った PostgreSQL（`deploy/postgres.Dockerfile`）の
+//! 環境変数 `YOMI_TEST_PG_BIGM_URL` に、pg_bigm の入った PostgreSQL（`deploy/postgres.Dockerfile`）の
 //! スーパーユーザーの接続先があるときだけ実行する。
 
 mod common;
 
-use cms_server::schema::manifest::Manifest;
-use cms_server::search::query::{Services, fragments};
-use cms_server::{worker, workspace_db};
 use common::content::*;
 use common::server::*;
 use common::with_scratch_at;
 use serde_json::{Value, json};
+use yomi_server::schema::manifest::Manifest;
+use yomi_server::search::query::{Services, fragments};
+use yomi_server::{worker, workspace_db};
 
 fn parse(res: &Resp) -> Value {
     serde_json::from_str(&res.body).unwrap_or_else(|_| panic!("{}", res.body))
@@ -20,7 +20,7 @@ fn parse(res: &Resp) -> Value {
 
 #[tokio::test]
 async fn answer_fragments_fall_back_to_the_default_locale() {
-    with_scratch_at("CMS_TEST_PG_BIGM_URL", &["pg_bigm"], |app, migration| async move {
+    with_scratch_at("YOMI_TEST_PG_BIGM_URL", &["pg_bigm"], |app, migration| async move {
         let server = start(config(&app, &migration)).await;
         let (root, token) = root_with_deploy_token(&server).await;
         // 既定のロケールは ja

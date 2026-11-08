@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { defineComponent, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 
-import CmsBody, { type BodyNode } from "../src/runtime/body.ts";
+import YomiBody, { type BodyNode } from "../src/runtime/body.ts";
 
-const render = (doc: BodyNode | null, components = {}) => renderToString(h(CmsBody, { doc, components }));
+const render = (doc: BodyNode | null, components = {}) => renderToString(h(YomiBody, { doc, components }));
 const text = (t: string, marks?: BodyNode["marks"]): BodyNode => ({ type: "text", text: t, marks });
 const doc = (...content: BodyNode[]): BodyNode => ({ type: "doc", content });
 
-describe("CmsBody", () => {
+describe("YomiBody", () => {
   it("意味のあるHTMLとして描き、見出しにアンカーIDを付ける", async () => {
     const html = await render(
       doc(
@@ -47,13 +47,13 @@ describe("CmsBody", () => {
   it("画像は代替テキストと大きさを付け、装飾画像は alt を空にする", async () => {
     const html = await render(
       doc(
-        { type: "image", attrs: { src: "https://cms.example.com/media/w/a.webp", alt: "説明", width: 40, height: 30 } },
-        { type: "image", attrs: { src: "https://cms.example.com/media/w/b.webp", alt: "使わない", decorative: true } },
+        { type: "image", attrs: { src: "https://yomi.example.com/media/w/a.webp", alt: "説明", width: 40, height: 30 } },
+        { type: "image", attrs: { src: "https://yomi.example.com/media/w/b.webp", alt: "使わない", decorative: true } },
       ),
     );
-    expect(html).toContain('src="https://cms.example.com/media/w/a.webp" alt="説明" width="40" height="30" loading="lazy"');
+    expect(html).toContain('src="https://yomi.example.com/media/w/a.webp" alt="説明" width="40" height="30" loading="lazy"');
     // 空の alt（Vue は `alt` とだけ書く。HTMLでは alt="" と同じ）
-    expect(html).toMatch(/src="https:\/\/cms\.example\.com\/media\/w\/b\.webp" alt(="")? /);
+    expect(html).toMatch(/src="https:\/\/yomi\.example\.com\/media\/w\/b\.webp" alt(="")? /);
     expect(html).not.toContain("使わない");
   });
 

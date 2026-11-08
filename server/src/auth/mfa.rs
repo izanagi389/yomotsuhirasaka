@@ -21,13 +21,13 @@ pub const RECOVERY_CODE_COUNT: usize = 10;
 /// 入力では、I と L は 1、O は 0 と読む。
 const RECOVERY_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-/// 多要素認証を設定しているか（TOTPか、パスキーが1つ以上）のSQLの式。`cms.users` を `u` と名付けた問い合わせで使う。
-pub const MFA_ENABLED_U: &str = "(u.totp_enabled_at IS NOT NULL OR EXISTS (SELECT 1 FROM cms.passkeys pk WHERE pk.user_id = u.id))";
-/// 同じ式を、`cms.users` に別名を付けない問い合わせで使う形。
-pub const MFA_ENABLED: &str = "(cms.users.totp_enabled_at IS NOT NULL OR EXISTS (SELECT 1 FROM cms.passkeys pk WHERE pk.user_id = cms.users.id))";
+/// 多要素認証を設定しているか（TOTPか、パスキーが1つ以上）のSQLの式。`yomi.users` を `u` と名付けた問い合わせで使う。
+pub const MFA_ENABLED_U: &str = "(u.totp_enabled_at IS NOT NULL OR EXISTS (SELECT 1 FROM yomi.passkeys pk WHERE pk.user_id = u.id))";
+/// 同じ式を、`yomi.users` に別名を付けない問い合わせで使う形。
+pub const MFA_ENABLED: &str = "(yomi.users.totp_enabled_at IS NOT NULL OR EXISTS (SELECT 1 FROM yomi.passkeys pk WHERE pk.user_id = yomi.users.id))";
 
 pub(crate) fn aad(user_id: Uuid) -> Vec<u8> {
-    format!("cms:totp:{user_id}").into_bytes()
+    format!("yomi:totp:{user_id}").into_bytes()
 }
 
 fn totp_from(secret: Vec<u8>) -> Result<Totp> {
@@ -72,7 +72,7 @@ pub async fn begin_enrollment(
     let mut bytes = [0u8; SECRET_BYTES];
     rand::fill(&mut bytes);
     let sealed = keys.encrypt(&bytes, &aad(user_id))?;
-    sqlx::query("UPDATE cms.users SET totp_pending_secret_enc = $2 WHERE id = $1")
+    sqlx::query("UPDATE yomi.users SET totp_pending_secret_enc = $2 WHERE id = $1")
         .bind(user_id)
         .bind(sealed)
         .execute(pool)
@@ -107,7 +107,7 @@ pub async fn confirm_enrollment(
     code: &str,
 ) -> Result<Option<Vec<String>>> {
     let pending: Option<Option<Vec<u8>>> =
-        sqlx::query_scalar("SELECT totp_pending_secret_enc FROM cms.users WHERE id = $1")
+        sqlx::query_scalar("SELECT totp_pending_secret_enc FROM yomi.users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(pool)
             .await?;
@@ -119,13 +119,13 @@ pub async fn confirm_enrollment(
     };
     let mut tx = pool.begin().await?;
     let had_mfa: bool = sqlx::query_scalar(crate::sql!(
-        "SELECT {MFA_ENABLED_U} FROM cms.users u WHERE u.id = $1 FOR UPDATE"
+        "SELECT {MFA_ENABLED_U} FROM yomi.users u WHERE u.id = $1 FOR UPDATE"
     ))
     .bind(user_id)
     .fetch_one(&mut *tx)
     .await?;
     let done = sqlx::query(
-        "UPDATE cms.users SET totp_secret_enc = totp_pending_secret_enc, totp_pending_secret_enc = NULL,
+        "UPDATE yomi.users SET totp_secret_enc = totp_pending_secret_enc, totp_pending_secret_enc = NULL,
                 totp_enabled_at = now(), totp_last_step = $3
          WHERE id = $1 AND totp_pending_secret_enc = $2",
     )
@@ -154,11 +154,11 @@ fn step_i64(step: u64) -> i64 {
 /// 多要素認証をすべて止める（TOTP・パスキー・復旧コード）。多要素認証のリセットで使う。
 pub async fn disable(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> Result<()> {
     clear_totp(tx, user_id).await?;
-    sqlx::query("DELETE FROM cms.passkeys WHERE user_id = $1")
+    sqlx::query("DELETE FROM yomi.passkeys WHERE user_id = $1")
         .bind(user_id)
         .execute(&mut **tx)
         .await?;
-    sqlx::query("DELETE FROM cms.recovery_codes WHERE user_id = $1")
+    sqlx::query("DELETE FROM yomi.recovery_codes WHERE user_id = $1")
         .bind(user_id)
         .execute(&mut **tx)
         .await?;
@@ -167,7 +167,7 @@ pub async fn disable(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> Resul
 
 async fn clear_totp(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> Result<()> {
     sqlx::query(
-        "UPDATE cms.users SET totp_secret_enc = NULL, totp_pending_secret_enc = NULL,
+        "UPDATE yomi.users SET totp_secret_enc = NULL, totp_pending_secret_enc = NULL,
                 totp_enabled_at = NULL, totp_last_step = NULL
          WHERE id = $1",
     )
@@ -180,7 +180,7 @@ async fn clear_totp(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> Result
 /// TOTPだけを止める。ほかの方法（パスキー）が残っていなければ、復旧コードも消す。
 /// 多要素認証が残っていれば true。
 pub async fn remove_totp(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> Result<bool> {
-    sqlx::query("SELECT 1 FROM cms.users WHERE id = $1 FOR UPDATE")
+    sqlx::query("SELECT 1 FROM yomi.users WHERE id = $1 FOR UPDATE")
         .bind(user_id)
         .execute(&mut **tx)
         .await?;
@@ -194,13 +194,13 @@ pub async fn forget_recovery_codes_if_no_method(
     user_id: Uuid,
 ) -> Result<bool> {
     let still: bool = sqlx::query_scalar(crate::sql!(
-        "SELECT {MFA_ENABLED_U} FROM cms.users u WHERE u.id = $1"
+        "SELECT {MFA_ENABLED_U} FROM yomi.users u WHERE u.id = $1"
     ))
     .bind(user_id)
     .fetch_one(&mut **tx)
     .await?;
     if !still {
-        sqlx::query("DELETE FROM cms.recovery_codes WHERE user_id = $1")
+        sqlx::query("DELETE FROM yomi.recovery_codes WHERE user_id = $1")
             .bind(user_id)
             .execute(&mut **tx)
             .await?;
@@ -211,7 +211,7 @@ pub async fn forget_recovery_codes_if_no_method(
 /// TOTPを設定しているか。
 pub async fn totp_enabled(pool: &PgPool, user_id: Uuid) -> Result<bool> {
     Ok(
-        sqlx::query_scalar("SELECT totp_enabled_at IS NOT NULL FROM cms.users WHERE id = $1")
+        sqlx::query_scalar("SELECT totp_enabled_at IS NOT NULL FROM yomi.users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(pool)
             .await?
@@ -222,7 +222,7 @@ pub async fn totp_enabled(pool: &PgPool, user_id: Uuid) -> Result<bool> {
 /// 設定済みのTOTPでコードを確かめる。合えば、その時間の区切りを使用済みにする（同じコードは二度通らない）。
 pub async fn verify_totp(pool: &PgPool, keys: &KeyRing, user_id: Uuid, code: &str) -> Result<bool> {
     let sealed: Option<Option<Vec<u8>>> =
-        sqlx::query_scalar("SELECT totp_secret_enc FROM cms.users WHERE id = $1")
+        sqlx::query_scalar("SELECT totp_secret_enc FROM yomi.users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(pool)
             .await?;
@@ -233,7 +233,7 @@ pub async fn verify_totp(pool: &PgPool, keys: &KeyRing, user_id: Uuid, code: &st
         return Ok(false);
     };
     let done = sqlx::query(
-        "UPDATE cms.users SET totp_last_step = $2
+        "UPDATE yomi.users SET totp_last_step = $2
          WHERE id = $1 AND totp_secret_enc IS NOT NULL
            AND (totp_last_step IS NULL OR totp_last_step < $2)",
     )
@@ -278,7 +278,7 @@ pub async fn use_recovery_code(pool: &PgPool, user_id: Uuid, code: &str) -> Resu
         return Ok(false);
     }
     let done = sqlx::query(
-        "UPDATE cms.recovery_codes SET used_at = now()
+        "UPDATE yomi.recovery_codes SET used_at = now()
          WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL",
     )
     .bind(user_id)
@@ -293,7 +293,7 @@ pub async fn replace_recovery_codes(
     tx: &mut Transaction<'_, Postgres>,
     user_id: Uuid,
 ) -> Result<Vec<String>> {
-    sqlx::query("DELETE FROM cms.recovery_codes WHERE user_id = $1")
+    sqlx::query("DELETE FROM yomi.recovery_codes WHERE user_id = $1")
         .bind(user_id)
         .execute(&mut **tx)
         .await?;
@@ -311,7 +311,7 @@ async fn insert_recovery_code<'e>(
     user_id: Uuid,
     code: &str,
 ) -> Result<()> {
-    sqlx::query("INSERT INTO cms.recovery_codes (id, user_id, code_hash) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO yomi.recovery_codes (id, user_id, code_hash) VALUES ($1, $2, $3)")
         .bind(Uuid::new_v4())
         .bind(user_id)
         .bind(token::digest(&normalize_recovery_code(code)))
@@ -323,7 +323,7 @@ async fn insert_recovery_code<'e>(
 /// 未使用の復旧コードの数。
 pub async fn remaining_recovery_codes(pool: &PgPool, user_id: Uuid) -> Result<i64> {
     Ok(sqlx::query_scalar(
-        "SELECT count(*) FROM cms.recovery_codes WHERE user_id = $1 AND used_at IS NULL",
+        "SELECT count(*) FROM yomi.recovery_codes WHERE user_id = $1 AND used_at IS NULL",
     )
     .bind(user_id)
     .fetch_one(pool)
@@ -364,8 +364,8 @@ mod tests {
     #[test]
     fn url_encoding() {
         assert_eq!(
-            percent_encode("cms.example.com:a+b@x.test"),
-            "cms.example.com%3Aa%2Bb%40x.test"
+            percent_encode("yomi.example.com:a+b@x.test"),
+            "yomi.example.com%3Aa%2Bb%40x.test"
         );
     }
 }

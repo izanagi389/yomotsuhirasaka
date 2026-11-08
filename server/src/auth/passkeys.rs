@@ -66,7 +66,7 @@ async fn save_challenge(
     name: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO cms.webauthn_challenges (session_id, purpose, user_id, state, name, expires_at)
+        "INSERT INTO yomi.webauthn_challenges (session_id, purpose, user_id, state, name, expires_at)
          VALUES ($1, $2, $3, $4::jsonb, $5, now() + make_interval(secs => $6))
          ON CONFLICT (session_id, purpose) DO UPDATE
          SET user_id = EXCLUDED.user_id, state = EXCLUDED.state, name = EXCLUDED.name, expires_at = EXCLUDED.expires_at",
@@ -90,7 +90,7 @@ async fn take_challenge<T: DeserializeOwned>(
     user_id: Uuid,
 ) -> Result<Option<(T, Option<String>)>> {
     let row: Option<(String, Option<String>, bool)> = sqlx::query_as(
-        "DELETE FROM cms.webauthn_challenges WHERE session_id = $1 AND purpose = $2
+        "DELETE FROM yomi.webauthn_challenges WHERE session_id = $1 AND purpose = $2
          RETURNING state::text, name, user_id = $3 AND expires_at > now()",
     )
     .bind(session_id)
@@ -106,7 +106,7 @@ async fn take_challenge<T: DeserializeOwned>(
 
 async fn credentials(pool: &PgPool, user_id: Uuid) -> Result<Vec<Passkey>> {
     let rows: Vec<String> = sqlx::query_scalar(
-        "SELECT passkey::text FROM cms.passkeys WHERE user_id = $1 ORDER BY created_at",
+        "SELECT passkey::text FROM yomi.passkeys WHERE user_id = $1 ORDER BY created_at",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -186,13 +186,13 @@ pub async fn finish_registration(
     let mut tx = pool.begin().await?;
     // 同じ人の同時の登録・解除と順番をそろえる
     let had_mfa: bool = sqlx::query_scalar(crate::sql!(
-        "SELECT {} FROM cms.users u WHERE u.id = $1 FOR UPDATE",
+        "SELECT {} FROM yomi.users u WHERE u.id = $1 FOR UPDATE",
         mfa::MFA_ENABLED_U
     ))
     .bind(user_id)
     .fetch_one(&mut *tx)
     .await?;
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.passkeys WHERE user_id = $1")
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.passkeys WHERE user_id = $1")
         .bind(user_id)
         .fetch_one(&mut *tx)
         .await?;
@@ -201,7 +201,7 @@ pub async fn finish_registration(
     }
     let id = Uuid::new_v4();
     let inserted = sqlx::query(
-        "INSERT INTO cms.passkeys (id, user_id, name, credential_id, passkey)
+        "INSERT INTO yomi.passkeys (id, user_id, name, credential_id, passkey)
          VALUES ($1, $2, $3, $4, $5::jsonb)
          ON CONFLICT (credential_id) DO NOTHING",
     )
@@ -263,7 +263,7 @@ pub async fn finish_authentication(
     };
     let mut tx = pool.begin().await?;
     let row: Option<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, passkey::text FROM cms.passkeys
+        "SELECT id, passkey::text FROM yomi.passkeys
          WHERE user_id = $1 AND credential_id = $2 FOR UPDATE",
     )
     .bind(user_id)
@@ -276,7 +276,7 @@ pub async fn finish_authentication(
     };
     let mut passkey: Passkey = serde_json::from_str(&stored)?;
     passkey.update_credential(&result);
-    sqlx::query("UPDATE cms.passkeys SET passkey = $2::jsonb, last_used_at = now() WHERE id = $1")
+    sqlx::query("UPDATE yomi.passkeys SET passkey = $2::jsonb, last_used_at = now() WHERE id = $1")
         .bind(id)
         .bind(serde_json::to_string(&passkey)?)
         .execute(&mut *tx)
@@ -300,7 +300,7 @@ pub async fn list(pool: &PgPool, user_id: Uuid) -> Result<Vec<Summary>> {
     let rows: Vec<(Uuid, String, String, Option<String>)> = sqlx::query_as(crate::sql!(
         "SELECT id, name, to_char(created_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(last_used_at AT TIME ZONE 'UTC', {RFC3339})
-         FROM cms.passkeys WHERE user_id = $1 ORDER BY created_at"
+         FROM yomi.passkeys WHERE user_id = $1 ORDER BY created_at"
     ))
     .bind(user_id)
     .fetch_all(pool)
@@ -319,11 +319,11 @@ pub async fn list(pool: &PgPool, user_id: Uuid) -> Result<Vec<Summary>> {
 /// 本人のパスキーを1つ解除する。解除したら true。
 /// 呼び出し側で、続けて [`mfa::forget_recovery_codes_if_no_method`] を呼ぶこと。
 pub async fn remove(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, id: Uuid) -> Result<bool> {
-    sqlx::query("SELECT 1 FROM cms.users WHERE id = $1 FOR UPDATE")
+    sqlx::query("SELECT 1 FROM yomi.users WHERE id = $1 FOR UPDATE")
         .bind(user_id)
         .execute(&mut **tx)
         .await?;
-    let removed = sqlx::query("DELETE FROM cms.passkeys WHERE id = $1 AND user_id = $2")
+    let removed = sqlx::query("DELETE FROM yomi.passkeys WHERE id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(&mut **tx)
@@ -335,7 +335,7 @@ pub async fn remove(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, id: Uuid)
 
 /// 期限を過ぎた途中の状態を消す。
 pub async fn sweep_challenges(pool: &PgPool) -> Result<()> {
-    sqlx::query("DELETE FROM cms.webauthn_challenges WHERE expires_at < now()")
+    sqlx::query("DELETE FROM yomi.webauthn_challenges WHERE expires_at < now()")
         .execute(pool)
         .await?;
     Ok(())
@@ -347,7 +347,7 @@ mod tests {
 
     #[test]
     fn relying_party_from_public_url() {
-        let rp = relying_party("https://cms.example.test", "cms.example.test").unwrap();
+        let rp = relying_party("https://yomi.example.test", "yomi.example.test").unwrap();
         let (_ccr, state) = rp
             .start_passkey_registration(
                 Uuid::new_v4(),

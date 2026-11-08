@@ -1,4 +1,4 @@
-//! 管理API: ワークスペースの設定（cms.workspace_settings。行がなければ既定の値）。
+//! 管理API: ワークスペースの設定（yomi.workspace_settings。行がなければ既定の値）。
 //!
 //! | メソッド | パス | 内容 | 誰が |
 //! |---|---|---|---|
@@ -8,7 +8,7 @@
 //! - プレビューを許すサイトのオリジン（03「プレビュー（Q72）」、13-security.md「ライブプレビュー」、計画の13番）:
 //!   記事の画面の CSP の frame-src と、ライブプレビューのメッセージの送り元の照合に使う。
 //!   https のオリジンだけ（http は localhost だけ）。パス・クエリ・利用者名などは受け付けない。最大10件。
-//! - サイトのプレビュー用ルートのパス（既定 `/_cms/preview`）: 管理画面は「オリジン ＋ パス ＋ `?token=…`」を開く。
+//! - サイトのプレビュー用ルートのパス（既定 `/_yomi/preview`）: 管理画面は「オリジン ＋ パス ＋ `?token=…`」を開く。
 //!   `/` で始まり、英数字と `-` `_` `.` `/` だけ（`//` と `..` は受け付けない）。最大100文字。
 //! - 変更は監査ログに残す。値は1件の取得（admin_workspaces.rs）で所属者に返す。
 
@@ -30,7 +30,7 @@ pub const MAX_PREVIEW_ORIGINS: usize = 10;
 /// 引き継ぎの設定（行がなければ既定の anyone）。
 pub(super) async fn take_over_policy_of(pool: &sqlx::PgPool, ws: Uuid) -> Result<String, ApiError> {
     let policy: Option<String> = sqlx::query_scalar(
-        "SELECT take_over_policy FROM cms.workspace_settings WHERE workspace_id = $1",
+        "SELECT take_over_policy FROM yomi.workspace_settings WHERE workspace_id = $1",
     )
     .bind(ws)
     .fetch_optional(pool)
@@ -45,7 +45,7 @@ pub(super) async fn preview_origins_of(
     ws: Uuid,
 ) -> Result<Vec<String>, ApiError> {
     let origins: Option<Vec<String>> = sqlx::query_scalar(
-        "SELECT preview_origins FROM cms.workspace_settings WHERE workspace_id = $1",
+        "SELECT preview_origins FROM yomi.workspace_settings WHERE workspace_id = $1",
     )
     .bind(ws)
     .fetch_optional(pool)
@@ -57,7 +57,7 @@ pub(super) async fn preview_origins_of(
 /// サイトのプレビュー用ルートのパス（行がなければ既定）。
 pub(super) async fn preview_path_of(pool: &sqlx::PgPool, ws: Uuid) -> Result<String, ApiError> {
     let path: Option<String> = sqlx::query_scalar(
-        "SELECT preview_path FROM cms.workspace_settings WHERE workspace_id = $1",
+        "SELECT preview_path FROM yomi.workspace_settings WHERE workspace_id = $1",
     )
     .bind(ws)
     .fetch_optional(pool)
@@ -67,7 +67,7 @@ pub(super) async fn preview_path_of(pool: &sqlx::PgPool, ws: Uuid) -> Result<Str
 }
 
 /// サイトのプレビュー用ルートの既定のパス（公式のNuxtモジュールの既定）。
-pub const DEFAULT_PREVIEW_PATH: &str = "/_cms/preview";
+pub const DEFAULT_PREVIEW_PATH: &str = "/_yomi/preview";
 
 /// 受け付けるパスか。
 pub fn valid_preview_path(path: &str) -> bool {
@@ -165,7 +165,7 @@ pub async fn patch_settings(
         && !valid_preview_path(p)
     {
         return Err(ApiError::bad_request(
-            "`previewPath` must be a path such as /_cms/preview (letters, digits, - _ . / only).",
+            "`previewPath` must be a path such as /_yomi/preview (letters, digits, - _ . / only).",
         ));
     }
     if req.take_over_policy.is_none() && origins.is_none() && req.preview_path.is_none() {
@@ -175,12 +175,12 @@ pub async fn patch_settings(
     }
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     sqlx::query(
-        "INSERT INTO cms.workspace_settings (workspace_id, take_over_policy, preview_origins, preview_path)
-         VALUES ($1, COALESCE($2, 'anyone'), COALESCE($3, '{}'), COALESCE($4, '/_cms/preview'))
+        "INSERT INTO yomi.workspace_settings (workspace_id, take_over_policy, preview_origins, preview_path)
+         VALUES ($1, COALESCE($2, 'anyone'), COALESCE($3, '{}'), COALESCE($4, '/_yomi/preview'))
          ON CONFLICT (workspace_id) DO UPDATE SET
-           take_over_policy = COALESCE($2, cms.workspace_settings.take_over_policy),
-           preview_origins = COALESCE($3, cms.workspace_settings.preview_origins),
-           preview_path = COALESCE($4, cms.workspace_settings.preview_path)",
+           take_over_policy = COALESCE($2, yomi.workspace_settings.take_over_policy),
+           preview_origins = COALESCE($3, yomi.workspace_settings.preview_origins),
+           preview_path = COALESCE($4, yomi.workspace_settings.preview_path)",
     )
     .bind(ws)
     .bind(&req.take_over_policy)
@@ -207,12 +207,12 @@ mod tests {
 
     #[test]
     fn preview_paths() {
-        for ok in ["/_cms/preview", "/preview", "/a-b_c.d/e"] {
+        for ok in ["/_yomi/preview", "/preview", "/a-b_c.d/e"] {
             assert!(valid_preview_path(ok), "{ok}");
         }
         for bad in [
             "",
-            "_cms/preview",
+            "_yomi/preview",
             "//evil.example",
             "/a//b",
             "/a/../b",

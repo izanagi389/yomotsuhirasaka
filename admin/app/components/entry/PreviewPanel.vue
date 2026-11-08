@@ -3,11 +3,11 @@
 // - サイトで開くURLは「公開URLのオリジン ＋ 設定のプレビュー用のパス ＋ ?token=<プレビュー用トークン>」。公開URLのオリジンが
 //   ワークスペースの「プレビューを許すサイト」になければ開かない（CSP の frame-src も同じ一覧。server/src/http/admin_ui.rs）。
 // - ライブプレビュー: タブを開いている間、iframe でサイトを開く。サイトから `ready` を受け取ったら（そのサイトのオリジンと
-//   iframe の窓からだけ。INV-PRV-03、@new-cms/preview）、自動保存のたびに中身のない `refresh` を送る（宛先のオリジンを指定）。
+//   iframe の窓からだけ。INV-PRV-03、@yomotsuhirasaka/preview）、自動保存のたびに中身のない `refresh` を送る（宛先のオリジンを指定）。
 // - トークンは10分で切れるので、8分ごとに作り直して開き直す。タブを閉じる・画面を離れるときに失効させる。
 // - CSP の frame-src は記事の画面を直接開いたときだけ付くので、画面の中の移動で来たときは、保存してから読み直す。
 // - 「別タブで開く」は、別のトークンで新しいタブを開く（失効は有効期間に任せる）。
-import { READY, REFRESH, acceptPreviewMessage } from "@new-cms/preview";
+import { READY, REFRESH, acceptPreviewMessage } from "@yomotsuhirasaka/preview";
 import { Button } from "@/components/ui/button";
 import type { PreviewToken, WorkspaceInfo } from "~/utils/content";
 
@@ -48,7 +48,7 @@ function previewUrl(token: PreviewToken): string | null {
   }
   problem.value = null;
   siteOrigin.value = origin;
-  const u = new URL(props.workspace?.previewPath ?? "/_cms/preview", origin);
+  const u = new URL(props.workspace?.previewPath ?? "/_yomi/preview", origin);
   u.searchParams.set("token", token.token);
   return u.toString();
 }

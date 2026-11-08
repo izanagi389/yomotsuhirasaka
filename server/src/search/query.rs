@@ -930,7 +930,7 @@ mod tests {
 
     #[test]
     fn excerpt_is_plain_text() {
-        let md = "見出し\n\n**太字**と`コード`と[リンク](https://example.com/a)。\n\n- 箇条書き\n1. 番号\n\n> 引用\n\n![図の説明](cms-media:abc)\n\n<https://www.youtube.com/watch?v=x>\n\n```\nlet x = 1;\n```\n\\*記号\\*";
+        let md = "見出し\n\n**太字**と`コード`と[リンク](https://example.com/a)。\n\n- 箇条書き\n1. 番号\n\n> 引用\n\n![図の説明](yomi-media:abc)\n\n<https://www.youtube.com/watch?v=x>\n\n```\nlet x = 1;\n```\n\\*記号\\*";
         assert_eq!(
             excerpt(md),
             "見出し 太字とコードとリンク。 箇条書き 番号 引用 図の説明 let x = 1; *記号*"

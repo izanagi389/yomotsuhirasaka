@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// CMSのCLI。テンプレートのデプロイ（`cms deploy`・`cms schema build`）、カスタムノードの雛形（`cms node scaffold`）、
-// 既存のブログからの取り込み（`cms import`）。
-// メッセージは英語（CLAUDE.md「言語」）。トークンは環境変数 CMS_TOKEN で渡す（引数に書くとプロセスの一覧に出るため）。
+// CMSのCLI。テンプレートのデプロイ（`yomi deploy`・`yomi schema build`）、カスタムノードの雛形（`yomi node scaffold`）、
+// 既存のブログからの取り込み（`yomi import`）。
+// メッセージは英語（CLAUDE.md「言語」）。トークンは環境変数 YOMI_TOKEN で渡す（引数に書くとプロセスの一覧に出るため）。
 
 import { writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -13,10 +13,10 @@ import { scaffoldNode } from "./schema/scaffold.js";
 import { TemplateError, loadTemplate } from "./schema/template.js";
 
 const USAGE = `Usage:
-  cms deploy <template folder> --url <CMS URL> [--dry-run] [--allow-destructive] [--allow-broken-queries]
-  cms schema build <template folder> [--out <manifest .json>]
-  cms node scaffold <node name> --template <template folder> [--inline]
-  cms import <folder> --url <CMS URL> --workspace <workspace ID> --redirects <output.json>
+  yomi deploy <template folder> --url <CMS URL> [--dry-run] [--allow-destructive] [--allow-broken-queries]
+  yomi schema build <template folder> [--out <manifest .json>]
+  yomi node scaffold <node name> --template <template folder> [--inline]
+  yomi import <folder> --url <CMS URL> --workspace <workspace ID> --redirects <output.json>
              [--config <import config .json>] [--static-dir <folder>]
 
 The template folder is templates/<template name>/ and holds template.json.
@@ -25,7 +25,7 @@ folder, referred to as { "file": "./functions/x.ts" }; only relative imports ins
 are allowed.
 
 Environment:
-  CMS_TOKEN  personal token: "deploy" scope for deploy (server administrator), "write" scope for import`;
+  YOMI_TOKEN  personal token: "deploy" scope for deploy (server administrator), "write" scope for import`;
 
 const log: Logger = {
   info: (m) => process.stdout.write(`${m}\n`),
@@ -34,12 +34,12 @@ const log: Logger = {
 };
 
 function token(): string | null {
-  const t = process.env["CMS_TOKEN"];
-  if (!t) log.error("set CMS_TOKEN to a personal token");
+  const t = process.env["YOMI_TOKEN"];
+  if (!t) log.error("set YOMI_TOKEN to a personal token");
   return t || null;
 }
 
-/** `cms schema build`: マニフェストを書き出す（デプロイしない。中身を確かめるため）。 */
+/** `yomi schema build`: マニフェストを書き出す（デプロイしない。中身を確かめるため）。 */
 async function schemaBuild(rest: string[]): Promise<number> {
   const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { out: { type: "string" } } });
   if (positionals.length !== 1) {
@@ -53,7 +53,7 @@ async function schemaBuild(rest: string[]): Promise<number> {
   return 0;
 }
 
-/** `cms deploy`: サーバーで試行してから、デプロイする。 */
+/** `yomi deploy`: サーバーで試行してから、デプロイする。 */
 async function deployCommand(rest: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: rest,
@@ -82,7 +82,7 @@ async function deployCommand(rest: string[]): Promise<number> {
   );
 }
 
-/** `cms node scaffold`: カスタムノードの変換関数の雛形を作り、template.json に足す宣言を表示する。 */
+/** `yomi node scaffold`: カスタムノードの変換関数の雛形を作り、template.json に足す宣言を表示する。 */
 function nodeScaffold(rest: string[]): number {
   const { values, positionals } = parseArgs({
     args: rest,

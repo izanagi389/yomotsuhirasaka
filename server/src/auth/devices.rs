@@ -16,7 +16,7 @@ use uuid::Uuid;
 use super::token;
 
 /// 端末のCookieの名前。
-pub const DEVICE_COOKIE: &str = "__Host-cms_device";
+pub const DEVICE_COOKIE: &str = "__Host-yomi_device";
 /// 端末のCookieの有効期間（秒）。
 pub const DEVICE_COOKIE_MAX_AGE: u32 = 365 * 24 * 60 * 60;
 /// この日数のあいだログインのなかった端末の記録は消す（Cookieの有効期間より少し長く）。
@@ -92,7 +92,7 @@ pub async fn record_login(
 
     let mut tx = pool.begin().await?;
     let known = sqlx::query(
-        "UPDATE cms.known_devices SET last_seen_at = now() WHERE user_id = $1 AND device_hash = $2",
+        "UPDATE yomi.known_devices SET last_seen_at = now() WHERE user_id = $1 AND device_hash = $2",
     )
     .bind(user_id)
     .bind(&hash)
@@ -103,13 +103,13 @@ pub async fn record_login(
     let mut notice = None;
     if !known {
         let had_any: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM cms.known_devices WHERE user_id = $1)",
+            "SELECT EXISTS (SELECT 1 FROM yomi.known_devices WHERE user_id = $1)",
         )
         .bind(user_id)
         .fetch_one(&mut *tx)
         .await?;
         sqlx::query(
-            "INSERT INTO cms.known_devices (user_id, device_hash) VALUES ($1, $2)
+            "INSERT INTO yomi.known_devices (user_id, device_hash) VALUES ($1, $2)
              ON CONFLICT (user_id, device_hash) DO UPDATE SET last_seen_at = now()",
         )
         .bind(user_id)
@@ -126,7 +126,7 @@ pub async fn record_login(
     {
         // 国の変化: 国の分かっている直前のログインと比べる（分からなければ知らせない）
         let previous: Option<String> = sqlx::query_scalar(
-            "SELECT country FROM cms.login_history
+            "SELECT country FROM yomi.login_history
              WHERE user_id = $1 AND country IS NOT NULL
              ORDER BY created_at DESC LIMIT 1",
         )
@@ -138,7 +138,7 @@ pub async fn record_login(
         }
     }
     sqlx::query(
-        "INSERT INTO cms.login_history (id, user_id, ip, browser, country, new_device)
+        "INSERT INTO yomi.login_history (id, user_id, ip, browser, country, new_device)
          VALUES ($1, $2, $3::inet, $4, $5, $6)",
     )
     .bind(Uuid::new_v4())
@@ -174,7 +174,7 @@ type EntryRow = (String, String, String, Option<String>, bool);
 pub async fn list(pool: &PgPool, user_id: Uuid, retention_seconds: u32) -> Result<Vec<Entry>> {
     let rows: Vec<EntryRow> = sqlx::query_as(crate::sql!(
         "SELECT to_char(created_at AT TIME ZONE 'UTC', {RFC3339}), host(ip), browser, country, new_device
-         FROM cms.login_history
+         FROM yomi.login_history
          WHERE user_id = $1 AND created_at >= now() - make_interval(secs => $2)
          ORDER BY created_at DESC
          LIMIT $3"
@@ -199,14 +199,14 @@ pub async fn list(pool: &PgPool, user_id: Uuid, retention_seconds: u32) -> Resul
 /// 保存期間を過ぎた履歴と、長く使われていない端末の記録を消す。消した履歴の件数を返す。
 pub async fn sweep(pool: &PgPool, retention_seconds: u32) -> Result<u64> {
     let removed = sqlx::query(
-        "DELETE FROM cms.login_history WHERE created_at < now() - make_interval(secs => $1)",
+        "DELETE FROM yomi.login_history WHERE created_at < now() - make_interval(secs => $1)",
     )
     .bind(f64::from(retention_seconds))
     .execute(pool)
     .await?
     .rows_affected();
     sqlx::query(
-        "DELETE FROM cms.known_devices WHERE last_seen_at < now() - make_interval(days => $1)",
+        "DELETE FROM yomi.known_devices WHERE last_seen_at < now() - make_interval(days => $1)",
     )
     .bind(DEVICE_RETENTION_DAYS)
     .execute(pool)

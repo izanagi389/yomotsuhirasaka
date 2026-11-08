@@ -871,7 +871,7 @@
     "previewOrigins": "プレビューを許すサイト",
     "previewOriginsHelp": "1行に1つ、https://example.com の形で（最大10件。http は localhost だけ）。",
     "previewPath": "サイトのプレビュー用のパス",
-    "previewPathHelp": "公式のNuxtモジュールの既定は /_cms/preview です。サイトの設定（cms.preview.route）に合わせます。",
+    "previewPathHelp": "公式のNuxtモジュールの既定は /_yomi/preview です。サイトの設定（yomi.preview.route）に合わせます。",
     "saved": "保存しました。"
   },
   "sourceUpdate": {

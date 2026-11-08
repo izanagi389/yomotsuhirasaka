@@ -33,9 +33,9 @@ const wordMarker = (label: string): string => marker(label).replace(/\d/g, (d) =
 
 /** 記事を作って公開し、その記事を出典にした回答が返るまで待つ（埋め込みができるまで）。回答の出典の版を返す。 */
 async function publishAnswerable(ws: AnswerWorkspace, question: string, text: string): Promise<{ id: string; versionId: string }> {
-  const { cms } = await world();
-  const { id } = await cms.createEntry(ws.editorSession, ws.id, { title: marker("qa-title"), body: doc(paragraph(text)) });
-  await cms.publishEntry(ws.editorSession, ws.id, id);
+  const { yomi } = await world();
+  const { id } = await yomi.createEntry(ws.editorSession, ws.id, { title: marker("qa-title"), body: doc(paragraph(text)) });
+  await yomi.publishEntry(ws.editorSession, ws.id, id);
   return waitAnswerable(ws, question, id);
 }
 
@@ -53,19 +53,19 @@ async function waitAnswerable(ws: AnswerWorkspace, question: string, id: string,
 
 /** まとめて返す回答。エラーなら、その内容で失敗する。 */
 async function ask(ws: AnswerWorkspace, question: string): Promise<AnswerResult> {
-  const { cms } = await world();
-  const res = await cms.answerRaw(ws.id, ws.answerKey.secret, ws.answerQuery, { question });
-  const r = cms.parseAnswer(res);
-  expect(r, `回答が返らない（${res.status}）: ${JSON.stringify(cms.answerErrors(res))}`).not.toBeNull();
+  const { yomi } = await world();
+  const res = await yomi.answerRaw(ws.id, ws.answerKey.secret, ws.answerQuery, { question });
+  const r = yomi.parseAnswer(res);
+  expect(r, `回答が返らない（${res.status}）: ${JSON.stringify(yomi.answerErrors(res))}`).not.toBeNull();
   return r!;
 }
 
 /** ストリーミングの回答のイベント。 */
 async function askStream(ws: AnswerWorkspace, question: string): Promise<{ events: AnswerEvent[]; final: Extract<AnswerEvent, { type: "final" }> }> {
-  const { cms } = await world();
-  const res = await cms.answerRaw(ws.id, ws.answerKey.secret, ws.answerStreamQuery, { question });
-  const events = cms.parseAnswerStream(res);
-  expect(cms.answerErrors(res), `ストリーミングの回答がエラーになった（${res.status}）`).toEqual([]);
+  const { yomi } = await world();
+  const res = await yomi.answerRaw(ws.id, ws.answerKey.secret, ws.answerStreamQuery, { question });
+  const events = yomi.parseAnswerStream(res);
+  expect(yomi.answerErrors(res), `ストリーミングの回答がエラーになった（${res.status}）`).toEqual([]);
   const final = events.at(-1);
   expect(final?.type, "最終判定のイベントが最後に来ない").toBe("final");
   return { events, final: final as Extract<AnswerEvent, { type: "final" }> };
@@ -90,7 +90,7 @@ inv(
   "inv_qa_06",
   "引用元の記事が非公開になった、または版が変わった回答キャッシュは返されない",
   async () => {
-    const { cms } = await world();
+    const { yomi } = await world();
     const ws = await (await world()).workspace("qa06", { cached: true });
     const word = wordMarker("qasix");
     const question = `${word} とは何ですか`;
@@ -106,8 +106,8 @@ inv(
 
     // 1. 版が変わった: キャッシュは返されない（通常の更新では、新しい版の検索用データができるまで旧版で答え続けてよい。Q31）
     const updated = `${wordMarker("qasixnew")} ${word} は、版を変えた記事です。`;
-    await cms.saveDraft(ws.editorSession, ws.id, v1.id, { body: doc(paragraph(updated)) });
-    await cms.publishEntry(ws.editorSession, ws.id, v1.id);
+    await yomi.saveDraft(ws.editorSession, ws.id, v1.id, { body: doc(paragraph(updated)) });
+    await yomi.publishEntry(ws.editorSession, ws.id, v1.id);
     // （作り直した回答はまた保存されるので、続く依頼がキャッシュから返ることはある。そのときも前の版のキャッシュではない）
     for (const r of [await ask(ws, question), (await askStream(ws, question)).final]) {
       const stale = r.sources.some((s) => s.versionId === v1.versionId);
@@ -120,7 +120,7 @@ inv(
     await expectCached(ws, question, "新しい版の回答");
 
     // 2. 非公開になった: キャッシュは返されない（その記事を出典にした回答も返らない）
-    await cms.unpublishEntry(ws.editorSession, ws.id, v1.id);
+    await yomi.unpublishEntry(ws.editorSession, ws.id, v1.id);
     for (const r of [await ask(ws, question), (await askStream(ws, question)).final]) {
       expect(r.sources.map((s) => s.entryId), "非公開になった記事を引用した回答（キャッシュを含む）が返った").not.toContain(v1.id);
     }
@@ -132,7 +132,7 @@ inv(
   "inv_qa_07",
   "「訂正として公開」した記事の旧版は、その直後から回答の根拠にも、回答キャッシュにも使われない",
   async () => {
-    const { cms, llmKey } = await world();
+    const { yomi, llmKey } = await world();
     const ws = await (await world()).workspace("qa07", { cached: true });
     const word = wordMarker("qaseven");
     const wrong = wordMarker("wrongfact");
@@ -143,8 +143,8 @@ inv(
     // 訂正として公開する。その直後の回答は、旧版を出典にせず、旧版の内容をLLMにも渡さない
     await mockLlm.clearRequests(llmKey);
     const corrected = `${wordMarker("rightfact")} ${word} は、訂正した記事です。`;
-    await cms.saveDraft(ws.editorSession, ws.id, v1.id, { body: doc(paragraph(corrected)) });
-    await cms.publishEntry(ws.editorSession, ws.id, v1.id, { correction: true, note: marker("qa07-note") });
+    await yomi.saveDraft(ws.editorSession, ws.id, v1.id, { body: doc(paragraph(corrected)) });
+    await yomi.publishEntry(ws.editorSession, ws.id, v1.id, { correction: true, note: marker("qa07-note") });
     for (const r of [await ask(ws, question), (await askStream(ws, question)).final]) {
       expect(r.sources.map((s) => s.versionId), "訂正した記事の旧版を引用した回答（キャッシュを含む）が返った").not.toContain(v1.versionId);
       expect(r.text, "訂正した記事の旧版の内容が回答に含まれる").not.toContain(wrong);

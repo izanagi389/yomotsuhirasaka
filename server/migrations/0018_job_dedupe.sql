@@ -3,6 +3,6 @@
 -- 同じキーのジョブを積み直すと、新しく積まずに run_at だけを延ばす。取り出された後は索引から外れるので、
 -- 実行中やり直し待ちのジョブとは別に、次の1回を積める。
 
-ALTER TABLE cms.jobs ADD COLUMN dedupe_key text;
-CREATE UNIQUE INDEX jobs_dedupe_pending ON cms.jobs (dedupe_key)
+ALTER TABLE yomi.jobs ADD COLUMN dedupe_key text;
+CREATE UNIQUE INDEX jobs_dedupe_pending ON yomi.jobs (dedupe_key)
     WHERE dedupe_key IS NOT NULL AND attempts = 0 AND failed_at IS NULL;

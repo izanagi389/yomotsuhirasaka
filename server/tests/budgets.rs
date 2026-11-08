@@ -1,14 +1,14 @@
 //! LLMの予算の確保と精算の結合テスト（本物のPostgreSQL）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::budget::{self, Direction, Kind, Reserved};
-use cms_server::config::LlmConfig;
 use common::server::*;
 use common::with_scratch;
 use uuid::Uuid;
+use yomi_server::budget::{self, Direction, Kind, Reserved};
+use yomi_server::config::LlmConfig;
 
 async fn workspace(server: &Server, root: &Login, name: &str) -> Uuid {
     let res = send(
@@ -59,7 +59,7 @@ async fn reservations_never_exceed_the_effective_limit() {
         let root = login(&server, "root@example.test", PASSWORD).await;
         enroll(&server, &root).await;
         let ws = workspace(&server, &root, "budget").await;
-        let admin_id: Uuid = sqlx::query_scalar("SELECT id FROM cms.users WHERE email = 'root@example.test'")
+        let admin_id: Uuid = sqlx::query_scalar("SELECT id FROM yomi.users WHERE email = 'root@example.test'")
             .fetch_one(&server.pool)
             .await
             .unwrap();
@@ -125,7 +125,7 @@ async fn reservations_never_exceed_the_effective_limit() {
 
         // 天井を下げると、ワークスペースの上限より先に天井が効く（使う瞬間に照合する）
         sqlx::query(
-            "INSERT INTO cms.workspace_limits (workspace_id, embedding_tokens_per_month) VALUES ($1, 10)
+            "INSERT INTO yomi.workspace_limits (workspace_id, embedding_tokens_per_month) VALUES ($1, 10)
              ON CONFLICT (workspace_id) DO UPDATE SET embedding_tokens_per_month = 10",
         )
         .bind(ws)
@@ -226,7 +226,7 @@ async fn answer_budget_api() {
         let v: serde_json::Value = serde_json::from_str(&res.body).unwrap();
         assert_eq!((v["output"]["tokensPerMonth"].clone(), v["output"]["effectiveTokensPerMonth"].clone()), (400.into(), 400.into()));
         assert_eq!(v["input"]["tokensPerMonth"], serde_json::Value::Null);
-        let changed: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE workspace_id = $1 AND action = 'budget.changed'")
+        let changed: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE workspace_id = $1 AND action = 'budget.changed'")
             .bind(ws)
             .fetch_one(&server.pool)
             .await
@@ -343,7 +343,7 @@ async fn assist_budget_api_and_settings() {
         assert_eq!((res.status, res.body.as_str()), (200, r#"{"enabled":true}"#));
         assert_eq!(send(&server, "GET", &settings, &root, None).await.body, r#"{"enabled":true}"#);
         let changed: Vec<String> = sqlx::query_scalar(
-            "SELECT details::text FROM cms.audit_log WHERE workspace_id = $1 AND action = 'assist.settings_changed'",
+            "SELECT details::text FROM yomi.audit_log WHERE workspace_id = $1 AND action = 'assist.settings_changed'",
         )
         .bind(ws)
         .fetch_all(&server.pool)

@@ -1,13 +1,13 @@
 //! テンプレートのデプロイの結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::workspace_db::{self, WorkspaceDb};
 use common::server::*;
 use common::with_scratch;
 use uuid::Uuid;
+use yomi_server::workspace_db::{self, WorkspaceDb};
 
 fn manifest(extra_fields: &str, subtitle_required: bool, locales: &str) -> String {
     format!(
@@ -239,7 +239,7 @@ async fn deploying_templates() {
 
         // 監査ログ
         for (action, ws) in [("template.deployed", None), ("schema.migrated", Some(b)), ("schema.migration_failed", Some(a))] {
-            let n: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE action = $1 AND workspace_id IS NOT DISTINCT FROM $2")
+            let n: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE action = $1 AND workspace_id IS NOT DISTINCT FROM $2")
                 .bind(action)
                 .bind(ws)
                 .fetch_one(&server.pool)
@@ -259,7 +259,7 @@ async fn deploying_templates() {
         assert!(res.body.contains(&format!("{{\"workspaceId\":\"{c}\",\"state\":\"ok\"}}")), "{}", res.body);
 
         // サーバー管理者でなくなったら、デプロイの範囲のトークンも使えない
-        sqlx::query("UPDATE cms.users SET is_server_admin = false WHERE email = 'root@example.test'").execute(&server.pool).await.unwrap();
+        sqlx::query("UPDATE yomi.users SET is_server_admin = false WHERE email = 'root@example.test'").execute(&server.pool).await.unwrap();
         assert_eq!(deploy(&server, &token, t, &body(&v5, "")).await.status, 403);
     })
     .await;

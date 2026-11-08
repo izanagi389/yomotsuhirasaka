@@ -2,20 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { effectScope, h, nextTick } from "vue";
 import { renderToString } from "vue/server-renderer";
 
-import { cmsHighlight, type CmsSearchHit, type CmsSearchResult } from "../src/runtime/search.ts";
+import { yomiHighlight, type YomiSearchHit, type YomiSearchResult } from "../src/runtime/search.ts";
 import { QueryError } from "../src/runtime/server/fetch-query.ts";
 import { EMPTY_RESULT, RateLimiter, cachedSearch, clearSearchCache, clientIp, parseSearchParams } from "../src/runtime/server/search-core.ts";
 
 vi.mock("nuxt/app", () => ({
-  useRuntimeConfig: () => ({ public: { cms: { searchRoute: "/_cms/search" } } }),
+  useRuntimeConfig: () => ({ public: { yomi: { searchRoute: "/_yomi/search" } } }),
   useFetch: vi.fn(),
   useHead: vi.fn(),
 }));
 
-const { useCmsSearch } = await import("../src/runtime/composables.ts");
-const { default: CmsSearchBox, hitHref } = await import("../src/runtime/search-box.ts");
+const { useYomiSearch } = await import("../src/runtime/composables.ts");
+const { default: YomiSearchBox, hitHref } = await import("../src/runtime/search-box.ts");
 
-const hit = (over: Partial<CmsSearchHit> = {}): CmsSearchHit => ({
+const hit = (over: Partial<YomiSearchHit> = {}): YomiSearchHit => ({
   entryId: "e-1",
   locale: "ja",
   url: "/posts/a",
@@ -27,15 +27,15 @@ const hit = (over: Partial<CmsSearchHit> = {}): CmsSearchHit => ({
   ...over,
 });
 
-describe("cmsHighlight", () => {
+describe("yomiHighlight", () => {
   it("一致した箇所とそれ以外に区切る（UTF-16 の位置）", () => {
-    expect(cmsHighlight("春の庭でトマトを育てる", [{ start: 4, length: 3 }])).toEqual([
+    expect(yomiHighlight("春の庭でトマトを育てる", [{ start: 4, length: 3 }])).toEqual([
       { text: "春の庭で", match: false },
       { text: "トマト", match: true },
       { text: "を育てる", match: false },
     ]);
     // サロゲートペア（絵文字）も UTF-16 の単位で数える
-    expect(cmsHighlight("🍅トマト", [{ start: 2, length: 3 }])).toEqual([
+    expect(yomiHighlight("🍅トマト", [{ start: 2, length: 3 }])).toEqual([
       { text: "🍅", match: false },
       { text: "トマト", match: true },
     ]);
@@ -43,16 +43,16 @@ describe("cmsHighlight", () => {
 
   it("範囲の外・重なり・逆順・長さ 0 の一致は、使える部分だけを使う", () => {
     // 0〜2、（重なりを除いて）2〜3、3〜末尾（範囲の外は切る）が一致。続いた一致は1つにまとめる
-    expect(cmsHighlight("abcdefgh", [{ start: 3, length: 3 }, { start: 0, length: 2 }, { start: 1, length: 2 }, { start: 7, length: 0 }])).toEqual([
+    expect(yomiHighlight("abcdefgh", [{ start: 3, length: 3 }, { start: 0, length: 2 }, { start: 1, length: 2 }, { start: 7, length: 0 }])).toEqual([
       { text: "abcdef", match: true },
       { text: "gh", match: false },
     ]);
-    expect(cmsHighlight("abc", [{ start: 2, length: 10 }])).toEqual([
+    expect(yomiHighlight("abc", [{ start: 2, length: 10 }])).toEqual([
       { text: "ab", match: false },
       { text: "c", match: true },
     ]);
-    expect(cmsHighlight("abc", null)).toEqual([{ text: "abc", match: false }]);
-    expect(cmsHighlight("", [{ start: 0, length: 1 }])).toEqual([]);
+    expect(yomiHighlight("abc", null)).toEqual([{ text: "abc", match: false }]);
+    expect(yomiHighlight("", [{ start: 0, length: 1 }])).toEqual([]);
   });
 });
 
@@ -102,7 +102,7 @@ describe("RateLimiter", () => {
 
 describe("cachedSearch", () => {
   const params = { q: "トマト", locale: "ja", mode: "HYBRID" as const, first: 10 };
-  const result: CmsSearchResult = { vectorSearch: "AVAILABLE", keywordSearch: "DISABLED", hits: [hit()] };
+  const result: YomiSearchResult = { vectorSearch: "AVAILABLE", keywordSearch: "DISABLED", hits: [hit()] };
   beforeEach(() => clearSearchCache());
 
   it("同じ検索は 60 秒だけ覚えておき、Webhook を受けたら（clearSearchCache）取り直す", async () => {
@@ -138,7 +138,7 @@ describe("hitHref", () => {
   });
 });
 
-describe("useCmsSearch", () => {
+describe("useYomiSearch", () => {
   const original = globalThis.window;
   beforeEach(() => {
     vi.useFakeTimers();
@@ -158,13 +158,13 @@ describe("useCmsSearch", () => {
       return new Promise<Response>((resolve) => replies.push(resolve));
     });
     const scope = effectScope();
-    const s = scope.run(() => useCmsSearch({ locale: "ja", debounceMs: 100 }))!;
+    const s = scope.run(() => useYomiSearch({ locale: "ja", debounceMs: 100 }))!;
     s.text.value = "ト";
     await nextTick();
     s.text.value = "トマ";
     await nextTick();
     await vi.advanceTimersByTimeAsync(100);
-    expect(urls).toEqual(["/_cms/search?q=%E3%83%88%E3%83%9E&locale=ja"]);
+    expect(urls).toEqual(["/_yomi/search?q=%E3%83%88%E3%83%9E&locale=ja"]);
     s.text.value = "トマト";
     await nextTick();
     await vi.advanceTimersByTimeAsync(100);
@@ -184,7 +184,7 @@ describe("useCmsSearch", () => {
     const fetchMock = vi.fn(async (_u: string) => new Response("", { status: 429 }));
     vi.stubGlobal("fetch", fetchMock);
     const scope = effectScope();
-    const s = scope.run(() => useCmsSearch({ locale: "ja", mode: "KEYWORD", first: 5, debounceMs: 10 }))!;
+    const s = scope.run(() => useYomiSearch({ locale: "ja", mode: "KEYWORD", first: 5, debounceMs: 10 }))!;
     s.text.value = "   ";
     await nextTick();
     await vi.advanceTimersByTimeAsync(10);
@@ -193,15 +193,15 @@ describe("useCmsSearch", () => {
     s.text.value = "トマト";
     await nextTick();
     await vi.advanceTimersByTimeAsync(10);
-    expect(fetchMock.mock.calls[0]![0]).toBe("/_cms/search?q=%E3%83%88%E3%83%9E%E3%83%88&locale=ja&mode=KEYWORD&first=5");
+    expect(fetchMock.mock.calls[0]![0]).toBe("/_yomi/search?q=%E3%83%88%E3%83%9E%E3%83%88&locale=ja&mode=KEYWORD&first=5");
     expect(s.status.value).toBe("rateLimited");
     scope.stop();
   });
 });
 
-describe("CmsSearchBox", () => {
+describe("YomiSearchBox", () => {
   it("ラベル付きの検索欄だけを描き、クラスも決まった文言も持たない", async () => {
-    const html = await renderToString(h(CmsSearchBox, { label: "サイト内を検索", locale: "ja" }));
+    const html = await renderToString(h(YomiSearchBox, { label: "サイト内を検索", locale: "ja" }));
     expect(html).toMatch(/^<search><label for="([^"]+)">サイト内を検索<\/label><input id="\1" type="search" value maxlength="500" autocomplete="off"><div role="status" aria-live="polite"><\/div><!----><\/search>$/);
     expect(html).not.toContain("class=");
   });

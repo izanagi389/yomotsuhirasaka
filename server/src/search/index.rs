@@ -77,7 +77,7 @@ pub async fn schedule(
 /// スキーマを適用済みのすべてのワークスペースに積む（サーバーの起動のとき）。
 pub async fn schedule_all(pool: &PgPool, keys: &KeyRing) -> Result<()> {
     let ids: Vec<Uuid> =
-        sqlx::query_scalar("SELECT id FROM cms.workspaces WHERE schema_version IS NOT NULL")
+        sqlx::query_scalar("SELECT id FROM yomi.workspaces WHERE schema_version IS NOT NULL")
             .fetch_all(pool)
             .await?;
     for id in ids {

@@ -1,7 +1,7 @@
 //! 管理画面の回答のテスト（`POST /api/admin/workspaces/{ws}/answer-test`。M4）の入口の結合テスト。LLMの接続先は設定しない
 //! （回答の中身・断片・判定の宣言は、擬似LLMを使う約束のテストと管理画面の確認で見る）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -50,8 +50,8 @@ async fn answer_test_entrance() {
         assert_eq!(v["error"]["code"], "QUESTION_REFUSED");
 
         // 質問ログには、件数も残さない
-        let db = cms_server::workspace_db::lookup(&server.pool, ws).await.unwrap().unwrap();
-        let mut tx = cms_server::workspace_db::begin(&server.pool, &db).await.unwrap();
+        let db = yomi_server::workspace_db::lookup(&server.pool, ws).await.unwrap().unwrap();
+        let mut tx = yomi_server::workspace_db::begin(&server.pool, &db).await.unwrap();
         let counted: i64 = sqlx::query_scalar("SELECT COALESCE(sum(count), 0)::bigint FROM question_counts")
             .fetch_one(&mut *tx)
             .await

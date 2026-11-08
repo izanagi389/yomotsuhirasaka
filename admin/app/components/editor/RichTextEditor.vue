@@ -6,7 +6,7 @@
 import type { JSONContent } from "@tiptap/core";
 import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/vue-3";
-import { type ManifestBody, forManifest, sanitize, unknownTypes } from "@new-cms/editor-schema";
+import { type ManifestBody, forManifest, sanitize, unknownTypes } from "@yomotsuhirasaka/editor-schema";
 import {
   Bold,
   Clapperboard,
@@ -204,7 +204,7 @@ onBeforeUnmount(() => editor.value?.destroy());
     <div v-if="unknown.length > 0 || !narrowed.editable" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">
       {{ t("editor.readonlyUnknown", { names: (unknown.length > 0 ? unknown : narrowed.unsupported).join(", ") || "paragraph" }) }}
     </div>
-    <div class="cms-editor rounded-md border">
+    <div class="yomi-editor rounded-md border">
       <div v-if="canEdit && editor" class="flex flex-wrap items-center gap-1 border-b p-1" role="toolbar" :aria-label="t('editor.toolbar')">
         <template v-for="(group, i) in tools" :key="i">
           <span v-if="i > 0 && group.length > 0" class="mx-1 h-5 w-px bg-border" aria-hidden="true" />

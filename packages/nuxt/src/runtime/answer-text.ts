@@ -1,4 +1,4 @@
-// チャットボットの回答の本文の、飾りのない意味のあるHTMLの部品（`<CmsAnswerText :text="state.text" :sources="state.sources" />`）。
+// チャットボットの回答の本文の、飾りのない意味のあるHTMLの部品（`<YomiAnswerText :text="state.text" :sources="state.sources" />`）。
 // - 回答は Markdown。描くのは段落・箇条書き・太字・リンク・インラインのコード・コードのかたまりだけで、ほかの書き方は文字のまま。
 //   画像は描かない。`v-html` を使わず、文字はすべて文字として描く（13-security.md「公式SDKは、表示する前にエスケープする」）
 // - 本文の `[n]` は、`citation` が同じ出典のセクションへのリンク（`<sup><a href="url#anchor">[n]</a></sup>`）。
@@ -7,21 +7,21 @@
 
 import { type PropType, type SlotsType, type VNode, defineComponent, h } from "vue";
 
-import { type CmsAnswerInline, type CmsAnswerSource, parseAnswerMarkdown, sourceHref } from "./answer.ts";
+import { type YomiAnswerInline, type YomiAnswerSource, parseAnswerMarkdown, sourceHref } from "./answer.ts";
 
 export default defineComponent({
-  name: "CmsAnswerText",
+  name: "YomiAnswerText",
   props: {
     /** 回答の本文（Markdown）。 */
     text: { type: String, required: true },
     /** 出典（`[n]` のリンク先）。 */
-    sources: { type: Array as PropType<CmsAnswerSource[]>, default: () => [] },
+    sources: { type: Array as PropType<YomiAnswerSource[]>, default: () => [] },
   },
   slots: Object as SlotsType<{
-    citation: { n: number; source: CmsAnswerSource | undefined; href: string | null };
+    citation: { n: number; source: YomiAnswerSource | undefined; href: string | null };
   }>,
   setup(props, { slots }) {
-    const inline = (nodes: CmsAnswerInline[]): (VNode | string)[] =>
+    const inline = (nodes: YomiAnswerInline[]): (VNode | string)[] =>
       nodes.map((n): VNode | string => {
         switch (n.type) {
           case "text":

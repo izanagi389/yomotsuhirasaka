@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from "@/components/ui/textarea";
 import ReadOnlyBody from "~/components/editor/ReadOnlyBody.vue";
 import { mediaInfo } from "~/components/editor/media";
-import type { CustomNodeDecl } from "@new-cms/editor-schema";
+import type { CustomNodeDecl } from "@yomotsuhirasaka/editor-schema";
 import type { ContentType, EraseCandidates, MediaInfo, NoteEdit, VersionDetail, VersionInfo } from "~/utils/content";
 
 const props = defineProps<{

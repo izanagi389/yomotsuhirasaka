@@ -1,7 +1,7 @@
 //! 回答API（配信APIの `answer`・`answerStream`。M4）の入口の結合テスト。LLMの接続先は設定しない
 //! （回答の中身は約束のテスト `tests/invariants/answer.test.ts` が擬似LLMで確かめる）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -60,7 +60,7 @@ fn codes(res: &Resp) -> Vec<String> {
 
 const ANSWER: &str = "query($q: String!, $l: String!) { answer(question: $q, locale: $l) { status text truncated sources { entryId url anchor versionId reviewExpired } } }";
 const LIST_QUERY: &str = "{ postList(locale: \"ja\") { id } }";
-const STREAM: &str = "subscription($q: String!, $l: String!) { answerStream(question: $q, locale: $l) { __typename ... on CmsAnswerDelta { text } ... on CmsAnswerFinal { status text } } }";
+const STREAM: &str = "subscription($q: String!, $l: String!) { answerStream(question: $q, locale: $l) { __typename ... on YomiAnswerDelta { text } ... on YomiAnswerFinal { status text } } }";
 
 #[tokio::test]
 async fn answer_api_entrance() {

@@ -1,6 +1,6 @@
 //! CLI用の個人トークンの結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -15,7 +15,7 @@ async fn user(server: &Server, email: &str, server_admin: bool, mfa: bool) -> (U
     if mfa {
         enroll(server, &s).await;
     }
-    let id = sqlx::query_scalar("SELECT id FROM cms.users WHERE email = $1")
+    let id = sqlx::query_scalar("SELECT id FROM yomi.users WHERE email = $1")
         .bind(email)
         .fetch_one(&server.pool)
         .await
@@ -24,7 +24,7 @@ async fn user(server: &Server, email: &str, server_admin: bool, mfa: bool) -> (U
 }
 
 async fn add_member(pool: &PgPool, ws: Uuid, user: Uuid, role: &str) {
-    sqlx::query("INSERT INTO cms.memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO yomi.memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)")
         .bind(ws)
         .bind(user)
         .bind(role)
@@ -91,12 +91,12 @@ async fn issuing_listing_expiring_and_revoking() {
         let res = create_token(&server, &editor, &body).await;
         assert_eq!(res.status, 201, "{}", res.body);
         let token = res.json_str("token").unwrap();
-        assert!(token.starts_with("cms_pat_") && token.len() > 40);
+        assert!(token.starts_with("yomi_pat_") && token.len() > 40);
         let list = get(&server, "/api/admin/me/tokens", &editor).await;
         assert_eq!(list.status, 200);
         assert!(list.body.contains("\"name\":\"ci\"") && !list.body.contains(&token));
         let stored: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM cms.personal_tokens WHERE token_hash = convert_to($1, 'UTF8')",
+            "SELECT count(*) FROM yomi.personal_tokens WHERE token_hash = convert_to($1, 'UTF8')",
         )
         .bind(&token)
         .fetch_one(&server.pool)
@@ -104,7 +104,7 @@ async fn issuing_listing_expiring_and_revoking() {
         .unwrap();
         assert_eq!(stored, 0, "only the hash is stored");
         let audit: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM cms.audit_log WHERE action = 'personal_token.issued'",
+            "SELECT count(*) FROM yomi.audit_log WHERE action = 'personal_token.issued'",
         )
         .fetch_one(&server.pool)
         .await
@@ -166,7 +166,7 @@ async fn issuing_listing_expiring_and_revoking() {
         assert_eq!(create_token(&server, &editor, &body).await.status, 403);
 
         // 期限切れ（INV-AUTH-09）
-        sqlx::query("UPDATE cms.personal_tokens SET expires_at = now() - interval '1 second'")
+        sqlx::query("UPDATE yomi.personal_tokens SET expires_at = now() - interval '1 second'")
             .execute(&server.pool)
             .await
             .unwrap();
@@ -326,7 +326,7 @@ async fn tokens_are_limited_by_scope_workspace_and_role() {
             .status,
             403
         );
-        sqlx::query("DELETE FROM cms.memberships WHERE workspace_id = $1 AND user_id = $2")
+        sqlx::query("DELETE FROM yomi.memberships WHERE workspace_id = $1 AND user_id = $2")
             .bind(a)
             .bind(both_id)
             .execute(&server.pool)
@@ -461,7 +461,7 @@ async fn tokens_are_limited_by_scope_workspace_and_role() {
             "GET",
             "/api/admin/me",
             &[
-                ("Authorization", "Bearer cms_pat_wrong"),
+                ("Authorization", "Bearer yomi_pat_wrong"),
                 ("Cookie", &both.cookie_header()),
             ],
             None,
@@ -507,7 +507,7 @@ async fn credentials_in_urls_are_rejected() {
             let key = request(
                 &server,
                 "GET",
-                &format!("/api/admin/me?{name}=cms_key_abc"),
+                &format!("/api/admin/me?{name}=yomi_key_abc"),
                 &[],
                 None,
             )

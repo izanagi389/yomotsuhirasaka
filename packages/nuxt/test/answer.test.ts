@@ -2,20 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 import { effectScope, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 
-import { type CmsAnswerEvent, type CmsAnswerSource, SseReader, parseAnswerMarkdown, sourceHref } from "../src/runtime/answer.ts";
+import { type YomiAnswerEvent, type YomiAnswerSource, SseReader, parseAnswerMarkdown, sourceHref } from "../src/runtime/answer.ts";
 import { AnswerRelayError, openAnswer, parseAnswerInput, toEvent, toSse, visitorIdOf } from "../src/runtime/server/answer-core.ts";
 import { ANSWER_QUERY_TEXT } from "../src/runtime/server/names.ts";
 
 vi.mock("nuxt/app", () => ({
-  useRuntimeConfig: () => ({ public: { cms: { answerRoute: "/_cms/answer" } } }),
+  useRuntimeConfig: () => ({ public: { yomi: { answerRoute: "/_yomi/answer" } } }),
   useFetch: vi.fn(),
   useHead: vi.fn(),
 }));
 
-const { useCmsAnswer } = await import("../src/runtime/composables.ts");
-const { default: CmsAnswerText } = await import("../src/runtime/answer-text.ts");
+const { useYomiAnswer } = await import("../src/runtime/composables.ts");
+const { default: YomiAnswerText } = await import("../src/runtime/answer-text.ts");
 
-const source = (over: Partial<CmsAnswerSource> = {}): CmsAnswerSource => ({
+const source = (over: Partial<YomiAnswerSource> = {}): YomiAnswerSource => ({
   citation: 1,
   entryId: "e-1",
   locale: "ja",
@@ -28,16 +28,16 @@ const source = (over: Partial<CmsAnswerSource> = {}): CmsAnswerSource => ({
   ...over,
 });
 
-const target = { url: "https://cms.example.com/", workspaceId: "ws-1", answerKey: "cms_key_secret" };
+const target = { url: "https://yomi.example.com/", workspaceId: "ws-1", answerKey: "yomi_key_secret" };
 const input = { question: "料金は？", locale: "ja", visitorId: "v" };
 
 /** CMS の GraphQL over SSE の本文（`next` に GraphQL の応答、最後に `complete`）。 */
-const cmsSse = (payloads: unknown[], complete = true): string =>
+const yomiSse = (payloads: unknown[], complete = true): string =>
   payloads.map((p) => `event: next\ndata: ${JSON.stringify(p)}\n\n`).join("") + (complete ? "event: complete\ndata:\n\n" : "");
 const next = (answerStream: Record<string, unknown>) => ({ data: { answerStream } });
 
 /** 本文を小さな断片に分けて返す、偽の CMS（呼ばれた依頼も記録する）。 */
-function fakeCms(status: number, body: string, headers: Record<string, string> = { "content-type": "text/event-stream" }) {
+function fakeYomi(status: number, body: string, headers: Record<string, string> = { "content-type": "text/event-stream" }) {
   const calls: { url: string; init: RequestInit }[] = [];
   const impl = (async (url: string | URL, init?: RequestInit) => {
     calls.push({ url: String(url), init: init ?? {} });
@@ -53,8 +53,8 @@ function fakeCms(status: number, body: string, headers: Record<string, string> =
   return { impl, calls };
 }
 
-async function collect(gen: AsyncGenerator<CmsAnswerEvent>): Promise<CmsAnswerEvent[]> {
-  const out: CmsAnswerEvent[] = [];
+async function collect(gen: AsyncGenerator<YomiAnswerEvent>): Promise<YomiAnswerEvent[]> {
+  const out: YomiAnswerEvent[] = [];
   for await (const e of gen) out.push(e);
   return out;
 }
@@ -91,13 +91,13 @@ describe("visitorIdOf", () => {
 
 describe("openAnswer", () => {
   it("回答キャッシュから返したか（cached）は渡さず、決まった項目だけを順に渡す", async () => {
-    const body = cmsSse([
-      next({ __typename: "CmsAnswerVerdict", answerable: true, sources: [{ ...source(), extra: "x" }] }),
-      next({ __typename: "CmsAnswerDelta", text: "月額です" }),
-      next({ __typename: "CmsAnswerDelta", text: "[1]" }),
-      next({ __typename: "CmsAnswerFinal", status: "ANSWERED", text: "月額です[1]", truncated: false, cached: true, sources: [source()] }),
+    const body = yomiSse([
+      next({ __typename: "YomiAnswerVerdict", answerable: true, sources: [{ ...source(), extra: "x" }] }),
+      next({ __typename: "YomiAnswerDelta", text: "月額です" }),
+      next({ __typename: "YomiAnswerDelta", text: "[1]" }),
+      next({ __typename: "YomiAnswerFinal", status: "ANSWERED", text: "月額です[1]", truncated: false, cached: true, sources: [source()] }),
     ]);
-    const { impl, calls } = fakeCms(200, body);
+    const { impl, calls } = fakeYomi(200, body);
     const events = await collect(await openAnswer(target, "q-1", input, new AbortController().signal, impl));
     expect(events.map((e) => e.type)).toEqual(["verdict", "delta", "delta", "final"]);
     expect(JSON.stringify(events)).not.toContain("cached");
@@ -105,9 +105,9 @@ describe("openAnswer", () => {
     expect(events.map(toSse).join("")).not.toContain("cached");
     expect(events[3]).toEqual({ type: "final", answer: { status: "ANSWERED", text: "月額です[1]", truncated: false, sources: [source()] } });
     // CMS への依頼: POST、回答のキー、登録したクエリのIDと変数
-    expect(calls[0]!.url).toBe("https://cms.example.com/ws/ws-1/graphql");
+    expect(calls[0]!.url).toBe("https://yomi.example.com/ws/ws-1/graphql");
     expect(calls[0]!.init.method).toBe("POST");
-    expect((calls[0]!.init.headers as Record<string, string>)["Authorization"]).toBe("Bearer cms_key_secret");
+    expect((calls[0]!.init.headers as Record<string, string>)["Authorization"]).toBe("Bearer yomi_key_secret");
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ id: "q-1", variables: input });
   });
 
@@ -118,7 +118,7 @@ describe("openAnswer", () => {
 
   it("エラーはコードだけ。知らないコードは ANSWER_FAILED", async () => {
     const err = (code: string, message = "secret detail") => ({ errors: [{ message, extensions: { code } }] });
-    const run = async (payload: unknown) => collect(await openAnswer(target, "q", input, new AbortController().signal, fakeCms(200, cmsSse([payload])).impl));
+    const run = async (payload: unknown) => collect(await openAnswer(target, "q", input, new AbortController().signal, fakeYomi(200, yomiSse([payload])).impl));
     expect(await run(err("ANSWER_BUDGET_EXHAUSTED"))).toEqual([{ type: "error", code: "ANSWER_BUDGET_EXHAUSTED" }]);
     expect(await run(err("QUESTION_REFUSED"))).toEqual([{ type: "error", code: "QUESTION_REFUSED" }]);
     const internal = await run(err("INTERNAL_ERROR"));
@@ -127,15 +127,15 @@ describe("openAnswer", () => {
   });
 
   it("最終判定の前に切れたら ANSWER_FAILED で終わる", async () => {
-    const body = cmsSse([next({ __typename: "CmsAnswerDelta", text: "途中" })], false);
-    const events = await collect(await openAnswer(target, "q", input, new AbortController().signal, fakeCms(200, body).impl));
+    const body = yomiSse([next({ __typename: "YomiAnswerDelta", text: "途中" })], false);
+    const events = await collect(await openAnswer(target, "q", input, new AbortController().signal, fakeYomi(200, body).impl));
     expect(events).toEqual([{ type: "delta", text: "途中" }, { type: "error", code: "ANSWER_FAILED" }]);
   });
 
   it("回数の制限は 429 と Retry-After、そのほかの断りは 502（理由は渡さない）", async () => {
     const reject = async (status: number, headers: Record<string, string>, body = "{}") => {
       try {
-        await openAnswer(target, "q", input, new AbortController().signal, fakeCms(status, body, headers).impl);
+        await openAnswer(target, "q", input, new AbortController().signal, fakeYomi(status, body, headers).impl);
         return null;
       } catch (e) {
         return e as AnswerRelayError;
@@ -157,7 +157,7 @@ describe("openAnswer", () => {
 });
 
 describe("回答の本文（Markdown の一部）", () => {
-  const render = (text: string, sources: CmsAnswerSource[] = [source()]) => renderToString(h(CmsAnswerText, { text, sources }));
+  const render = (text: string, sources: YomiAnswerSource[] = [source()]) => renderToString(h(YomiAnswerText, { text, sources }));
 
   it("文字はエスケープし、HTML は描かない", async () => {
     const html = await render('<script>alert(1)</script> & <img src=x onerror="a()">');
@@ -202,7 +202,7 @@ describe("SseReader", () => {
   });
 });
 
-describe("useCmsAnswer", () => {
+describe("useYomiAnswer", () => {
   it("サイトのサーバーのルートに送り、届いた順に状態を変える", async () => {
     const sse =
       toSse({ type: "verdict", answerable: true, sources: [source()] }) +
@@ -211,9 +211,9 @@ describe("useCmsAnswer", () => {
     const fetchMock = vi.fn(async () => new Response(sse, { status: 200, headers: { "content-type": "text/event-stream" } }));
     vi.stubGlobal("fetch", fetchMock);
     const scope = effectScope();
-    const { state, ask } = scope.run(() => useCmsAnswer())!;
+    const { state, ask } = scope.run(() => useYomiAnswer())!;
     await ask("料金は？", "ja");
-    expect(fetchMock).toHaveBeenCalledWith("/_cms/answer", expect.objectContaining({ method: "POST", body: JSON.stringify({ question: "料金は？", locale: "ja" }) }));
+    expect(fetchMock).toHaveBeenCalledWith("/_yomi/answer", expect.objectContaining({ method: "POST", body: JSON.stringify({ question: "料金は？", locale: "ja" }) }));
     expect(state.value.phase).toBe("done");
     expect(state.value.text).toBe("月額です[1]");
     expect(state.value.answer?.status).toBe("ANSWERED");
@@ -227,7 +227,7 @@ describe("useCmsAnswer", () => {
       vi.fn(async () => new Response('{"code":"RATE_LIMITED"}', { status: 429, headers: { "content-type": "application/json", "retry-after": "20" } })),
     );
     const scope = effectScope();
-    const { state, ask } = scope.run(() => useCmsAnswer())!;
+    const { state, ask } = scope.run(() => useYomiAnswer())!;
     await ask("q", "ja");
     expect(state.value.phase).toBe("error");
     expect(state.value.error).toEqual({ code: "RATE_LIMITED", retryAfter: 20 });

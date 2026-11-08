@@ -191,7 +191,7 @@ fn sources_field<T: Send + Sync + 'static>(get: fn(&T) -> &Vec<Source>) -> Field
     )
 }
 
-/// 回答の型（`CmsAnswer` と、ストリーミングの最終判定 `CmsAnswerFinal`）。
+/// 回答の型（`YomiAnswer` と、ストリーミングの最終判定 `YomiAnswerFinal`）。
 fn answer_object(name: &str) -> Object {
     Object::new(name)
         .field(value_field::<Answer, _>(

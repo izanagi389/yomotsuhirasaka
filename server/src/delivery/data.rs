@@ -310,7 +310,7 @@ pub async fn by_ids(conn: &mut PgConnection, ids: &[Uuid]) -> Result<Vec<Entry>>
     Ok(ids.iter().filter_map(|id| by_id.get(id).cloned()).collect())
 }
 
-/// 変換した本文の画像の参照先（`cms-media:<ID>`）を、その時点のメディアのURLに置き換える。
+/// 変換した本文の画像の参照先（`yomi-media:<ID>`）を、その時点のメディアのURLに置き換える。
 /// 削除されたメディアの参照先は空にする（原則3、INV-PUB-06）。
 pub async fn resolve_media_refs(
     conn: &mut PgConnection,
@@ -318,7 +318,7 @@ pub async fn resolve_media_refs(
     workspace_id: Uuid,
     text: &str,
 ) -> Result<String> {
-    const SCHEME: &str = "cms-media:";
+    const SCHEME: &str = "yomi-media:";
     let mut ids = Vec::new();
     let mut rest = text;
     while let Some(i) = rest.find(SCHEME) {

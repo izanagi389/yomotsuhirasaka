@@ -1,16 +1,16 @@
 //! ワークスペースの LLM の接続設定の上書き（`/api/admin/workspaces/{ws}/llm`。M4、Q26）の結合テスト。
 //! 回答がその接続先とキーで作られること（INV-LLM-01, 02）は、約束のテスト `tests/invariants/llm-override.test.ts` が確かめる。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::config::{AllowedEmbeddingModel, AllowedEndpoint, LlmConfig};
-use cms_server::workspace_llm;
 use common::content::*;
 use common::server::*;
 use common::with_scratch;
 use serde_json::{Value, json};
+use yomi_server::config::{AllowedEmbeddingModel, AllowedEndpoint, LlmConfig};
+use yomi_server::workspace_llm;
 
 fn parse(res: &Resp) -> Value {
     serde_json::from_str(&res.body).unwrap_or_else(|_| panic!("{}", res.body))
@@ -105,7 +105,7 @@ async fn workspace_llm_api() {
         assert_eq!(v["settings"]["endpoint"], "primary");
         assert_eq!(v["settings"]["apiKeySet"], true);
         let updated = v["settings"]["apiKeyUpdatedAt"].clone();
-        let stored: Vec<u8> = sqlx::query_scalar("SELECT api_key FROM cms.workspace_llm WHERE workspace_id = $1")
+        let stored: Vec<u8> = sqlx::query_scalar("SELECT api_key FROM yomi.workspace_llm WHERE workspace_id = $1")
             .bind(ws)
             .fetch_one(&server.pool)
             .await
@@ -127,7 +127,7 @@ async fn workspace_llm_api() {
 
         // 監査ログには変えた項目の名前だけ（キーは残さない）
         let details: Vec<Option<String>> = sqlx::query_scalar(
-            "SELECT details::text FROM cms.audit_log WHERE workspace_id = $1 AND action = 'llm.override_changed'",
+            "SELECT details::text FROM yomi.audit_log WHERE workspace_id = $1 AND action = 'llm.override_changed'",
         )
         .bind(ws)
         .fetch_all(&server.pool)
@@ -139,7 +139,7 @@ async fn workspace_llm_api() {
         // サーバー管理者が許可を取り消したら、上書き（キーを含む）は消え、インスタンスの設定に戻る
         let res = send(&server, "PUT", &format!("/api/admin/workspaces/{ws}/limits"), &root, Some(r#"{"llmOverride":false}"#)).await;
         assert_eq!(res.status, 200, "{}", res.body);
-        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.workspace_llm WHERE workspace_id = $1")
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.workspace_llm WHERE workspace_id = $1")
             .bind(ws)
             .fetch_one(&server.pool)
             .await

@@ -1,15 +1,15 @@
 //! パスワードと多要素認証のリセットの結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::worker;
 use common::server::*;
 use common::smtp::*;
 use common::with_scratch;
 use sqlx::PgPool;
 use uuid::Uuid;
+use yomi_server::worker;
 
 const NEW_PASSWORD: &str = "a fresh long passphrase";
 
@@ -19,7 +19,7 @@ async fn user(server: &Server, email: &str, server_admin: bool, mfa: bool) -> (U
     if mfa {
         enroll(server, &s).await;
     }
-    let id = sqlx::query_scalar("SELECT id FROM cms.users WHERE email = $1")
+    let id = sqlx::query_scalar("SELECT id FROM yomi.users WHERE email = $1")
         .bind(email)
         .fetch_one(&server.pool)
         .await
@@ -28,7 +28,7 @@ async fn user(server: &Server, email: &str, server_admin: bool, mfa: bool) -> (U
 }
 
 async fn add_member(pool: &PgPool, ws: Uuid, user: Uuid, role: &str) {
-    sqlx::query("INSERT INTO cms.memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO yomi.memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)")
         .bind(ws)
         .bind(user)
         .bind(role)
@@ -97,7 +97,7 @@ fn token_from(text: &str) -> String {
 }
 
 async fn job_count(pool: &PgPool) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM cms.jobs")
+    sqlx::query_scalar("SELECT count(*) FROM yomi.jobs")
         .fetch_one(pool)
         .await
         .unwrap()
@@ -105,7 +105,7 @@ async fn job_count(pool: &PgPool) -> i64 {
 
 async fn audit_count(pool: &PgPool, ws: Option<Uuid>, action: &str) -> i64 {
     sqlx::query_scalar(
-        "SELECT count(*) FROM cms.audit_log WHERE workspace_id IS NOT DISTINCT FROM $1 AND action = $2",
+        "SELECT count(*) FROM yomi.audit_log WHERE workspace_id IS NOT DISTINCT FROM $1 AND action = $2",
     )
     .bind(ws)
     .bind(action)
@@ -144,7 +144,7 @@ async fn self_service_reset_by_email() {
         let mail = smtp.lock().unwrap().received.last().unwrap().clone();
         assert!(mail.contains("To: forgot@example.test"), "{mail}");
         let body = decoded_body(&mail);
-        assert!(body.contains("https://cms.example.test/admin/reset-password#token="), "{body}");
+        assert!(body.contains("https://yomi.example.test/admin/reset-password#token="), "{body}");
         let token = token_from(&body);
 
         // 弱いパスワードではトークンを使わずに断る
@@ -164,7 +164,7 @@ async fn self_service_reset_by_email() {
         assert!(!worker::run_once(&server.state).await.unwrap());
 
         // 期限切れのトークンは使えない
-        sqlx::query("UPDATE cms.reset_tokens SET created_at = now() - interval '2 minutes'")
+        sqlx::query("UPDATE yomi.reset_tokens SET created_at = now() - interval '2 minutes'")
             .execute(&server.pool)
             .await
             .unwrap();
@@ -172,7 +172,7 @@ async fn self_service_reset_by_email() {
         assert!(worker::run_once(&server.state).await.unwrap());
         let mail = smtp.lock().unwrap().received.last().unwrap().clone();
         let expired = token_from(&decoded_body(&mail));
-        sqlx::query("UPDATE cms.reset_tokens SET expires_at = now() - interval '1 second' WHERE used_at IS NULL")
+        sqlx::query("UPDATE yomi.reset_tokens SET expires_at = now() - interval '1 second' WHERE used_at IS NULL")
             .execute(&server.pool)
             .await
             .unwrap();
@@ -189,7 +189,7 @@ async fn self_service_reset_needs_smtp() {
         let res = request_reset(&server, "nosmtp@example.test").await;
         assert_eq!(res.status, 202);
         assert_eq!(job_count(&server.pool).await, 0);
-        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.reset_tokens")
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.reset_tokens")
             .fetch_one(&server.pool)
             .await
             .unwrap();
@@ -359,7 +359,7 @@ async fn admins_issue_resets_within_their_scope() {
         assert_eq!(complete_mfa(&server, &mfa_token).await.status, 400);
 
         // 発行の後にサーバー管理者になった人のトークンは使えない
-        sqlx::query("UPDATE cms.users SET is_server_admin = true WHERE id = $1")
+        sqlx::query("UPDATE yomi.users SET is_server_admin = true WHERE id = $1")
             .bind(only_a)
             .execute(&server.pool)
             .await
@@ -379,17 +379,17 @@ async fn server_admins_recover_with_the_cli() {
     with_scratch(|app, migration| async move {
         let server = start(config(&app, &migration)).await;
         let (_, root) = user(&server, "root@example.test", true, true).await;
-        let dir = std::env::temp_dir().join(format!("cms-cli-reset-{}", Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("yomi-cli-reset-{}", Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let key = dir.join("encryption.key");
-        std::fs::write(&key, cms_server::keys::generate_key_file()).unwrap();
+        std::fs::write(&key, yomi_server::keys::generate_key_file()).unwrap();
         let mut cfg = config(&app, &migration);
         cfg.trusted_proxies = Vec::new();
         cfg.encryption_key_file = Some(key);
         let path = dir.join("config.toml");
         std::fs::write(&path, toml::to_string(&cfg).unwrap()).unwrap();
         let run = |args: &[&str], stdin: &str| {
-            let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cms-server"))
+            let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_yomi-server"))
                 .args(args)
                 .arg("--config")
                 .arg(&path)

@@ -57,7 +57,7 @@ async fn view(state: &AppState) -> Result<SwitchView, ApiError> {
     let mut workspaces = Vec::new();
     if llm.is_some() {
         let rows: Vec<(Uuid, String)> =
-            sqlx::query_as("SELECT id, name FROM cms.workspaces ORDER BY created_at")
+            sqlx::query_as("SELECT id, name FROM yomi.workspaces ORDER BY created_at")
                 .fetch_all(&state.pool)
                 .await
                 .map_err(anyhow::Error::from)?;

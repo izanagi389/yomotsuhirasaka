@@ -13,7 +13,7 @@ use super::error::ApiError;
 use crate::auth::{personal_tokens, session};
 
 /// セッションのCookieの名前。`__Host-` の接頭辞により、Secure・Path=/・Domainなしでしか設定できない（Q91）。
-pub const SESSION_COOKIE: &str = "__Host-cms_session";
+pub const SESSION_COOKIE: &str = "__Host-yomi_session";
 /// CSRFトークンを送るヘッダー。
 pub const CSRF_HEADER: &str = "x-csrf-token";
 
@@ -222,15 +222,15 @@ mod tests {
     #[test]
     fn cookies() {
         let h = headers(&[
-            ("cookie", "a=1; __Host-cms_session=abc; b=2"),
+            ("cookie", "a=1; __Host-yomi_session=abc; b=2"),
             ("cookie", "c=3"),
         ]);
         assert_eq!(cookie(&h, SESSION_COOKIE).as_deref(), Some("abc"));
         assert_eq!(cookie(&h, "c").as_deref(), Some("3"));
-        assert_eq!(cookie(&h, "cms_session"), None);
+        assert_eq!(cookie(&h, "yomi_session"), None);
         assert_eq!(
             cookie(
-                &headers(&[("cookie", "__Host-cms_session=")]),
+                &headers(&[("cookie", "__Host-yomi_session=")]),
                 SESSION_COOKIE
             ),
             None
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn origin() {
-        let o = "https://cms.example.com";
+        let o = "https://yomi.example.com";
         assert!(check_origin(&HeaderMap::new(), o).is_ok());
         assert!(check_origin(&headers(&[("origin", o)]), o).is_ok());
         assert!(check_origin(&headers(&[("origin", "https://evil.example")]), o).is_err());

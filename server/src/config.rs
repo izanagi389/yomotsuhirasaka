@@ -713,7 +713,7 @@ pub struct SmtpConfig {
     pub username: Option<String>,
     /// 秘密の値。
     pub password: Option<String>,
-    /// 差出人（`CMS <cms@example.com>` か `cms@example.com`）。
+    /// 差出人（`CMS <yomi@example.com>` か `yomi@example.com`）。
     pub from: String,
 }
 
@@ -824,7 +824,7 @@ mod tests {
 
     #[test]
     fn relative_key_path_is_resolved_from_config_dir() {
-        let dir = std::env::temp_dir().join(format!("cms-config-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("yomi-config-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("c.toml");
         std::fs::write(

@@ -871,7 +871,7 @@
     "previewOrigins": "Sites allowed to show previews",
     "previewOriginsHelp": "One per line, like https://example.com (up to 10; http only for localhost).",
     "previewPath": "Preview path on the site",
-    "previewPathHelp": "The official Nuxt module uses /_cms/preview by default. Match the site's cms.preview.route.",
+    "previewPathHelp": "The official Nuxt module uses /_yomi/preview by default. Match the site's yomi.preview.route.",
     "saved": "Saved."
   },
   "sourceUpdate": {

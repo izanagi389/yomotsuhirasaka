@@ -110,6 +110,7 @@ impl KeyRing {
             .ok_or_else(|| anyhow!("no active key"))?;
         let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key)
             .map_err(|_| anyhow!("invalid key length"))?;
+        // 鍵の用途を分ける固定の文字列。製品の名前を変えても変えない（変えると導いた鍵がすべて変わる）
         mac.update(b"new-cms derived key\0");
         mac.update(purpose.as_bytes());
         Ok(mac.finalize().into_bytes().into())
@@ -350,7 +351,7 @@ mod tests {
 
     #[test]
     fn key_file_is_replaced_privately() {
-        let dir = std::env::temp_dir().join(format!("cms-keys-{}", rand::random::<u64>()));
+        let dir = std::env::temp_dir().join(format!("yomi-keys-{}", rand::random::<u64>()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("encryption.key");
         replace_key_file(&path, "v1:x\n").unwrap();

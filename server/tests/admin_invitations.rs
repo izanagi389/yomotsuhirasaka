@@ -1,15 +1,15 @@
 //! 招待と、所属者の一覧の閲覧の権限の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::worker;
 use common::server::*;
 use common::smtp::*;
 use common::with_scratch;
 use sqlx::PgPool;
 use uuid::Uuid;
+use yomi_server::worker;
 
 /// 利用者を作ってログインし、必要ならTOTPを設定する。
 async fn user(server: &Server, email: &str, server_admin: bool, mfa: bool) -> (Uuid, Login) {
@@ -18,7 +18,7 @@ async fn user(server: &Server, email: &str, server_admin: bool, mfa: bool) -> (U
     if mfa {
         enroll(server, &s).await;
     }
-    let id = sqlx::query_scalar("SELECT id FROM cms.users WHERE email = $1")
+    let id = sqlx::query_scalar("SELECT id FROM yomi.users WHERE email = $1")
         .bind(email)
         .fetch_one(&server.pool)
         .await
@@ -27,7 +27,7 @@ async fn user(server: &Server, email: &str, server_admin: bool, mfa: bool) -> (U
 }
 
 async fn add_member(pool: &PgPool, ws: Uuid, user: Uuid, role: &str) {
-    sqlx::query("INSERT INTO cms.memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO yomi.memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)")
         .bind(ws)
         .bind(user)
         .bind(role)
@@ -106,12 +106,14 @@ fn keys(body: &str) -> Vec<String> {
 }
 
 async fn audit_count(pool: &PgPool, ws: Uuid, action: &str) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE workspace_id = $1 AND action = $2")
-        .bind(ws)
-        .bind(action)
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "SELECT count(*) FROM yomi.audit_log WHERE workspace_id = $1 AND action = $2",
+    )
+    .bind(ws)
+    .bind(action)
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 #[tokio::test]
@@ -135,11 +137,11 @@ async fn invitations_without_smtp() {
         assert_eq!(keys(&to_new.body), keys(&to_existing.body));
         assert_eq!(to_new.json_str("delivery").as_deref(), Some("link"));
         let url = to_new.json_str("inviteUrl").unwrap();
-        assert!(url.starts_with("https://cms.example.test/admin/invitations/accept#token="), "{url}");
+        assert!(url.starts_with("https://yomi.example.test/admin/invitations/accept#token="), "{url}");
         let new_token = token_from(&url);
         let existing_token = token_from(&to_existing.json_str("inviteUrl").unwrap());
         // トークンはハッシュだけを保存する
-        let stored: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.invitations WHERE token_hash = convert_to($1, 'UTF8')")
+        let stored: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.invitations WHERE token_hash = convert_to($1, 'UTF8')")
             .bind(&new_token)
             .fetch_one(&server.pool)
             .await
@@ -193,7 +195,7 @@ async fn invitations_without_smtp() {
         assert_eq!(res.status, 204);
         assert_eq!(accept_new(&server, &second_token, "a long enough passphrase").await.status, 400);
         let third = token_from(&invite(&server, &root, ws, "later@example.test", "viewer").await.json_str("inviteUrl").unwrap());
-        sqlx::query("UPDATE cms.invitations SET expires_at = now() - interval '1 second' WHERE accepted_at IS NULL AND revoked_at IS NULL")
+        sqlx::query("UPDATE yomi.invitations SET expires_at = now() - interval '1 second' WHERE accepted_at IS NULL AND revoked_at IS NULL")
             .execute(&server.pool)
             .await
             .unwrap();
@@ -201,7 +203,7 @@ async fn invitations_without_smtp() {
 
         // 招待の期限は設定（既定30分）に従う
         let res = invite(&server, &root, ws, "fresh@example.test", "viewer").await;
-        let minutes: f64 = sqlx::query_scalar("SELECT extract(epoch FROM expires_at - created_at)::float8 / 60 FROM cms.invitations WHERE id = $1::uuid")
+        let minutes: f64 = sqlx::query_scalar("SELECT extract(epoch FROM expires_at - created_at)::float8 / 60 FROM yomi.invitations WHERE id = $1::uuid")
             .bind(res.json_str("id").unwrap())
             .fetch_one(&server.pool)
             .await

@@ -56,7 +56,7 @@ async fn who(state: &AppState, ws: Uuid, ids: &[Uuid]) -> Result<HashMap<Uuid, W
     }
     let rows: Vec<(Uuid, Option<String>, String, Option<String>)> = sqlx::query_as(
         "SELECT u.id, u.display_name, u.email, m.role
-         FROM cms.users u LEFT JOIN cms.memberships m ON m.user_id = u.id AND m.workspace_id = $1
+         FROM yomi.users u LEFT JOIN yomi.memberships m ON m.user_id = u.id AND m.workspace_id = $1
          WHERE u.id = ANY($2)",
     )
     .bind(ws)
@@ -469,7 +469,7 @@ pub async fn reviewers(
     let ws = parse(&ws)?;
     editor(&state, &current, ws).await?;
     let ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT user_id FROM cms.memberships WHERE workspace_id = $1 AND role IN ('admin', 'editor')
+        "SELECT user_id FROM yomi.memberships WHERE workspace_id = $1 AND role IN ('admin', 'editor')
          ORDER BY created_at, user_id",
     )
     .bind(ws)

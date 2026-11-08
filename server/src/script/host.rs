@@ -1,6 +1,6 @@
 //! ホスト関数（04-hooks.md「外部へのアクセス」、Q11）。
 //!
-//! - 関数が権限として宣言したものだけを、グローバルの `cms` に置く（INV-HOOK-02）。
+//! - 関数が権限として宣言したものだけを、グローバルの `yomi` に置く（INV-HOOK-02）。
 //! - DBは、関数を動かしているワークスペースのロールに切り替えたトランザクションでだけ読む。他のワークスペースのスキーマには、
 //!   DBの権限でも触れられない（INV-HOOK-03、INV-DB-01）。
 //! - 待つ時間も、関数の実行時間の上限に含める。
@@ -11,8 +11,8 @@
 //!
 //! | 権限 | 関数 | 内容 |
 //! |---|---|---|
-//! | `content.read` | `cms.content.get(id)` | 同じワークスペースの公開中の記事（`{id, contentType, locale, fields}`）。なければ null |
-//! | `http.fetch` | `cms.http.fetch(url, {method, headers, body})` | `{status, body}`（本文は1MBまで。3xxもそのまま返す）。失敗は例外 |
+//! | `content.read` | `yomi.content.get(id)` | 同じワークスペースの公開中の記事（`{id, contentType, locale, fields}`）。なければ null |
+//! | `http.fetch` | `yomi.http.fetch(url, {method, headers, body})` | `{status, body}`（本文は1MBまで。3xxもそのまま返す）。失敗は例外 |
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -41,7 +41,7 @@ pub struct Host {
     pool: PgPool,
     db: WorkspaceDb,
     fetch: Option<Fetch>,
-    /// `cms.content.get` で読もうとした記事のID（URL生成関数の依存の記録に使う。05-urls-and-redirects.md、Q39）。
+    /// `yomi.content.get` で読もうとした記事のID（URL生成関数の依存の記録に使う。05-urls-and-redirects.md、Q39）。
     reads: Arc<Mutex<BTreeSet<Uuid>>>,
 }
 
@@ -70,7 +70,7 @@ impl Host {
         }
     }
 
-    /// これまでに `cms.content.get` で読もうとした記事のID（見つからなかったものも含む。後から公開されうるため）。
+    /// これまでに `yomi.content.get` で読もうとした記事のID（見つからなかったものも含む。後から公開されうるため）。
     pub fn reads(&self) -> Vec<Uuid> {
         self.reads
             .lock()
@@ -107,7 +107,7 @@ pub(super) struct Bound {
     handle: Handle,
 }
 
-/// 宣言された権限のホスト関数を、グローバルの `cms` に置く。権限がなければ `cms` も置かない。
+/// 宣言された権限のホスト関数を、グローバルの `yomi` に置く。権限がなければ `yomi` も置かない。
 pub(super) fn install<'js>(
     ctx: &Ctx<'js>,
     permissions: &[Permission],
@@ -117,7 +117,7 @@ pub(super) fn install<'js>(
     if permissions.is_empty() {
         return Ok(());
     }
-    let cms = Object::new(ctx.clone())?;
+    let yomi = Object::new(ctx.clone())?;
     let Bound { host, handle } = bound;
     if permissions.contains(&Permission::HttpFetch)
         && let Some(fetch) = host.fetch.clone()
@@ -167,7 +167,7 @@ pub(super) fn install<'js>(
             },
         )?;
         http.set("fetch", send)?;
-        cms.set("http", http)?;
+        yomi.set("http", http)?;
     }
     if permissions.contains(&Permission::ContentRead) {
         let content = Object::new(ctx.clone())?;
@@ -188,7 +188,7 @@ pub(super) fn install<'js>(
                     Ok(Ok(Some(json))) => ctx.json_parse(json),
                     Ok(Ok(None)) => Ok(JsValue::new_null(ctx)),
                     Ok(Err(e)) => {
-                        tracing::warn!(workspace_id = %host.db.workspace_id, "cms.content.get failed: {e:#}");
+                        tracing::warn!(workspace_id = %host.db.workspace_id, "yomi.content.get failed: {e:#}");
                         Err(Exception::throw_internal(&ctx, "cannot read the entry"))
                     }
                     Err(_) => Err(Exception::throw_internal(&ctx, "time limit")),
@@ -196,9 +196,9 @@ pub(super) fn install<'js>(
             },
         )?;
         content.set("get", get)?;
-        cms.set("content", content)?;
+        yomi.set("content", content)?;
     }
-    ctx.globals().set("cms", cms)
+    ctx.globals().set("yomi", yomi)
 }
 
 /// 公開中の記事を、公開した版のフィールドで返す（下書きの内容は公開URLに使わない）。
@@ -223,7 +223,7 @@ async fn read_entry(host: &Host, id: Uuid) -> anyhow::Result<Option<String>> {
     ))
 }
 
-/// `cms.http.fetch` の第2引数。
+/// `yomi.http.fetch` の第2引数。
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct FetchOptions {

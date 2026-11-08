@@ -37,12 +37,12 @@ const wordMarker = (label: string): string => marker(label).replace(/\d/g, (d) =
 
 /** 記事を公開し、検索に出る（埋め込みができる）まで待つ。 */
 async function publishSearchable(ws: AnswerWorkspace, word: string, text: string): Promise<string> {
-  const { cms } = await world();
-  const { id } = await cms.createEntry(ws.editorSession, ws.id, { title: marker("llm-title"), body: doc(paragraph(text)) });
-  await cms.publishEntry(ws.editorSession, ws.id, id);
+  const { yomi } = await world();
+  const { id } = await yomi.createEntry(ws.editorSession, ws.id, { title: marker("llm-title"), body: doc(paragraph(text)) });
+  await yomi.publishEntry(ws.editorSession, ws.id, id);
   const deadline = Date.now() + 120_000;
   for (;;) {
-    const r = await cms.search(ws.id, ws.readKey.secret, ws.searchQuery, { text: word, first: 50 });
+    const r = await yomi.search(ws.id, ws.readKey.secret, ws.searchQuery, { text: word, first: 50 });
     if (r.hits.some((h) => h.entryId === id)) return id;
     if (Date.now() > deadline) throw new Error(`公開した記事が検索に出ない（埋め込みができない）: ${id}`);
     await sleep(1);
@@ -50,18 +50,18 @@ async function publishSearchable(ws: AnswerWorkspace, word: string, text: string
 }
 
 async function ask(ws: AnswerWorkspace, question: string): Promise<AnswerResult> {
-  const { cms } = await world();
-  const res = await cms.answerRaw(ws.id, ws.answerKey.secret, ws.answerQuery, { question });
-  const r = cms.parseAnswer(res);
-  expect(r, `回答が返らない（${res.status}）: ${JSON.stringify(cms.answerErrors(res))}`).not.toBeNull();
+  const { yomi } = await world();
+  const res = await yomi.answerRaw(ws.id, ws.answerKey.secret, ws.answerQuery, { question });
+  const r = yomi.parseAnswer(res);
+  expect(r, `回答が返らない（${res.status}）: ${JSON.stringify(yomi.answerErrors(res))}`).not.toBeNull();
   return r!;
 }
 
 /** LLMの接続設定の上書きを送る（管理者と再認証）。 */
 async function setLlm(ws: AnswerWorkspace, body: Record<string, unknown>): Promise<HttpResponse> {
-  const { cms } = await world();
-  await cms.reauthenticate(ws.adminSession, ws.admin);
-  return cms.setWorkspaceLlmRaw(asSession(ws.adminSession), ws.id, body);
+  const { yomi } = await world();
+  await yomi.reauthenticate(ws.adminSession, ws.admin);
+  return yomi.setWorkspaceLlmRaw(asSession(ws.adminSession), ws.id, body);
 }
 
 const isRejected = (res: HttpResponse) => res.status >= 400 && res.status < 500;
@@ -107,7 +107,7 @@ inv(
   "保存したLLMのAPIキーは、管理画面や管理APIから再取得できない",
   async () => {
     const w = await world();
-    const { cms } = w;
+    const { yomi } = w;
     const ws = await w.workspace("llm02", { llmOverride: true });
     const word = wordMarker("llmtwo");
     const entryId = await publishSearchable(ws, word, `${word} は、LLMのAPIキーの扱いを確かめるための記事です。`);
@@ -119,14 +119,14 @@ inv(
     expect(saved.text, "保存の応答に、APIキーが含まれる").not.toContain(secret);
 
     // 管理APIの読み取りの操作（ワークスペースと本人に向けたもの）の、どの応答にもキーが含まれない
-    await cms.reauthenticate(ws.adminSession, ws.admin);
-    const llm = await cms.getWorkspaceLlmRaw(asSession(ws.adminSession), ws.id);
+    await yomi.reauthenticate(ws.adminSession, ws.admin);
+    const llm = await yomi.getWorkspaceLlmRaw(asSession(ws.adminSession), ws.id);
     expect(llm.status, `接続設定を読めない（${llm.status}）: ${llm.text}`).toBe(200);
     expect(llm.text, "接続設定の読み取りに、APIキーが含まれる").not.toContain(secret);
     const target: OperationTarget = { workspaceId: ws.id, entryId, userId: ws.admin.userId, apiKeyId: ws.answerKey.id };
     let read = 0;
-    for (const op of cms.adminOperations.filter((o) => !o.mutating && o.scope !== "instance")) {
-      await cms.reauthenticate(ws.adminSession, ws.admin);
+    for (const op of yomi.adminOperations.filter((o) => !o.mutating && o.scope !== "instance")) {
+      await yomi.reauthenticate(ws.adminSession, ws.admin);
       const res = await op.call(asSession(ws.adminSession), target);
       expect(res.text, `管理APIの「${op.name}」の応答に、保存したAPIキーが含まれる`).not.toContain(secret);
       if (res.status < 300) read++;

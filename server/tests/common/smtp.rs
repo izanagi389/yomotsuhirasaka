@@ -2,8 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use cms_server::config::{SmtpConfig, SmtpSecurity};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+use yomi_server::config::{SmtpConfig, SmtpSecurity};
 
 /// 擬似SMTPサーバーのふるまい。
 #[derive(Default)]
@@ -78,7 +78,7 @@ pub fn smtp_config(port: u16) -> SmtpConfig {
         security: SmtpSecurity::None,
         username: None,
         password: None,
-        from: "CMS <cms@example.test>".into(),
+        from: "CMS <yomi@example.test>".into(),
     }
 }
 

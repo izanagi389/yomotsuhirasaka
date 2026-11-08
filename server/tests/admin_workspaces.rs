@@ -1,6 +1,6 @@
 //! ワークスペースと所属の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -16,7 +16,7 @@ async fn user(server: &Server, email: &str, server_admin: bool, mfa: bool) -> (U
     if mfa {
         enroll(server, &s).await;
     }
-    let id: Uuid = sqlx::query_scalar("SELECT id FROM cms.users WHERE email = $1")
+    let id: Uuid = sqlx::query_scalar("SELECT id FROM yomi.users WHERE email = $1")
         .bind(email)
         .fetch_one(&server.pool)
         .await
@@ -26,7 +26,7 @@ async fn user(server: &Server, email: &str, server_admin: bool, mfa: bool) -> (U
 
 /// 招待の承諾ができるまで、所属はDBで直接作る（テストの準備のため）。
 async fn add_member(pool: &PgPool, ws: Uuid, user: Uuid, role: &str) {
-    sqlx::query("INSERT INTO cms.memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO yomi.memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)")
         .bind(ws)
         .bind(user)
         .bind(role)
@@ -56,7 +56,7 @@ async fn audit_count(
     target: Option<Uuid>,
 ) -> i64 {
     sqlx::query_scalar(
-        "SELECT count(*) FROM cms.audit_log
+        "SELECT count(*) FROM yomi.audit_log
          WHERE workspace_id IS NOT DISTINCT FROM $1 AND actor_user_id = $2 AND action = $3
            AND ($4::text IS NULL OR $4::text = ANY (target_ids))",
     )
@@ -110,7 +110,7 @@ async fn only_server_admins_with_mfa_create_workspaces() {
         let ws = create_ws(&server, &root, "Blog").await;
         // スキーマとロールができ、監査ログに残る
         let schema: String =
-            sqlx::query_scalar("SELECT db_schema FROM cms.workspaces WHERE id = $1")
+            sqlx::query_scalar("SELECT db_schema FROM yomi.workspaces WHERE id = $1")
                 .bind(ws)
                 .fetch_one(&server.pool)
                 .await
@@ -235,7 +235,7 @@ async fn members_roles_and_isolation() {
         );
 
         // 多要素認証のない管理者は、管理操作ができない（INV-AUTH-05）
-        sqlx::query("UPDATE cms.memberships SET role = 'admin' WHERE user_id = $1")
+        sqlx::query("UPDATE yomi.memberships SET role = 'admin' WHERE user_id = $1")
             .bind(nomfa_id)
             .execute(&server.pool)
             .await
@@ -250,7 +250,7 @@ async fn members_roles_and_isolation() {
             (res.status, res.json_str("error").as_deref()),
             (403, Some("mfa_required"))
         );
-        sqlx::query("UPDATE cms.memberships SET role = 'viewer' WHERE user_id = $1")
+        sqlx::query("UPDATE yomi.memberships SET role = 'viewer' WHERE user_id = $1")
             .bind(nomfa_id)
             .execute(&server.pool)
             .await

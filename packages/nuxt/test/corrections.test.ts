@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { h } from "vue";
 import { renderToString } from "vue/server-renderer";
 
-import CmsCorrections from "../src/runtime/corrections.ts";
-import CmsDeletedAnchorNotice, { type CmsDeletedAnchor, findDeletedAnchor } from "../src/runtime/deleted-anchor.ts";
-import { type CmsCorrectionItem, FeedConfigError, checkFeedConfig, escapeXml, toJsonFeed, toRss } from "../src/runtime/server/feed.ts";
+import YomiCorrections from "../src/runtime/corrections.ts";
+import YomiDeletedAnchorNotice, { type YomiDeletedAnchor, findDeletedAnchor } from "../src/runtime/deleted-anchor.ts";
+import { type YomiCorrectionItem, FeedConfigError, checkFeedConfig, escapeXml, toJsonFeed, toRss } from "../src/runtime/server/feed.ts";
 
 const feed = checkFeedConfig("ja", { path: "/corrections", title: "訂正の一覧", link: "https://example.com" });
-const item = (over: Partial<CmsCorrectionItem> = {}): CmsCorrectionItem => ({
+const item = (over: Partial<YomiCorrectionItem> = {}): YomiCorrectionItem => ({
   entryId: "e-1",
   contentType: "post",
   url: "https://example.com/posts/a",
@@ -88,23 +88,23 @@ describe("toJsonFeed", () => {
   });
 });
 
-describe("CmsCorrections", () => {
+describe("YomiCorrections", () => {
   it("飾りのないリストとして描き、文字は文字として描く", async () => {
-    const html = await renderToString(h(CmsCorrections, { items: [item({ title: "<b>x</b>" }), item({ url: "javascript:alert(1)", description: null })] }));
+    const html = await renderToString(h(YomiCorrections, { items: [item({ title: "<b>x</b>" }), item({ url: "javascript:alert(1)", description: null })] }));
     expect(html).toContain('<ol><li><time datetime="2026-10-20T03:04:05Z">2026-10-20</time> <a href="https://example.com/posts/a">&lt;b&gt;x&lt;/b&gt;</a><p>数値を訂正しました</p></li>');
     expect(html).not.toContain("javascript:");
     expect(html).not.toMatch(/class=|style=/);
   });
 
   it("1件ごとの描き方をスロットで置き換えられる。空なら何も描かない", async () => {
-    const html = await renderToString(h(CmsCorrections, { items: [item()] }, { item: ({ item }: { item: CmsCorrectionItem }) => h("span", item.sections.join(",")) }));
+    const html = await renderToString(h(YomiCorrections, { items: [item()] }, { item: ({ item }: { item: YomiCorrectionItem }) => h("span", item.sections.join(",")) }));
     expect(html).toBe("<ol><li><span>h-1</span></li></ol>");
-    expect(await renderToString(h(CmsCorrections, { items: [] }))).toBe("<!---->");
+    expect(await renderToString(h(YomiCorrections, { items: [] }))).toBe("<!---->");
   });
 });
 
-describe("CmsDeletedAnchorNotice", () => {
-  const anchors: CmsDeletedAnchor[] = [
+describe("YomiDeletedAnchorNotice", () => {
+  const anchors: YomiDeletedAnchor[] = [
     { anchor: "h-old", deletedAt: "2026-10-20T00:00:00Z", description: "訂正により削除されました" },
     { anchor: "見出し", deletedAt: "2026-10-20T00:00:00Z", description: null },
   ];
@@ -123,6 +123,6 @@ describe("CmsDeletedAnchorNotice", () => {
   });
 
   it("サーバーでの描画では何も出さない", async () => {
-    expect(await renderToString(h(CmsDeletedAnchorNotice, { anchors }))).toBe("<!---->");
+    expect(await renderToString(h(YomiDeletedAnchorNotice, { anchors }))).toBe("<!---->");
   });
 });

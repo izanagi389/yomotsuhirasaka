@@ -23,8 +23,8 @@ const world = lazyWorld();
 const templateName = (label: string) => `inv-${label}-${randomUUID().slice(0, 8)}`;
 
 async function deployRaw(t: TemplateSpec): Promise<HttpResponse> {
-  const { cms, serverAdmin, serverAdminSession } = await world();
-  return cms.deployTemplateRaw(asBearer(await cms.deployToken(serverAdminSession, serverAdmin)), t);
+  const { yomi, serverAdmin, serverAdminSession } = await world();
+  return yomi.deployTemplateRaw(asBearer(await yomi.deployToken(serverAdminSession, serverAdmin)), t);
 }
 
 const withNodes = (name: string, nodes: CustomNodeSpec[], edit?: (t: TemplateSpec) => void): TemplateSpec =>
@@ -42,26 +42,26 @@ interface Site {
 }
 
 async function siteOn(template: string): Promise<Site> {
-  const { cms, serverAdmin, serverAdminSession } = await world();
-  await cms.reauthenticate(serverAdminSession, serverAdmin);
-  const { id } = await cms.createWorkspace(serverAdminSession, `${template}-ws-${randomUUID().slice(0, 6)}`, { template });
-  const admin = await cms.createMember(serverAdminSession, id, "admin");
-  const adminSession = await cms.login(admin);
-  const editor = await cms.createMember(adminSession, id, "editor");
-  const editorSession = await cms.login(editor);
-  await cms.reauthenticate(adminSession, admin);
-  const readKey = await cms.createApiKey(adminSession, id, ["read"]);
-  const registerKey = await cms.createApiKey(adminSession, id, ["register"]);
+  const { yomi, serverAdmin, serverAdminSession } = await world();
+  await yomi.reauthenticate(serverAdminSession, serverAdmin);
+  const { id } = await yomi.createWorkspace(serverAdminSession, `${template}-ws-${randomUUID().slice(0, 6)}`, { template });
+  const admin = await yomi.createMember(serverAdminSession, id, "admin");
+  const adminSession = await yomi.login(admin);
+  const editor = await yomi.createMember(adminSession, id, "editor");
+  const editorSession = await yomi.login(editor);
+  await yomi.reauthenticate(adminSession, admin);
+  const readKey = await yomi.createApiKey(adminSession, id, ["read"]);
+  const registerKey = await yomi.createApiKey(adminSession, id, ["register"]);
   return { id, editorSession, adminSession, readKey, registerKey };
 }
 
 inv("inv_node_01", "変換関数が定義されていないカスタムノードを含むスキーマは、CLIを通さずにデプロイのAPIを直接呼んだ場合もデプロイが拒否される", async () => {
-  const { cms } = await world();
+  const { yomi } = await world();
   const name = templateName("node01");
   const attrs = [{ name: "label", type: "string" as const }];
   expectSuccess(await deployRaw(withNodes(name, [])), "カスタムノードのないテンプレートのデプロイ");
   const site = await siteOn(name);
-  const schemaText = async () => (await cms.schemaInfoRaw(asSession(site.adminSession), site.id)).text;
+  const schemaText = async () => (await yomi.schemaInfoRaw(asSession(site.adminSession), site.id)).text;
 
   const refused: [string, CustomNodeSpec[]][] = [
     ["変換関数のないブロックのカスタムノード", [{ name: "callout", attrs }]],
@@ -85,11 +85,11 @@ inv("inv_node_01", "変換関数が定義されていないカスタムノード
   expectSuccess(await deployRaw(withNodes(name, [{ name: "callout", attrs, toMarkdown: customToMarkdown() }])), "変換関数のあるカスタムノードのデプロイ");
   expect(/callout/.test(await schemaText()), "デプロイしたカスタムノードがスキーマにない").toBe(true);
   const body = doc(paragraph("前"), { type: "callout", attrs: { label: "ラベル" } }, paragraph("後"));
-  expectSuccess(await cms.createEntryRaw(asSession(site.editorSession), site.id, { title: marker("node01"), body }), "カスタムノードを含む本文の保存");
+  expectSuccess(await yomi.createEntryRaw(asSession(site.editorSession), site.id, { title: marker("node01"), body }), "カスタムノードを含む本文の保存");
 });
 
 inv("inv_cnv_01", "変換器が出力するHTMLでは、本文中の文字列がすべてエスケープされ、スクリプトを実行できる要素や属性が含まれない", async () => {
-  const { cms } = await world();
+  const { yomi } = await world();
   const m = marker("cnv");
   // 本文に書かれる、HTMLとして解釈されると危険な文字列（どれも m を含むので、そのまま出たかを見分けられる）
   const nasty = [
@@ -137,7 +137,7 @@ inv("inv_cnv_01", "変換器が出力するHTMLでは、本文中の文字列が
     "テンプレートのデプロイ",
   );
   const site = await siteOn(name);
-  const media = await cms.uploadMedia(site.editorSession, site.id, { filename: "cnv.png", bytes: pngImage(8, 8), contentType: "image/png" });
+  const media = await yomi.uploadMedia(site.editorSession, site.id, { filename: "cnv.png", bytes: pngImage(8, 8), contentType: "image/png" });
 
   const callout = (label: string): TiptapNode => ({ type: "callout", attrs: { label } });
   const body = doc(
@@ -151,11 +151,11 @@ inv("inv_cnv_01", "変換器が出力するHTMLでは、本文中の文字列が
     callout(nasty[1]!),
     { type: "note", attrs: { label: nasty[0]! } },
   );
-  const { id } = await cms.createEntry(site.editorSession, site.id, { title: marker("cnv01"), body });
-  await cms.publishEntry(site.editorSession, site.id, id);
+  const { id } = await yomi.createEntry(site.editorSession, site.id, { title: marker("cnv01"), body });
+  await yomi.publishEntry(site.editorSession, site.id, id);
 
-  const query = await cms.registerQuery(site.id, site.registerKey.secret, { kind: "byId", include: ["bodyHtml"] });
-  const res = await cms.deliveryRaw(site.id, site.readKey.secret, query, { id, locale: "ja" });
+  const query = await yomi.registerQuery(site.id, site.registerKey.secret, { kind: "byId", include: ["bodyHtml"] });
+  const res = await yomi.deliveryRaw(site.id, site.readKey.secret, query, { id, locale: "ja" });
   expectSuccess(res, "本文のHTMLの配信");
   const html = findString(JSON.parse(res.text) as unknown, "bodyHtml");
   expect(html, "配信APIの応答に本文のHTMLがない").toBeTypeOf("string");

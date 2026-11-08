@@ -109,7 +109,7 @@ pub fn write(networks: &[(Ipv4Addr, u8, &str)]) -> PathBuf {
     out.extend(string("record_size"));
     out.extend(uint(5, &24u16.to_be_bytes()));
 
-    let path = std::env::temp_dir().join(format!("cms-test-geoip-{}.mmdb", uuid::Uuid::new_v4()));
+    let path = std::env::temp_dir().join(format!("yomi-test-geoip-{}.mmdb", uuid::Uuid::new_v4()));
     std::fs::write(&path, out).unwrap();
     path
 }

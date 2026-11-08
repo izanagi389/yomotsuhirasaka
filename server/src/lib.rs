@@ -1,4 +1,4 @@
-//! CMSのサーバーのライブラリ部分。`main.rs`（`cms-server`）と結合テストから使う。
+//! CMSのサーバーのライブラリ部分。`main.rs`（`yomi-server`）と結合テストから使う。
 
 pub mod access;
 pub mod alerts;

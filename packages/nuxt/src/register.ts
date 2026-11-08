@@ -39,11 +39,11 @@ export function checkUrl(raw: string): string {
   try {
     u = new URL(raw);
   } catch {
-    throw new RegisterError(`cms.url is not a URL: ${raw}`);
+    throw new RegisterError(`yomi.url is not a URL: ${raw}`);
   }
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
-  if (u.protocol !== "https:" && !(u.protocol === "http:" && loopback)) throw new RegisterError("cms.url must be https:// (http:// only for localhost)");
-  if (u.username || u.password) throw new RegisterError("cms.url must not contain credentials");
+  if (u.protocol !== "https:" && !(u.protocol === "http:" && loopback)) throw new RegisterError("yomi.url must be https:// (http:// only for localhost)");
+  if (u.username || u.password) throw new RegisterError("yomi.url must not contain credentials");
   return u.toString().replace(/\/+$/, "");
 }
 

@@ -43,18 +43,18 @@ const BODIES: Record<string, string> = {
 };
 
 async function publish(ws: SearchWorkspace, label: string): Promise<string> {
-  const { cms } = await world();
-  const { id } = await cms.createEntry(ws.editorSession, ws.id, { title: marker(`rel-${label}`), body: simpleBody(`${TEXT}${BODIES[label]}`) });
-  await cms.publishEntry(ws.editorSession, ws.id, id);
+  const { yomi } = await world();
+  const { id } = await yomi.createEntry(ws.editorSession, ws.id, { title: marker(`rel-${label}`), body: simpleBody(`${TEXT}${BODIES[label]}`) });
+  await yomi.publishEntry(ws.editorSession, ws.id, id);
   return id;
 }
 
 /** 記事が検索に出るようになる（埋め込みができる）まで待つ。 */
 async function waitSearchable(ws: SearchWorkspace, ids: string[]): Promise<void> {
-  const { cms } = await world();
+  const { yomi } = await world();
   const deadline = Date.now() + 120_000;
   for (;;) {
-    const r: SearchResult = await cms.search(ws.id, ws.readKey.secret, ws.searchQuery, { text: TEXT, first: 50 });
+    const r: SearchResult = await yomi.search(ws.id, ws.readKey.secret, ws.searchQuery, { text: TEXT, first: 50 });
     const found = r.hits.map((h) => h.entryId);
     if (ids.every((id) => found.includes(id))) return;
     if (Date.now() > deadline) throw new Error(`公開した記事が検索に出ない: ${ids.filter((id) => !found.includes(id)).join(", ")}`);
@@ -66,9 +66,9 @@ inv(
   "inv_rel_01",
   "関連記事には、非公開・削除された記事が、次の一括再計算の前でも含まれない",
   async () => {
-    const { cms, a } = await world();
-    const query: RegisteredQuery = await cms.registerQuery(a.id, a.registerKey.secret, { kind: "relatedEntries" });
-    const related = (id: string): Promise<RelatedEntry[]> => cms.relatedEntries(a.id, a.readKey.secret, query, { id, first: 10 });
+    const { yomi, a } = await world();
+    const query: RegisteredQuery = await yomi.registerQuery(a.id, a.registerKey.secret, { kind: "relatedEntries" });
+    const related = (id: string): Promise<RelatedEntry[]> => yomi.relatedEntries(a.id, a.readKey.secret, query, { id, first: 10 });
 
     // 1. 似た記事を先に公開し、埋め込みができるまで待つ
     const b = await publish(a, "B");
@@ -88,17 +88,17 @@ inv(
     expect((await related(target)).map((r) => r.id), "関連記事に記事そのものが含まれる").not.toContain(target);
 
     // 3. 対照: D を固定すると、先頭に出る
-    await cms.reauthenticate(a.adminSession, a.admin);
-    const groupD = await cms.translationGroupId(a.editorSession, a.id, d);
-    expectSuccess(await cms.setRelatedRaw(asSession(a.adminSession), a.id, target, { pinned: [groupD], excluded: [] }), "関連記事の固定");
+    await yomi.reauthenticate(a.adminSession, a.admin);
+    const groupD = await yomi.translationGroupId(a.editorSession, a.id, d);
+    expectSuccess(await yomi.setRelatedRaw(asSession(a.adminSession), a.id, target, { pinned: [groupD], excluded: [] }), "関連記事の固定");
     const pinned = await related(target);
     expect(pinned[0]?.id, "固定した記事が先頭に出ない").toBe(d);
     expect(pinned[0]?.pinned, "固定した記事に、固定の印がない").toBe(true);
 
     // 4. B を非公開にし、C を削除し、固定した D を非公開にする
-    await cms.unpublishEntry(a.editorSession, a.id, b);
-    await cms.deleteEntry(a.editorSession, a.id, c);
-    await cms.unpublishEntry(a.editorSession, a.id, d);
+    await yomi.unpublishEntry(a.editorSession, a.id, b);
+    await yomi.deleteEntry(a.editorSession, a.id, c);
+    await yomi.unpublishEntry(a.editorSession, a.id, d);
 
     // 5. すぐに（一括計算の前に）見ても、少し間をおいて見ても出ない
     for (const wait of [0, 3]) {
@@ -128,13 +128,13 @@ inv(
   "inv_rel_02",
   "関連記事の一括再計算の後、または固定・除外の変更の後に、返す一覧が変わった記事はWebhookで知らされ、変わらなかった記事は知らされない",
   async () => {
-    const { cms, a } = await world();
+    const { yomi, a } = await world();
     const rc = await receiver();
     const path = `/rel02-${randomUUID().slice(0, 8)}`;
-    await cms.reauthenticate(a.adminSession, a.admin);
-    await cms.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, path));
-    const query: RegisteredQuery = await cms.registerQuery(a.id, a.registerKey.secret, { kind: "relatedEntries" });
-    const related = async (id: string): Promise<string[]> => (await cms.relatedEntries(a.id, a.readKey.secret, query, { id, first: 10 })).map((r) => r.id);
+    await yomi.reauthenticate(a.adminSession, a.admin);
+    await yomi.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, path));
+    const query: RegisteredQuery = await yomi.registerQuery(a.id, a.registerKey.secret, { kind: "relatedEntries" });
+    const related = async (id: string): Promise<string[]> => (await yomi.relatedEntries(a.id, a.readKey.secret, query, { id, first: 10 })).map((r) => r.id);
     const waitRelated = async (id: string, expected: string[]): Promise<void> => {
       const deadline = Date.now() + 120_000;
       for (;;) {
@@ -163,7 +163,7 @@ inv(
     const before = new Map<string, string[]>();
     for (const id of own) before.set(id, await related(id));
     let seen = rc.requests.length;
-    expectSuccess(await cms.recomputeRelatedRaw(asSession(a.adminSession), a.id), "関連記事の一括再計算");
+    expectSuccess(await yomi.recomputeRelatedRaw(asSession(a.adminSession), a.id), "関連記事の一括再計算");
     await rc.waitFor((r) => relatedEvents([r], path).some((e) => e.entryIds.includes(target)), 120_000);
     // 同じ回の、残りの通が届くまで待つ
     const deadline = Date.now() + 60_000;
@@ -197,8 +197,8 @@ inv(
     const pinTarget = current[current.length - 1]!;
     expect(current.indexOf(pinTarget), "対照: 固定する記事が、すでに先頭にある").toBeGreaterThan(0);
     seen = rc.requests.length;
-    const group = await cms.translationGroupId(a.editorSession, a.id, pinTarget);
-    expectSuccess(await cms.setRelatedRaw(asSession(a.editorSession), a.id, target, { pinned: [group], excluded: [] }), "関連記事の固定");
+    const group = await yomi.translationGroupId(a.editorSession, a.id, pinTarget);
+    expectSuccess(await yomi.setRelatedRaw(asSession(a.editorSession), a.id, target, { pinned: [group], excluded: [] }), "関連記事の固定");
     await rc.waitFor((r) => relatedEvents([r], path).some((e) => e.entryIds.includes(target)), 60_000);
     await sleep(3);
     const pinEvents = relatedEvents(rc.requests.slice(seen), path);
@@ -206,7 +206,7 @@ inv(
 
     // 5. 何も変えずにもう一度一括再計算を動かすと、何も知らされない
     seen = rc.requests.length;
-    expectSuccess(await cms.recomputeRelatedRaw(asSession(a.adminSession), a.id), "関連記事の一括再計算（2回目）");
+    expectSuccess(await yomi.recomputeRelatedRaw(asSession(a.adminSession), a.id), "関連記事の一括再計算（2回目）");
     await sleep(15);
     const again = relatedEvents(rc.requests.slice(seen), path).flatMap((e) => e.entryIds);
     expect(again.filter((id) => own.includes(id)), "一覧が変わらないのに知らされた").toEqual([]);

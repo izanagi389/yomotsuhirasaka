@@ -1,6 +1,6 @@
 //! ワークスペースのロールと、操作の可否の判定（Q76, Q90, Q101, Q121, Q122）。
 //!
-//! - ロールはリクエストのたびに `cms.memberships` と照合する（セッションに保存した値を信用しない）。
+//! - ロールはリクエストのたびに `yomi.memberships` と照合する（セッションに保存した値を信用しない）。
 //! - 所属していないワークスペースは、存在しないものと同じに見せる（404）。
 //! - サーバー管理者とワークスペースの管理者は、多要素認証を設定していないと管理操作ができない（INV-AUTH-05）。
 //! - サーバー管理者は、所属していないワークスペースも操作できる。その操作はワークスペースの監査ログに残す（Q122）。
@@ -208,7 +208,7 @@ async fn membership(
     user_id: Uuid,
 ) -> Result<Option<(Role, Grants)>> {
     let row: Option<(String, Vec<String>)> = sqlx::query_as(
-        "SELECT role, grants FROM cms.memberships WHERE workspace_id = $1 AND user_id = $2",
+        "SELECT role, grants FROM yomi.memberships WHERE workspace_id = $1 AND user_id = $2",
     )
     .bind(workspace_id)
     .bind(user_id)
@@ -219,7 +219,7 @@ async fn membership(
 
 pub async fn role_in(pool: &PgPool, workspace_id: Uuid, user_id: Uuid) -> Result<Option<Role>> {
     let role: Option<String> = sqlx::query_scalar(
-        "SELECT role FROM cms.memberships WHERE workspace_id = $1 AND user_id = $2",
+        "SELECT role FROM yomi.memberships WHERE workspace_id = $1 AND user_id = $2",
     )
     .bind(workspace_id)
     .bind(user_id)
@@ -230,7 +230,7 @@ pub async fn role_in(pool: &PgPool, workspace_id: Uuid, user_id: Uuid) -> Result
 
 async fn workspace_exists(pool: &PgPool, workspace_id: Uuid) -> Result<bool> {
     Ok(
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM cms.workspaces WHERE id = $1)")
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM yomi.workspaces WHERE id = $1)")
             .bind(workspace_id)
             .fetch_one(pool)
             .await?,
@@ -319,9 +319,9 @@ pub async fn member_list_viewer(
 pub async fn reset_within_scope(pool: &PgPool, issuer: Uuid, target: Uuid) -> Result<bool> {
     Ok(sqlx::query_scalar(
         "SELECT NOT EXISTS (
-             SELECT 1 FROM cms.memberships t
+             SELECT 1 FROM yomi.memberships t
              WHERE t.user_id = $2
-               AND NOT EXISTS (SELECT 1 FROM cms.memberships c
+               AND NOT EXISTS (SELECT 1 FROM yomi.memberships c
                                WHERE c.workspace_id = t.workspace_id AND c.user_id = $1 AND c.role = 'admin'))",
     )
     .bind(issuer)

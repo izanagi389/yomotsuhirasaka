@@ -69,7 +69,7 @@ async fn deleter(state: &AppState, current: &Current, ws: Uuid) -> Result<Access
 /// ワークスペースの容量の上限（バイト）。
 async fn quota(state: &AppState, ws: Uuid) -> Result<i64, ApiError> {
     let set: Option<Option<i64>> =
-        sqlx::query_scalar("SELECT media_bytes FROM cms.workspace_limits WHERE workspace_id = $1")
+        sqlx::query_scalar("SELECT media_bytes FROM yomi.workspace_limits WHERE workspace_id = $1")
             .bind(ws)
             .fetch_optional(&state.pool)
             .await
@@ -420,19 +420,19 @@ pub async fn set_limits(
     // 回答の予算の天井（決まった4つの列。SQL は固定の文）
     let answer = [
         (
-            "UPDATE cms.workspace_limits SET answer_input_tokens_per_month = $2 WHERE workspace_id = $1",
+            "UPDATE yomi.workspace_limits SET answer_input_tokens_per_month = $2 WHERE workspace_id = $1",
             req.answer_input_tokens_per_month,
         ),
         (
-            "UPDATE cms.workspace_limits SET answer_input_tokens_per_day = $2 WHERE workspace_id = $1",
+            "UPDATE yomi.workspace_limits SET answer_input_tokens_per_day = $2 WHERE workspace_id = $1",
             req.answer_input_tokens_per_day,
         ),
         (
-            "UPDATE cms.workspace_limits SET answer_output_tokens_per_month = $2 WHERE workspace_id = $1",
+            "UPDATE yomi.workspace_limits SET answer_output_tokens_per_month = $2 WHERE workspace_id = $1",
             req.answer_output_tokens_per_month,
         ),
         (
-            "UPDATE cms.workspace_limits SET answer_output_tokens_per_day = $2 WHERE workspace_id = $1",
+            "UPDATE yomi.workspace_limits SET answer_output_tokens_per_day = $2 WHERE workspace_id = $1",
             req.answer_output_tokens_per_day,
         ),
     ];
@@ -447,19 +447,19 @@ pub async fn set_limits(
     // 支援の予算の天井（決まった4つの列。SQL は固定の文）
     let assist = [
         (
-            "UPDATE cms.workspace_limits SET assist_input_tokens_per_month = $2 WHERE workspace_id = $1",
+            "UPDATE yomi.workspace_limits SET assist_input_tokens_per_month = $2 WHERE workspace_id = $1",
             req.assist_input_tokens_per_month,
         ),
         (
-            "UPDATE cms.workspace_limits SET assist_input_tokens_per_day = $2 WHERE workspace_id = $1",
+            "UPDATE yomi.workspace_limits SET assist_input_tokens_per_day = $2 WHERE workspace_id = $1",
             req.assist_input_tokens_per_day,
         ),
         (
-            "UPDATE cms.workspace_limits SET assist_output_tokens_per_month = $2 WHERE workspace_id = $1",
+            "UPDATE yomi.workspace_limits SET assist_output_tokens_per_month = $2 WHERE workspace_id = $1",
             req.assist_output_tokens_per_month,
         ),
         (
-            "UPDATE cms.workspace_limits SET assist_output_tokens_per_day = $2 WHERE workspace_id = $1",
+            "UPDATE yomi.workspace_limits SET assist_output_tokens_per_day = $2 WHERE workspace_id = $1",
             req.assist_output_tokens_per_day,
         ),
     ];
@@ -473,7 +473,7 @@ pub async fn set_limits(
     }
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     sqlx::query(
-        "INSERT INTO cms.workspace_limits (workspace_id, updated_by) VALUES ($1, $2)
+        "INSERT INTO yomi.workspace_limits (workspace_id, updated_by) VALUES ($1, $2)
          ON CONFLICT (workspace_id) DO UPDATE SET updated_by = $2, updated_at = now()",
     )
     .bind(ws)
@@ -482,7 +482,7 @@ pub async fn set_limits(
     .await
     .map_err(anyhow::Error::from)?;
     if let Some(allow) = req.llm_override {
-        sqlx::query("UPDATE cms.workspace_limits SET llm_override = $2 WHERE workspace_id = $1")
+        sqlx::query("UPDATE yomi.workspace_limits SET llm_override = $2 WHERE workspace_id = $1")
             .bind(ws)
             .bind(allow)
             .execute(&mut *tx)
@@ -493,7 +493,7 @@ pub async fn set_limits(
         }
     }
     if let Some(v) = req.media_bytes {
-        sqlx::query("UPDATE cms.workspace_limits SET media_bytes = $2 WHERE workspace_id = $1")
+        sqlx::query("UPDATE yomi.workspace_limits SET media_bytes = $2 WHERE workspace_id = $1")
             .bind(ws)
             .bind(v)
             .execute(&mut *tx)
@@ -501,7 +501,7 @@ pub async fn set_limits(
             .map_err(anyhow::Error::from)?;
     }
     if let Some(v) = req.embedding_tokens_per_month {
-        sqlx::query("UPDATE cms.workspace_limits SET embedding_tokens_per_month = $2 WHERE workspace_id = $1")
+        sqlx::query("UPDATE yomi.workspace_limits SET embedding_tokens_per_month = $2 WHERE workspace_id = $1")
             .bind(ws)
             .bind(v)
             .execute(&mut *tx)
@@ -510,7 +510,7 @@ pub async fn set_limits(
     }
     if let Some(v) = req.embedding_tokens_per_day {
         sqlx::query(
-            "UPDATE cms.workspace_limits SET embedding_tokens_per_day = $2 WHERE workspace_id = $1",
+            "UPDATE yomi.workspace_limits SET embedding_tokens_per_day = $2 WHERE workspace_id = $1",
         )
         .bind(ws)
         .bind(v)

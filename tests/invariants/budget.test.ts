@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "vitest";
 import { inv } from "./support/inv.js";
-import { asBearer, asSession, driver, type CmsClient, type EmbeddingBudget, type Session } from "./support/driver.js";
+import { asBearer, asSession, driver, type YomiClient, type EmbeddingBudget, type Session } from "./support/driver.js";
 import { expectSuccess } from "./support/assert.js";
 import { doc, paragraph } from "./support/body.js";
 import { characterCount, embeddingInputs, mockLlm, mockUsageTokens } from "./support/mock-llm.js";
@@ -30,9 +30,9 @@ function filler(chars: number): string {
   return unit.repeat(Math.ceil(chars / unit.length)).slice(0, chars);
 }
 
-async function publish(cms: CmsClient, session: Session, workspaceId: string, chars: number): Promise<void> {
-  const { id } = await cms.createEntry(session, workspaceId, { title: marker("bud01"), body: doc(paragraph(filler(chars))) });
-  await cms.publishEntry(session, workspaceId, id);
+async function publish(yomi: YomiClient, session: Session, workspaceId: string, chars: number): Promise<void> {
+  const { id } = await yomi.createEntry(session, workspaceId, { title: marker("bud01"), body: doc(paragraph(filler(chars))) });
+  await yomi.publishEntry(session, workspaceId, id);
 }
 
 inv(
@@ -44,35 +44,35 @@ inv(
     const started = await driver.startServer({ ...instance.config, llm: mockLlm.connection(apiKey) });
     try {
       expect(started.outcome, `擬似LLMにつないだサーバーが起動しない:\n${started.output}`).toBe("ready");
-      const cms = started.client!;
-      const sa = await cms.login(instance.serverAdmin);
-      await cms.reauthenticate(sa, instance.serverAdmin);
-      const token = await cms.deployToken(sa, instance.serverAdmin);
-      expectSuccess(await cms.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE), "検索の対象のフィールドを持つテンプレートのデプロイ");
+      const yomi = started.client!;
+      const sa = await yomi.login(instance.serverAdmin);
+      await yomi.reauthenticate(sa, instance.serverAdmin);
+      const token = await yomi.deployToken(sa, instance.serverAdmin);
+      expectSuccess(await yomi.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE), "検索の対象のフィールドを持つテンプレートのデプロイ");
 
       /** 予算を決めたワークスペースと、その管理者のセッション。天井は十分に大きくし、ワークスペースの上限で止まることを確かめる。 */
       const workspaceWithBudget = async (name: string, budget: EmbeddingBudget) => {
-        const ws = (await cms.createWorkspace(sa, name, { template: SEARCHABLE_TEMPLATE.name })).id;
-        await cms.setWorkspaceLimits(sa, ws, { embeddingTokensPerMonth: 1_000_000, embeddingTokensPerDay: 1_000_000 });
-        const admin = await cms.createMember(sa, ws, "admin");
-        const session = await cms.login(admin);
-        await cms.reauthenticate(session, admin);
-        expectSuccess(await cms.setEmbeddingBudgetRaw(asSession(session), ws, budget), "管理者による埋め込みの予算の設定");
+        const ws = (await yomi.createWorkspace(sa, name, { template: SEARCHABLE_TEMPLATE.name })).id;
+        await yomi.setWorkspaceLimits(sa, ws, { embeddingTokensPerMonth: 1_000_000, embeddingTokensPerDay: 1_000_000 });
+        const admin = await yomi.createMember(sa, ws, "admin");
+        const session = await yomi.login(admin);
+        await yomi.reauthenticate(session, admin);
+        expectSuccess(await yomi.setEmbeddingBudgetRaw(asSession(session), ws, budget), "管理者による埋め込みの予算の設定");
         return { ws, session };
       };
 
       // --- 1. 使用量を返す場合（月の上限）: 擬似LLMの数え方で、届いた入力が予算を超えない ---
       const first = await workspaceWithBudget("inv-bud-01-month", { tokensPerMonth: LIMIT, tokensPerDay: null });
-      await publish(cms, first.session, first.ws, 40);
+      await publish(yomi, first.session, first.ws, 40);
       // 対照: 予算の範囲では呼ばれる
       await mockLlm.waitForRequests(apiKey, (r) => embeddingInputs(r).length > 0);
-      await Promise.all(Array.from({ length: BURST }, () => publish(cms, first.session, first.ws, BODY_CHARS)));
+      await Promise.all(Array.from({ length: BURST }, () => publish(yomi, first.session, first.ws, BODY_CHARS)));
       const withinMonth = embeddingInputs(await mockLlm.waitUntilQuiet(apiKey));
       expect(mockUsageTokens(withinMonth), "月の予算を超えて、埋め込みAPIが呼ばれた（擬似LLMの数え方）").toBeLessThanOrEqual(LIMIT);
 
       // 対照: 上限を上げれば、止まっていた分の埋め込みが再開する（予算で止まっていただけで、呼べなくなったのではない）
       expectSuccess(
-        await cms.setEmbeddingBudgetRaw(asSession(first.session), first.ws, { tokensPerMonth: 100_000, tokensPerDay: null }),
+        await yomi.setEmbeddingBudgetRaw(asSession(first.session), first.ws, { tokensPerMonth: 100_000, tokensPerDay: null }),
         "管理者による埋め込みの予算の引き上げ",
       );
       await mockLlm.waitForRequests(apiKey, (r) => embeddingInputs(r).length > withinMonth.length);
@@ -82,9 +82,9 @@ inv(
       await mockLlm.clearRequests(apiKey);
       await mockLlm.setFaults(apiKey, [{ kind: "noUsage" }]);
       const second = await workspaceWithBudget("inv-bud-01-day", { tokensPerMonth: null, tokensPerDay: LIMIT });
-      await publish(cms, second.session, second.ws, 40);
+      await publish(yomi, second.session, second.ws, 40);
       await mockLlm.waitForRequests(apiKey, (r) => embeddingInputs(r).length > 0);
-      await Promise.all(Array.from({ length: BURST }, () => publish(cms, second.session, second.ws, BODY_CHARS)));
+      await Promise.all(Array.from({ length: BURST }, () => publish(yomi, second.session, second.ws, BODY_CHARS)));
       const withinDay = embeddingInputs(await mockLlm.waitUntilQuiet(apiKey));
       expect(characterCount(withinDay), "使用量を返さないとき、日の予算を超えて、埋め込みAPIが呼ばれた（文字数）").toBeLessThanOrEqual(LIMIT);
     } finally {

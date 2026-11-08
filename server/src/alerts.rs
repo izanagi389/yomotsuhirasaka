@@ -1,7 +1,7 @@
 //! 管理者への通知のうち、急増の検知（13-security.md「管理者への通知」、Q174、計画の15番）。
 //!
 //! - 数えるもの: ログインの失敗（パスワードと2段目）と、回数制限への到達（429）。
-//! - 攻撃のたびに DB へ書かないよう、プロセスのメモリでまとめて数え、10秒ごとに1分単位の件数として DB（`cms.alert_events`）に足す。
+//! - 攻撃のたびに DB へ書かないよう、プロセスのメモリでまとめて数え、10秒ごとに1分単位の件数として DB（`yomi.alert_events`）に足す。
 //!   サーバーが複数でも、件数は DB で合わせて数える。
 //! - 直近 window_seconds の件数がしきい値以上なら、インスタンス単位の通知（`alert.*`）を監査ログに残す。同じ種類は
 //!   cooldown_seconds に1回まで（複数のサーバーで二重に残さないよう、アドバイザリーロックの中で判断する）。
@@ -84,10 +84,10 @@ async fn flush(pool: &PgPool) -> Result<()> {
     };
     for ((kind, ip, user), count) in drained {
         sqlx::query(
-            "INSERT INTO cms.alert_events (kind, bucket_at, ip, user_id, count)
+            "INSERT INTO yomi.alert_events (kind, bucket_at, ip, user_id, count)
              VALUES ($1, date_trunc('minute', now()), $2, $3, $4)
              ON CONFLICT (kind, bucket_at, coalesce(ip, ''), coalesce(user_id, '00000000-0000-0000-0000-000000000000'))
-             DO UPDATE SET count = cms.alert_events.count + EXCLUDED.count",
+             DO UPDATE SET count = yomi.alert_events.count + EXCLUDED.count",
         )
         .bind(kind.name())
         .bind(ip.map(|i| i.to_string()))
@@ -102,13 +102,13 @@ async fn flush(pool: &PgPool) -> Result<()> {
 /// しきい値を超えていれば、通知を残す。
 async fn check(pool: &PgPool, config: &AlertsConfig, kind: Kind) -> Result<()> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('cms:alerts:' || $1, 0))")
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('yomi:alerts:' || $1, 0))")
         .bind(kind.name())
         .execute(&mut *tx)
         .await?;
     let window = config.window_seconds as f64;
     let total: i64 = sqlx::query_scalar(
-        "SELECT coalesce(sum(count), 0)::bigint FROM cms.alert_events
+        "SELECT coalesce(sum(count), 0)::bigint FROM yomi.alert_events
          WHERE kind = $1 AND bucket_at > now() - make_interval(secs => $2)",
     )
     .bind(kind.name())
@@ -119,7 +119,7 @@ async fn check(pool: &PgPool, config: &AlertsConfig, kind: Kind) -> Result<()> {
         return Ok(());
     }
     let recent: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM cms.audit_log WHERE workspace_id IS NULL AND action = $1
+        "SELECT EXISTS (SELECT 1 FROM yomi.audit_log WHERE workspace_id IS NULL AND action = $1
                         AND created_at > now() - make_interval(secs => $2))",
     )
     .bind(kind.action())
@@ -130,7 +130,7 @@ async fn check(pool: &PgPool, config: &AlertsConfig, kind: Kind) -> Result<()> {
         return Ok(());
     }
     let ips: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT ip, sum(count)::bigint AS n FROM cms.alert_events
+        "SELECT ip, sum(count)::bigint AS n FROM yomi.alert_events
          WHERE kind = $1 AND bucket_at > now() - make_interval(secs => $2) AND ip IS NOT NULL
          GROUP BY ip ORDER BY n DESC, ip LIMIT $3",
     )
@@ -140,8 +140,8 @@ async fn check(pool: &PgPool, config: &AlertsConfig, kind: Kind) -> Result<()> {
     .fetch_all(&mut *tx)
     .await?;
     let users: Vec<(Uuid, Option<String>, i64)> = sqlx::query_as(
-        "SELECT e.user_id, u.email, sum(e.count)::bigint AS n FROM cms.alert_events e
-         LEFT JOIN cms.users u ON u.id = e.user_id
+        "SELECT e.user_id, u.email, sum(e.count)::bigint AS n FROM yomi.alert_events e
+         LEFT JOIN yomi.users u ON u.id = e.user_id
          WHERE e.kind = $1 AND e.bucket_at > now() - make_interval(secs => $2) AND e.user_id IS NOT NULL
          GROUP BY e.user_id, u.email ORDER BY n DESC, e.user_id LIMIT $3",
     )
@@ -193,7 +193,7 @@ pub fn spawn(pool: PgPool, config: AlertsConfig) -> tokio::task::JoinHandle<()> 
                 }
             }
             if let Err(e) = sqlx::query(
-                "DELETE FROM cms.alert_events WHERE bucket_at < now() - interval '1 day'",
+                "DELETE FROM yomi.alert_events WHERE bucket_at < now() - interval '1 day'",
             )
             .execute(&pool)
             .await

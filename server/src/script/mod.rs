@@ -30,7 +30,7 @@ use tokio::sync::Semaphore;
 
 pub use host::Host;
 
-/// 本文の変換器（`packages/converter` をビルドしたもの。`npm run sync:server -w @new-cms/converter` で更新する）。
+/// 本文の変換器（`packages/converter` をビルドしたもの。`npm run sync:server -w @yomotsuhirasaka/converter` で更新する）。
 pub const CONVERTER_SOURCE: &str = include_str!("converter.js");
 /// 変換器の版（`packages/converter` の `VERSION`。テストで一致を確かめる）。版に保存し、変わったら作り直す（Q58）。
 pub const CONVERTER_VERSION: &str = "1";
@@ -66,10 +66,10 @@ const MAX_STACK_BYTES: usize = 512 * 1024;
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
 pub enum Permission {
-    /// 同じワークスペースの公開中の記事を読む（`cms.content.get(id)`）。
+    /// 同じワークスペースの公開中の記事を読む（`yomi.content.get(id)`）。
     #[serde(rename = "content.read")]
     ContentRead,
-    /// 外部へHTTPで送る（`cms.http.fetch(url, options)`）。非同期のフックだけ。宛先は `allowedHosts` に限る。
+    /// 外部へHTTPで送る（`yomi.http.fetch(url, options)`）。非同期のフックだけ。宛先は `allowedHosts` に限る。
     #[serde(rename = "http.fetch")]
     HttpFetch,
 }
@@ -554,7 +554,7 @@ mod tests {
         let e = engine(32, 1000);
         let out = call(
             &e,
-            "export default function () { return typeof cms; }",
+            "export default function () { return typeof yomi; }",
             Value::Null,
         )
         .await;

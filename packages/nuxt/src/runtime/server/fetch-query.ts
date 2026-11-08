@@ -23,7 +23,7 @@ export class QueryError extends Error {
 }
 
 /** プレビュー用トークンのヘッダー（server/src/http/delivery.rs）。 */
-export const PREVIEW_HEADER = "X-Cms-Preview-Token";
+export const PREVIEW_HEADER = "X-Yomi-Preview-Token";
 
 /** 変数（JSON）の大きさの上限。登録したクエリの変数だけなので、大きなものは要らない。 */
 export const MAX_VARIABLES_CHARS = 4096;

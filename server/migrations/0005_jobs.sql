@@ -4,10 +4,10 @@
 -- payload_enc は暗号化の鍵で暗号化した中身（宛先、本文、リンクのトークンなど）。
 -- 終わったジョブは消し、送れなかったジョブは中身を消して記録だけを残す。
 
-CREATE TABLE cms.jobs (
+CREATE TABLE yomi.jobs (
     id            uuid PRIMARY KEY,
     -- インスタンス全体のジョブは NULL
-    workspace_id  uuid REFERENCES cms.workspaces (id) ON DELETE CASCADE,
+    workspace_id  uuid REFERENCES yomi.workspaces (id) ON DELETE CASCADE,
     kind          text NOT NULL,
     payload_enc   bytea,
     run_at        timestamptz NOT NULL DEFAULT now(),
@@ -19,4 +19,4 @@ CREATE TABLE cms.jobs (
     failed_at     timestamptz,
     created_at    timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX jobs_ready ON cms.jobs (run_at) WHERE failed_at IS NULL;
+CREATE INDEX jobs_ready ON yomi.jobs (run_at) WHERE failed_at IS NULL;

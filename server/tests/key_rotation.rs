@@ -1,23 +1,23 @@
 //! 暗号化の鍵の入れ替えのCLIの結合テスト（本物のPostgreSQLとHTTP、ビルドしたサーバーのバイナリを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::keys::KeyRing;
-use cms_server::worker;
 use common::server::*;
 use common::smtp::*;
 use common::with_scratch;
 use uuid::Uuid;
+use yomi_server::keys::KeyRing;
+use yomi_server::worker;
 
 #[tokio::test]
 async fn rotating_the_encryption_key_keeps_stored_secrets_usable() {
     with_scratch(|app, migration| async move {
-        let dir = std::env::temp_dir().join(format!("cms-cli-rekey-{}", Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("yomi-cli-rekey-{}", Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let key = dir.join("encryption.key");
-        std::fs::write(&key, cms_server::keys::generate_key_file()).unwrap();
+        std::fs::write(&key, yomi_server::keys::generate_key_file()).unwrap();
         let (port, smtp) = fake_smtp().await;
         let mut cfg = config(&app, &migration);
         cfg.smtp = Some(smtp_config(port));
@@ -53,7 +53,7 @@ async fn rotating_the_encryption_key_keeps_stored_secrets_usable() {
         let path = dir.join("config.toml");
         std::fs::write(&path, toml::to_string(&cli_cfg).unwrap()).unwrap();
         let run = |args: &[&str]| {
-            let out = std::process::Command::new(env!("CARGO_BIN_EXE_cms-server"))
+            let out = std::process::Command::new(env!("CARGO_BIN_EXE_yomi-server"))
                 .args(args)
                 .arg("--config")
                 .arg(&path)
@@ -109,11 +109,12 @@ async fn rotating_the_encryption_key_keeps_stored_secrets_usable() {
             "encryption_key.secrets_reencrypted",
             "encryption_key.removed",
         ] {
-            let n: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE action = $1")
-                .bind(action)
-                .fetch_one(&before.pool)
-                .await
-                .unwrap();
+            let n: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE action = $1")
+                    .bind(action)
+                    .fetch_one(&before.pool)
+                    .await
+                    .unwrap();
             assert!(n >= 1, "{action}");
         }
 
@@ -149,7 +150,7 @@ async fn rotating_the_encryption_key_keeps_stored_secrets_usable() {
         let delivered = smtp.lock().unwrap().received.len();
         assert!(worker::run_once(&after.state).await.unwrap());
         let failed: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM cms.jobs WHERE last_error IS NOT NULL")
+            sqlx::query_scalar("SELECT count(*) FROM yomi.jobs WHERE last_error IS NOT NULL")
                 .fetch_one(&after.pool)
                 .await
                 .unwrap();

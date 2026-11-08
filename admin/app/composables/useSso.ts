@@ -3,7 +3,7 @@
 // - IdPへ移動する前に、戻った後に開く画面（この管理画面の中のパス）を sessionStorage に覚えておく。
 // - IdPから戻ったら、サーバーが /admin/sso/complete?purpose=…[&error=…] へ転送する（pages/sso/complete.vue）。
 
-const RETURN_KEY = "cms:sso:return";
+const RETURN_KEY = "yomi:sso:return";
 
 export interface SsoInfo {
   enabled: boolean;

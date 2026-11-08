@@ -1,7 +1,7 @@
 //! 回答の語り口と定型文の管理API（`/api/admin/workspaces/{ws}/answer-settings`。M4）の結合テスト。
 //! 自由記述があっても引用の検証が効くこと（INV-QA-03）は、約束のテスト `tests/invariants/answer.test.ts` が擬似LLMで確かめる。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -104,7 +104,7 @@ async fn answer_settings_api() {
 
         // 監査ログには、変えた項目の名前だけが残る（文の中身は残さない）
         let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-            "SELECT action, details::text FROM cms.audit_log WHERE workspace_id = $1 AND action = 'answer.settings_changed' ORDER BY created_at",
+            "SELECT action, details::text FROM yomi.audit_log WHERE workspace_id = $1 AND action = 'answer.settings_changed' ORDER BY created_at",
         )
         .bind(ws)
         .fetch_all(&server.pool)

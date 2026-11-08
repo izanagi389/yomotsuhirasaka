@@ -37,11 +37,13 @@ pub fn key_aad(workspace: Uuid) -> Vec<u8> {
 /// サーバー管理者がワークスペースに上書きを許しているか。
 pub async fn allowed(pool: &PgPool, workspace: Uuid) -> Result<bool> {
     Ok(
-        sqlx::query_scalar("SELECT llm_override FROM cms.workspace_limits WHERE workspace_id = $1")
-            .bind(workspace)
-            .fetch_optional(pool)
-            .await?
-            .unwrap_or(false),
+        sqlx::query_scalar(
+            "SELECT llm_override FROM yomi.workspace_limits WHERE workspace_id = $1",
+        )
+        .bind(workspace)
+        .fetch_optional(pool)
+        .await?
+        .unwrap_or(false),
     )
 }
 
@@ -72,7 +74,7 @@ pub async fn effective(
     let row: Option<Row> = sqlx::query_as(crate::sql!(
         "SELECT endpoint, api_key, to_char(api_key_updated_at AT TIME ZONE 'UTC', {RFC3339}),
                 chat_model, chat_input_price, chat_output_price
-         FROM cms.workspace_llm WHERE workspace_id = $1"
+         FROM yomi.workspace_llm WHERE workspace_id = $1"
     ))
     .bind(workspace)
     .fetch_optional(pool)
@@ -127,7 +129,7 @@ pub async fn embedding(
     };
     let mut started: Vec<ModelId> = switch::started(pool).await?.into_iter().collect();
     let own: Option<(String, i32)> = sqlx::query_as(
-        "SELECT model, dimensions FROM cms.workspace_embedding_switch
+        "SELECT model, dimensions FROM yomi.workspace_embedding_switch
          WHERE workspace_id = $1 AND failed_code IS NULL",
     )
     .bind(workspace)
@@ -138,7 +140,7 @@ pub async fn embedding(
     let mut overridden = false;
     if allowed(pool, workspace).await? {
         let row: Option<(String, Vec<u8>, Option<String>)> = sqlx::query_as(
-            "SELECT endpoint, api_key, embedding_model FROM cms.workspace_llm WHERE workspace_id = $1",
+            "SELECT endpoint, api_key, embedding_model FROM yomi.workspace_llm WHERE workspace_id = $1",
         )
         .bind(workspace)
         .fetch_optional(pool)
@@ -196,7 +198,7 @@ pub async fn start_embedding_switch(
     user: Uuid,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO cms.workspace_embedding_switch (workspace_id, model, dimensions, started_by)
+        "INSERT INTO yomi.workspace_embedding_switch (workspace_id, model, dimensions, started_by)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (workspace_id) DO UPDATE SET model = $2, dimensions = $3, started_by = $4,
            started_at = now(), failed_code = NULL",
@@ -218,7 +220,7 @@ pub async fn embedding_switch_failed(
     code: &str,
 ) -> Result<bool> {
     Ok(sqlx::query(
-        "UPDATE cms.workspace_embedding_switch SET failed_code = $4
+        "UPDATE yomi.workspace_embedding_switch SET failed_code = $4
          WHERE workspace_id = $1 AND model = $2 AND dimensions = $3 AND failed_code IS NULL",
     )
     .bind(workspace)
@@ -234,7 +236,7 @@ pub async fn embedding_switch_failed(
 /// ワークスペースの切り替えが止まった理由（なければ None）。
 pub async fn embedding_switch_failure(pool: &PgPool, workspace: Uuid) -> Result<Option<String>> {
     Ok(sqlx::query_scalar(
-        "SELECT failed_code FROM cms.workspace_embedding_switch WHERE workspace_id = $1 AND failed_code IS NOT NULL",
+        "SELECT failed_code FROM yomi.workspace_embedding_switch WHERE workspace_id = $1 AND failed_code IS NOT NULL",
     )
     .bind(workspace)
     .fetch_optional(pool)
@@ -259,7 +261,7 @@ pub async fn chat_prices(
         return Ok(instance);
     }
     let row: Option<(String, Option<f64>, Option<f64>)> = sqlx::query_as(
-        "SELECT endpoint, chat_input_price, chat_output_price FROM cms.workspace_llm WHERE workspace_id = $1",
+        "SELECT endpoint, chat_input_price, chat_output_price FROM yomi.workspace_llm WHERE workspace_id = $1",
     )
     .bind(workspace)
     .fetch_optional(pool)
@@ -325,7 +327,7 @@ pub async fn view(pool: &PgPool, config: &Config, workspace: Uuid) -> Result<Vie
     let row: Option<ViewRow> = sqlx::query_as(crate::sql!(
         "SELECT endpoint, api_key, to_char(api_key_updated_at AT TIME ZONE 'UTC', {RFC3339}),
                 chat_model, chat_input_price, chat_output_price, embedding_model
-         FROM cms.workspace_llm WHERE workspace_id = $1"
+         FROM yomi.workspace_llm WHERE workspace_id = $1"
     ))
     .bind(workspace)
     .fetch_optional(pool)
@@ -479,7 +481,7 @@ pub async fn save(
     };
     let mut tx = pool.begin().await?;
     let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM cms.workspace_llm WHERE workspace_id = $1)",
+        "SELECT EXISTS (SELECT 1 FROM yomi.workspace_llm WHERE workspace_id = $1)",
     )
     .bind(workspace)
     .fetch_one(&mut *tx)
@@ -491,7 +493,7 @@ pub async fn save(
     }
     // 新しい行には、キーが必ずある（上で確かめた）。既にある行は、キーを送らなければ保存してあるキーを使い続ける
     let sql = if exists {
-        "UPDATE cms.workspace_llm SET
+        "UPDATE yomi.workspace_llm SET
            endpoint = $2,
            api_key = COALESCE($3, api_key),
            api_key_updated_at = CASE WHEN $3 IS NULL THEN api_key_updated_at ELSE now() END,
@@ -501,7 +503,7 @@ pub async fn save(
            updated_by = $7, updated_at = now()
          WHERE workspace_id = $1"
     } else {
-        "INSERT INTO cms.workspace_llm (workspace_id, endpoint, api_key, chat_model, chat_input_price, chat_output_price, updated_by,
+        "INSERT INTO yomi.workspace_llm (workspace_id, endpoint, api_key, chat_model, chat_input_price, chat_output_price, updated_by,
                                         embedding_model, embedding_dimensions)
          VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 THEN $9 END, CASE WHEN $8 THEN $10 END)"
     };
@@ -530,7 +532,7 @@ pub async fn save(
 /// 上書きをやめる（インスタンスの設定に戻す。キーも消す）。消したものがなければ false。
 pub async fn remove<'e>(executor: impl sqlx::PgExecutor<'e>, workspace: Uuid) -> Result<bool> {
     Ok(
-        sqlx::query("DELETE FROM cms.workspace_llm WHERE workspace_id = $1")
+        sqlx::query("DELETE FROM yomi.workspace_llm WHERE workspace_id = $1")
             .bind(workspace)
             .execute(executor)
             .await?

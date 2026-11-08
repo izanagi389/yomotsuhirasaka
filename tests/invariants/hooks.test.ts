@@ -14,7 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, expect } from "vitest";
 import { inv } from "./support/inv.js";
-import { asBearer, asSession, driver, type CmsClient, type Credentials, type IssuedSecret, type RegisteredQuery, type Session, type StartedServer } from "./support/driver.js";
+import { asBearer, asSession, driver, type YomiClient, type Credentials, type IssuedSecret, type RegisteredQuery, type Session, type StartedServer } from "./support/driver.js";
 import { expectNotLeaked, expectRefused, expectSuccess, expectTextNotLeaked } from "./support/assert.js";
 import type { HttpResponse } from "./support/http.js";
 import { simpleBody } from "./support/body.js";
@@ -59,24 +59,24 @@ const sentFor = (path: string, entryId: string) => (r: ReceivedRequest) => r.pat
 
 /** テストの舞台のCMSに、デプロイ用のトークンでテンプレートをデプロイする（応答をそのまま返す）。 */
 async function deployRaw(t: TemplateSpec): Promise<HttpResponse> {
-  const { cms, serverAdmin, serverAdminSession } = await world();
-  return cms.deployTemplateRaw(asBearer(await cms.deployToken(serverAdminSession, serverAdmin)), t);
+  const { yomi, serverAdmin, serverAdminSession } = await world();
+  return yomi.deployTemplateRaw(asBearer(await yomi.deployToken(serverAdminSession, serverAdmin)), t);
 }
 const deploy = async (t: TemplateSpec) => expectSuccess(await deployRaw(t), "テンプレートのデプロイ");
 
 /** 記事の下書きを保存する（保存前のフックを動かす）。保存の成否は問わない。 */
 async function saveRaw(site: Site, entryId: string, fields: Record<string, unknown>): Promise<HttpResponse> {
-  const draft = await site.cms.getDraft(site.editorSession, site.id, entryId);
-  return site.cms.saveDraftRaw(asSession(site.editorSession), site.id, entryId, { fields }, draft.revision);
+  const draft = await site.yomi.getDraft(site.editorSession, site.id, entryId);
+  return site.yomi.saveDraftRaw(asSession(site.editorSession), site.id, entryId, { fields }, draft.revision);
 }
-const subtitleOf = async (site: Site, entryId: string): Promise<unknown> => (await site.cms.getDraft(site.editorSession, site.id, entryId)).fields["subtitle"];
+const subtitleOf = async (site: Site, entryId: string): Promise<unknown> => (await site.yomi.getDraft(site.editorSession, site.id, entryId)).fields["subtitle"];
 
 /** 関数が上限を超えて動いている間も、配信と管理APIが続けて応答することを確かめる。 */
 async function expectStillServing(site: Site, publishedEntryId: string, what: string): Promise<void> {
   for (let i = 0; i < 5; i++) {
     const t0 = performance.now();
-    expectSuccess(await site.cms.deliveryRaw(site.id, site.readKey.secret, site.urlQuery, { id: publishedEntryId, locale: "ja" }), `${what}の間の配信`);
-    expectSuccess(await site.cms.meRaw(asSession(site.editorSession)), `${what}の間の管理API`);
+    expectSuccess(await site.yomi.deliveryRaw(site.id, site.readKey.secret, site.urlQuery, { id: publishedEntryId, locale: "ja" }), `${what}の間の配信`);
+    expectSuccess(await site.yomi.meRaw(asSession(site.editorSession)), `${what}の間の管理API`);
     expect(performance.now() - t0, `${what}の間に、配信と管理APIの応答が遅れた`).toBeLessThan(2_000);
     await sleep(0.3);
   }
@@ -86,7 +86,7 @@ async function expectStillServing(site: Site, publishedEntryId: string, what: st
 const COMPUTED_URL = /https:\/\/site\.inv\.test\/ja\/blog\//;
 
 interface Site {
-  cms: CmsClient;
+  yomi: YomiClient;
   id: string;
   editorSession: Session;
   readKey: IssuedSecret;
@@ -94,24 +94,24 @@ interface Site {
 }
 
 /** テンプレートを使うワークスペースを作り、公開URLを読むクエリを登録しておく。 */
-async function siteOn(cms: CmsClient, serverAdmin: Credentials, serverAdminSession: Session, template: string): Promise<Site> {
-  await cms.reauthenticate(serverAdminSession, serverAdmin);
-  const { id } = await cms.createWorkspace(serverAdminSession, `${template}-ws-${randomUUID().slice(0, 6)}`, { template });
-  const admin = await cms.createMember(serverAdminSession, id, "admin");
-  const adminSession = await cms.login(admin);
-  const editor = await cms.createMember(adminSession, id, "editor");
-  const editorSession = await cms.login(editor);
-  await cms.reauthenticate(adminSession, admin);
-  const readKey = await cms.createApiKey(adminSession, id, ["read"]);
-  const registerKey = await cms.createApiKey(adminSession, id, ["register"]);
-  const urlQuery = await cms.registerQuery(id, registerKey.secret, { kind: "byId", fields: ["url"] });
-  return { cms, id, editorSession, readKey, urlQuery };
+async function siteOn(yomi: YomiClient, serverAdmin: Credentials, serverAdminSession: Session, template: string): Promise<Site> {
+  await yomi.reauthenticate(serverAdminSession, serverAdmin);
+  const { id } = await yomi.createWorkspace(serverAdminSession, `${template}-ws-${randomUUID().slice(0, 6)}`, { template });
+  const admin = await yomi.createMember(serverAdminSession, id, "admin");
+  const adminSession = await yomi.login(admin);
+  const editor = await yomi.createMember(adminSession, id, "editor");
+  const editorSession = await yomi.login(editor);
+  await yomi.reauthenticate(adminSession, admin);
+  const readKey = await yomi.createApiKey(adminSession, id, ["read"]);
+  const registerKey = await yomi.createApiKey(adminSession, id, ["register"]);
+  const urlQuery = await yomi.registerQuery(id, registerKey.secret, { kind: "byId", fields: ["url"] });
+  return { yomi, id, editorSession, readKey, urlQuery };
 }
 
 /** 記事を作って公開し、IDを返す。タイトルはURLに入れられる文字だけにする。 */
 async function published(site: Site, title: string, slug?: string): Promise<string> {
-  const { id } = await site.cms.createEntry(site.editorSession, site.id, { title, slug, body: simpleBody("本文") });
-  await site.cms.publishEntry(site.editorSession, site.id, id);
+  const { id } = await site.yomi.createEntry(site.editorSession, site.id, { title, slug, body: simpleBody("本文") });
+  await site.yomi.publishEntry(site.editorSession, site.id, id);
   return id;
 }
 
@@ -122,7 +122,7 @@ async function published(site: Site, title: string, slug?: string): Promise<stri
 async function settledUrl(site: Site, entryId: string, waitSeconds = 30): Promise<HttpResponse> {
   const deadline = Date.now() + waitSeconds * 1000;
   for (;;) {
-    const res = await site.cms.deliveryRaw(site.id, site.readKey.secret, site.urlQuery, { id: entryId, locale: "ja" });
+    const res = await site.yomi.deliveryRaw(site.id, site.readKey.secret, site.urlQuery, { id: entryId, locale: "ja" });
     if (COMPUTED_URL.test(res.text) || Date.now() > deadline) return res;
     await sleep(0.5);
   }
@@ -131,12 +131,12 @@ async function settledUrl(site: Site, entryId: string, waitSeconds = 30): Promis
 /** 記事の公開URL（配信API）とURLの変更履歴を、まとめて文字列にする。 */
 async function urlTrail(site: Site, entryId: string): Promise<string> {
   const current = await settledUrl(site, entryId);
-  const history = await site.cms.getUrlHistory(site.editorSession, site.id, entryId);
+  const history = await site.yomi.getUrlHistory(site.editorSession, site.id, entryId);
   return [current.text, ...history.flatMap((h) => [h.from, h.to])].join("\n");
 }
 
 inv("inv_hook_01", "同期フックからは外部と通信できない", async () => {
-  const { cms, serverAdmin, serverAdminSession } = await world();
+  const { yomi, serverAdmin, serverAdminSession } = await world();
   const rc = await receiver();
   const host = env.harnessAllowedHost;
   const name = templateName("hook01");
@@ -161,14 +161,14 @@ inv("inv_hook_01", "同期フックからは外部と通信できない", async 
       afterPublish: { source: afterSending([rc.url(host, asyncPath)]), permissions: ["fetch"], allowedHosts: [host] },
     }),
   );
-  const site = await siteOn(cms, serverAdmin, serverAdminSession, name);
-  const { id } = await cms.createEntry(site.editorSession, site.id, { title: marker("hook01"), body: simpleBody("本文") });
+  const site = await siteOn(yomi, serverAdmin, serverAdminSession, name);
+  const { id } = await yomi.createEntry(site.editorSession, site.id, { title: marker("hook01"), body: simpleBody("本文") });
   expectSuccess(await saveRaw(site, id, { summary: "要約" }), "下書きの保存");
   expect(await subtitleOf(site, id), "保存前のフックが動いていない").toBe(tag);
   // 公開前のフックが動いていること: タイトルが block- の記事の公開を止める
-  const { id: blocked } = await cms.createEntry(site.editorSession, site.id, { title: `block-${randomUUID().slice(0, 8)}`, body: simpleBody("本文") });
-  expectRefused(await cms.publishRaw(asSession(site.editorSession), site.id, blocked), "公開前のフックが止めた記事の公開");
-  await cms.publishEntry(site.editorSession, site.id, id);
+  const { id: blocked } = await yomi.createEntry(site.editorSession, site.id, { title: `block-${randomUUID().slice(0, 8)}`, body: simpleBody("本文") });
+  expectRefused(await yomi.publishRaw(asSession(site.editorSession), site.id, blocked), "公開前のフックが止めた記事の公開");
+  await yomi.publishEntry(site.editorSession, site.id, id);
 
   await rc.waitFor(sentFor(asyncPath, id), 60_000);
   await sleep(5);
@@ -176,18 +176,18 @@ inv("inv_hook_01", "同期フックからは外部と通信できない", async 
 }, 180_000);
 
 inv("inv_hook_02", "フックやURL生成関数は、権限として宣言していないホスト関数を呼べない", async () => {
-  const { cms, serverAdmin, serverAdminSession } = await world();
+  const { yomi, serverAdmin, serverAdminSession } = await world();
   const name = templateName("hook02");
   await deploy(withUrlFunction(name));
-  const site = await siteOn(cms, serverAdmin, serverAdminSession, name);
+  const site = await siteOn(yomi, serverAdmin, serverAdminSession, name);
   const targetTitle = marker("hook02");
   const target = await published(site, targetTitle);
 
   // URL生成関数: 記事を読む関数を、記事を読む権限を宣言せずにデプロイする
   await deploy(withUrlFunction(name, { source: readingUrlFunction([target]), permissions: [] }));
-  const { id: undeclared } = await cms.createEntry(site.editorSession, site.id, { title: marker("hook02-probe"), body: simpleBody("本文") });
+  const { id: undeclared } = await yomi.createEntry(site.editorSession, site.id, { title: marker("hook02-probe"), body: simpleBody("本文") });
   // 呼び出しが例外になって関数が失敗し、公開が止まる実装もありうるので、公開の成否は問わない
-  await cms.publishRaw(asSession(site.editorSession), site.id, undeclared);
+  await yomi.publishRaw(asSession(site.editorSession), site.id, undeclared);
   for (const [what, entryId] of [["権限を宣言していない関数で計算した記事", undeclared], ["読もうとした記事", target]] as const) {
     expectTextNotLeaked(await urlTrail(site, entryId), targetTitle, `${what}の公開URLと変更履歴`);
   }
@@ -200,7 +200,7 @@ inv("inv_hook_02", "フックやURL生成関数は、権限として宣言して
 
   // 保存前のフック: 記事を読む権限を宣言していなければ読めない
   await deploy(withHooks(name, { beforeSave: { source: beforeSaveReading([target]), permissions: [] } }));
-  const { id: saved } = await cms.createEntry(site.editorSession, site.id, { title: marker("hook02-save"), body: simpleBody("本文") });
+  const { id: saved } = await yomi.createEntry(site.editorSession, site.id, { title: marker("hook02-save"), body: simpleBody("本文") });
   await saveRaw(site, saved, { summary: "要約" });
   expectTextNotLeaked(String(await subtitleOf(site, saved)), targetTitle, "権限を宣言していない保存前のフックが直した下書き");
   // 対照: 宣言すれば読める
@@ -228,16 +228,16 @@ inv("inv_hook_02", "フックやURL生成関数は、権限として宣言して
 }, 300_000);
 
 inv("inv_hook_03", "フックやURL生成関数からは、他のワークスペースのデータを読めない", async () => {
-  const { cms, serverAdmin, serverAdminSession } = await world();
+  const { yomi, serverAdmin, serverAdminSession } = await world();
   const name = templateName("hook03");
   const other = templateName("hook03-other");
   await deploy(withUrlFunction(name));
   await deploy(withUrlFunction(other));
 
   // 同じテンプレート（同じ関数）を使う2つのワークスペースと、別のテンプレートのワークスペース
-  const mine = await siteOn(cms, serverAdmin, serverAdminSession, name);
-  const sibling = await siteOn(cms, serverAdmin, serverAdminSession, name);
-  const stranger = await siteOn(cms, serverAdmin, serverAdminSession, other);
+  const mine = await siteOn(yomi, serverAdmin, serverAdminSession, name);
+  const sibling = await siteOn(yomi, serverAdmin, serverAdminSession, name);
+  const stranger = await siteOn(yomi, serverAdmin, serverAdminSession, other);
   const mineTitle = marker("hook03-mine");
   const siblingTitle = marker("hook03-sibling");
   const strangerTitle = marker("hook03-stranger");
@@ -274,9 +274,9 @@ inv("inv_hook_04", "メモリや実行時間の上限を超えたフックは打
   const server: StartedServer = await driver.startServer({ ...instance.config, scriptLimits: limits });
   expect(server.outcome, `サーバーが起動しない:\n${server.output}`).toBe("ready");
   try {
-    const cms = server.client!;
+    const yomi = server.client!;
     const admin = instance.serverAdmin;
-    const adminSession = await cms.login(admin);
+    const adminSession = await yomi.login(admin);
     const name = templateName("hook04");
     const template = withHooks(
       name,
@@ -290,8 +290,8 @@ inv("inv_hook_04", "メモリや実行時間の上限を超えたフックは打
       },
       { source: runawayUrlFunction({ spinMs, bombMegabytes }), permissions: [] },
     );
-    expectSuccess(await cms.deployTemplateRaw(asBearer(await cms.deployToken(adminSession, admin)), template), "テンプレートのデプロイ");
-    const site = await siteOn(cms, admin, adminSession, name);
+    expectSuccess(await yomi.deployTemplateRaw(asBearer(await yomi.deployToken(adminSession, admin)), template), "テンプレートのデプロイ");
+    const site = await siteOn(yomi, admin, adminSession, name);
     const okSlug = () => `ok-${randomUUID().slice(0, 8)}`;
 
     // 対照: ふつうの記事では、URL生成関数・保存前のフック・公開後のフックが動く
@@ -302,9 +302,9 @@ inv("inv_hook_04", "メモリや実行時間の上限を超えたフックは打
 
     // --- URL生成関数 ---
     // 実行時間: 計算を続ける関数が動いている間も、配信と管理APIは応答を続ける
-    const { id: spin } = await cms.createEntry(site.editorSession, site.id, { title: marker("hook04-spin"), slug: `spin-${randomUUID().slice(0, 8)}`, body: simpleBody("本文") });
+    const { id: spin } = await yomi.createEntry(site.editorSession, site.id, { title: marker("hook04-spin"), slug: `spin-${randomUUID().slice(0, 8)}`, body: simpleBody("本文") });
     let started = Date.now();
-    const spinPublish = cms.publishRaw(asSession(site.editorSession), site.id, spin);
+    const spinPublish = yomi.publishRaw(asSession(site.editorSession), site.id, spin);
     await sleep(0.3);
     await expectStillServing(site, ok, "上限を超えたURL生成関数の実行");
     await spinPublish; // 公開が成功するか失敗するかは問わない。応答が返ること（下の待ち時間の中で）を確かめる
@@ -312,15 +312,15 @@ inv("inv_hook_04", "メモリや実行時間の上限を超えたフックは打
     await sleep(Math.max(0, (spinMs + 5_000 - (Date.now() - started)) / 1000));
     expectTextNotLeaked(await urlTrail(site, spin), RUNAWAY_FINISHED, "実行時間の上限を超えたURL生成関数の結果");
     // メモリ: 大量に確保する関数は打ち切られ、サーバーは動き続ける
-    const { id: bomb } = await cms.createEntry(site.editorSession, site.id, { title: marker("hook04-bomb"), slug: `bomb-${randomUUID().slice(0, 8)}`, body: simpleBody("本文") });
-    await cms.publishRaw(asSession(site.editorSession), site.id, bomb);
+    const { id: bomb } = await yomi.createEntry(site.editorSession, site.id, { title: marker("hook04-bomb"), slug: `bomb-${randomUUID().slice(0, 8)}`, body: simpleBody("本文") });
+    await yomi.publishRaw(asSession(site.editorSession), site.id, bomb);
     await sleep(10);
     expectTextNotLeaked(await urlTrail(site, bomb), RUNAWAY_FINISHED, "メモリの上限を超えたURL生成関数の結果");
 
     // --- フック ---
     // 保存前のフック（同期）と公開後のフック（非同期）が上限を超えている間も、配信と管理APIは応答を続ける
-    const { id: hookSpin } = await cms.createEntry(site.editorSession, site.id, { title: `spin-${randomUUID().slice(0, 8)}`, slug: okSlug(), body: simpleBody("本文") });
-    const { id: hookBomb } = await cms.createEntry(site.editorSession, site.id, { title: `bomb-${randomUUID().slice(0, 8)}`, slug: okSlug(), body: simpleBody("本文") });
+    const { id: hookSpin } = await yomi.createEntry(site.editorSession, site.id, { title: `spin-${randomUUID().slice(0, 8)}`, slug: okSlug(), body: simpleBody("本文") });
+    const { id: hookBomb } = await yomi.createEntry(site.editorSession, site.id, { title: `bomb-${randomUUID().slice(0, 8)}`, slug: okSlug(), body: simpleBody("本文") });
     started = Date.now();
     const saving = saveRaw(site, hookSpin, { summary: "要約" }); // 保存の成否は問わない
     await sleep(0.3);
@@ -328,8 +328,8 @@ inv("inv_hook_04", "メモリや実行時間の上限を超えたフックは打
     await saving;
     await saveRaw(site, hookBomb, { summary: "要約" });
     // 公開後のフック（公開の成否は問わない。公開できた記事では、非同期のフックが動く）
-    await cms.publishRaw(asSession(site.editorSession), site.id, hookSpin);
-    await cms.publishRaw(asSession(site.editorSession), site.id, hookBomb);
+    await yomi.publishRaw(asSession(site.editorSession), site.id, hookSpin);
+    await yomi.publishRaw(asSession(site.editorSession), site.id, hookBomb);
     await sleep(0.3);
     await expectStillServing(site, ok, "上限を超えた公開後のフックの実行");
     await sleep(Math.max(0, (spinMs + 5_000 - (Date.now() - started)) / 1000));
@@ -343,14 +343,14 @@ inv("inv_hook_04", "メモリや実行時間の上限を超えたフックは打
     expect((await settledUrl(site, after)).text.includes("/blog/ok/"), "打ち切りの後に、ふつうの記事のURLが計算されない").toBe(true);
     expect(await subtitleOf(site, after), "打ち切りの後に、保存前のフックが動かない").toBe("ok");
     await rc.waitFor(sentFor(okPath, after), 60_000);
-    expectSuccess(await cms.deliveryRaw(site.id, site.readKey.secret, site.urlQuery, { id: ok, locale: "ja" }), "打ち切りの後の配信");
+    expectSuccess(await yomi.deliveryRaw(site.id, site.readKey.secret, site.urlQuery, { id: ok, locale: "ja" }), "打ち切りの後の配信");
   } finally {
     await server.stop();
   }
 }, 420_000);
 
 inv("inv_hook_05", "フックからの外部への通信は、例外として許可されていない内部向けのアドレスには送られず、リダイレクトをたどらない", async () => {
-  const { cms, serverAdmin, serverAdminSession } = await world();
+  const { yomi, serverAdmin, serverAdminSession } = await world();
   const rc = await receiver();
   const server = await dns();
   const host = env.harnessAllowedHost;
@@ -387,7 +387,7 @@ inv("inv_hook_05", "フックからの外部への通信は、例外として許
       afterPublish: { source: afterSending(urls), permissions: ["fetch"], allowedHosts: [host, blockedIp, blockedName, rebindName] },
     }),
   );
-  const site = await siteOn(cms, serverAdmin, serverAdminSession, name);
+  const site = await siteOn(yomi, serverAdmin, serverAdminSession, name);
   const entry = await published(site, marker("hook05"));
 
   // 対照: 許可した宛先に届き、リダイレクトを返す宛先にも送られている

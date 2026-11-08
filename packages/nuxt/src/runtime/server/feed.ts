@@ -3,7 +3,7 @@
 // ここは Nitro に依存しない（テストで直接呼ぶ）。
 
 /** 配信APIの `corrections` の1件。 */
-export interface CmsCorrectionItem {
+export interface YomiCorrectionItem {
   entryId: string;
   contentType: string;
   url: string;
@@ -13,7 +13,7 @@ export interface CmsCorrectionItem {
   sections: string[];
 }
 
-/** 1つのロケールのフィードの設定（サイトの nuxt.config の `cms.corrections.feeds.<ロケール>`）。 */
+/** 1つのロケールのフィードの設定（サイトの nuxt.config の `yomi.corrections.feeds.<ロケール>`）。 */
 export interface CorrectionFeedConfig {
   locale: string;
   /** フィードのパス（拡張子なし）。`<path>.xml` が RSS、`<path>.json` が JSON Feed。 */
@@ -42,7 +42,7 @@ export function checkFeedConfig(
   locale: string,
   raw: { path?: unknown; title?: unknown; link?: unknown; description?: unknown; limit?: unknown },
 ): CorrectionFeedConfig {
-  const where = `cms.corrections.feeds.${locale}`;
+  const where = `yomi.corrections.feeds.${locale}`;
   if (!LOCALE.test(locale)) throw new FeedConfigError(`${where}: the key must be a locale (e.g. ja, en-US)`);
   const path = raw.path;
   if (typeof path !== "string" || !PATH.test(path) || /\/\.\.?(\/|$)/.test(path) || /\.(xml|json)$/i.test(path)) {
@@ -72,15 +72,15 @@ export function escapeXml(s: string): string {
 }
 
 /** フィードに載せてよい項目か（リンクは http(s) の絶対URL、日時は読めるもの）。CMSが作る値だが、書き出す側でも確かめる。 */
-function usable(item: CmsCorrectionItem): boolean {
+function usable(item: YomiCorrectionItem): boolean {
   return /^https?:\/\/[^\s]+$/i.test(item.url) && !Number.isNaN(Date.parse(item.correctedAt));
 }
 
 /** 項目のID。同じ記事でも訂正ごとに別のもの（記事のIDと訂正の日時）。 */
-const itemId = (item: CmsCorrectionItem) => `${item.entryId}@${item.correctedAt}`;
+const itemId = (item: YomiCorrectionItem) => `${item.entryId}@${item.correctedAt}`;
 
 /** RSS 2.0。 */
-export function toRss(feed: CorrectionFeedConfig, items: CmsCorrectionItem[]): string {
+export function toRss(feed: CorrectionFeedConfig, items: YomiCorrectionItem[]): string {
   const list = items.filter(usable);
   const self = new URL(`${feed.path}.xml`, feed.link).toString();
   const lines = [
@@ -110,7 +110,7 @@ export function toRss(feed: CorrectionFeedConfig, items: CmsCorrectionItem[]): s
 }
 
 /** JSON Feed 1.1。影響したセクション（アンカーID）は拡張 `_corrections` に入れる。 */
-export function toJsonFeed(feed: CorrectionFeedConfig, items: CmsCorrectionItem[]): string {
+export function toJsonFeed(feed: CorrectionFeedConfig, items: YomiCorrectionItem[]): string {
   return JSON.stringify({
     version: "https://jsonfeed.org/version/1.1",
     title: feed.title,

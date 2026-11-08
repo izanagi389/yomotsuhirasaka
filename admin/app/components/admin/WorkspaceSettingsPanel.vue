@@ -42,7 +42,7 @@ watch(
   workspace,
   (w) => {
     originsText.value = (w?.previewOrigins ?? []).join("\n");
-    previewPath.value = w?.previewPath ?? "/_cms/preview";
+    previewPath.value = w?.previewPath ?? "/_yomi/preview";
   },
   { immediate: true },
 );

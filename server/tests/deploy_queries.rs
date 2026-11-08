@@ -1,6 +1,6 @@
 //! テンプレートのデプロイでの、登録済みのクエリの検証の結合テスト（本物のPostgreSQLとHTTPを使う。Q54、INV-SCH-03）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -125,7 +125,7 @@ async fn deployments_that_break_registered_queries_are_refused() {
 
         // 長く使われていないクエリは検証しない（Q151）
         let schema = format!("ws_{}", a.simple());
-        sqlx::query(cms_server::db::trusted(format!(
+        sqlx::query(yomi_server::db::trusted(format!(
             "UPDATE {schema}.queries SET last_used_at = now() - interval '91 days'"
         )))
         .execute(&server.state.migration)
@@ -174,7 +174,7 @@ async fn dry_run_reports_without_changing_anything() {
         assert!(c["currentVersion"].is_null());
         assert_eq!(c["problems"], json!([]));
         let versions = || async {
-            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM cms.template_versions")
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM yomi.template_versions")
                 .fetch_one(&server.pool)
                 .await
                 .unwrap()
@@ -259,7 +259,7 @@ async fn dry_run_reports_without_changing_anything() {
         assert_eq!(res.status, 401, "{}", res.body);
         // 監査ログには、試行を記録しない（デプロイの1回だけ）
         let deployed: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM cms.audit_log WHERE action = 'template.deployed'",
+            "SELECT count(*) FROM yomi.audit_log WHERE action = 'template.deployed'",
         )
         .fetch_one(&server.pool)
         .await

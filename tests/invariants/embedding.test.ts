@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "vitest";
 import { inv } from "./support/inv.js";
-import { asBearer, asSession, driver, type CmsClient, type RegisteredQuery, type SearchResult, type Session } from "./support/driver.js";
+import { asBearer, asSession, driver, type YomiClient, type RegisteredQuery, type SearchResult, type Session } from "./support/driver.js";
 import { expectSuccess } from "./support/assert.js";
 import { doc, paragraph } from "./support/body.js";
 import { mockLlm, type MockLlmRequest } from "./support/mock-llm.js";
@@ -47,29 +47,29 @@ inv(
     let started = await driver.startServer(oldOnly);
     try {
       expect(started.outcome, `擬似LLMにつないだサーバーが起動しない:\n${started.output}`).toBe("ready");
-      let cms: CmsClient = started.client!;
-      let sa = await cms.login(instance.serverAdmin);
-      await cms.reauthenticate(sa, instance.serverAdmin);
-      const token = await cms.deployToken(sa, instance.serverAdmin);
-      expectSuccess(await cms.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE), "検索の対象のフィールドを持つテンプレートのデプロイ");
-      const ws = (await cms.createWorkspace(sa, "inv-emb-01", { template: SEARCHABLE_TEMPLATE.name })).id;
+      let yomi: YomiClient = started.client!;
+      let sa = await yomi.login(instance.serverAdmin);
+      await yomi.reauthenticate(sa, instance.serverAdmin);
+      const token = await yomi.deployToken(sa, instance.serverAdmin);
+      expectSuccess(await yomi.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE), "検索の対象のフィールドを持つテンプレートのデプロイ");
+      const ws = (await yomi.createWorkspace(sa, "inv-emb-01", { template: SEARCHABLE_TEMPLATE.name })).id;
       // 予算は十分に大きくする（予算では止めない）
-      await cms.setWorkspaceLimits(sa, ws, { embeddingTokensPerMonth: 10_000_000, embeddingTokensPerDay: 10_000_000 });
-      const admin = await cms.createMember(sa, ws, "admin");
-      let session: Session = await cms.login(admin);
-      await cms.reauthenticate(session, admin);
-      expectSuccess(await cms.setEmbeddingBudgetRaw(asSession(session), ws, { tokensPerMonth: null, tokensPerDay: null }), "埋め込みの予算の設定");
-      const readKey = await cms.createApiKey(session, ws, ["read"]);
-      const registerKey = await cms.createApiKey(session, ws, ["register"]);
-      const query: RegisteredQuery = await cms.registerQuery(ws, registerKey.secret, { kind: "search" });
+      await yomi.setWorkspaceLimits(sa, ws, { embeddingTokensPerMonth: 10_000_000, embeddingTokensPerDay: 10_000_000 });
+      const admin = await yomi.createMember(sa, ws, "admin");
+      let session: Session = await yomi.login(admin);
+      await yomi.reauthenticate(session, admin);
+      expectSuccess(await yomi.setEmbeddingBudgetRaw(asSession(session), ws, { tokensPerMonth: null, tokensPerDay: null }), "埋め込みの予算の設定");
+      const readKey = await yomi.createApiKey(session, ws, ["read"]);
+      const registerKey = await yomi.createApiKey(session, ws, ["register"]);
+      const query: RegisteredQuery = await yomi.registerQuery(ws, registerKey.secret, { kind: "search" });
 
       // 検索語は外部に送る前にマスクされ、10桁以上の数字の並び（`-` で区切られていてもよい）は `[number]` になる（Q169）。
       // 擬似LLMに届いた入力と完全に一致させて比べるため、検索語には数字を含めない（UUIDの数字を英字に置き換える）
       const word = marker("emb01").replace(/\d/g, (d) => "ghijklmnop"[Number(d)]!);
-      const search = (): Promise<SearchResult> => cms.search(ws, readKey.secret, query, { text: word, first: 50 });
+      const search = (): Promise<SearchResult> => yomi.search(ws, readKey.secret, query, { text: word, first: 50 });
       const publish = async (i: number): Promise<string> => {
-        const { id } = await cms.createEntry(session, ws, { title: marker("emb01-title"), body: doc(paragraph(bodyText(word, i))) });
-        await cms.publishEntry(session, ws, id);
+        const { id } = await yomi.createEntry(session, ws, { title: marker("emb01-title"), body: doc(paragraph(bodyText(word, i))) });
+        await yomi.publishEntry(session, ws, id);
         return id;
       };
       /** すべての記事が検索結果に出ることを確かめる（ベクトル検索が使えることも）。 */
@@ -103,11 +103,11 @@ inv(
         llm: { ...mockLlm.connection(oldKey), nextEmbedding: { model: NEW_MODEL, dimensions: 32, baseUrl: mockLlm.baseUrl, apiKey: newKey } },
       });
       expect(started.outcome, `新しいモデルを足したサーバーが起動しない:\n${started.output}`).toBe("ready");
-      cms = started.client!;
-      sa = await cms.login(instance.serverAdmin);
-      session = await cms.login(admin);
+      yomi = started.client!;
+      sa = await yomi.login(instance.serverAdmin);
+      session = await yomi.login(admin);
       // 開始の前: 見積もりが出て、まだ始まっていない。検索は旧モデルのまま
-      const before = await cms.embeddingSwitch(sa);
+      const before = await yomi.embeddingSwitch(sa);
       expect(before.nextModel).toBe(NEW_MODEL);
       const mine = before.workspaces.find((w) => w.workspaceId === ws);
       expect(mine?.state, "開始の前に、切り替えが始まっている").toBe("notStarted");
@@ -115,8 +115,8 @@ inv(
       await expectAll(entries, "新しいモデルを設定に足した後");
 
       // --- 3. 開始する。新しいモデルの埋め込みは作れないので、途中で止まる ---
-      await cms.reauthenticate(sa, instance.serverAdmin);
-      expectSuccess(await cms.startEmbeddingSwitchRaw(asSession(sa)), "埋め込みモデルの切り替えの開始");
+      await yomi.reauthenticate(sa, instance.serverAdmin);
+      expectSuccess(await yomi.startEmbeddingSwitchRaw(asSession(sa)), "埋め込みモデルの切り替えの開始");
       // 新しいモデルの埋め込みを作ろうとして失敗している（切り替えの途中にある）
       await mockLlm.waitForRequests(newKey, (rs) => rs.some((r) => r.endpoint === "embeddings" && r.status >= 500));
       // 途中で公開した記事も、検索に出る（旧モデルの埋め込みも作る）
@@ -132,13 +132,13 @@ inv(
         queryEmbeddings(await mockLlm.requests(oldKey), word).map(modelOf),
         "切り替えの途中に、質問が旧モデルで埋め込まれていない",
       ).toContain(OLD_MODEL);
-      const during = (await cms.embeddingSwitch(sa)).workspaces.find((w) => w.workspaceId === ws);
+      const during = (await yomi.embeddingSwitch(sa)).workspaces.find((w) => w.workspaceId === ws);
       expect(during?.state, "埋め込みを作れないのに、切り替わった").not.toBe("switched");
 
       // --- 4. 障害を消して再開する。切り替わる（質問が新しいモデルで埋め込まれる）まで、ずっと欠けない ---
       await mockLlm.clearFaults(newKey);
-      await cms.reauthenticate(sa, instance.serverAdmin);
-      expectSuccess(await cms.startEmbeddingSwitchRaw(asSession(sa)), "埋め込みモデルの切り替えの再開");
+      await yomi.reauthenticate(sa, instance.serverAdmin);
+      expectSuccess(await yomi.startEmbeddingSwitchRaw(asSession(sa)), "埋め込みモデルの切り替えの再開");
       const deadline = Date.now() + 180_000;
       for (;;) {
         await expectAll(entries, "切り替えの完了の前後");
@@ -148,7 +148,7 @@ inv(
       }
       // 対照: 切り替わった後も欠けず、状態も切り替わっている
       await expectAll(entries, "切り替えの後");
-      const after = (await cms.embeddingSwitch(sa)).workspaces.find((w) => w.workspaceId === ws);
+      const after = (await yomi.embeddingSwitch(sa)).workspaces.find((w) => w.workspaceId === ws);
       expect(after?.state).toBe("switched");
     } finally {
       await started.stop();

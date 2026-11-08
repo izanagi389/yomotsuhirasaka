@@ -1,17 +1,17 @@
 // サイト内検索の、画面とサーバーの両方で使うもの（型・上限・一致した箇所の区切り）。Nuxt にも Nitro にも依存しない。
 
-/** 検索のモード（配信APIの CmsSearchMode）。 */
-export type CmsSearchMode = "HYBRID" | "VECTOR" | "KEYWORD";
-export const SEARCH_MODES: readonly CmsSearchMode[] = ["HYBRID", "VECTOR", "KEYWORD"];
+/** 検索のモード（配信APIの YomiSearchMode）。 */
+export type YomiSearchMode = "HYBRID" | "VECTOR" | "KEYWORD";
+export const SEARCH_MODES: readonly YomiSearchMode[] = ["HYBRID", "VECTOR", "KEYWORD"];
 /** 検索語の長さの上限（CMSと同じ）。 */
 export const MAX_QUERY_CHARS = 500;
 export const DEFAULT_FIRST = 10;
 export const MAX_FIRST = 50;
 
 /** 検索のそれぞれの方式が使えたか（BUDGET_EXHAUSTED は埋め込みの予算切れ、DISABLED は日本語の全文検索の拡張がない）。 */
-export type CmsSearchAvailability = "AVAILABLE" | "BUDGET_EXHAUSTED" | "DISABLED";
+export type YomiSearchAvailability = "AVAILABLE" | "BUDGET_EXHAUSTED" | "DISABLED";
 
-export interface CmsSearchHit {
+export interface YomiSearchHit {
   entryId: string;
   locale: string;
   /** 記事の公開URL（アンカーは付かない）。 */
@@ -28,14 +28,14 @@ export interface CmsSearchHit {
   score: number;
 }
 
-export interface CmsSearchResult {
-  vectorSearch: CmsSearchAvailability;
-  keywordSearch: CmsSearchAvailability;
-  hits: CmsSearchHit[];
+export interface YomiSearchResult {
+  vectorSearch: YomiSearchAvailability;
+  keywordSearch: YomiSearchAvailability;
+  hits: YomiSearchHit[];
 }
 
 /** 抜粋を、一致した箇所とそれ以外に区切る。`<mark>` などで描くのに使う（`v-html` は使わない）。 */
-export interface CmsHighlightSegment {
+export interface YomiHighlightSegment {
   text: string;
   match: boolean;
 }
@@ -44,8 +44,8 @@ export interface CmsHighlightSegment {
  * `excerpt` を `matches` で区切る。範囲の外・重なり・逆順の一致は、使える部分だけを使う。
  * 位置と長さは UTF-16 の単位（JavaScript の文字列と同じ）。
  */
-export function cmsHighlight(excerpt: string, matches: readonly { start: number; length: number }[] | null | undefined): CmsHighlightSegment[] {
-  const out: CmsHighlightSegment[] = [];
+export function yomiHighlight(excerpt: string, matches: readonly { start: number; length: number }[] | null | undefined): YomiHighlightSegment[] {
+  const out: YomiHighlightSegment[] = [];
   const push = (text: string, match: boolean) => {
     if (!text) return;
     const last = out[out.length - 1];

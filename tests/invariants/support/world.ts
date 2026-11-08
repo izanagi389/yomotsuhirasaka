@@ -2,7 +2,7 @@
 // テストのファイルごとに新しく作るので、他のファイルの結果に左右されない。
 
 import { randomUUID } from "node:crypto";
-import { asBearer, driver, type CmsClient, type Credentials, type IssuedSecret, type Member, type OperationTarget, type RegisteredQuery, type ServerConfig, type Session } from "./driver.js";
+import { asBearer, driver, type YomiClient, type Credentials, type IssuedSecret, type Member, type OperationTarget, type RegisteredQuery, type ServerConfig, type Session } from "./driver.js";
 import { SEARCHABLE_TEMPLATE } from "./template.js";
 import { simpleBody } from "./body.js";
 import { env } from "./env.js";
@@ -43,34 +43,34 @@ export interface WorkspaceFixture {
 }
 
 export interface World {
-  cms: CmsClient;
+  yomi: YomiClient;
   serverAdmin: Credentials;
   serverAdminSession: Session;
   a: WorkspaceFixture;
   b: WorkspaceFixture;
 }
 
-async function makeWorkspace(cms: CmsClient, serverAdmin: Credentials, serverAdminSession: Session, label: string): Promise<WorkspaceFixture> {
-  await cms.reauthenticate(serverAdminSession, serverAdmin);
-  const { id } = await cms.createWorkspace(serverAdminSession, `inv-${label}-${randomUUID().slice(0, 8)}`);
+async function makeWorkspace(yomi: YomiClient, serverAdmin: Credentials, serverAdminSession: Session, label: string): Promise<WorkspaceFixture> {
+  await yomi.reauthenticate(serverAdminSession, serverAdmin);
+  const { id } = await yomi.createWorkspace(serverAdminSession, `inv-${label}-${randomUUID().slice(0, 8)}`);
 
-  const admin = await cms.createMember(serverAdminSession, id, "admin");
-  const adminSession = await cms.login(admin);
-  const editor = await cms.createMember(adminSession, id, "editor");
-  const editorSession = await cms.login(editor);
+  const admin = await yomi.createMember(serverAdminSession, id, "admin");
+  const adminSession = await yomi.login(admin);
+  const editor = await yomi.createMember(adminSession, id, "editor");
+  const editorSession = await yomi.login(editor);
 
   const secretMarker = marker(label);
-  const entry = await cms.createEntry(editorSession, id, {
+  const entry = await yomi.createEntry(editorSession, id, {
     title: `記事 ${secretMarker}`,
     body: simpleBody(`本文 ${secretMarker}`),
   });
-  await cms.publishEntry(editorSession, id, entry.id);
+  await yomi.publishEntry(editorSession, id, entry.id);
 
-  await cms.reauthenticate(adminSession, admin);
-  const readKey = await cms.createApiKey(adminSession, id, ["read"]);
-  const registerKey = await cms.createApiKey(adminSession, id, ["register"]);
-  const listQuery = await cms.registerQuery(id, registerKey.secret, { kind: "list" });
-  const byIdQuery = await cms.registerQuery(id, registerKey.secret, { kind: "byId", include: ["body"] });
+  await yomi.reauthenticate(adminSession, admin);
+  const readKey = await yomi.createApiKey(adminSession, id, ["read"]);
+  const registerKey = await yomi.createApiKey(adminSession, id, ["register"]);
+  const listQuery = await yomi.registerQuery(id, registerKey.secret, { kind: "list" });
+  const byIdQuery = await yomi.registerQuery(id, registerKey.secret, { kind: "byId", include: ["body"] });
 
   return {
     id,
@@ -93,21 +93,21 @@ async function makeWorkspace(cms: CmsClient, serverAdmin: Credentials, serverAdm
  * 状態を変える操作を試しても、舞台の記事やキーが壊れないようにするため。
  */
 export async function disposableTarget(world: World, ws: WorkspaceFixture): Promise<OperationTarget> {
-  const { cms } = world;
-  const member = await cms.createMember(ws.adminSession, ws.id, "author");
-  const entry = await cms.createEntry(ws.editorSession, ws.id, { title: marker("disposable"), body: simpleBody("使い捨て") });
-  await cms.reauthenticate(ws.adminSession, ws.admin);
-  const key = await cms.createApiKey(ws.adminSession, ws.id, ["read"]);
+  const { yomi } = world;
+  const member = await yomi.createMember(ws.adminSession, ws.id, "author");
+  const entry = await yomi.createEntry(ws.editorSession, ws.id, { title: marker("disposable"), body: simpleBody("使い捨て") });
+  await yomi.reauthenticate(ws.adminSession, ws.admin);
+  const key = await yomi.createApiKey(ws.adminSession, ws.id, ["read"]);
   return { workspaceId: ws.id, entryId: entry.id, userId: member.userId, apiKeyId: key.id };
 }
 
 export async function createWorld(): Promise<World> {
-  const cms = driver.connect(env.cmsUrl);
+  const yomi = driver.connect(env.yomiUrl);
   const serverAdmin = env.serverAdmin;
-  const serverAdminSession = await cms.login(serverAdmin);
-  const a = await makeWorkspace(cms, serverAdmin, serverAdminSession, "A");
-  const b = await makeWorkspace(cms, serverAdmin, serverAdminSession, "B");
-  return { cms, serverAdmin, serverAdminSession, a, b };
+  const serverAdminSession = await yomi.login(serverAdmin);
+  const a = await makeWorkspace(yomi, serverAdmin, serverAdminSession, "A");
+  const b = await makeWorkspace(yomi, serverAdmin, serverAdminSession, "B");
+  return { yomi, serverAdmin, serverAdminSession, a, b };
 }
 
 /** 最初に呼ばれたときに舞台を作り、以降は同じ舞台を返す（ファイルごとに1つ）。 */
@@ -135,22 +135,22 @@ export interface SearchWorkspace {
 }
 
 export interface SearchWorld {
-  cms: CmsClient;
+  yomi: YomiClient;
   a: SearchWorkspace;
   b: SearchWorkspace;
 }
 
-async function makeSearchWorkspace(cms: CmsClient, serverAdmin: Credentials, serverAdminSession: Session, label: string): Promise<SearchWorkspace> {
-  await cms.reauthenticate(serverAdminSession, serverAdmin);
-  const { id } = await cms.createWorkspace(serverAdminSession, `inv-${label}-${randomUUID().slice(0, 8)}`, { template: SEARCHABLE_TEMPLATE.name });
-  const admin = await cms.createMember(serverAdminSession, id, "admin");
-  const adminSession = await cms.login(admin);
-  const editor = await cms.createMember(adminSession, id, "editor");
-  const editorSession = await cms.login(editor);
-  await cms.reauthenticate(adminSession, admin);
-  const readKey = await cms.createApiKey(adminSession, id, ["read"]);
-  const registerKey = await cms.createApiKey(adminSession, id, ["register"]);
-  const searchQuery = await cms.registerQuery(id, registerKey.secret, { kind: "search" });
+async function makeSearchWorkspace(yomi: YomiClient, serverAdmin: Credentials, serverAdminSession: Session, label: string): Promise<SearchWorkspace> {
+  await yomi.reauthenticate(serverAdminSession, serverAdmin);
+  const { id } = await yomi.createWorkspace(serverAdminSession, `inv-${label}-${randomUUID().slice(0, 8)}`, { template: SEARCHABLE_TEMPLATE.name });
+  const admin = await yomi.createMember(serverAdminSession, id, "admin");
+  const adminSession = await yomi.login(admin);
+  const editor = await yomi.createMember(adminSession, id, "editor");
+  const editorSession = await yomi.login(editor);
+  await yomi.reauthenticate(adminSession, admin);
+  const readKey = await yomi.createApiKey(adminSession, id, ["read"]);
+  const registerKey = await yomi.createApiKey(adminSession, id, ["register"]);
+  const searchQuery = await yomi.registerQuery(id, registerKey.secret, { kind: "search" });
   return { id, admin, adminSession, editor, editorSession, readKey, registerKey, searchQuery };
 }
 
@@ -159,16 +159,16 @@ async function makeSearchWorkspace(cms: CmsClient, serverAdmin: Credentials, ser
  * テスト環境のCMSは擬似LLMにつながっていて、埋め込みの予算の天井の既定値は十分に大きい（server-process.ts）。
  */
 export async function createSearchWorld(): Promise<SearchWorld> {
-  const cms = driver.connect(env.cmsUrl);
+  const yomi = driver.connect(env.yomiUrl);
   const serverAdmin = env.serverAdmin;
-  const serverAdminSession = await cms.login(serverAdmin);
-  await cms.reauthenticate(serverAdminSession, serverAdmin);
-  const token = await cms.deployToken(serverAdminSession, serverAdmin);
-  const res = await cms.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE);
+  const serverAdminSession = await yomi.login(serverAdmin);
+  await yomi.reauthenticate(serverAdminSession, serverAdmin);
+  const token = await yomi.deployToken(serverAdminSession, serverAdmin);
+  const res = await yomi.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE);
   if (res.status < 200 || res.status >= 300) throw new Error(`SEARCHABLE_TEMPLATE をデプロイできない（${res.status}）: ${res.text}`);
-  const a = await makeSearchWorkspace(cms, serverAdmin, serverAdminSession, "SA");
-  const b = await makeSearchWorkspace(cms, serverAdmin, serverAdminSession, "SB");
-  return { cms, a, b };
+  const a = await makeSearchWorkspace(yomi, serverAdmin, serverAdminSession, "SA");
+  const b = await makeSearchWorkspace(yomi, serverAdmin, serverAdminSession, "SB");
+  return { yomi, a, b };
 }
 
 /** 最初に呼ばれたときに検索の舞台を作り、以降は同じ舞台を返す（ファイルごとに1つ）。 */
@@ -201,7 +201,7 @@ export interface AnswerWorkspace {
 }
 
 export interface AnswerWorld {
-  cms: CmsClient;
+  yomi: YomiClient;
   /** このインスタンスが擬似LLMにつなぐキー（記録・障害・回答の組み立て方は、このキーに対して設定する）。 */
   llmKey: string;
   /**
@@ -241,22 +241,22 @@ export async function createAnswerWorld(
   };
   const started = await driver.startServer(config);
   if (started.outcome !== "ready") throw new Error(`擬似LLMにつないだサーバーが起動しない:\n${started.output}`);
-  const cms = started.client!;
-  const sa = await cms.login(instance.serverAdmin);
-  await cms.reauthenticate(sa, instance.serverAdmin);
-  const token = await cms.deployToken(sa, instance.serverAdmin);
-  const res = await cms.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE);
+  const yomi = started.client!;
+  const sa = await yomi.login(instance.serverAdmin);
+  await yomi.reauthenticate(sa, instance.serverAdmin);
+  const token = await yomi.deployToken(sa, instance.serverAdmin);
+  const res = await yomi.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE);
   if (res.status < 200 || res.status >= 300) throw new Error(`SEARCHABLE_TEMPLATE をデプロイできない（${res.status}）: ${res.text}`);
   return {
-    cms,
+    yomi,
     llmKey,
     config,
     serverAdmin: instance.serverAdmin,
     async workspace(label, options = {}) {
-      await cms.reauthenticate(sa, instance.serverAdmin);
-      const { id } = await cms.createWorkspace(sa, `inv-${label}-${randomUUID().slice(0, 8)}`, { template: SEARCHABLE_TEMPLATE.name });
+      await yomi.reauthenticate(sa, instance.serverAdmin);
+      const { id } = await yomi.createWorkspace(sa, `inv-${label}-${randomUUID().slice(0, 8)}`, { template: SEARCHABLE_TEMPLATE.name });
       const answer = options.answerCeiling ?? LARGE_BUDGET;
-      await cms.setWorkspaceLimits(sa, id, {
+      await yomi.setWorkspaceLimits(sa, id, {
         embeddingTokensPerMonth: LARGE_BUDGET,
         embeddingTokensPerDay: LARGE_BUDGET,
         answerInputTokensPerMonth: answer,
@@ -273,14 +273,14 @@ export async function createAnswerWorld(
             }
           : {}),
       });
-      const admin = await cms.createMember(sa, id, "admin");
-      const adminSession = await cms.login(admin);
-      const editor = await cms.createMember(adminSession, id, "editor");
-      const editorSession = await cms.login(editor);
-      await cms.reauthenticate(adminSession, admin);
-      const readKey = await cms.createApiKey(adminSession, id, ["read"]);
-      const answerKey = await cms.createApiKey(adminSession, id, ["answer"]);
-      const registerKey = await cms.createApiKey(adminSession, id, ["register"]);
+      const admin = await yomi.createMember(sa, id, "admin");
+      const adminSession = await yomi.login(admin);
+      const editor = await yomi.createMember(adminSession, id, "editor");
+      const editorSession = await yomi.login(editor);
+      await yomi.reauthenticate(adminSession, admin);
+      const readKey = await yomi.createApiKey(adminSession, id, ["read"]);
+      const answerKey = await yomi.createApiKey(adminSession, id, ["answer"]);
+      const registerKey = await yomi.createApiKey(adminSession, id, ["register"]);
       return {
         id,
         editorSession,
@@ -289,9 +289,9 @@ export async function createAnswerWorld(
         editor,
         readKey,
         answerKey,
-        searchQuery: await cms.registerQuery(id, registerKey.secret, { kind: "search" }),
-        answerQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answer", visitorId: options.visitorId, cached: options.cached }),
-        answerStreamQuery: await cms.registerQuery(id, registerKey.secret, { kind: "answerStream", visitorId: options.visitorId, cached: options.cached }),
+        searchQuery: await yomi.registerQuery(id, registerKey.secret, { kind: "search" }),
+        answerQuery: await yomi.registerQuery(id, registerKey.secret, { kind: "answer", visitorId: options.visitorId, cached: options.cached }),
+        answerStreamQuery: await yomi.registerQuery(id, registerKey.secret, { kind: "answerStream", visitorId: options.visitorId, cached: options.cached }),
       };
     },
     stop: () => started.stop(),

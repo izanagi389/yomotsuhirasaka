@@ -1,14 +1,14 @@
 //! 新しい端末の通知とログインの履歴の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::auth::devices;
-use cms_server::worker;
 use common::server::*;
 use common::smtp::*;
 use common::with_scratch;
+use yomi_server::auth::devices;
+use yomi_server::worker;
 
 const CHROME: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
 
@@ -20,7 +20,7 @@ async fn login_with(
     device: Option<&str>,
 ) -> (Resp, String) {
     let body = format!("{{\"email\":\"{email}\",\"password\":\"{PASSWORD}\"}}");
-    let cookie = device.map(|d| format!("__Host-cms_device={d}"));
+    let cookie = device.map(|d| format!("__Host-yomi_device={d}"));
     let mut headers = vec![("X-Forwarded-For", ip), ("User-Agent", CHROME)];
     if let Some(c) = &cookie {
         headers.push(("Cookie", c));
@@ -30,7 +30,7 @@ async fn login_with(
     let set = res
         .set_cookies()
         .into_iter()
-        .find(|c| c.starts_with("__Host-cms_device="))
+        .find(|c| c.starts_with("__Host-yomi_device="))
         .expect("device cookie")
         .to_owned();
     assert!(
@@ -44,7 +44,7 @@ async fn login_with(
         .split(';')
         .next()
         .unwrap()
-        .strip_prefix("__Host-cms_device=")
+        .strip_prefix("__Host-yomi_device=")
         .unwrap()
         .to_owned();
     (res, value)
@@ -110,7 +110,7 @@ async fn new_device_notification_and_login_history() {
         assert!(res.body.contains("\"browser\":\"Chrome\"") && res.body.contains("\"newDevice\":true") && res.body.contains("\"country\":null"));
 
         // 保存期間を過ぎた履歴は見せず、削除する（INV-AUD-07）
-        sqlx::query("UPDATE cms.login_history SET created_at = now() - interval '91 days' WHERE host(ip) = '198.18.1.1'")
+        sqlx::query("UPDATE yomi.login_history SET created_at = now() - interval '91 days' WHERE host(ip) = '198.18.1.1'")
             // 履歴は普段用のロールからは書き換えられないので、移行用の接続で古くする
             .execute(&server.state.migration)
             .await
@@ -119,23 +119,23 @@ async fn new_device_notification_and_login_history() {
         assert!(!res.body.contains("198.18.1.1") && res.body.contains("198.18.1.3"), "{}", res.body);
         let removed = devices::sweep(&server.pool, server.state.config.login_history.retention_seconds).await.unwrap();
         assert_eq!(removed, 1);
-        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.login_history WHERE host(ip) = '198.18.1.1'")
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.login_history WHERE host(ip) = '198.18.1.1'")
             .fetch_one(&server.pool)
             .await
             .unwrap();
         assert_eq!(left, 0);
 
         // 長く使われていない端末の記録も消える（次のログインは新しい端末になる）
-        sqlx::query("UPDATE cms.known_devices SET last_seen_at = now() - interval '401 days'")
+        sqlx::query("UPDATE yomi.known_devices SET last_seen_at = now() - interval '401 days'")
             .execute(&server.pool)
             .await
             .unwrap();
         devices::sweep(&server.pool, server.state.config.login_history.retention_seconds).await.unwrap();
-        let known: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.known_devices").fetch_one(&server.pool).await.unwrap();
+        let known: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.known_devices").fetch_one(&server.pool).await.unwrap();
         assert_eq!(known, 0);
 
         // 個人トークンでは読めない（Cookieのセッションだけ）
-        let res = request(&server, "GET", "/api/admin/me/login-history", &[("Authorization", "Bearer cms_pat_x")], None).await;
+        let res = request(&server, "GET", "/api/admin/me/login-history", &[("Authorization", "Bearer yomi_pat_x")], None).await;
         assert_eq!(res.status, 401);
     })
     .await;
@@ -156,7 +156,7 @@ async fn device_cookie_does_not_skip_mfa() {
         assert!(
             res.set_cookies()
                 .iter()
-                .all(|c| !c.starts_with("__Host-cms_device="))
+                .all(|c| !c.starts_with("__Host-yomi_device="))
         );
         let res = mfa_step(
             &server,
@@ -172,7 +172,7 @@ async fn device_cookie_does_not_skip_mfa() {
                 c.split(';')
                     .next()
                     .unwrap()
-                    .strip_prefix("__Host-cms_device=")
+                    .strip_prefix("__Host-yomi_device=")
                     .map(str::to_owned)
             })
             .expect("device cookie");
@@ -185,7 +185,7 @@ async fn device_cookie_does_not_skip_mfa() {
             "/api/admin/session",
             &[
                 ("X-Forwarded-For", "198.18.2.1"),
-                ("Cookie", &format!("__Host-cms_device={device}")),
+                ("Cookie", &format!("__Host-yomi_device={device}")),
             ],
             Some(&body),
         )
@@ -205,7 +205,7 @@ async fn country_change_with_geoip_data() {
         ("198.18.2.0".parse().unwrap(), 24, "US"),
         ("198.18.4.0".parse().unwrap(), 24, "us\nX"),
     ]);
-    let geo = cms_server::geoip::GeoIp::open(&path).unwrap();
+    let geo = yomi_server::geoip::GeoIp::open(&path).unwrap();
     assert_eq!(
         geo.country("198.18.1.9".parse().unwrap()).as_deref(),
         Some("JP")
@@ -222,11 +222,11 @@ async fn country_change_with_geoip_data() {
 
     // 読めないデータは起動の検査で止める
     let broken = std::env::temp_dir().join(format!(
-        "cms-test-geoip-broken-{}.mmdb",
+        "yomi-test-geoip-broken-{}.mmdb",
         uuid::Uuid::new_v4()
     ));
     std::fs::write(&broken, b"not a database").unwrap();
-    assert!(cms_server::geoip::GeoIp::open(&broken).is_err());
+    assert!(yomi_server::geoip::GeoIp::open(&broken).is_err());
 
     let (db, broken_db) = (path.clone(), broken.clone());
     with_scratch(|app, migration| async move {
@@ -234,7 +234,7 @@ async fn country_change_with_geoip_data() {
         let mut cfg = config(&app, &migration);
         cfg.smtp = Some(smtp_config(port));
         cfg.login_history.geoip_database = Some(db.clone());
-        let report = cms_server::startup::check_config(&cfg);
+        let report = yomi_server::startup::check_config(&cfg);
         assert!(
             !report.problems.iter().any(|p| p.message.contains("geoip")),
             "{:?}",
@@ -247,7 +247,7 @@ async fn country_change_with_geoip_data() {
         let mut bad = cfg.clone();
         bad.login_history.geoip_database = Some(broken_db.clone());
         assert!(
-            cms_server::startup::check_config(&bad)
+            yomi_server::startup::check_config(&bad)
                 .problems
                 .iter()
                 .any(|p| p.message.contains("login_history.geoip_database"))

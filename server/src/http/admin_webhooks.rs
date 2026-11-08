@@ -55,7 +55,7 @@ pub async fn list(
         "SELECT id, url, to_char(created_at AT TIME ZONE 'UTC', {RFC3339}) AS created_at,
                 CASE WHEN previous_secret_until > now()
                      THEN to_char(previous_secret_until AT TIME ZONE 'UTC', {RFC3339}) END AS previous_secret_until
-         FROM cms.webhooks WHERE workspace_id = $1 ORDER BY created_at"
+         FROM yomi.webhooks WHERE workspace_id = $1 ORDER BY created_at"
     ))
     .bind(ws)
     .fetch_all(&state.pool)
@@ -126,13 +126,13 @@ pub async fn create(
 
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     // 数の上限は、同じワークスペースの登録を順に処理して数える（ワークスペースごとのアドバイザリーロック）
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('cms:webhooks:' || $1::text, 0))")
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('yomi:webhooks:' || $1::text, 0))")
         .bind(ws)
         .execute(&mut *tx)
         .await
         .map_err(anyhow::Error::from)?;
     let count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM cms.webhooks WHERE workspace_id = $1")
+        sqlx::query_scalar("SELECT count(*) FROM yomi.webhooks WHERE workspace_id = $1")
             .bind(ws)
             .fetch_one(&mut *tx)
             .await
@@ -150,7 +150,7 @@ pub async fn create(
         .keys
         .encrypt(secret.as_bytes(), &webhooks::secret_aad(id))?;
     sqlx::query(
-        "INSERT INTO cms.webhooks (id, workspace_id, url, secret_enc, created_by) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO yomi.webhooks (id, workspace_id, url, secret_enc, created_by) VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(id)
     .bind(ws)
@@ -179,7 +179,7 @@ pub async fn delete(
 ) -> Result<StatusCode, ApiError> {
     let (ws, id) = (parse_id(&ws)?, parse_id(&id)?);
     access::workspace_admin(&state.pool, &current, ws).await??;
-    let deleted = sqlx::query("DELETE FROM cms.webhooks WHERE id = $1 AND workspace_id = $2")
+    let deleted = sqlx::query("DELETE FROM yomi.webhooks WHERE id = $1 AND workspace_id = $2")
         .bind(id)
         .bind(ws)
         .execute(&state.pool)
@@ -202,7 +202,7 @@ pub async fn delete(
 
 async fn exists(state: &AppState, ws: Uuid, id: Uuid) -> Result<bool, ApiError> {
     Ok(sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM cms.webhooks WHERE id = $1 AND workspace_id = $2)",
+        "SELECT EXISTS (SELECT 1 FROM yomi.webhooks WHERE id = $1 AND workspace_id = $2)",
     )
     .bind(id)
     .bind(ws)
@@ -251,7 +251,7 @@ pub async fn rotate_secret(
     }
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     let old: Option<Vec<u8>> = sqlx::query_scalar(
-        "SELECT secret_enc FROM cms.webhooks WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
+        "SELECT secret_enc FROM yomi.webhooks WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
     )
     .bind(id)
     .bind(ws)
@@ -266,7 +266,7 @@ pub async fn rotate_secret(
         .keys
         .encrypt(secret.as_bytes(), &webhooks::secret_aad(id))?;
     let until: String = sqlx::query_scalar(crate::sql!(
-        "UPDATE cms.webhooks
+        "UPDATE yomi.webhooks
          SET previous_secret_enc = $2, previous_secret_until = now() + make_interval(secs => $3),
              secret_enc = $4
          WHERE id = $1
@@ -339,7 +339,7 @@ pub async fn deliveries(
         "SELECT id, event_id, event_type, entry_id, state, attempts, last_status, last_error,
                 to_char(created_at AT TIME ZONE 'UTC', {RFC3339}) AS created_at,
                 to_char(last_attempt_at AT TIME ZONE 'UTC', {RFC3339}) AS last_attempt_at
-         FROM cms.webhook_deliveries
+         FROM yomi.webhook_deliveries
          WHERE webhook_id = $1 AND workspace_id = $2
          ORDER BY created_at DESC LIMIT 50"
     ))

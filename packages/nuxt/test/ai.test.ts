@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { AiConfigError, type CmsAiCatalogItem, DEFAULT_AI_TRAINING_CRAWLERS, articlePath, checkAiConfig, markdownPath, toLlmsTxt, toRobotsTxt } from "../src/runtime/server/ai.ts";
+import { AiConfigError, type YomiAiCatalogItem, DEFAULT_AI_TRAINING_CRAWLERS, articlePath, checkAiConfig, markdownPath, toLlmsTxt, toRobotsTxt } from "../src/runtime/server/ai.ts";
 
 const SITE = "https://example.com";
 const config = checkAiConfig(
   { locales: { ja: { title: "例のブログ", description: "技術の記事" }, en: { title: "English articles" } }, robotsTxt: { addCrawlers: ["MyBot"], removeCrawlers: ["ccbot"], extra: "User-agent: *\nDisallow: /admin" } },
   `${SITE}/`,
 );
-const item = (url: string, title: string | null = "記事"): CmsAiCatalogItem => ({ entryId: "e", contentType: "post", url, title, locale: "ja", updatedAt: "2026-10-20T00:00:00Z" });
+const item = (url: string, title: string | null = "記事"): YomiAiCatalogItem => ({ entryId: "e", contentType: "post", url, title, locale: "ja", updatedAt: "2026-10-20T00:00:00Z" });
 
 describe("checkAiConfig", () => {
   it("既定値を補い、クローラーの一覧に足し引きする", () => {

@@ -31,7 +31,7 @@ pub async fn create(
     lifetime_seconds: u32,
 ) -> Result<Created> {
     sqlx::query(
-        "UPDATE cms.invitations SET revoked_at = now()
+        "UPDATE yomi.invitations SET revoked_at = now()
          WHERE workspace_id = $1 AND email = $2 AND accepted_at IS NULL AND revoked_at IS NULL",
     )
     .bind(workspace_id)
@@ -41,7 +41,7 @@ pub async fn create(
     let id = Uuid::new_v4();
     let token = token::generate();
     let expires_at: String = sqlx::query_scalar(crate::sql!(
-        "INSERT INTO cms.invitations (id, workspace_id, email, role, token_hash, invited_by, expires_at)
+        "INSERT INTO yomi.invitations (id, workspace_id, email, role, token_hash, invited_by, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7))
          RETURNING to_char(expires_at AT TIME ZONE 'UTC', {RFC3339})"
     ))
@@ -78,7 +78,7 @@ pub async fn find_valid<'e>(
 ) -> Result<Option<Pending>> {
     let suffix = if lock { "FOR UPDATE" } else { "" };
     let row: Option<(Uuid, Uuid, String, String)> = sqlx::query_as(crate::sql!(
-        "SELECT id, workspace_id, email, role FROM cms.invitations
+        "SELECT id, workspace_id, email, role FROM yomi.invitations
          WHERE token_hash = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
          {suffix}"
     ))
@@ -101,7 +101,7 @@ pub async fn find_valid_by_id_for_update(
     id: Uuid,
 ) -> Result<Option<Pending>> {
     let row: Option<(Uuid, Uuid, String, String)> = sqlx::query_as(
-        "SELECT id, workspace_id, email, role FROM cms.invitations
+        "SELECT id, workspace_id, email, role FROM yomi.invitations
          WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
          FOR UPDATE",
     )
@@ -124,12 +124,12 @@ pub async fn accept(
     invitation: &Pending,
     user_id: Uuid,
 ) -> Result<()> {
-    sqlx::query("UPDATE cms.invitations SET accepted_at = now() WHERE id = $1")
+    sqlx::query("UPDATE yomi.invitations SET accepted_at = now() WHERE id = $1")
         .bind(invitation.id)
         .execute(&mut **tx)
         .await?;
     sqlx::query(
-        "INSERT INTO cms.memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)
+        "INSERT INTO yomi.memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)
          ON CONFLICT (workspace_id, user_id) DO NOTHING",
     )
     .bind(invitation.workspace_id)
@@ -156,7 +156,7 @@ pub async fn list_pending(pool: &PgPool, workspace_id: Uuid) -> Result<Vec<Summa
         "SELECT id, email, role,
                 to_char(created_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(expires_at AT TIME ZONE 'UTC', {RFC3339})
-         FROM cms.invitations
+         FROM yomi.invitations
          WHERE workspace_id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
          ORDER BY created_at"
     ))
@@ -178,7 +178,7 @@ pub async fn list_pending(pool: &PgPool, workspace_id: Uuid) -> Result<Vec<Summa
 /// 招待を取り消す。そのワークスペースの、承諾待ちの招待でなければ false。
 pub async fn revoke(pool: &PgPool, workspace_id: Uuid, id: Uuid) -> Result<bool> {
     let done = sqlx::query(
-        "UPDATE cms.invitations SET revoked_at = now()
+        "UPDATE yomi.invitations SET revoked_at = now()
          WHERE id = $1 AND workspace_id = $2 AND accepted_at IS NULL AND revoked_at IS NULL",
     )
     .bind(id)
@@ -203,8 +203,8 @@ mod tests {
     #[test]
     fn links_use_the_public_url() {
         assert_eq!(
-            link("https://cms.example.com/", "abc"),
-            "https://cms.example.com/admin/invitations/accept#token=abc"
+            link("https://yomi.example.com/", "abc"),
+            "https://yomi.example.com/admin/invitations/accept#token=abc"
         );
     }
 }

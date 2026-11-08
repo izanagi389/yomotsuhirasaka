@@ -33,7 +33,7 @@ export function checkTemplateFunctions(template: Json): string[] {
     if (!isObject(node)) continue;
     const path = `body.customNodes[${i}]`;
     if (node["toMarkdown"] === undefined || node["toMarkdown"] === null) {
-      problems.push(`${path}.toMarkdown: a Markdown conversion function is required for every custom node (create one with: cms node scaffold ${String(node["name"] ?? "<name>")})`);
+      problems.push(`${path}.toMarkdown: a Markdown conversion function is required for every custom node (create one with: yomi node scaffold ${String(node["name"] ?? "<name>")})`);
     }
     checkFunction(`${path}.toMarkdown`, node["toMarkdown"], "conversion", problems);
     checkFunction(`${path}.toHtml`, node["toHtml"], "conversion", problems);

@@ -14,7 +14,7 @@ COPY packages/preview/package.json packages/preview/
 RUN npm ci --ignore-scripts
 COPY packages ./packages
 # 管理画面が使う共有パッケージ（本文の部品の定義と、ライブプレビューのメッセージの決まり）
-RUN npm run build -w @new-cms/editor-schema && npm run build -w @new-cms/preview
+RUN npm run build -w @yomotsuhirasaka/editor-schema && npm run build -w @yomotsuhirasaka/preview
 COPY admin ./admin
 WORKDIR /src/admin
 RUN npx nuxt prepare && npm run generate
@@ -27,17 +27,17 @@ COPY Cargo.toml Cargo.lock ./
 COPY server ./server
 # 質問応答のプロンプトと回答の形（擬似LLMと同じファイルを読む。server/src/answer/format.rs）
 COPY tools/mock-llm/src/format.json ./tools/mock-llm/src/format.json
-RUN cargo build --release --locked -p cms-server
+RUN cargo build --release --locked -p yomi-server
 
 FROM debian:trixie-slim
 RUN apt-get update -q && apt-get install -y --no-install-recommends libssl3t64 ca-certificates && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin cms
-COPY --from=build /src/target/release/cms-server /usr/local/bin/cms-server
-# 設定の [admin] dist_dir で指す（deploy/init.sh が cms-server init --admin-dist-dir で書く）
-COPY --from=admin /src/admin/.output/public /usr/share/cms-admin
+    && useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin yomi
+COPY --from=build /src/target/release/yomi-server /usr/local/bin/yomi-server
+# 設定の [admin] dist_dir で指す（deploy/init.sh が yomi-server init --admin-dist-dir で書く）
+COPY --from=admin /src/admin/.output/public /usr/share/yomi-admin
 # 設定ファイル・暗号化の鍵・メディアは /data に置く（ホストのディレクトリをつなぐ）
 VOLUME ["/data"]
 USER 10001
 EXPOSE 8080
-ENTRYPOINT ["cms-server"]
+ENTRYPOINT ["yomi-server"]
 CMD ["serve", "--config", "/data/config.toml"]

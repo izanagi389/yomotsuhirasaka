@@ -1,6 +1,6 @@
 //! 外部のアカウントのひも付けの一覧の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -19,8 +19,8 @@ async fn listing_my_identities_shows_issuers_but_not_subjects() {
         // ひも付けを作る処理はまだないので、DBに直接入れて確かめる
         for (email, sub) in [("a@example.test", "sub-of-a-123"), ("b@example.test", "sub-of-b-456")] {
             sqlx::query(
-                "INSERT INTO cms.external_identities (id, user_id, issuer, subject)
-                 SELECT gen_random_uuid(), id, 'https://idp.example.test', $2 FROM cms.users WHERE email = $1",
+                "INSERT INTO yomi.external_identities (id, user_id, issuer, subject)
+                 SELECT gen_random_uuid(), id, 'https://idp.example.test', $2 FROM yomi.users WHERE email = $1",
             )
             .bind(email)
             .bind(sub)

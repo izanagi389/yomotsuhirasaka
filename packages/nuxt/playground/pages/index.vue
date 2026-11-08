@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { data } = await useCmsQuery<{ postList: { id: string; title: string; slug: string }[] }>("postList", { locale: "ja" });
+const { data } = await useYomiQuery<{ postList: { id: string; title: string; slug: string }[] }>("postList", { locale: "ja" });
 </script>
 
 <template>

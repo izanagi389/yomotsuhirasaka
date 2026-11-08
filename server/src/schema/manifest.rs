@@ -264,7 +264,7 @@ pub struct CustomAttr {
     pub description: Option<String>,
 }
 
-/// カスタムノード。テンプレートに宣言的に書き、Tiptapの拡張機能はこの宣言から作る（`@new-cms/editor-schema`）。
+/// カスタムノード。テンプレートに宣言的に書き、Tiptapの拡張機能はこの宣言から作る（`@yomotsuhirasaka/editor-schema`）。
 /// Markdownへの変換関数は必須（ないものはデプロイを拒否する。INV-NODE-01）。HTMLへの変換関数は任意で、
 /// 出力は無害化する（INV-CNV-01）。変換関数は純粋な関数で、ホスト関数は使えない。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -344,7 +344,7 @@ pub struct Manifest {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(
-    title = "new-cms template",
+    title = "yomotsuhirasaka template",
     description = "テンプレートのファイル（templates/<テンプレート名>/template.json）。本文のノードとマークは書かない（CLIが、管理画面と同じTiptapの拡張機能から書き出す）。"
 )]
 pub struct TemplateFile {
@@ -1161,7 +1161,7 @@ pub(crate) mod tests {
     }
 
     /// `cli/schema/template.schema.json` が、この型から作ったものと同じか。
-    /// 変えたときは `CMS_UPDATE_TEMPLATE_SCHEMA=1 cargo test -p cms-server template_json_schema` で書き直す。
+    /// 変えたときは `YOMI_UPDATE_TEMPLATE_SCHEMA=1 cargo test -p yomi-server template_json_schema` で書き直す。
     #[test]
     fn template_json_schema_is_up_to_date() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1170,14 +1170,14 @@ pub(crate) mod tests {
             "{}\n",
             serde_json::to_string_pretty(&template_json_schema()).unwrap()
         );
-        if std::env::var_os("CMS_UPDATE_TEMPLATE_SCHEMA").is_some() {
+        if std::env::var_os("YOMI_UPDATE_TEMPLATE_SCHEMA").is_some() {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &generated).unwrap();
         }
         let committed = std::fs::read_to_string(&path).unwrap_or_default();
         assert!(
             committed == generated,
-            "{} is out of date. Run: CMS_UPDATE_TEMPLATE_SCHEMA=1 cargo test -p cms-server template_json_schema",
+            "{} is out of date. Run: YOMI_UPDATE_TEMPLATE_SCHEMA=1 cargo test -p yomi-server template_json_schema",
             path.display()
         );
     }

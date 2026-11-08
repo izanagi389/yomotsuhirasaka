@@ -34,7 +34,7 @@ inv("inv_key_02", "暗号化の鍵が設定されていなければ、サーバ�
   const valid = await driver.validServerConfig();
   await expectStarts(valid, "正しい設定");
   await expectRefusesToStart({ ...valid, encryptionKeyFile: null }, "暗号化の鍵の設定なし");
-  await expectRefusesToStart({ ...valid, encryptionKeyFile: "/nonexistent/cms-encryption.key" }, "存在しない鍵のファイル");
+  await expectRefusesToStart({ ...valid, encryptionKeyFile: "/nonexistent/yomi-encryption.key" }, "存在しない鍵のファイル");
 }, STARTUP_TIMEOUT);
 
 inv(

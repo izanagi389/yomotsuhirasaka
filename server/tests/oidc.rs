@@ -1,6 +1,6 @@
 //! OIDC/SSO の結合テスト（本物のPostgreSQLとHTTPを使う。IdPはこのテストの中の擬似IdP）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -11,12 +11,12 @@ use axum::extract::{Form, State};
 use axum::routing::post;
 use axum::{Json, Router};
 use base64::Engine as _;
-use cms_server::config::OidcConfig;
 use common::server::*;
 use common::with_scratch;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use serde_json::{Value, json};
 use sha2::Digest as _;
+use yomi_server::config::OidcConfig;
 
 /// テスト用の固定の鍵（P-256）。このテストの擬似IdPだけが使う。
 const IDP_KEY: &str = "-----BEGIN PRIVATE KEY-----
@@ -35,7 +35,7 @@ fn idp_key() -> EncodingKey {
         .unwrap();
     EncodingKey::from_ec_der(&der)
 }
-const CLIENT_ID: &str = "cms-client";
+const CLIENT_ID: &str = "yomi-client";
 const CLIENT_SECRET: &str = "idp-client-secret-0123456789abcdef";
 const JIT_DOMAIN: &str = "jit.example.test";
 
@@ -142,10 +142,10 @@ async fn start_idp() -> Idp {
 }
 
 fn oidc_config(
-    app: &cms_server::config::DatabaseConfig,
-    migration: &cms_server::config::DatabaseConfig,
+    app: &yomi_server::config::DatabaseConfig,
+    migration: &yomi_server::config::DatabaseConfig,
     idp: &Idp,
-) -> cms_server::config::Config {
+) -> yomi_server::config::Config {
     let mut c = config(app, migration);
     c.auth.oidc = Some(OidcConfig {
         issuer: idp.issuer.clone(),
@@ -179,7 +179,7 @@ async fn run_flow(
 ) -> Resp {
     let res = request(server, "POST", path, extra, Some(body)).await;
     assert_eq!(res.status, 200, "{}", res.body);
-    let browser = cookie_value(&res, "__Host-cms_oidc").expect("flow cookie");
+    let browser = cookie_value(&res, "__Host-yomi_oidc").expect("flow cookie");
     assert!(
         res.set_cookies()[0].contains("SameSite=Lax"),
         "{:?}",
@@ -192,7 +192,7 @@ async fn run_flow(
 
 async fn callback(server: &Server, browser: &str, state: &str, code: &str) -> Resp {
     let path = format!("/api/admin/session/oidc/callback?code={code}&state={state}");
-    let cookie = format!("__Host-cms_oidc={browser}");
+    let cookie = format!("__Host-yomi_oidc={browser}");
     request(server, "GET", &path, &[("Cookie", &cookie)], None).await
 }
 
@@ -204,8 +204,8 @@ fn location(res: &Resp) -> &str {
 async fn complete(server: &Server, res: &Resp) -> Login {
     assert_eq!(res.status, 303, "{}", res.body);
     assert!(!location(res).contains("error="), "{}", location(res));
-    let cookie = cookie_value(res, "__Host-cms_session").expect("session cookie");
-    let cookie_header = format!("__Host-cms_session={cookie}");
+    let cookie = cookie_value(res, "__Host-yomi_session").expect("session cookie");
+    let cookie_header = format!("__Host-yomi_session={cookie}");
     let done = request(
         server,
         "POST",
@@ -232,7 +232,7 @@ async fn complete(server: &Server, res: &Resp) -> Login {
 }
 
 async fn user_exists(server: &Server, email: &str) -> bool {
-    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM cms.users WHERE email = $1)")
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM yomi.users WHERE email = $1)")
         .bind(email)
         .fetch_one(&server.pool)
         .await
@@ -269,7 +269,7 @@ async fn jit_requires_verified_email_and_matching_domain() {
                 "{verified}: {}",
                 location(&res)
             );
-            assert!(cookie_value(&res, "__Host-cms_session").is_none());
+            assert!(cookie_value(&res, "__Host-yomi_session").is_none());
             assert!(!user_exists(&server, &email).await, "{verified}");
         }
 
@@ -309,7 +309,7 @@ async fn jit_requires_verified_email_and_matching_domain() {
         )
         .await;
         assert_eq!(get(&server, "/api/admin/me", &s2).await.status, 200);
-        let users: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.users WHERE email = $1")
+        let users: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.users WHERE email = $1")
             .bind(&email)
             .fetch_one(&server.pool)
             .await
@@ -350,7 +350,7 @@ async fn existing_accounts_are_not_linked_by_email() {
             "{}",
             location(&res)
         );
-        let linked: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.external_identities")
+        let linked: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.external_identities")
             .fetch_one(&server.pool)
             .await
             .unwrap();
@@ -367,7 +367,7 @@ async fn state_is_bound_to_the_browser_and_used_once() {
         let claims =
             json!({"sub": "s1", "email": format!("a@{JIT_DOMAIN}"), "email_verified": true});
         let res = request(&server, "POST", LOGIN, &[], Some("{}")).await;
-        let browser = cookie_value(&res, "__Host-cms_oidc").unwrap();
+        let browser = cookie_value(&res, "__Host-yomi_oidc").unwrap();
         let (code, state) = idp.authorize(&res.json_str("authorizationUrl").unwrap(), claims);
 
         // 別のブラウザ（Cookieが違う・ない）では使えない
@@ -390,7 +390,7 @@ async fn state_is_bound_to_the_browser_and_used_once() {
         assert!(
             none.set_cookies()
                 .iter()
-                .any(|c| c.starts_with("__Host-cms_oidc=;") && c.contains("Max-Age=0"))
+                .any(|c| c.starts_with("__Host-yomi_oidc=;") && c.contains("Max-Age=0"))
         );
 
         let ok = callback(&server, &browser, &state, &code).await;
@@ -436,7 +436,10 @@ async fn id_tokens_are_verified() {
                 "{what}: {}",
                 location(&res)
             );
-            assert!(cookie_value(&res, "__Host-cms_session").is_none(), "{what}");
+            assert!(
+                cookie_value(&res, "__Host-yomi_session").is_none(),
+                "{what}"
+            );
         }
         assert!(!user_exists(&server, &format!("v@{JIT_DOMAIN}")).await);
         // 複数の aud でも、azp がこのクライアントなら通す
@@ -492,7 +495,7 @@ async fn sso_admins_need_a_passkey_for_admin_operations() {
             "{}",
             location(&res)
         );
-        assert!(cookie_value(&res, "__Host-cms_session").is_none());
+        assert!(cookie_value(&res, "__Host-yomi_session").is_none());
         // 同じ発行者の2つ目はひも付けない
         let res = run_flow(
             &server,
@@ -562,7 +565,7 @@ async fn sso_admins_need_a_passkey_for_admin_operations() {
         assert_eq!(res.status, 200, "{}", res.body);
 
         let audit: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM cms.audit_log WHERE action = 'auth.identity_linked'",
+            "SELECT count(*) FROM yomi.audit_log WHERE action = 'auth.identity_linked'",
         )
         .fetch_one(&server.pool)
         .await

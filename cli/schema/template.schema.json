@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "new-cms template",
+  "title": "yomotsuhirasaka template",
   "description": "テンプレートのファイル（templates/<テンプレート名>/template.json）。本文のノードとマークは書かない（CLIが、管理画面と同じTiptapの拡張機能から書き出す）。",
   "type": "object",
   "properties": {
@@ -64,7 +64,7 @@
       "additionalProperties": false
     },
     "CustomNode": {
-      "description": "カスタムノード。テンプレートに宣言的に書き、Tiptapの拡張機能はこの宣言から作る（`@new-cms/editor-schema`）。\nMarkdownへの変換関数は必須（ないものはデプロイを拒否する。INV-NODE-01）。HTMLへの変換関数は任意で、\n出力は無害化する（INV-CNV-01）。変換関数は純粋な関数で、ホスト関数は使えない。",
+      "description": "カスタムノード。テンプレートに宣言的に書き、Tiptapの拡張機能はこの宣言から作る（`@yomotsuhirasaka/editor-schema`）。\nMarkdownへの変換関数は必須（ないものはデプロイを拒否する。INV-NODE-01）。HTMLへの変換関数は任意で、\n出力は無害化する（INV-CNV-01）。変換関数は純粋な関数で、ホスト関数は使えない。",
       "type": "object",
       "properties": {
         "name": {
@@ -190,12 +190,12 @@
       "description": "関数が権限として宣言できるホスト関数（04-hooks.md「外部へのアクセス」）。",
       "oneOf": [
         {
-          "description": "同じワークスペースの公開中の記事を読む（`cms.content.get(id)`）。",
+          "description": "同じワークスペースの公開中の記事を読む（`yomi.content.get(id)`）。",
           "type": "string",
           "const": "content.read"
         },
         {
-          "description": "外部へHTTPで送る（`cms.http.fetch(url, options)`）。非同期のフックだけ。宛先は `allowedHosts` に限る。",
+          "description": "外部へHTTPで送る（`yomi.http.fetch(url, options)`）。非同期のフックだけ。宛先は `allowedHosts` に限る。",
           "type": "string",
           "const": "http.fetch"
         }

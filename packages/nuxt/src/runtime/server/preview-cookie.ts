@@ -4,9 +4,9 @@
 
 import { type H3Event, deleteCookie, getCookie, setCookie } from "h3";
 
-export const PREVIEW_COOKIE = "cms_preview";
+export const PREVIEW_COOKIE = "yomi_preview";
 /** トークンの接頭辞（server/src/content/previews.rs）。 */
-export const PREVIEW_TOKEN_PREFIX = "cms_prv_";
+export const PREVIEW_TOKEN_PREFIX = "yomi_prv_";
 
 const ATTRS = { httpOnly: true, secure: true, sameSite: "none", partitioned: true, path: "/" } as const;
 

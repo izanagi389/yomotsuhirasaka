@@ -1,6 +1,6 @@
 // 管理APIが返す、スキーマと記事の形（server/src/schema/manifest.rs、server/src/content/*.rs）。
 import type { JSONContent } from "@tiptap/core";
-import type { ManifestBody } from "@new-cms/editor-schema";
+import type { ManifestBody } from "@yomotsuhirasaka/editor-schema";
 
 export type FieldType = "text" | "slug" | "richtext" | "reference";
 

@@ -1,17 +1,17 @@
 //! メールの送信とジョブのキューの結合テスト（本物のPostgreSQLと、テストの中の擬似SMTPサーバー）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::worker;
 use common::server::*;
 use common::smtp::*;
 use common::with_scratch;
+use yomi_server::worker;
 
 async fn job_rows(server: &Server) -> Vec<(i32, Option<String>, bool, bool)> {
     sqlx::query_as(
-        "SELECT attempts, last_error, failed_at IS NOT NULL, payload_enc IS NOT NULL FROM cms.jobs ORDER BY created_at",
+        "SELECT attempts, last_error, failed_at IS NOT NULL, payload_enc IS NOT NULL FROM yomi.jobs ORDER BY created_at",
     )
     .fetch_all(&server.pool)
     .await
@@ -46,7 +46,7 @@ async fn notifications_are_queued_encrypted_and_retried() {
         // パスワードの変更で通知が積まれる。中身は暗号化されている
         let new_password = "another long passphrase";
         change_password(&server, &s, PASSWORD, new_password).await;
-        let stored: Vec<u8> = sqlx::query_scalar("SELECT payload_enc FROM cms.jobs")
+        let stored: Vec<u8> = sqlx::query_scalar("SELECT payload_enc FROM yomi.jobs")
             .fetch_one(&server.pool)
             .await
             .unwrap();
@@ -66,7 +66,7 @@ async fn notifications_are_queued_encrypted_and_retried() {
             "{}",
             received[0]
         );
-        assert!(received[0].contains("From: CMS <cms@example.test>"));
+        assert!(received[0].contains("From: CMS <yomi@example.test>"));
         // 本文は符号化されて届くので、読める形にしてから確かめる
         let body = decoded_body(&received[0]);
         // 言語を設定していなければ、インスタンスの既定の言語（英語）だけで書く（Q198）
@@ -99,7 +99,7 @@ async fn notifications_are_queued_encrypted_and_retried() {
             !worker::run_once(&server.state).await.unwrap(),
             "must wait before retrying"
         );
-        sqlx::query("UPDATE cms.jobs SET run_at = now()")
+        sqlx::query("UPDATE yomi.jobs SET run_at = now()")
             .execute(&server.pool)
             .await
             .unwrap();

@@ -1,5 +1,5 @@
 {
-  "name": "@new-cms/admin",
+  "name": "@yomotsuhirasaka/admin",
   "version": "0.1.0",
   "private": true,
   "description": "CMSの管理画面（Nuxt の SPA。Rust のサーバーが /admin/ で配信する）",
@@ -17,8 +17,8 @@
   },
   "dependencies": {
     "@lucide/vue": "1.69.0",
-    "@new-cms/editor-schema": "0.1.0",
-    "@new-cms/preview": "0.1.0",
+    "@yomotsuhirasaka/editor-schema": "0.1.0",
+    "@yomotsuhirasaka/preview": "0.1.0",
     "@nuxtjs/i18n": "10.6.0",
     "@tiptap/core": "3.32.2",
     "@tiptap/pm": "3.32.2",

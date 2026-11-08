@@ -1,6 +1,6 @@
 //! 結合テストで共通に使う部品。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` にスーパーユーザーの接続先を渡すと、本物のPostgreSQLを使うテストを実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` にスーパーユーザーの接続先を渡すと、本物のPostgreSQLを使うテストを実行する。
 //! テストごとに使い捨てのロールとDBを作り、終わったら消す。
 #![allow(dead_code)]
 
@@ -9,11 +9,11 @@ pub mod mmdb;
 pub mod server;
 pub mod smtp;
 
-use cms_server::config::DatabaseConfig;
-use cms_server::db;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Executor, PgPool};
 use uuid::Uuid;
+use yomi_server::config::DatabaseConfig;
+use yomi_server::db;
 
 pub struct Scratch {
     pub superuser: PgPool,
@@ -36,7 +36,7 @@ fn host_port(url: &str) -> String {
 }
 
 pub fn superuser_url() -> Option<String> {
-    std::env::var("CMS_TEST_PG_SUPERUSER_URL")
+    std::env::var("YOMI_TEST_PG_SUPERUSER_URL")
         .ok()
         .filter(|s| !s.is_empty())
 }
@@ -95,7 +95,7 @@ impl Scratch {
                 self.database
             )))
             .await;
-        let roles: Vec<String> = sqlx::query_scalar("SELECT rolname::text FROM pg_roles WHERE rolname LIKE 'cms_ws_%' AND pg_has_role($1, oid, 'MEMBER')")
+        let roles: Vec<String> = sqlx::query_scalar("SELECT rolname::text FROM pg_roles WHERE rolname LIKE 'yomi_ws_%' AND pg_has_role($1, oid, 'MEMBER')")
             .bind(&self.migrate_role)
             .fetch_all(su)
             .await
@@ -128,13 +128,13 @@ impl Scratch {
 }
 
 /// 使い捨てのDBを用意して `body` を実行し、失敗しても後片付けをしてから失敗を伝える。
-/// `CMS_TEST_PG_SUPERUSER_URL` がなければ飛ばす。
+/// `YOMI_TEST_PG_SUPERUSER_URL` がなければ飛ばす。
 pub async fn with_scratch<F, Fut>(body: F)
 where
     F: FnOnce(DatabaseConfig, DatabaseConfig) -> Fut,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
-    with_scratch_at("CMS_TEST_PG_SUPERUSER_URL", &[], body).await
+    with_scratch_at("YOMI_TEST_PG_SUPERUSER_URL", &[], body).await
 }
 
 /// [`with_scratch`] と同じ。スーパーユーザーの接続先を環境変数 `var` から読み（なければ飛ばす）、

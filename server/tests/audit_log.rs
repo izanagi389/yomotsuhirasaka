@@ -1,6 +1,6 @@
 //! 監査ログの閲覧の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -14,7 +14,7 @@ fn parse(res: &Resp) -> Value {
 }
 
 async fn user_id(server: &Server, email: &str) -> String {
-    sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM cms.users WHERE email = $1")
+    sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM yomi.users WHERE email = $1")
         .bind(email)
         .fetch_one(&server.pool)
         .await

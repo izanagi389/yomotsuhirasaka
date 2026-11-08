@@ -180,7 +180,7 @@ async fn insert(
         csrf_token: token::generate(),
     };
     sqlx::query(
-        "INSERT INTO cms.sessions (id, user_id, token_hash, csrf_hash, expires_at, mfa_pending,
+        "INSERT INTO yomi.sessions (id, user_id, token_hash, csrf_hash, expires_at, mfa_pending,
                                    auth_method, reauth_method, csrf_handoff)
          VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5), $6, $7, $8, $9)",
     )
@@ -202,7 +202,7 @@ async fn insert(
 pub async fn resolve_mfa_pending(pool: &PgPool, presented: &str) -> Result<Option<(Uuid, Uuid)>> {
     Ok(sqlx::query_as(
         "SELECT s.id, s.user_id
-         FROM cms.sessions s JOIN cms.users u ON u.id = s.user_id
+         FROM yomi.sessions s JOIN yomi.users u ON u.id = s.user_id
          WHERE s.token_hash = $1 AND s.mfa_pending
            AND s.revoked_at IS NULL AND s.expires_at > now() AND NOT u.disabled",
     )
@@ -241,11 +241,11 @@ pub async fn resolve(
                 s.authenticated_at > now() - make_interval(secs => $3),
                 s.last_seen_at < now() - make_interval(secs => $4),
                 GREATEST(0, floor(extract(epoch FROM s.authenticated_at + make_interval(secs => $3) - now())))::bigint,
-                EXISTS (SELECT 1 FROM cms.passkeys pk WHERE pk.user_id = u.id),
+                EXISTS (SELECT 1 FROM yomi.passkeys pk WHERE pk.user_id = u.id),
                 s.auth_method = 'oidc',
                 s.reauth_method,
-                u.is_server_admin OR EXISTS (SELECT 1 FROM cms.memberships m WHERE m.user_id = u.id AND m.role = 'admin')
-         FROM cms.sessions s JOIN cms.users u ON u.id = s.user_id
+                u.is_server_admin OR EXISTS (SELECT 1 FROM yomi.memberships m WHERE m.user_id = u.id AND m.role = 'admin')
+         FROM yomi.sessions s JOIN yomi.users u ON u.id = s.user_id
          WHERE s.token_hash = $1
            AND NOT s.mfa_pending
            AND s.revoked_at IS NULL
@@ -282,7 +282,7 @@ pub async fn resolve(
     let reauth_fresh =
         authenticated_recently && sso_reauth_counts(sso, admin_anywhere, reauth_method.as_deref());
     if stale {
-        sqlx::query("UPDATE cms.sessions SET last_seen_at = now() WHERE id = $1")
+        sqlx::query("UPDATE yomi.sessions SET last_seen_at = now() WHERE id = $1")
             .bind(id)
             .execute(pool)
             .await?;
@@ -315,7 +315,7 @@ fn sso_reauth_counts(sso: bool, admin_anywhere: bool, reauth_method: Option<&str
 /// 本人確認をした時刻を、今にする（再認証）。`method` は本人確認の方法。
 pub async fn mark_reauthenticated(pool: &PgPool, session_id: Uuid, method: Method) -> Result<()> {
     sqlx::query(
-        "UPDATE cms.sessions SET authenticated_at = now(), reauth_method = $2
+        "UPDATE yomi.sessions SET authenticated_at = now(), reauth_method = $2
          WHERE id = $1 AND revoked_at IS NULL",
     )
     .bind(session_id)
@@ -330,7 +330,7 @@ pub async fn mark_reauthenticated(pool: &PgPool, session_id: Uuid, method: Metho
 pub async fn take_csrf_handoff(pool: &PgPool, session_id: Uuid) -> Result<Option<String>> {
     let csrf = token::generate();
     let done = sqlx::query(
-        "UPDATE cms.sessions SET csrf_hash = $2, csrf_handoff = false
+        "UPDATE yomi.sessions SET csrf_hash = $2, csrf_handoff = false
          WHERE id = $1 AND csrf_handoff AND revoked_at IS NULL AND expires_at > now()",
     )
     .bind(session_id)
@@ -343,7 +343,7 @@ pub async fn take_csrf_handoff(pool: &PgPool, session_id: Uuid) -> Result<Option
 /// セッションが有効か（失効・期限切れでない）。
 pub async fn is_active(pool: &PgPool, session_id: Uuid, user_id: Uuid) -> Result<bool> {
     Ok(sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM cms.sessions WHERE id = $1 AND user_id = $2
+        "SELECT EXISTS (SELECT 1 FROM yomi.sessions WHERE id = $1 AND user_id = $2
                         AND NOT mfa_pending AND revoked_at IS NULL AND expires_at > now())",
     )
     .bind(session_id)
@@ -354,7 +354,7 @@ pub async fn is_active(pool: &PgPool, session_id: Uuid, user_id: Uuid) -> Result
 
 /// セッションを失効させる。
 pub async fn revoke(pool: &PgPool, session_id: Uuid) -> Result<()> {
-    sqlx::query("UPDATE cms.sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL")
+    sqlx::query("UPDATE yomi.sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL")
         .bind(session_id)
         .execute(pool)
         .await?;
@@ -364,7 +364,7 @@ pub async fn revoke(pool: &PgPool, session_id: Uuid) -> Result<()> {
 /// Cookieで受け取ったセッションIDのセッションを失効させる（ログインの前に持っていたセッションなど）。
 pub async fn revoke_presented(pool: &PgPool, presented: &str) -> Result<()> {
     sqlx::query(
-        "UPDATE cms.sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL",
+        "UPDATE yomi.sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL",
     )
     .bind(token::digest(presented))
     .execute(pool)
@@ -375,7 +375,7 @@ pub async fn revoke_presented(pool: &PgPool, presented: &str) -> Result<()> {
 /// 本人のセッションを1つ失効させる。本人のものでなければ false。
 pub async fn revoke_own(pool: &PgPool, user_id: Uuid, session_id: Uuid) -> Result<bool> {
     let done = sqlx::query(
-        "UPDATE cms.sessions SET revoked_at = now()
+        "UPDATE yomi.sessions SET revoked_at = now()
          WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > now()",
     )
     .bind(session_id)
@@ -391,7 +391,7 @@ pub async fn revoke_others<'e>(
     user_id: Uuid,
     keep: Uuid,
 ) -> Result<()> {
-    sqlx::query("UPDATE cms.sessions SET revoked_at = now() WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL")
+    sqlx::query("UPDATE yomi.sessions SET revoked_at = now() WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL")
         .bind(user_id)
         .bind(keep)
         .execute(executor)
@@ -402,7 +402,7 @@ pub async fn revoke_others<'e>(
 /// 利用者のセッションをすべて失効させる（リセットの完了、緊急停止など）。
 pub async fn revoke_all<'e>(executor: impl PgExecutor<'e>, user_id: Uuid) -> Result<()> {
     sqlx::query(
-        "UPDATE cms.sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+        "UPDATE yomi.sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
     )
     .bind(user_id)
     .execute(executor)
@@ -434,7 +434,7 @@ pub async fn list_active(
                 to_char(created_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(last_seen_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(expires_at AT TIME ZONE 'UTC', {RFC3339})
-         FROM cms.sessions
+         FROM yomi.sessions
          WHERE user_id = $1 AND NOT mfa_pending AND revoked_at IS NULL AND expires_at > now()
            AND last_seen_at > now() - make_interval(secs => $2)
          ORDER BY created_at DESC"

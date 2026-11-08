@@ -1,17 +1,17 @@
 //! 回答キャッシュ（`answer::cache`）の照合の結合テスト。LLMの接続先は設定しない（回答の中身は約束のテスト
 //! `tests/invariants/answer-cache.test.ts` が擬似LLMで確かめる）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::answer::{Source, cache};
-use cms_server::schema::manifest::Manifest;
-use cms_server::workspace_db;
 use common::content::*;
 use common::server::*;
 use common::with_scratch;
 use serde_json::{Value, json};
+use yomi_server::answer::{Source, cache};
+use yomi_server::schema::manifest::Manifest;
+use yomi_server::workspace_db;
 
 fn parse(res: &Resp) -> Value {
     serde_json::from_str(&res.body).unwrap_or_else(|_| panic!("{}", res.body))

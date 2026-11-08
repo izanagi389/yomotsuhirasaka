@@ -5,12 +5,12 @@
 //   import せず、ブラウザや Node の機能（DOM など）にも頼らない。
 // - HTMLでは、本文中の文字列と属性の値をすべてエスケープする。カスタムノードの toHtml が返したHTMLはそのまま入れるので、
 //   出力は必ず無害化してから使う（サーバーは ammonia で無害化する。INV-CNV-01、13-security.md「本文」）。
-// - 画像は `cms-media:<メディアのID>` を参照先にして出す。配信のときに、その時点のメディアのURLに置き換える
+// - 画像は `yomi-media:<メディアのID>` を参照先にして出す。配信のときに、その時点のメディアのURLに置き換える
 //   （削除したメディアを出さないため。原則3）。
 /** 変換器の版。出力が変わる変更をしたら上げる（全記事の作り直しの判定に使う。Q58）。 */
 export const VERSION = "1";
 /** 画像の参照先の接頭辞。 */
-export const MEDIA_SCHEME = "cms-media:";
+export const MEDIA_SCHEME = "yomi-media:";
 const str = (v) => (typeof v === "string" ? v : v === undefined || v === null ? "" : String(v));
 // ---------------------------------------------------------------------------
 // HTML

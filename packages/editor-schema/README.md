@@ -1,4 +1,4 @@
-# @new-cms/editor-schema
+# @yomotsuhirasaka/editor-schema
 
 本文のノードの定義（Tiptapの拡張機能）です。`docs/decisions/02-schema-and-delivery-api.md`（Q57, Q142）のとおり、ノードの定義は Tiptap の拡張機能を正とし、次の2か所が同じものを使います。
 
@@ -16,12 +16,12 @@
 管理画面とCLIは、ビルドした `dist/` を使います（CLIは Node でそのまま動かすため）。
 
 ```sh
-npm run build -w @new-cms/editor-schema
+npm run build -w @yomotsuhirasaka/editor-schema
 ```
 
 ## テスト
 
 ```sh
-npm test -w @new-cms/editor-schema
-npm run typecheck -w @new-cms/editor-schema
+npm test -w @yomotsuhirasaka/editor-schema
+npm run typecheck -w @yomotsuhirasaka/editor-schema
 ```

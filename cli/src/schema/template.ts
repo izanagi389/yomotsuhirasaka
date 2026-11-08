@@ -1,11 +1,11 @@
 // テンプレートのファイル（templates/<テンプレート名>/template.json）を読み、デプロイのAPIが受け取るマニフェストにする（Q49, Q57）。
-// - 本文のノードとマークは、管理画面と同じTiptapの拡張機能（@new-cms/editor-schema）から書き出す。テンプレートには書かない
+// - 本文のノードとマークは、管理画面と同じTiptapの拡張機能（@yomotsuhirasaka/editor-schema）から書き出す。テンプレートには書かない
 // - 関数（URL生成関数・フック・カスタムノードの変換関数）は `{ "file": "./x.ts" }` と書き、ここでJSのソースにする（functions.ts）
 // - ここでの検査は早く知らせるためのもの。正しいかどうかはサーバーが決める（13-security.md「デプロイ」）
 
 import { readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { bodyDefinition, customNodeExtensions, standardExtensions, type CustomNodeDecl } from "@new-cms/editor-schema";
+import { bodyDefinition, customNodeExtensions, standardExtensions, type CustomNodeDecl } from "@yomotsuhirasaka/editor-schema";
 import { checkTemplateFunctions } from "./checks.js";
 import { TemplateError } from "./errors.js";
 import { bundleFunctions } from "./functions.js";

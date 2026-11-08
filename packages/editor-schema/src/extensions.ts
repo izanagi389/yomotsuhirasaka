@@ -4,10 +4,10 @@
 import type { AnyExtension } from "@tiptap/core";
 import { StarterKit } from "@tiptap/starter-kit";
 
-import { CmsEmbed, CmsImage, HeadingAnchors } from "./nodes.ts";
+import { YomiEmbed, YomiImage, HeadingAnchors } from "./nodes.ts";
 
 export interface StandardOptions {
-  /** 画像のノード（管理画面は、ノードビューを足した `CmsImage.extend(...)` を渡す）。 */
+  /** 画像のノード（管理画面は、ノードビューを足した `YomiImage.extend(...)` を渡す）。 */
   image?: AnyExtension;
   /** 埋め込みのノード。 */
   embed?: AnyExtension;
@@ -29,7 +29,7 @@ export function standardExtensions(options: StandardOptions = {}): AnyExtension[
       },
     }),
     HeadingAnchors,
-    options.image ?? CmsImage,
-    options.embed ?? CmsEmbed,
+    options.image ?? YomiImage,
+    options.embed ?? YomiEmbed,
   ];
 }

@@ -36,7 +36,7 @@ allow = [
 confidence-threshold = 0.8
 
 [licenses.private]
-# ワークスペースの中のクレート（cms-server。publish = false）はライセンスの検査から外さない
+# ワークスペースの中のクレート（yomi-server。publish = false）はライセンスの検査から外さない
 ignore = false
 
 [bans]

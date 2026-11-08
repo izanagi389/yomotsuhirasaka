@@ -28,7 +28,7 @@ use super::extract::AuthSession;
 use crate::auth::session::{self, Current};
 
 /// LISTEN/NOTIFY のチャンネル。
-const CHANNEL: &str = "cms_events";
+const CHANNEL: &str = "yomi_events";
 /// 1つのセッションの同時接続の上限。
 const MAX_CONNECTIONS_PER_SESSION: usize = 10;
 /// 画面から届く1通の大きさの上限。

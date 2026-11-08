@@ -1,6 +1,6 @@
 //! ログイン・セッション・再認証・パスワードの変更の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 //! 約束そのもの（INV-AUTH-*）は tests/invariants/ が外から確かめる。ここでは部品の振る舞いを細かく確かめる。
 
 mod common;
@@ -43,7 +43,7 @@ async fn login_me_csrf_logout() {
         assert_eq!(res.status, 200, "{}", res.body);
         assert_security_headers(&res);
         let cookie = res.set_cookies()[0].to_owned();
-        assert!(cookie.starts_with("__Host-cms_session="), "{cookie}");
+        assert!(cookie.starts_with("__Host-yomi_session="), "{cookie}");
         for attr in ["Path=/", "Secure", "HttpOnly", "SameSite=Strict"] {
             assert!(
                 cookie.split("; ").any(|a| a == attr),
@@ -180,13 +180,13 @@ async fn account_throttle_and_ip_limit() {
         assert_eq!(login_raw(&server, "carol@example.test", PASSWORD, "198.18.2.102").await.status, 200);
 
         // 待ち時間が明ければ入れる（DBの時刻を進める代わりに、待ち時間を過去にする）
-        sqlx::query("UPDATE cms.users SET login_blocked_until = now() - interval '1 second' WHERE email = 'bob@example.test'")
+        sqlx::query("UPDATE yomi.users SET login_blocked_until = now() - interval '1 second' WHERE email = 'bob@example.test'")
             .execute(&server.pool)
             .await
             .unwrap();
         assert_eq!(login_raw(&server, "bob@example.test", PASSWORD, "198.18.2.103").await.status, 200);
         // 成功すると失敗の記録は消える
-        let count: i32 = sqlx::query_scalar("SELECT failed_login_count FROM cms.users WHERE email = 'bob@example.test'")
+        let count: i32 = sqlx::query_scalar("SELECT failed_login_count FROM yomi.users WHERE email = 'bob@example.test'")
             .fetch_one(&server.pool)
             .await
             .unwrap();
@@ -276,7 +276,7 @@ async fn reauth_and_password_change() {
             "1qaz2wsx3edc",
             "dave@example.test!!",
             "i-am-dave-forever",
-            "cms.example.test-pw",
+            "yomi.example.test-pw",
         ] {
             let res = send(
                 &server,
@@ -351,8 +351,8 @@ async fn sessions_expire_and_can_be_listed_and_revoked() {
         let s = login(&short, "erin@example.test", PASSWORD).await;
         assert_eq!(get(&short, "/api/admin/me", &s).await.status, 200);
         let lifetime: f64 = sqlx::query_scalar(
-            "SELECT extract(epoch FROM expires_at - created_at)::float8 FROM cms.sessions
-             WHERE revoked_at IS NULL AND user_id = (SELECT id FROM cms.users WHERE email = 'erin@example.test')",
+            "SELECT extract(epoch FROM expires_at - created_at)::float8 FROM yomi.sessions
+             WHERE revoked_at IS NULL AND user_id = (SELECT id FROM yomi.users WHERE email = 'erin@example.test')",
         )
         .fetch_one(&short.pool)
         .await
@@ -367,14 +367,14 @@ async fn sessions_expire_and_can_be_listed_and_revoked() {
                     .unwrap();
             }
         };
-        set("UPDATE cms.sessions SET expires_at = now() - interval '1 second'").await;
+        set("UPDATE yomi.sessions SET expires_at = now() - interval '1 second'").await;
         assert_eq!(get(&short, "/api/admin/me", &s).await.status, 401);
 
         // 無操作の期限: 期限の内なら使え、過ぎると使えない
         let s = login(&short, "erin@example.test", PASSWORD).await;
-        set("UPDATE cms.sessions SET last_seen_at = now() - interval '30 seconds' WHERE revoked_at IS NULL AND expires_at > now()").await;
+        set("UPDATE yomi.sessions SET last_seen_at = now() - interval '30 seconds' WHERE revoked_at IS NULL AND expires_at > now()").await;
         assert_eq!(get(&short, "/api/admin/me", &s).await.status, 200);
-        set("UPDATE cms.sessions SET last_seen_at = now() - interval '61 seconds' WHERE revoked_at IS NULL AND expires_at > now()").await;
+        set("UPDATE yomi.sessions SET last_seen_at = now() - interval '61 seconds' WHERE revoked_at IS NULL AND expires_at > now()").await;
         assert_eq!(get(&short, "/api/admin/me", &s).await.status, 401);
 
         let server = start(config(&app, &migration)).await;
@@ -390,7 +390,7 @@ async fn sessions_expire_and_can_be_listed_and_revoked() {
 
         // 他人のセッションは失効させられない
         let franks: String = sqlx::query_scalar(
-            "SELECT s.id::text FROM cms.sessions s JOIN cms.users u ON u.id = s.user_id WHERE u.email = 'frank@example.test'",
+            "SELECT s.id::text FROM yomi.sessions s JOIN yomi.users u ON u.id = s.user_id WHERE u.email = 'frank@example.test'",
         )
         .fetch_one(&server.pool)
         .await
@@ -424,7 +424,7 @@ async fn disabled_users_cannot_log_in_or_use_sessions() {
         create_user(&server.pool, "gina@example.test", false).await;
         let s = login(&server, "gina@example.test", PASSWORD).await;
         // 管理APIができるまで、無効化はDBで直接行う（テストの準備のため）
-        sqlx::query("UPDATE cms.users SET disabled = true WHERE email = 'gina@example.test'")
+        sqlx::query("UPDATE yomi.users SET disabled = true WHERE email = 'gina@example.test'")
             .execute(&server.pool)
             .await
             .unwrap();
@@ -440,10 +440,10 @@ async fn disabled_users_cannot_log_in_or_use_sessions() {
 async fn create_server_admin_cli() {
     with_scratch(|app, migration| async move {
         let dir =
-            std::env::temp_dir().join(format!("cms-cli-test-{}", uuid::Uuid::new_v4().simple()));
+            std::env::temp_dir().join(format!("yomi-cli-test-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let key = dir.join("encryption.key");
-        std::fs::write(&key, cms_server::keys::generate_key_file()).unwrap();
+        std::fs::write(&key, yomi_server::keys::generate_key_file()).unwrap();
         let mut cfg = config(&app, &migration);
         cfg.trusted_proxies = Vec::new();
         cfg.encryption_key_file = Some(key);
@@ -451,7 +451,7 @@ async fn create_server_admin_cli() {
         std::fs::write(&path, toml::to_string(&cfg).unwrap()).unwrap();
 
         let run = |stdin: &str| {
-            let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cms-server"))
+            let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_yomi-server"))
                 .args(["create-server-admin", "--config"])
                 .arg(&path)
                 .args(["--email", "Root@Example.TEST", "--password-stdin"])

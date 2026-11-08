@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { TemplateError, loadTemplate, templateName, toManifest } from "./template.js";
 
 const template = {
-  $schema: "../../node_modules/@new-cms/cli/schema/template.schema.json",
+  $schema: "../../node_modules/@yomotsuhirasaka/cli/schema/template.schema.json",
   locales: ["ja", "en"],
   defaultLocale: "ja",
   body: { embedProviders: ["www.youtube.com"] },
@@ -48,14 +48,14 @@ test("body.nodes and body.marks are not written by hand", () => {
 test("the folder name is the template name", () => {
   assert.equal(templateName("templates/blog"), "blog");
   assert.throws(() => templateName("templates/Blog"), TemplateError);
-  const root = mkdtempSync(join(tmpdir(), "cms-template-"));
+  const root = mkdtempSync(join(tmpdir(), "yomi-template-"));
   const dir = join(root, "blog");
   mkdirSync(dir);
   writeFileSync(join(dir, "template.json"), JSON.stringify(template));
 });
 
 test("loadTemplate reads the folder", async () => {
-  const root = mkdtempSync(join(tmpdir(), "cms-template-"));
+  const root = mkdtempSync(join(tmpdir(), "yomi-template-"));
   const dir = join(root, "blog");
   mkdirSync(dir);
   writeFileSync(join(dir, "template.json"), JSON.stringify(template));

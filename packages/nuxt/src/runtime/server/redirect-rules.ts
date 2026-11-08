@@ -5,7 +5,7 @@
 // - 転送先が同じオリジンならパスに、違えば完全なURLのままにする
 // - 410（記事を削除した）は、転送先なしの「消えた」として持つ
 
-export interface CmsRedirect {
+export interface YomiRedirect {
   from: string;
   to: string | null;
   status: number;
@@ -25,7 +25,7 @@ export function normalizePath(path: string): string {
 }
 
 /** リダイレクト一覧を、サイトのパス → 規則 にする。 */
-export function toPathRules(redirects: CmsRedirect[], siteUrl: string): Map<string, PathRule> {
+export function toPathRules(redirects: YomiRedirect[], siteUrl: string): Map<string, PathRule> {
   const site = new URL(siteUrl);
   const out = new Map<string, PathRule>();
   for (const r of redirects) {

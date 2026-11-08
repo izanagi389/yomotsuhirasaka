@@ -43,20 +43,20 @@ const pathOf = (url: string) => new URL(url, "https://placeholder.invalid").path
 
 /** 取り込み先の新しいワークスペースと、取り込み用の個人トークン。 */
 async function importTarget(): Promise<{ workspaceId: string; session: Session; token: string }> {
-  const { cms, serverAdmin, serverAdminSession } = await world();
-  await cms.reauthenticate(serverAdminSession, serverAdmin);
-  const { id } = await cms.createWorkspace(serverAdminSession, `inv-import-${randomUUID().slice(0, 6)}`);
-  const admin = await cms.createMember(serverAdminSession, id, "admin");
-  const session = await cms.login(admin);
-  await cms.reauthenticate(session, admin);
-  const token = await cms.createPersonalToken(session, [id], { scopes: ["read", "write"] });
+  const { yomi, serverAdmin, serverAdminSession } = await world();
+  await yomi.reauthenticate(serverAdminSession, serverAdmin);
+  const { id } = await yomi.createWorkspace(serverAdminSession, `inv-import-${randomUUID().slice(0, 6)}`);
+  const admin = await yomi.createMember(serverAdminSession, id, "admin");
+  const session = await yomi.login(admin);
+  await yomi.reauthenticate(session, admin);
+  const token = await yomi.createPersonalToken(session, [id], { scopes: ["read", "write"] });
   return { workspaceId: id, session, token: token.secret };
 }
 
 async function runImport(target: { workspaceId: string; token: string }, sourceDir: string, extra: Partial<ImportOptions> = {}) {
-  const { cms } = await world();
+  const { yomi } = await world();
   const redirectOutput = join(sourceDir, `redirects-${randomUUID().slice(0, 6)}.json`);
-  const result = await driver.runImport(cms.baseUrl, {
+  const result = await driver.runImport(yomi.baseUrl, {
     sourceDir,
     workspaceId: target.workspaceId,
     token: target.token,
@@ -75,7 +75,7 @@ const doc = (label: string, locale = "ja", extra: Partial<SourceDoc> = {}): Sour
 };
 
 inv("inv_imp_01", "対応が設定されていない独自部品を含むMarkdownは、取り込み前にエラーで止まり、一部だけが取り込まれることはない", async () => {
-  const { cms } = await world();
+  const { yomi } = await world();
   const target = await importTarget();
   const plain1 = doc("imp01-a");
   const plain2 = doc("imp01-b");
@@ -84,26 +84,26 @@ inv("inv_imp_01", "対応が設定されていない独自部品を含むMarkdow
 
   const { result } = await runImport(target, source, { componentMap: {} });
   expect(result.exitCode, "対応のない独自部品があるのに、取り込みが成功した").not.toBe(0);
-  expect(await cms.listEntries(target.session, target.workspaceId), "一部の記事だけが取り込まれた").toEqual([]);
+  expect(await yomi.listEntries(target.session, target.workspaceId), "一部の記事だけが取り込まれた").toEqual([]);
 
   // 対照: 独自部品のないファイルだけなら取り込める
   const ok = await runImport(target, writeSource([plain1, plain2]), { componentMap: {} });
   expect(ok.result.exitCode, `独自部品のない取り込みが失敗した:\n${ok.result.output}`).toBe(0);
-  expect((await cms.listEntries(target.session, target.workspaceId)).length).toBe(2);
+  expect((await yomi.listEntries(target.session, target.workspaceId)).length).toBe(2);
 });
 
 inv("inv_imp_02", "取り込んだ記事の元のURLは、新しいURLとの対応としてURLの変更履歴に記録される", async () => {
-  const { cms } = await world();
+  const { yomi } = await world();
   const target = await importTarget();
   const docs = [doc("imp02-a"), doc("imp02-b", "en"), doc("imp02-c")];
   const { result } = await runImport(target, writeSource(docs));
   expect(result.exitCode, `取り込みが失敗した:\n${result.output}`).toBe(0);
 
-  const entries = await cms.listEntries(target.session, target.workspaceId);
+  const entries = await yomi.listEntries(target.session, target.workspaceId);
   for (const d of docs) {
     const entry = entries.find((e) => e.slug === d.slug);
     expect(entry, `${d.file} が取り込まれていない`).toBeDefined();
-    const history = await cms.getUrlHistory(target.session, target.workspaceId, entry!.id);
+    const history = await yomi.getUrlHistory(target.session, target.workspaceId, entry!.id);
     expect(history, `${d.file} の元のURLが変更履歴にない`).toContainEqual({ from: d.url, to: newUrl(d.locale, d.slug) });
   }
 });
@@ -124,7 +124,7 @@ inv(
   "inv_loc_05",
   "取り込みで翻訳グループにまとめた記事には、既定のロケールの記事（取り込みの設定で元の記事を指定した場合はその記事）を元の記事とし、取り込んだ時点の版を反映済みとする記録が残る（元の記事が決まらないグループは「元なし」）",
   async () => {
-    const { cms } = await world();
+    const { yomi } = await world();
     const target = await importTarget();
     expect(BASE_TEMPLATE.defaultLocale).toBe("ja");
     const key = () => `g-${randomUUID().slice(0, 8)}`;
@@ -146,12 +146,12 @@ inv(
 
     const { result } = await runImport(target, writeSource(all));
     expect(result.exitCode, `取り込みが失敗した:\n${result.output}`).toBe(0);
-    const entries = await cms.listEntries(target.session, target.workspaceId);
+    const entries = await yomi.listEntries(target.session, target.workspaceId);
     const idOf = (d: SourceDoc) => entries.find((e) => e.slug === d.slug)!.id;
-    const info = async (d: SourceDoc) => cms.getTranslationInfo(target.session, target.workspaceId, idOf(d));
+    const info = async (d: SourceDoc) => yomi.getTranslationInfo(target.session, target.workspaceId, idOf(d));
     /** 元の記事の、取り込んだ時点の版（取り込みの直後なので、唯一の版）。 */
     const importedVersion = async (d: SourceDoc) => {
-      const versions = await cms.listVersions(target.session, target.workspaceId, idOf(d));
+      const versions = await yomi.listVersions(target.session, target.workspaceId, idOf(d));
       expect(versions.length, `${d.file} の版の数`).toBe(1);
       return versions[0]!.id;
     };
@@ -184,7 +184,7 @@ inv(
       expect(i.reflectedSourceVersionId).toBe(await importedVersion(g3en));
     }
     expect((await info(g3en)).sourceEntryId).toBeNull();
-    expectSuccess(await cms.getEntryRaw(asSession(target.session), target.workspaceId, idOf(g3en)), "取り込んだ記事の取得");
+    expectSuccess(await yomi.getEntryRaw(asSession(target.session), target.workspaceId, idOf(g3en)), "取り込んだ記事の取得");
   },
   180_000,
 );

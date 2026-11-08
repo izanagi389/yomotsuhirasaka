@@ -97,7 +97,7 @@ pub async fn invite(
 
     // 既に所属していれば知らせる（所属者は管理者が一覧で見られるので、新しい情報は漏れない）
     let member: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM cms.memberships m JOIN cms.users u ON u.id = m.user_id
+        "SELECT EXISTS (SELECT 1 FROM yomi.memberships m JOIN yomi.users u ON u.id = m.user_id
                         WHERE m.workspace_id = $1 AND u.email = $2)",
     )
     .bind(ws)
@@ -109,7 +109,7 @@ pub async fn invite(
         return Err(already_member());
     }
     let workspace_name: String =
-        sqlx::query_scalar("SELECT name FROM cms.workspaces WHERE id = $1")
+        sqlx::query_scalar("SELECT name FROM yomi.workspaces WHERE id = $1")
             .bind(ws)
             .fetch_one(&state.pool)
             .await
@@ -137,7 +137,7 @@ pub async fn invite(
     // 宛先が既存の利用者で言語を設定していればその言語、なければインスタンスの既定の言語（Q198）。
     // メールの言語は招待した人には見えないので、相手が既存の利用者かどうかは漏れない
     let recipient_locale: Option<String> =
-        sqlx::query_scalar("SELECT locale FROM cms.users WHERE email = $1")
+        sqlx::query_scalar("SELECT locale FROM yomi.users WHERE email = $1")
             .bind(&email)
             .fetch_optional(&mut *tx)
             .await
@@ -264,7 +264,7 @@ pub async fn accept_as_new(
     };
     let user_id = Uuid::new_v4();
     let inserted = sqlx::query(
-        "INSERT INTO cms.users (id, email, password_hash, password_changed_at)
+        "INSERT INTO yomi.users (id, email, password_hash, password_changed_at)
          VALUES ($1, $2, $3, now())
          ON CONFLICT (email) DO NOTHING",
     )

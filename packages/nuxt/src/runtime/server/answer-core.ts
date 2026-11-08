@@ -8,10 +8,10 @@
 import { createHmac } from "node:crypto";
 
 import {
-  type CmsAnswer,
-  type CmsAnswerErrorCode,
-  type CmsAnswerEvent,
-  type CmsAnswerSource,
+  type YomiAnswer,
+  type YomiAnswerErrorCode,
+  type YomiAnswerEvent,
+  type YomiAnswerSource,
   MAX_QUESTION_CHARS,
   PASSED_ERROR_CODES,
   SseReader,
@@ -29,7 +29,7 @@ export interface AnswerTarget {
 export class AnswerRelayError extends Error {
   constructor(
     readonly status: number,
-    readonly code: CmsAnswerErrorCode,
+    readonly code: YomiAnswerErrorCode,
     readonly retryAfter?: number,
   ) {
     super(code);
@@ -59,7 +59,7 @@ export function visitorIdOf(ip: string, answerKey: string): string {
 }
 
 /** 出典の決まった項目だけを写す。 */
-function source(raw: unknown): CmsAnswerSource {
+function source(raw: unknown): YomiAnswerSource {
   const s = (raw ?? {}) as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === "string" ? v : null);
   return {
@@ -74,15 +74,15 @@ function source(raw: unknown): CmsAnswerSource {
     reviewExpired: s["reviewExpired"] === true,
   };
 }
-const sources = (raw: unknown): CmsAnswerSource[] => (Array.isArray(raw) ? raw.map(source) : []);
+const sources = (raw: unknown): YomiAnswerSource[] => (Array.isArray(raw) ? raw.map(source) : []);
 
 /** CMS のエラーのコードを、ブラウザに渡すコードにする。 */
-export function errorCode(code: unknown): CmsAnswerErrorCode {
+export function errorCode(code: unknown): YomiAnswerErrorCode {
   return PASSED_ERROR_CODES.find((c) => c === code) ?? "ANSWER_FAILED";
 }
 
 /** GraphQL の応答（`next` のイベントの data）を、ブラウザに渡すイベントにする。知らない形なら null。 */
-export function toEvent(payload: unknown): CmsAnswerEvent | null {
+export function toEvent(payload: unknown): YomiAnswerEvent | null {
   const p = (payload ?? {}) as { data?: { answerStream?: Record<string, unknown> | null } | null; errors?: unknown };
   if (Array.isArray(p.errors) && p.errors.length > 0) {
     const first = p.errors[0] as { extensions?: { code?: unknown } } | undefined;
@@ -91,12 +91,12 @@ export function toEvent(payload: unknown): CmsAnswerEvent | null {
   const e = p.data?.answerStream;
   if (!e) return null;
   switch (e["__typename"]) {
-    case "CmsAnswerVerdict":
+    case "YomiAnswerVerdict":
       return { type: "verdict", answerable: e["answerable"] === true, sources: sources(e["sources"]) };
-    case "CmsAnswerDelta":
+    case "YomiAnswerDelta":
       return typeof e["text"] === "string" ? { type: "delta", text: e["text"] } : null;
-    case "CmsAnswerFinal": {
-      const answer: CmsAnswer = {
+    case "YomiAnswerFinal": {
+      const answer: YomiAnswer = {
         status: (["ANSWERED", "NO_INFORMATION", "VIOLATION_DETECTED"] as const).find((s) => s === e["status"]) ?? "NO_INFORMATION",
         text: typeof e["text"] === "string" ? e["text"] : "",
         truncated: e["truncated"] === true,
@@ -110,7 +110,7 @@ export function toEvent(payload: unknown): CmsAnswerEvent | null {
 }
 
 /** ブラウザに送る SSE の1つのイベント（type 以外の項目を data に）。 */
-export function toSse(event: CmsAnswerEvent): string {
+export function toSse(event: YomiAnswerEvent): string {
   const { type, ...data } = event;
   return `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 }
@@ -125,7 +125,7 @@ export async function openAnswer(
   input: { question: string; locale: string; visitorId: string },
   signal: AbortSignal,
   fetchImpl: typeof fetch = fetch,
-): Promise<AsyncGenerator<CmsAnswerEvent>> {
+): Promise<AsyncGenerator<YomiAnswerEvent>> {
   const u = `${target.url.replace(/\/+$/, "")}/ws/${encodeURIComponent(target.workspaceId)}/graphql`;
   let res: Response;
   try {

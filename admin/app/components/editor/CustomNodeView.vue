@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 本文のカスタムノード（テンプレートの宣言から作ったもの）。カードの中に、宣言した属性の入力欄を型ごとに並べる。
 // 子のあるノードは、カードの中で子を編集できる。表示の見た目はサイト側が決めるので、ここでは入力だけを扱う（原則1）。
-import type { CustomAttrDecl, CustomNodeDecl } from "@new-cms/editor-schema";
+import type { CustomAttrDecl, CustomNodeDecl } from "@yomotsuhirasaka/editor-schema";
 import { NodeViewContent, NodeViewWrapper, nodeViewProps } from "@tiptap/vue-3";
 
 import { Input } from "@/components/ui/input";

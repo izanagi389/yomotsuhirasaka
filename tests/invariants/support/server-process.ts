@@ -6,7 +6,7 @@ import { chmodSync, copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CliResult, CmsClient, ServerConfig, StartedServer } from "./driver.js";
+import type { CliResult, YomiClient, ServerConfig, StartedServer } from "./driver.js";
 
 function requiredEnv(name: string): string {
   const v = process.env[name];
@@ -23,19 +23,19 @@ export function validServerConfigFromEnv(): ServerConfig {
     production: true,
     devMode: false,
     secrets: {
-      "database.password": requiredEnv("CMS_TEST_SERVER_DB_PASSWORD"),
-      "migration_database.password": requiredEnv("CMS_TEST_SERVER_MIGRATION_DB_PASSWORD"),
+      "database.password": requiredEnv("YOMI_TEST_SERVER_DB_PASSWORD"),
+      "migration_database.password": requiredEnv("YOMI_TEST_SERVER_MIGRATION_DB_PASSWORD"),
     },
-    encryptionKeyFile: requiredEnv("CMS_TEST_SERVER_KEY_FILE"),
-    databaseUrl: requiredEnv("CMS_TEST_SERVER_DB_URL"),
-    migrationDatabaseUrl: requiredEnv("CMS_TEST_SERVER_MIGRATION_DB_URL"),
-    publicUrl: requiredEnv("CMS_TEST_PUBLIC_URL"),
+    encryptionKeyFile: requiredEnv("YOMI_TEST_SERVER_KEY_FILE"),
+    databaseUrl: requiredEnv("YOMI_TEST_SERVER_DB_URL"),
+    migrationDatabaseUrl: requiredEnv("YOMI_TEST_SERVER_MIGRATION_DB_URL"),
+    publicUrl: requiredEnv("YOMI_TEST_PUBLIC_URL"),
     // テストの実行環境（受信サーバー・擬似IdPなど）を、外部への送信の例外として許す（README「テストの実行環境」）
-    internalDestinationExceptions: process.env["CMS_TEST_HARNESS_ALLOWED_IP"] ? [process.env["CMS_TEST_HARNESS_ALLOWED_IP"]] : [],
+    internalDestinationExceptions: process.env["YOMI_TEST_HARNESS_ALLOWED_IP"] ? [process.env["YOMI_TEST_HARNESS_ALLOWED_IP"]] : [],
     // 舞台に多要素認証のない所属者（編集者など）を作るため、全員への必須を無効にする（Q197）
     mfaRequiredForEveryone: false,
     // 擬似LLM（global-setup.ts が起動する。テストの実行環境のアドレスなので、上の例外で http も届く）
-    ...(process.env["CMS_TEST_MOCK_LLM_URL"] ? { llm: stageLlm(process.env["CMS_TEST_MOCK_LLM_URL"]) } : {}),
+    ...(process.env["YOMI_TEST_MOCK_LLM_URL"] ? { llm: stageLlm(process.env["YOMI_TEST_MOCK_LLM_URL"]) } : {}),
   };
 }
 
@@ -88,10 +88,10 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   lines.push("", "[migration_database]", `url = ${tomlString(migration.url)}`, `password = ${tomlString(migration.password)}`);
   if (config.loginAttemptsPerIpPerMinute !== undefined) lines.push("", "[limits]", `login_attempts_per_ip_per_minute = ${config.loginAttemptsPerIpPerMinute}`);
   // メールの送信: テスト環境の準備が起動したSMTPの受け手（ループバックなので暗号化なし）
-  const smtpPort = process.env["CMS_TEST_SMTP_PORT"];
-  if (smtpPort) lines.push("", "[smtp]", `host = "127.0.0.1"`, `port = ${Number(smtpPort)}`, `security = "none"`, `from = "CMS <cms@inv.test>"`);
-  // メディアの保存先: テストが調べるファイルシステムの範囲（CMS_TEST_FS_ROOT）の中に置く
-  lines.push("", "[media]", `root = ${tomlString(join(process.env["CMS_TEST_FS_ROOT"] ?? tmpdir(), "media"))}`);
+  const smtpPort = process.env["YOMI_TEST_SMTP_PORT"];
+  if (smtpPort) lines.push("", "[smtp]", `host = "127.0.0.1"`, `port = ${Number(smtpPort)}`, `security = "none"`, `from = "CMS <yomi@inv.test>"`);
+  // メディアの保存先: テストが調べるファイルシステムの範囲（YOMI_TEST_FS_ROOT）の中に置く
+  lines.push("", "[media]", `root = ${tomlString(join(process.env["YOMI_TEST_FS_ROOT"] ?? tmpdir(), "media"))}`);
   const session: string[] = [];
   if (config.sessionLifetimeSeconds !== undefined) session.push(`absolute_lifetime_seconds = ${config.sessionLifetimeSeconds}`);
   if (config.reauthWindowSeconds !== undefined) session.push(`reauth_window_seconds = ${config.reauthWindowSeconds}`);
@@ -103,16 +103,16 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (auth.length > 0 || config.breachedPasswordApi) lines.push("", "[auth]", ...auth);
   // 漏えいしたパスワードの照会（server/src/config.rs の BreachedPasswordsConfig）
   if (config.breachedPasswordApi) lines.push("", "[auth.breached_passwords]", `base_url = ${tomlString(config.breachedPasswordApi.baseUrl)}`);
-  // 外部のOIDC/SSO: 擬似IdP（support/oidc-idp.ts）を接続先にする（scripts/test-env/setup.sh が CMS_TEST_OIDC_* に書く）
-  const oidcIssuer = process.env["CMS_TEST_OIDC_ISSUER"];
+  // 外部のOIDC/SSO: 擬似IdP（support/oidc-idp.ts）を接続先にする（scripts/test-env/setup.sh が YOMI_TEST_OIDC_* に書く）
+  const oidcIssuer = process.env["YOMI_TEST_OIDC_ISSUER"];
   if (oidcIssuer) {
     lines.push(
       "",
       "[auth.oidc]",
       `issuer = ${tomlString(oidcIssuer)}`,
-      `client_id = ${tomlString(requiredEnv("CMS_TEST_OIDC_CLIENT_ID"))}`,
-      `client_secret = ${tomlString(requiredEnv("CMS_TEST_OIDC_CLIENT_SECRET"))}`,
-      `jit_domains = [${tomlString(requiredEnv("CMS_TEST_OIDC_JIT_DOMAIN"))}]`,
+      `client_id = ${tomlString(requiredEnv("YOMI_TEST_OIDC_CLIENT_ID"))}`,
+      `client_secret = ${tomlString(requiredEnv("YOMI_TEST_OIDC_CLIENT_SECRET"))}`,
+      `jit_domains = [${tomlString(requiredEnv("YOMI_TEST_OIDC_JIT_DOMAIN"))}]`,
     );
   }
   // 配信API: キーごとの上限は、用途（ビルド用・サーバー配信用）の両方に同じ値を使う
@@ -139,7 +139,7 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   if (config.internalDestinationExceptions.length > 0) {
     egress.push(`internal_destination_exceptions = [${config.internalDestinationExceptions.map(tomlString).join(", ")}]`);
   }
-  const harnessCa = process.env["CMS_TEST_HARNESS_TLS_CA"];
+  const harnessCa = process.env["YOMI_TEST_HARNESS_TLS_CA"];
   if (harnessCa) egress.push(`extra_ca_files = [${tomlString(harnessCa)}]`);
   if (egress.length > 0 || config.egressProxy) lines.push("", "[egress]", ...egress);
   if (config.egressProxy) lines.push("", "[egress.proxy]", `url = ${tomlString(config.egressProxy.url)}`);
@@ -196,12 +196,12 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   }
   // インスタンス全体の監査ログの書き出し先（server/src/config.rs の AuditExportConfig）。秘密はファイルに書いて渡す
   for (const hook of config.auditExportWebhooks ?? []) {
-    const secretFile = join(tmpdir(), `cms-audit-secret-${Math.random().toString(36).slice(2)}`);
+    const secretFile = join(tmpdir(), `yomi-audit-secret-${Math.random().toString(36).slice(2)}`);
     writeFileSync(secretFile, hook.secret, { mode: 0o600 });
     lines.push("", "[[audit_export.webhooks]]", `url = ${tomlString(hook.url)}`, `secret_file = ${tomlString(secretFile)}`);
   }
-  // 管理画面: ビルドした SPA（admin/.output/public。scripts/test-env/setup.sh が CMS_TEST_ADMIN_DIST に書く）
-  const adminDist = process.env["CMS_TEST_ADMIN_DIST"];
+  // 管理画面: ビルドした SPA（admin/.output/public。scripts/test-env/setup.sh が YOMI_TEST_ADMIN_DIST に書く）
+  const adminDist = process.env["YOMI_TEST_ADMIN_DIST"];
   if (adminDist) lines.push("", "[admin]", `dist_dir = ${tomlString(adminDist)}`);
   lines.push("");
   return lines.join("\n");
@@ -218,9 +218,9 @@ async function freePort(): Promise<number> {
   });
 }
 
-export async function startServerProcess(config: ServerConfig, connect: (baseUrl: string) => CmsClient, timeoutMs = 60_000): Promise<StartedServer> {
-  const bin = requiredEnv("CMS_TEST_SERVER_BIN");
-  const dir = mkdtempSync(join(tmpdir(), "cms-server-"));
+export async function startServerProcess(config: ServerConfig, connect: (baseUrl: string) => YomiClient, timeoutMs = 60_000): Promise<StartedServer> {
+  const bin = requiredEnv("YOMI_TEST_SERVER_BIN");
+  const dir = mkdtempSync(join(tmpdir(), "yomi-server-"));
   const port = await freePort();
   const listen = `127.0.0.1:${port}`;
   const configPath = join(dir, "config.toml");
@@ -264,7 +264,7 @@ export async function startServerProcess(config: ServerConfig, connect: (baseUrl
   }
   if (outcome === "exited") await exitPromise;
 
-  let client: CmsClient | null = null;
+  let client: YomiClient | null = null;
   return {
     outcome,
     get exitCode() {
@@ -292,8 +292,8 @@ export async function startServerProcess(config: ServerConfig, connect: (baseUrl
 
 /** サーバーのバイナリのサブコマンド（緊急停止などのCLI）を、設定ファイルを書き出して実行する。 */
 export async function runServerCli(config: ServerConfig, args: string[], timeoutMs = 120_000): Promise<CliResult> {
-  const bin = requiredEnv("CMS_TEST_SERVER_BIN");
-  const dir = mkdtempSync(join(tmpdir(), "cms-cli-"));
+  const bin = requiredEnv("YOMI_TEST_SERVER_BIN");
+  const dir = mkdtempSync(join(tmpdir(), "yomi-cli-"));
   const configPath = join(dir, "config.toml");
   // CLIは待ち受けないが、設定ファイルには必要
   writeFileSync(configPath, renderConfig(config, "127.0.0.1:0"), { mode: 0o600 });
@@ -335,7 +335,7 @@ function keyVersions(path: string): number[] {
  */
 export async function rotateEncryptionKeyWithCli(config: ServerConfig): Promise<{ config: ServerConfig; result: CliResult }> {
   if (config.encryptionKeyFile === null) throw new Error("暗号化の鍵のファイルが設定されていません");
-  const dir = mkdtempSync(join(tmpdir(), "cms-key-"));
+  const dir = mkdtempSync(join(tmpdir(), "yomi-key-"));
   const keyFile = join(dir, "encryption.key");
   copyFileSync(config.encryptionKeyFile, keyFile);
   chmodSync(keyFile, 0o600);
@@ -348,7 +348,7 @@ export async function rotateEncryptionKeyWithCli(config: ServerConfig): Promise<
   let output = "";
   for (const step of steps) {
     const r = await runServerCli(next, step);
-    output += `$ cms-server ${step.join(" ")}\n${r.output}\n`;
+    output += `$ yomi-server ${step.join(" ")}\n${r.output}\n`;
     if (r.exitCode !== 0) return { config: next, result: { exitCode: r.exitCode, output } };
   }
   return { config: next, result: { exitCode: 0, output } };

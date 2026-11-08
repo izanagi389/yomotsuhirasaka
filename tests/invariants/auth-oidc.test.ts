@@ -30,9 +30,9 @@ inv(
   "OIDCのIDトークンで `email_verified` が確認できない場合、アカウントの作成も既存のアカウントへのひも付けも行われない",
   async () => {
     const w = await world();
-    const { cms } = w;
-    const listUsers = cms.adminOperations.find((o) => o.name === "listUsers")!;
-    const listMyIdentities = cms.adminOperations.find((o) => o.name === "listMyIdentities")!;
+    const { yomi } = w;
+    const listUsers = yomi.adminOperations.find((o) => o.name === "listUsers")!;
+    const listMyIdentities = yomi.adminOperations.find((o) => o.name === "listMyIdentities")!;
     const anyTarget = { workspaceId: w.a.id, entryId: w.a.entryId, userId: w.a.editor.userId, apiKeyId: w.a.readKey.id };
 
     await withIdp(async (idp) => {
@@ -40,22 +40,22 @@ inv(
       for (const verified of [false, undefined]) {
         const email = jitEmail("unverified");
         idp.setNextLogin({ sub: sub(), email, email_verified: verified });
-        const attempt = await cms.loginWithOidcRaw();
-        expectRejected(await cms.meRaw(asSession(attempt.session)), `email_verified=${String(verified)} でのSSOログイン後の本人情報の取得`);
-        await cms.reauthenticate(w.serverAdminSession, w.serverAdmin);
+        const attempt = await yomi.loginWithOidcRaw();
+        expectRejected(await yomi.meRaw(asSession(attempt.session)), `email_verified=${String(verified)} でのSSOログイン後の本人情報の取得`);
+        await yomi.reauthenticate(w.serverAdminSession, w.serverAdmin);
         const users = await listUsers.call(asSession(w.serverAdminSession), anyTarget);
         expectSuccess(users, "利用者の一覧");
         expectNotLeaked(users, email, `email_verified=${String(verified)} でのSSOログインの後の利用者の一覧`);
       }
 
       // 既存のアカウントと同じメールアドレスでも、email_verified が確認できなければひも付けない
-      const existing = await cms.createMember(w.a.adminSession, w.a.id, "editor", { email: jitEmail("existing") });
+      const existing = await yomi.createMember(w.a.adminSession, w.a.id, "editor", { email: jitEmail("existing") });
       for (const verified of [false, undefined]) {
         const attackerSub = sub();
         idp.setNextLogin({ sub: attackerSub, email: existing.email, email_verified: verified });
-        const attempt = await cms.loginWithOidcRaw();
-        expectRejected(await cms.meRaw(asSession(attempt.session)), `既存のアカウントのメールアドレス・email_verified=${String(verified)} でのSSOログイン`);
-        const identities = await listMyIdentities.call(asSession(await cms.login(existing)), anyTarget);
+        const attempt = await yomi.loginWithOidcRaw();
+        expectRejected(await yomi.meRaw(asSession(attempt.session)), `既存のアカウントのメールアドレス・email_verified=${String(verified)} でのSSOログイン`);
+        const identities = await listMyIdentities.call(asSession(await yomi.login(existing)), anyTarget);
         expectSuccess(identities, "既存のアカウントのひも付けの一覧");
         expectNotLeaked(identities, attackerSub, "既存のアカウントのひも付けの一覧");
       }
@@ -63,8 +63,8 @@ inv(
       // 対照: email_verified が真で、ドメインが一致すればJITでアカウントが作られる
       const email = jitEmail("verified");
       idp.setNextLogin({ sub: sub(), email, email_verified: true });
-      const ok = await cms.loginWithOidcRaw();
-      expectSuccess(await cms.meRaw(asSession(ok.session)), "email_verified=true でのSSOログイン");
+      const ok = await yomi.loginWithOidcRaw();
+      expectSuccess(await yomi.meRaw(asSession(ok.session)), "email_verified=true でのSSOログイン");
       expect(idp.tokenRequests.at(-1)?.pkceVerified, "PKCEが使われていない").toBe(true);
     });
   },

@@ -1,6 +1,6 @@
 //! 取り込みのAPIの結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -98,7 +98,7 @@ async fn importing_is_all_or_nothing_and_records_urls_and_sources() {
         let b = parse(&get(&server, &format!("{entries}/{}/translation", id("b.en.md")), &editor).await);
         assert!(b["sourceEntryId"].is_null());
         assert_ne!(b["groupId"], ja["groupId"]);
-        let audited: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE workspace_id = $1 AND action = 'entry.imported'")
+        let audited: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE workspace_id = $1 AND action = 'entry.imported'")
             .bind(ws)
             .fetch_one(&server.pool)
             .await

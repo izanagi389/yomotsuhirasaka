@@ -15,14 +15,14 @@ use crate::schema::manifest::Manifest;
 
 /// CMSが使う型の名前。
 pub const QUERY_TYPE: &str = "Query";
-pub const JSON_SCALAR: &str = "CmsJSON";
-pub const ALTERNATE_TYPE: &str = "CmsAlternate";
-pub const REDIRECT_TYPE: &str = "CmsRedirect";
+pub const JSON_SCALAR: &str = "YomiJSON";
+pub const ALTERNATE_TYPE: &str = "YomiAlternate";
+pub const REDIRECT_TYPE: &str = "YomiRedirect";
 /// CMSが置くルートのフィールド（リダイレクト一覧）。コンテンツタイプから決まる名前とぶつけない。
 pub const REDIRECTS_FIELD: &str = "redirects";
-pub const CORRECTION_TYPE: &str = "CmsCorrection";
-pub const DELETED_ANCHOR_TYPE: &str = "CmsDeletedAnchor";
-pub const CORRECTION_FEED_ITEM_TYPE: &str = "CmsCorrectionFeedItem";
+pub const CORRECTION_TYPE: &str = "YomiCorrection";
+pub const DELETED_ANCHOR_TYPE: &str = "YomiDeletedAnchor";
+pub const CORRECTION_FEED_ITEM_TYPE: &str = "YomiCorrectionFeedItem";
 /// CMSが置くルートのフィールド（訂正フィード）。記事の型の訂正履歴のフィールドも同じ名前。
 pub const CORRECTIONS_FIELD: &str = "corrections";
 
@@ -33,28 +33,28 @@ pub const AI_TRAINING_OPT_OUTS_FIELD: &str = "aiTrainingOptOuts";
 pub const AI_MARKDOWN_BY_URL_FIELD: &str = "aiMarkdownByUrl";
 /// サイト内検索（M3、08-search-and-related.md）。
 pub const SEARCH_FIELD: &str = "search";
-pub const SEARCH_RESULT_TYPE: &str = "CmsSearchResult";
-pub const SEARCH_HIT_TYPE: &str = "CmsSearchHit";
-pub const SEARCH_AVAILABILITY_TYPE: &str = "CmsSearchAvailability";
-pub const SEARCH_MODE_TYPE: &str = "CmsSearchMode";
-pub const SEARCH_MATCH_TYPE: &str = "CmsSearchMatch";
+pub const SEARCH_RESULT_TYPE: &str = "YomiSearchResult";
+pub const SEARCH_HIT_TYPE: &str = "YomiSearchHit";
+pub const SEARCH_AVAILABILITY_TYPE: &str = "YomiSearchAvailability";
+pub const SEARCH_MODE_TYPE: &str = "YomiSearchMode";
+pub const SEARCH_MATCH_TYPE: &str = "YomiSearchMatch";
 /// 回答API（M4、09-qa-chatbot.md）。まとめて返す Query のフィールドと、判定先行のストリーミングの Subscription のフィールド。
 pub const ANSWER_FIELD: &str = "answer";
 pub const ANSWER_STREAM_FIELD: &str = "answerStream";
 /// 回答のフィールドの、訪問者の識別子の引数（訪問者ごとの回数制限。13-security.md「チャットボットへの悪用」）。
 pub const VISITOR_ID_ARG: &str = "visitorId";
 pub const SUBSCRIPTION_TYPE: &str = "Subscription";
-pub const ANSWER_TYPE: &str = "CmsAnswer";
-pub const ANSWER_STATUS_TYPE: &str = "CmsAnswerStatus";
-pub const ANSWER_SOURCE_TYPE: &str = "CmsAnswerSource";
-pub const ANSWER_EVENT_TYPE: &str = "CmsAnswerEvent";
-pub const ANSWER_VERDICT_TYPE: &str = "CmsAnswerVerdict";
-pub const ANSWER_DELTA_TYPE: &str = "CmsAnswerDelta";
-pub const ANSWER_FINAL_TYPE: &str = "CmsAnswerFinal";
+pub const ANSWER_TYPE: &str = "YomiAnswer";
+pub const ANSWER_STATUS_TYPE: &str = "YomiAnswerStatus";
+pub const ANSWER_SOURCE_TYPE: &str = "YomiAnswerSource";
+pub const ANSWER_EVENT_TYPE: &str = "YomiAnswerEvent";
+pub const ANSWER_VERDICT_TYPE: &str = "YomiAnswerVerdict";
+pub const ANSWER_DELTA_TYPE: &str = "YomiAnswerDelta";
+pub const ANSWER_FINAL_TYPE: &str = "YomiAnswerFinal";
 /// 記事の型のCMSのフィールド（関連記事。M3）。テンプレートのフィールド名（英小文字・数字・_）とはぶつからない。
 pub const RELATED_ENTRIES_FIELD: &str = "relatedEntries";
-pub const RELATED_ENTRY_TYPE: &str = "CmsRelatedEntry";
-pub const AI_CATALOG_ITEM_TYPE: &str = "CmsAiCatalogItem";
+pub const RELATED_ENTRY_TYPE: &str = "YomiRelatedEntry";
+pub const AI_CATALOG_ITEM_TYPE: &str = "YomiAiCatalogItem";
 /// 記事の型のCMSのフィールド（AI向けのMarkdown版）。本文のフィールド `ai` の `aiMarkdown` とぶつかる。
 pub const AI_MARKDOWN_FIELD: &str = "aiMarkdown";
 
@@ -122,7 +122,7 @@ pub fn problems(m: &Manifest) -> Vec<String> {
     ]);
     for (i, ct) in m.content_types.iter().enumerate() {
         let t = type_name(&ct.name);
-        if RESERVED_TYPES.contains(&t.as_str()) || t.starts_with("Cms") || !types.insert(t) {
+        if RESERVED_TYPES.contains(&t.as_str()) || t.starts_with("Yomi") || !types.insert(t) {
             problems.push(format!(
                 "contentTypes[{i}].name: the GraphQL type name derived from it is reserved or used by another content type"
             ));

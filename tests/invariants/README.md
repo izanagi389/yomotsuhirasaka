@@ -113,12 +113,12 @@ inv("inv_ten_06", "サーバー管理者以外は、ワークスペースを作�
 
 | 環境変数 | 内容 |
 |---|---|
-| `CMS_TEST_URL` | 本番の設定で起動したCMS（HTTPS）。`support/template.ts` の `BASE_TEMPLATE` をデプロイ済み |
-| `CMS_TEST_SERVER_ADMIN_EMAIL` ・`_PASSWORD` ・`_TOTP_SECRET` | 初期化で作ったサーバー管理者（多要素認証を設定済み） |
-| `CMS_TEST_DB_APP_URL` | CMSが普段の処理に使うのと同じDBの接続先 |
-| `CMS_TEST_DB_SUPERUSER_URL` | DBのスーパーユーザー。テーブルの一覧を調べることと、スーパーユーザーで起動しないことの確認にだけ使う |
-| `CMS_TEST_PG15_URL` ・`CMS_TEST_PG15_MIGRATION_URL` | PostgreSQL 15 の普段用と移行用の接続先（それぞれ、スーパーユーザーでないロールと、CREATEROLE を持つロール）。16より古いDBで起動しないことの確認用 |
-| `CMS_TEST_FS_ROOT` | CMSのメディアの保存先を含む上位のディレクトリ（テストの実行環境からも見えるようにマウントする） |
+| `YOMI_TEST_URL` | 本番の設定で起動したCMS（HTTPS）。`support/template.ts` の `BASE_TEMPLATE` をデプロイ済み |
+| `YOMI_TEST_SERVER_ADMIN_EMAIL` ・`_PASSWORD` ・`_TOTP_SECRET` | 初期化で作ったサーバー管理者（多要素認証を設定済み） |
+| `YOMI_TEST_DB_APP_URL` | CMSが普段の処理に使うのと同じDBの接続先 |
+| `YOMI_TEST_DB_SUPERUSER_URL` | DBのスーパーユーザー。テーブルの一覧を調べることと、スーパーユーザーで起動しないことの確認にだけ使う |
+| `YOMI_TEST_PG15_URL` ・`YOMI_TEST_PG15_MIGRATION_URL` | PostgreSQL 15 の普段用と移行用の接続先（それぞれ、スーパーユーザーでないロールと、CREATEROLE を持つロール）。16より古いDBで起動しないことの確認用 |
+| `YOMI_TEST_FS_ROOT` | CMSのメディアの保存先を含む上位のディレクトリ（テストの実行環境からも見えるようにマウントする） |
 
 ### テストの実行環境（ハーネス）
 
@@ -126,13 +126,13 @@ inv("inv_ten_06", "サーバー管理者以外は、ワークスペースを作�
 
 | 環境変数 | 内容 |
 |---|---|
-| `CMS_TEST_HARNESS_ALLOWED_HOST` ・`_ALLOWED_IP` | CMSの外部への送信の例外として許可しておく、テストの実行環境のホスト名とIPアドレス（例外にはIPアドレスで登録し、HTTPも許す） |
-| `CMS_TEST_HARNESS_BLOCKED_HOST` | テストの実行環境のもう1つのIPアドレス。例外に入れない（内部向けのアドレスとして拒否されるべき宛先） |
-| `CMS_TEST_HARNESS_DNS_PORT` | テストの実行環境のDNSサーバーのUDPのポート。CMSは `inv.test` のゾーンをこのDNSサーバーに問い合わせるようにする（他の名前は通常どおり） |
-| `CMS_TEST_HARNESS_TLS_CERT` ・`_KEY` | `*.inv.test` に有効な証明書と鍵。CMSはこの証明書のCAを信頼する |
-| `CMS_TEST_HARNESS_TLS_CA` | 上の証明書のCA。ドライバーが、CMSの設定の `[egress] extra_ca_files` に入れる |
-| `CMS_TEST_OIDC_PORT` ・`_ISSUER` ・`_CLIENT_ID` ・`_CLIENT_SECRET` | 擬似IdP。CMSにはこの発行者をOIDCの接続先として設定する |
-| `CMS_TEST_OIDC_JIT_DOMAIN` | JIT（自動作成）を有効にするドメイン |
+| `YOMI_TEST_HARNESS_ALLOWED_HOST` ・`_ALLOWED_IP` | CMSの外部への送信の例外として許可しておく、テストの実行環境のホスト名とIPアドレス（例外にはIPアドレスで登録し、HTTPも許す） |
+| `YOMI_TEST_HARNESS_BLOCKED_HOST` | テストの実行環境のもう1つのIPアドレス。例外に入れない（内部向けのアドレスとして拒否されるべき宛先） |
+| `YOMI_TEST_HARNESS_DNS_PORT` | テストの実行環境のDNSサーバーのUDPのポート。CMSは `inv.test` のゾーンをこのDNSサーバーに問い合わせるようにする（他の名前は通常どおり） |
+| `YOMI_TEST_HARNESS_TLS_CERT` ・`_KEY` | `*.inv.test` に有効な証明書と鍵。CMSはこの証明書のCAを信頼する |
+| `YOMI_TEST_HARNESS_TLS_CA` | 上の証明書のCA。ドライバーが、CMSの設定の `[egress] extra_ca_files` に入れる |
+| `YOMI_TEST_OIDC_PORT` ・`_ISSUER` ・`_CLIENT_ID` ・`_CLIENT_SECRET` | 擬似IdP。CMSにはこの発行者をOIDCの接続先として設定する |
+| `YOMI_TEST_OIDC_JIT_DOMAIN` | JIT（自動作成）を有効にするドメイン |
 
 - 回数制限が他のテストに波及しないよう、テストの実行環境を「信頼するプロキシ」として設定し、テストごとに `X-Forwarded-For` で別の接続元を名乗る（Q106）。
 - メールはSMTPの受け手（Mailpitなど）で受け、ドライバーの `mail` で読む。
@@ -140,8 +140,8 @@ inv("inv_ten_06", "サーバー管理者以外は、ワークスペースを作�
 - 自己署名の証明書を使う場合は、`NODE_EXTRA_CA_CERTS` でCAの証明書を渡す。
 - `scripts/test-env/setup.sh` が、ハーネスの環境変数（例外として許す宛先 `127.0.0.1`、許さない内部のアドレス `127.0.0.2`、DNSのポート `5354`、TLSのCAと証明書）も書き出す。
 - PostgreSQL 16 には pgvector が入っていること（CI は `pgvector/pgvector:pg16`）。`scripts/test-env/setup.sh` と `driver.createIsolatedInstance` が、スーパーユーザーで拡張 `vector` を作る。日本語のキーワード検索の拡張（pg_bigm）は入れない（INV-SRC-05）。
-- 擬似LLMは、ハーネスがビルド済みの `tools/mock-llm/dist/main.js`（`npm run build -w @new-cms/mock-llm`）を別のプロセスとして起動し、`CMS_TEST_MOCK_LLM_URL`（OpenAI互換の `…/v1`）に入れる。別の場所なら `CMS_TEST_MOCK_LLM_BIN` で指定する。外で用意したCMS（`CMS_TEST_URL`）を使うときは、`CMS_TEST_MOCK_LLM_URL` も渡す。
-- 取り込みのテストは、ビルド済みの取り込みのCLI（`cli/dist/index.js`。`cd cli && npm ci && npm run build`）を実行する。別の場所なら `CMS_TEST_CLI_BIN` で指定する。
+- 擬似LLMは、ハーネスがビルド済みの `tools/mock-llm/dist/main.js`（`npm run build -w @yomotsuhirasaka/mock-llm`）を別のプロセスとして起動し、`YOMI_TEST_MOCK_LLM_URL`（OpenAI互換の `…/v1`）に入れる。別の場所なら `YOMI_TEST_MOCK_LLM_BIN` で指定する。外で用意したCMS（`YOMI_TEST_URL`）を使うときは、`YOMI_TEST_MOCK_LLM_URL` も渡す。
+- 取り込みのテストは、ビルド済みの取り込みのCLI（`cli/dist/index.js`。`cd cli && npm ci && npm run build`）を実行する。別の場所なら `YOMI_TEST_CLI_BIN` で指定する。
 - `inv.test` の名前解決は、`scripts/test-env/harness-dns.sh`（root）で、`127.0.0.1:53` の dnsmasq からテストのDNSサーバーへ回す。CMSはOSの名前解決をそのまま使う。
 
 ## 実行

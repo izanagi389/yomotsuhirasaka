@@ -98,7 +98,7 @@ impl Me {
     pub(super) async fn load(state: &AppState, c: &session::Current) -> Result<Self, ApiError> {
         let mut me = Self::new(state, c);
         let names: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-            "SELECT display_name, display_name_suggestion FROM cms.users WHERE id = $1",
+            "SELECT display_name, display_name_suggestion FROM yomi.users WHERE id = $1",
         )
         .bind(c.user_id)
         .fetch_optional(&state.pool)
@@ -121,7 +121,7 @@ fn session_cookie(token: &str, max_age: u32) -> HeaderValue {
 
 fn clear_session_cookie() -> HeaderValue {
     HeaderValue::from_static(
-        "__Host-cms_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict",
+        "__Host-yomi_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict",
     )
 }
 
@@ -481,7 +481,7 @@ pub async fn update_me(
             .map(|l| l.parse())
             .transpose()
             .map_err(|()| ApiError::bad_request("`locale` must be \"en\", \"ja\" or null."))?;
-        sqlx::query("UPDATE cms.users SET locale = $2 WHERE id = $1")
+        sqlx::query("UPDATE yomi.users SET locale = $2 WHERE id = $1")
             .bind(updated.user_id)
             .bind(locale.map(Locale::as_str))
             .execute(&state.pool)
@@ -497,7 +497,7 @@ pub async fn update_me(
         })?;
         let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
         let changed = sqlx::query(
-            "UPDATE cms.users SET display_name = $2, display_name_suggestion = NULL
+            "UPDATE yomi.users SET display_name = $2, display_name_suggestion = NULL
              WHERE id = $1 AND display_name IS DISTINCT FROM $2",
         )
         .bind(updated.user_id)
@@ -715,7 +715,7 @@ pub async fn list_identities(
         r#"SELECT id, issuer,
                   to_char(linked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
                   to_char(last_login_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-           FROM cms.external_identities WHERE user_id = $1 ORDER BY linked_at"#,
+           FROM yomi.external_identities WHERE user_id = $1 ORDER BY linked_at"#,
     )
     .bind(current.user_id)
     .fetch_all(&state.pool)
