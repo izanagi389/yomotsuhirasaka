@@ -32,3 +32,8 @@ updates:
       directory: /deploy
       schedule:
           interval: weekly
+      ignore:
+          # Node の大きな版は、長期サポート（LTS）の版を選んで、CI・イメージ・確認用の環境をそろえて手で上げる
+          # （奇数の版は LTS にならないため。2026-11-08）
+          - dependency-name: node
+            update-types: ["version-update:semver-major"]
