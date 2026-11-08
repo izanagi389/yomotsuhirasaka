@@ -2,7 +2,7 @@
 # ビルドの文脈はリポジトリのルート（deploy/docker-compose.yml の build.context）。
 
 # 管理画面（Nuxt の SPA）。静的なファイルにしてサーバーのイメージに入れる。本番で Node.js は動かさない
-FROM node:22-trixie-slim AS admin
+FROM node:26-trixie-slim AS admin
 WORKDIR /src
 # ルートの npm workspaces（管理画面と、共有パッケージ）
 COPY package.json package-lock.json ./
