@@ -19,7 +19,7 @@ COPY admin ./admin
 WORKDIR /src/admin
 RUN npx nuxt prepare && npm run generate
 
-FROM rust:1.97-slim-trixie AS build
+FROM rust:1.98-slim-trixie AS build
 # パスキーの照合（webauthn-rs）が OpenSSL を使う
 RUN apt-get update -q && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
