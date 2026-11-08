@@ -9,6 +9,7 @@
 //! - 記録の時刻はトランザクションの中で決まるので、確定が前後しても取りこぼさないよう、5秒より前の記録だけを送る。
 //! - 1行は `audit::line` の形（内容は入らない。INV-AUD-01）。Webhook は `application/x-ndjson` で、記事の Webhook と同じ
 //!   形式の署名を付ける（署名のIDは、まとめて送る最初の記録のID。やり直しても変わらない）。
+//! - 止まったら、ログと監査ログ（管理者への通知）に残す。設定ファイルの書き出し先は `yomi-server resume-audit-export` で再開する。
 //! - 7日間続けて送れなければ「停止」にする。停止した書き出し先は飛ばし、管理者が再開するまで送らない。
 //! - Webhook の送信は、外部への送信の共通の仕組み（egress）だけを通す。
 
@@ -211,16 +212,19 @@ const ADVANCE_WORKSPACE: &str = "UPDATE yomi.audit_sinks
 const FAIL_INSTANCE: &str = "UPDATE yomi.audit_export_cursors
      SET failing_since = COALESCE(failing_since, now()), last_error = $2, last_attempt_at = now(),
          stopped_at = CASE WHEN COALESCE(failing_since, now()) < now() - make_interval(secs => $3) THEN now() END
-     WHERE sink_key = $1";
+     WHERE sink_key = $1
+     RETURNING stopped_at IS NOT NULL";
 const FAIL_WORKSPACE: &str = "UPDATE yomi.audit_sinks
      SET failing_since = COALESCE(failing_since, now()), last_error = $2, last_attempt_at = now(),
          stopped_at = CASE WHEN COALESCE(failing_since, now()) < now() - make_interval(secs => $3) THEN now() END
-     WHERE id = $1::uuid";
+     WHERE id = $1::uuid
+     RETURNING stopped_at IS NOT NULL";
 
 /// 送った結果を記録する。
 async fn record(
     tx: &mut Transaction<'_, Postgres>,
     cursor: &Cursor<'_>,
+    workspace: Option<Uuid>,
     last: &Entry,
     error: Option<&str>,
 ) -> Result<()> {
@@ -238,15 +242,77 @@ async fn record(
                 .await?;
         }
         Some(code) => {
-            sqlx::query(fail)
+            let stopped: bool = sqlx::query_scalar(fail)
                 .bind(&key)
                 .bind(code)
                 .bind(STOP_AFTER_SECONDS)
-                .execute(&mut **tx)
+                .fetch_one(&mut **tx)
                 .await?;
+            // 停止した行は `lock_cursor` で読まないので、止まったときに1回だけここに来る
+            if stopped {
+                record_stopped(tx, cursor, workspace, code).await?;
+            }
         }
     }
     Ok(())
+}
+
+/// 書き出し先が止まったことを、ログと監査ログ（管理者への通知）に残す。
+/// 設定ファイルの書き出し先の名前は URL を含むので、ログには種類だけを出す。
+async fn record_stopped(
+    tx: &mut Transaction<'_, Postgres>,
+    cursor: &Cursor<'_>,
+    workspace: Option<Uuid>,
+    code: &str,
+) -> Result<()> {
+    let sink = match cursor {
+        Cursor::Instance(key) => key.split(':').next().unwrap_or("instance").to_owned(),
+        Cursor::Workspace(id) => id.to_string(),
+    };
+    tracing::error!(sink = %sink, error = %code, "audit export: a destination failed for 7 days and was stopped");
+    let targets: Vec<Uuid> = match cursor {
+        Cursor::Instance(_) => Vec::new(),
+        Cursor::Workspace(id) => vec![*id],
+    };
+    audit::record(
+        &mut **tx,
+        workspace,
+        None,
+        audit::action::AUDIT_EXPORT_STOPPED,
+        &targets,
+    )
+    .await
+}
+
+/// 止まっている設定ファイルの書き出し先を再開する（サーバー上のコマンドだけが呼ぶ）。今の設定にあるものだけを対象にする。
+/// 続きの記録から送る。止まっている間に保存期間を過ぎて消えた記録は送れない。再開した書き出し先の名前を返す。
+pub async fn resume_instance_sinks(
+    pool: &PgPool,
+    config: &AuditExportConfig,
+) -> Result<Vec<String>> {
+    let mut tx = pool.begin().await?;
+    let mut resumed: Vec<String> = sqlx::query_scalar(
+        "UPDATE yomi.audit_export_cursors
+         SET stopped_at = NULL, failing_since = NULL, last_error = NULL
+         WHERE sink_key = ANY($1) AND stopped_at IS NOT NULL
+         RETURNING sink_key",
+    )
+    .bind(instance_sinks(config))
+    .fetch_all(&mut *tx)
+    .await?;
+    resumed.sort();
+    if !resumed.is_empty() {
+        audit::record(
+            &mut *tx,
+            None,
+            None,
+            audit::action::AUDIT_EXPORT_RESUMED,
+            &[],
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(resumed)
 }
 
 /// 1つの書き出し先に、たまっている記録を送る。
@@ -267,7 +333,7 @@ async fn drain(
         };
         let result = send(target, state.egress.as_ref(), &state.pool, &entries).await;
         let failed = result.as_ref().err().cloned();
-        record(&mut tx, &cursor, last, failed.as_deref()).await?;
+        record(&mut tx, &cursor, workspace, last, failed.as_deref()).await?;
         tx.commit().await?;
         if let Some(code) = failed {
             tracing::warn!(error = %code, "audit export: a destination did not accept records");
@@ -309,7 +375,7 @@ pub async fn register_instance_sinks(pool: &PgPool, config: &AuditExportConfig) 
 }
 
 /// 1回の見回り。
-async fn tick(state: &AppState) -> Result<()> {
+pub async fn tick(state: &AppState) -> Result<()> {
     let config = &state.config.audit_export;
     if config.stdout {
         drain(state, Cursor::Instance("stdout"), None, &Target::Stdout).await?;

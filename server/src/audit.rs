@@ -120,6 +120,10 @@ pub mod action {
     pub const ALERT_RATE_LIMITED: &str = "alert.rate_limited";
     /// サーバー管理者の作成（サーバー上のCLI。Q100）。
     pub const SERVER_ADMIN_CREATED: &str = "server_admin.created";
+    /// 監査ログの書き出し先が、続けて送れずに止まった（7日。インスタンスとワークスペースの両方）。
+    pub const AUDIT_EXPORT_STOPPED: &str = "audit_export.stopped";
+    /// 設定ファイルの書き出し先を、サーバー上のコマンドで再開した。
+    pub const AUDIT_EXPORT_RESUMED: &str = "audit_export.resumed";
     pub const WEBHOOK_DELETED: &str = "webhook.deleted";
     pub const WEBHOOK_SECRET_ROTATED: &str = "webhook.secret_rotated";
 }
@@ -158,6 +162,7 @@ pub const NOTIFY: &[&str] = &[
     action::MFA_RESET_ISSUED,
     action::MFA_RESET_COMPLETED,
     action::AUDIT_SINK_DELETED,
+    action::AUDIT_EXPORT_STOPPED,
     action::BUDGET_EXHAUSTED,
     action::ANSWER_BUDGET_EXHAUSTED,
     action::ASSIST_BUDGET_EXHAUSTED,
