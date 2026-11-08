@@ -1,6 +1,6 @@
 //! 配信APIの回数制限・応答の大きさの上限・共有キャッシュの結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -101,7 +101,7 @@ async fn rate_limits_per_key_and_workspace() {
         let other_id = register(&server, other, &other_key, LIST).await;
         assert_eq!(run(&server, other, &other_key, &other_id).await.status, 200);
         // 照合できないキーは数えない
-        assert_eq!(run(&server, ws, "cms_key_invalid", &id).await.status, 401);
+        assert_eq!(run(&server, ws, "yomi_key_invalid", &id).await.status, 401);
     })
     .await;
 }

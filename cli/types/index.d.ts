@@ -1,5 +1,5 @@
 // テンプレートの関数（URL生成関数・フック・カスタムノードの変換関数）を書くための型。
-// 使い方: `import type { ... } from "@new-cms/cli/types";`（型だけなので、CLIがJSにするときに消える）
+// 使い方: `import type { ... } from "@yomotsuhirasaka/cli/types";`（型だけなので、CLIがJSにするときに消える）
 // 受け取る値と返す値は docs/decisions/04-hooks.md と server/src/schema/manifest.rs の Hooks・CustomNode を参照。
 
 /** 本文のノード（Tiptap の JSON）。 */
@@ -57,7 +57,7 @@ export interface HookEvent {
 export type AfterHook = (input: { event: HookEvent; entry: Entry | null }) => void;
 
 /** 権限として宣言したときだけ置かれるホスト関数。 */
-export interface Cms {
+export interface Yomi {
   /** "content.read": 同じワークスペースの公開中の記事。なければ null。 */
   content?: { get(id: string): Entry | null };
   /** "http.fetch"（非同期のフックだけ）: allowedHosts の宛先に送る。失敗は例外。 */
@@ -70,5 +70,5 @@ export interface Cms {
 }
 
 declare global {
-  const cms: Cms;
+  const yomi: Yomi;
 }

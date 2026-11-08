@@ -1,4 +1,4 @@
-// `cms import`: Markdown のフォルダを取り込む（03-content-and-editing.md「既存ブログからの取り込み」、Q74, Q132）。
+// `yomi import`: Markdown のフォルダを取り込む（03-content-and-editing.md「既存ブログからの取り込み」、Q74, Q132）。
 //
 // 1. すべてのファイルを手元で検査する（frontmatter、本文の変換、独自部品の対応、画像のファイル）。
 //    1つでも問題があれば、何も送らずに止める（INV-IMP-01）。

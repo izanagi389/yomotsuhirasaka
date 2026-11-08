@@ -1,17 +1,17 @@
 //! 緊急停止のCLIの結合テスト（本物のPostgreSQLとHTTP、ビルドしたサーバーのバイナリを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::api_keys::{self, Denied};
-use cms_server::auth::personal_tokens;
 use common::server::*;
 use common::with_scratch;
 use uuid::Uuid;
+use yomi_server::api_keys::{self, Denied};
+use yomi_server::auth::personal_tokens;
 
 async fn user_id(server: &Server, email: &str) -> Uuid {
-    sqlx::query_scalar("SELECT id FROM cms.users WHERE email = $1")
+    sqlx::query_scalar("SELECT id FROM yomi.users WHERE email = $1")
         .bind(email)
         .fetch_one(&server.pool)
         .await
@@ -105,17 +105,17 @@ async fn emergency_cli() {
 
         // CLIの設定
         let dir =
-            std::env::temp_dir().join(format!("cms-cli-emergency-{}", Uuid::new_v4().simple()));
+            std::env::temp_dir().join(format!("yomi-cli-emergency-{}", Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let key = dir.join("encryption.key");
-        std::fs::write(&key, cms_server::keys::generate_key_file()).unwrap();
+        std::fs::write(&key, yomi_server::keys::generate_key_file()).unwrap();
         let mut cfg = config(&app, &migration);
         cfg.trusted_proxies = Vec::new();
         cfg.encryption_key_file = Some(key);
         let path = dir.join("config.toml");
         std::fs::write(&path, toml::to_string(&cfg).unwrap()).unwrap();
         let run = |args: &[&str]| {
-            std::process::Command::new(env!("CARGO_BIN_EXE_cms-server"))
+            std::process::Command::new(env!("CARGO_BIN_EXE_yomi-server"))
                 .args(args)
                 .arg("--config")
                 .arg(&path)
@@ -143,7 +143,7 @@ async fn emergency_cli() {
         let res = mfa_step(&server, &pending, "{\"totpCode\":\"000000\"}").await;
         assert_eq!(res.status, 401);
         let audit: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM cms.audit_log WHERE action = 'emergency.sessions_revoked'",
+            "SELECT count(*) FROM yomi.audit_log WHERE action = 'emergency.sessions_revoked'",
         )
         .fetch_one(&server.pool)
         .await
@@ -180,7 +180,7 @@ async fn emergency_cli() {
             ]
         );
         let new_a = lines[0][3].to_owned();
-        assert!(new_a.starts_with("cms_key_") && new_a != key_a.secret);
+        assert!(new_a.starts_with("yomi_key_") && new_a != key_a.secret);
         // 古い値は使えず、新しい値は同じ範囲で使える
         assert_eq!(
             api_keys::authenticate(&server.pool, Some(&key_a.secret), a, "read")
@@ -226,7 +226,7 @@ async fn emergency_cli() {
             Denied::Invalid
         );
         let rotated: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM cms.audit_log WHERE action = 'api_key.rotated'",
+            "SELECT count(*) FROM yomi.audit_log WHERE action = 'api_key.rotated'",
         )
         .fetch_one(&server.pool)
         .await

@@ -18,7 +18,7 @@ const MAX_BACKOFF_SECONDS: f64 = 3600.0;
 pub const ONE_AT_A_TIME_PER_WORKSPACE: &str = crate::content::hooks::JOB_KIND;
 
 pub(crate) fn aad(id: Uuid, kind: &str) -> Vec<u8> {
-    format!("cms:job:{kind}:{id}").into_bytes()
+    format!("yomi:job:{kind}:{id}").into_bytes()
 }
 
 /// ジョブを積む。呼び出し側のトランザクションの中で積めば、操作と同時に確定する。
@@ -33,7 +33,7 @@ pub async fn enqueue<'e>(
     let id = Uuid::new_v4();
     let sealed = keys.encrypt(payload, &aad(id, kind))?;
     sqlx::query(
-        "INSERT INTO cms.jobs (id, workspace_id, kind, payload_enc, max_attempts)
+        "INSERT INTO yomi.jobs (id, workspace_id, kind, payload_enc, max_attempts)
          VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(id)
@@ -62,7 +62,7 @@ pub async fn enqueue_debounced<'e>(
     let id = Uuid::new_v4();
     let sealed = keys.encrypt(payload, &aad(id, kind))?;
     sqlx::query(
-        "INSERT INTO cms.jobs (id, workspace_id, kind, payload_enc, max_attempts, dedupe_key, run_at)
+        "INSERT INTO yomi.jobs (id, workspace_id, kind, payload_enc, max_attempts, dedupe_key, run_at)
          VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7))
          ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND attempts = 0 AND failed_at IS NULL
          DO UPDATE SET run_at = EXCLUDED.run_at",
@@ -92,9 +92,9 @@ pub async fn enqueue_unless_queued<'e>(
     let id = Uuid::new_v4();
     let sealed = keys.encrypt(payload, &aad(id, kind))?;
     let done = sqlx::query(
-        "INSERT INTO cms.jobs (id, workspace_id, kind, payload_enc, max_attempts, dedupe_key)
+        "INSERT INTO yomi.jobs (id, workspace_id, kind, payload_enc, max_attempts, dedupe_key)
          SELECT $1, $2, $3, $4, $5, $6
-         WHERE NOT EXISTS (SELECT 1 FROM cms.jobs WHERE dedupe_key = $6 AND failed_at IS NULL)
+         WHERE NOT EXISTS (SELECT 1 FROM yomi.jobs WHERE dedupe_key = $6 AND failed_at IS NULL)
          ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND attempts = 0 AND failed_at IS NULL
          DO NOTHING",
     )
@@ -126,15 +126,15 @@ type ClaimRow = (Uuid, Option<Uuid>, String, Option<Vec<u8>>, i32, i32);
 /// フックのジョブ（[`ONE_AT_A_TIME_PER_WORKSPACE`]）は、同じワークスペースで実行中のものがあれば後に回す（Q120）。
 pub async fn claim(pool: &PgPool, keys: &KeyRing) -> Result<Option<Claimed>> {
     let row: Option<ClaimRow> = sqlx::query_as(
-        "UPDATE cms.jobs SET attempts = attempts + 1,
+        "UPDATE yomi.jobs SET attempts = attempts + 1,
                 locked_until = now() + make_interval(secs => $1)
          WHERE id = (
-             SELECT id FROM cms.jobs
+             SELECT id FROM yomi.jobs
              WHERE failed_at IS NULL AND run_at <= now()
                AND (locked_until IS NULL OR locked_until < now())
                AND (kind <> $2 OR NOT EXISTS (
-                   SELECT 1 FROM cms.jobs running
-                   WHERE running.kind = $2 AND running.workspace_id = cms.jobs.workspace_id
+                   SELECT 1 FROM yomi.jobs running
+                   WHERE running.kind = $2 AND running.workspace_id = yomi.jobs.workspace_id
                      AND running.locked_until >= now() AND running.failed_at IS NULL))
              ORDER BY run_at
              FOR UPDATE SKIP LOCKED
@@ -178,14 +178,14 @@ pub fn backoff_seconds(attempts: i32) -> f64 {
 pub async fn finish(pool: &PgPool, job: &Claimed, outcome: Outcome) -> Result<()> {
     match outcome {
         Outcome::Done => {
-            sqlx::query("DELETE FROM cms.jobs WHERE id = $1")
+            sqlx::query("DELETE FROM yomi.jobs WHERE id = $1")
                 .bind(job.id)
                 .execute(pool)
                 .await?;
         }
         Outcome::Retry(reason) if job.attempts < job.max_attempts => {
             sqlx::query(
-                "UPDATE cms.jobs SET locked_until = NULL, last_error = $2,
+                "UPDATE yomi.jobs SET locked_until = NULL, last_error = $2,
                         run_at = now() + make_interval(secs => $3)
                  WHERE id = $1",
             )
@@ -197,7 +197,7 @@ pub async fn finish(pool: &PgPool, job: &Claimed, outcome: Outcome) -> Result<()
         }
         Outcome::Retry(reason) | Outcome::Fail(reason) => {
             sqlx::query(
-                "UPDATE cms.jobs SET locked_until = NULL, last_error = $2, failed_at = now(),
+                "UPDATE yomi.jobs SET locked_until = NULL, last_error = $2, failed_at = now(),
                         payload_enc = NULL
                  WHERE id = $1",
             )

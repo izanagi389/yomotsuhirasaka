@@ -407,16 +407,16 @@ mod tests {
         use crate::locale::Locale;
         let ja = notify::mail(
             "a@example.com",
-            "cms.example.com",
+            "yomi.example.com",
             notify::Event::PasswordChanged,
             Locale::Ja,
         );
         assert_eq!(ja.to, "a@example.com");
-        assert!(ja.subject.starts_with("[cms.example.com]"));
+        assert!(ja.subject.starts_with("[yomi.example.com]"));
         assert!(ja.body.contains("パスワード") && !ja.body.contains("password"));
         let en = notify::mail(
             "a@example.com",
-            "cms.example.com",
+            "yomi.example.com",
             notify::Event::PasswordChanged,
             Locale::En,
         );

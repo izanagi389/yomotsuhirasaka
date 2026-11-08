@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn emails_are_masked() {
         assert_eq!(
-            mask("連絡は taro.yamada+cms@example.co.jp まで"),
+            mask("連絡は taro.yamada+yomi@example.co.jp まで"),
             "連絡は [email] まで"
         );
         assert_eq!(

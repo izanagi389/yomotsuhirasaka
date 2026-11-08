@@ -90,7 +90,7 @@ export const HeadingAnchors = Extension.create({
  * 画像（Q75）。画像の実体はメディアのIDで指す（URLは本文に書かない）。代替テキストか「装飾画像」の印のどちらかがないと公開できない。
  * 外から貼り付けた画像（`data-media-id` のない img）は取り込まない。
  */
-export const CmsImage = Node.create({
+export const YomiImage = Node.create({
   name: "image",
   group: "block",
   atom: true,
@@ -122,7 +122,7 @@ export const CmsImage = Node.create({
 });
 
 /** 埋め込み（Q97）。許可した提供元の https のURLだけをサーバーが受け付ける。 */
-export const CmsEmbed = Node.create({
+export const YomiEmbed = Node.create({
   name: "embed",
   group: "block",
   atom: true,

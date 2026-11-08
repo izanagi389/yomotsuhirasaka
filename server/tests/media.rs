@@ -1,6 +1,6 @@
 //! メディアのアップロード・配信・削除と、ワークスペースの容量の上限の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -36,7 +36,7 @@ fn png(w: u32, h: u32, seed: u8) -> Vec<u8> {
 }
 
 fn path_of(url: &str) -> &str {
-    url.strip_prefix("https://cms.example.test").unwrap()
+    url.strip_prefix("https://yomi.example.test").unwrap()
 }
 
 #[tokio::test]
@@ -67,7 +67,7 @@ async fn uploading_serving_and_deleting_media() {
         assert_eq!((uploaded["contentType"].as_str(), uploaded["width"].as_i64(), uploaded["height"].as_i64()), (Some("image/png"), Some(20), Some(10)));
         let url = uploaded["url"].as_str().unwrap().to_owned();
         let id = uploaded["id"].as_str().unwrap().to_owned();
-        assert!(url.starts_with(&format!("https://cms.example.test/media/{}/", ws.simple())), "{url}");
+        assert!(url.starts_with(&format!("https://yomi.example.test/media/{}/", ws.simple())), "{url}");
         for (bad, ct) in [
             (b"<html><script>alert(1)</script></html>".to_vec(), "image/png"),
             (b"<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>".to_vec(), "image/svg+xml"),
@@ -160,7 +160,7 @@ async fn uploading_serving_and_deleting_media() {
         assert_eq!(upload(&server, &media, &editor, "image/png", &png(60, 60, 3)).await.status, 201);
         let res = upload(&server, &media, &editor, "image/png", &png(60, 60, 3)).await;
         assert_eq!(error(&res), (413, Some("media_quota_exceeded".into())), "{}", res.body);
-        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE workspace_id = $1 AND action = 'workspace.limits_changed'")
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE workspace_id = $1 AND action = 'workspace.limits_changed'")
             .bind(ws)
             .fetch_one(&server.pool)
             .await

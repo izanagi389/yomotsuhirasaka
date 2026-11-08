@@ -1,7 +1,7 @@
 -- レビュー依頼（03-content-and-editing.md「レビュー（Q77）」、計画の8番）。
 -- 1段階だけ: 依頼 → 差し戻し（コメント必須）・取り下げ・公開のどれかで閉じる。承認という段階は作らない。
 -- 開いている依頼は記事ごとに1つ。依頼した時点の下書きのリビジョンを残し、その後の編集は「依頼後に変更あり」として示す。
--- 利用者のIDは共通のスキーマ（cms.users）のもので、ここでは参照の制約を付けない（他の表と同じ）。
+-- 利用者のIDは共通のスキーマ（yomi.users）のもので、ここでは参照の制約を付けない（他の表と同じ）。
 CREATE TABLE review_requests (
     id                  uuid PRIMARY KEY,
     entry_id            uuid NOT NULL REFERENCES entries (id),

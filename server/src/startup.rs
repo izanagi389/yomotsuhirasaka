@@ -29,7 +29,7 @@ const KNOWN_WEAK_SECRETS: &[&str] = &[
     "administrator",
     "postgres",
     "root",
-    "cms",
+    "yomi",
     "test",
     "example",
     "default",
@@ -861,9 +861,9 @@ mod tests {
             host: "smtp.example.com".into(),
             port: None,
             security: SmtpSecurity::Starttls,
-            username: Some("cms".into()),
+            username: Some("yomi".into()),
             password: Some("kq3-Vd8_mZ2pL9xR4tY7".into()),
-            from: "CMS <cms@example.com>".into(),
+            from: "CMS <yomi@example.com>".into(),
         };
         assert!(check_smtp(&ok).is_empty());
         let plain_remote = SmtpConfig {

@@ -196,7 +196,7 @@ pub async fn record_full<'e>(
 ) -> Result<()> {
     let targets: Vec<String> = target_ids.iter().map(Uuid::to_string).collect();
     sqlx::query(
-        "INSERT INTO cms.audit_log (id, workspace_id, actor_user_id, action, target_ids, notify, details)
+        "INSERT INTO yomi.audit_log (id, workspace_id, actor_user_id, action, target_ids, notify, details)
          VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
     )
     .bind(Uuid::new_v4())
@@ -327,10 +327,10 @@ pub async fn list(
     };
     let rows: Vec<Row> = sqlx::query_as(crate::sql!(
         r#"SELECT {COLUMNS}
-           FROM cms.audit_log a
+           FROM yomi.audit_log a
            WHERE a.workspace_id IS NOT DISTINCT FROM $1
              AND ($2::uuid IS NULL OR (a.created_at, a.id) < (
-                   SELECT b.created_at, b.id FROM cms.audit_log b
+                   SELECT b.created_at, b.id FROM yomi.audit_log b
                    WHERE b.id = $2 AND b.workspace_id IS NOT DISTINCT FROM $1))
              AND ($4::text IS NULL OR a.action = $4)
              AND ($5::uuid IS NULL OR a.actor_user_id = $5)

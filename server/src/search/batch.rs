@@ -2,7 +2,7 @@
 //!
 //! - 毎日、設定の時刻（`[search] related_batch_hour_utc`、UTC）を過ぎたら、ワークスペースごとに1回だけジョブを積む
 //!   （[`spawn_scheduler`]）。サーバーが止まっていて時刻を逃した日の分は、起動した後に1回だけ積む。
-//!   サーバーが複数台でも、`cms.related_batches` の行を書き換えた1台だけが積む。
+//!   サーバーが複数台でも、`yomi.related_batches` の行を書き換えた1台だけが積む。
 //! - 管理APIの「今すぐ再計算」も、同じジョブを積む（毎日の分の記録は書き換えない）。同じワークスペースのジョブが待っている・
 //!   実行中なら、新しく積まない。
 //! - ジョブは、記事のベクトルがあるすべての記事の関連記事を計算し直し、返す一覧（`related::listed`）が変わった記事を
@@ -59,10 +59,10 @@ pub async fn schedule_due(pool: &PgPool, keys: &KeyRing, hour_utc: u8) -> Result
         "WITH today AS (
            SELECT ((now() AT TIME ZONE 'UTC') - make_interval(hours => $1))::date AS d
          )
-         INSERT INTO cms.related_batches (workspace_id, last_run_on)
-         SELECT w.id, today.d FROM cms.workspaces w, today WHERE w.schema_version IS NOT NULL
+         INSERT INTO yomi.related_batches (workspace_id, last_run_on)
+         SELECT w.id, today.d FROM yomi.workspaces w, today WHERE w.schema_version IS NOT NULL
          ON CONFLICT (workspace_id) DO UPDATE SET last_run_on = EXCLUDED.last_run_on
-           WHERE cms.related_batches.last_run_on < EXCLUDED.last_run_on
+           WHERE yomi.related_batches.last_run_on < EXCLUDED.last_run_on
          RETURNING workspace_id",
     )
     .bind(i32::from(hour_utc))

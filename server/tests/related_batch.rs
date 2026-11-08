@@ -1,15 +1,12 @@
 //! 関連記事の一括計算の結合テスト（毎日1回だけ積むこと、今すぐの再計算の管理API、Webhookの分け方）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。関連記事の中身の計算（pgvector）は、
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。関連記事の中身の計算（pgvector）は、
 //! 約束のテスト（INV-REL-01・INV-REL-02）で確かめる。
 
 mod common;
 
 use std::sync::{Arc, Mutex};
 
-use cms_server::search::batch;
-use cms_server::webhooks::{self, EntryRef};
-use cms_server::worker;
 use common::content::*;
 use common::server::*;
 use common::with_scratch;
@@ -18,6 +15,9 @@ use sqlx::PgPool;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpListener;
 use uuid::Uuid;
+use yomi_server::search::batch;
+use yomi_server::webhooks::{self, EntryRef};
+use yomi_server::worker;
 
 /// 届いたリクエストの本文を記録し、200 を返す受け手。
 async fn receiver() -> (u16, Arc<Mutex<Vec<String>>>) {
@@ -73,7 +73,7 @@ async fn receiver() -> (u16, Arc<Mutex<Vec<String>>>) {
 }
 
 async fn queued_batches(pool: &PgPool, ws: Uuid) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM cms.jobs WHERE dedupe_key = $1")
+    sqlx::query_scalar("SELECT count(*) FROM yomi.jobs WHERE dedupe_key = $1")
         .bind(format!("{}:{ws}", batch::JOB_KIND))
         .fetch_one(pool)
         .await
@@ -114,7 +114,7 @@ async fn the_daily_batch_is_queued_once_per_day_and_catches_up() {
 
         // サーバーが止まっていて逃した日があっても、次に見たときに1回だけ積む
         sqlx::query(
-            "UPDATE cms.related_batches SET last_run_on = last_run_on - 3 WHERE workspace_id = $1",
+            "UPDATE yomi.related_batches SET last_run_on = last_run_on - 3 WHERE workspace_id = $1",
         )
         .bind(ws)
         .execute(&server.pool)
@@ -132,7 +132,7 @@ async fn the_daily_batch_is_queued_once_per_day_and_catches_up() {
 
         // まだ積んだジョブが残っているときに日が変わっても、ジョブは増えない
         sqlx::query(
-            "UPDATE cms.related_batches SET last_run_on = last_run_on - 1 WHERE workspace_id = $1",
+            "UPDATE yomi.related_batches SET last_run_on = last_run_on - 1 WHERE workspace_id = $1",
         )
         .bind(ws)
         .execute(&server.pool)
@@ -171,7 +171,7 @@ async fn admins_can_start_a_recomputation_now() {
         let path = format!("/api/admin/workspaces/{ws}/related/recompute");
         let audits = || async {
             sqlx::query_scalar::<_, i64>(
-                "SELECT count(*) FROM cms.audit_log WHERE action = 'related.recompute_started'",
+                "SELECT count(*) FROM yomi.audit_log WHERE action = 'related.recompute_started'",
             )
             .fetch_one(&server.pool)
             .await
@@ -200,7 +200,7 @@ async fn admins_can_start_a_recomputation_now() {
         assert_eq!((res.status, res.body.as_str()), (202, r#"{"queued":true}"#));
         assert_eq!(audits().await, 1);
         // 今すぐの再計算は、毎日の分の記録を書き換えない
-        let recorded: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.related_batches")
+        let recorded: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.related_batches")
             .fetch_one(&server.pool)
             .await
             .unwrap();
@@ -252,7 +252,7 @@ async fn changed_entries_are_sent_in_parts_of_one_hundred() {
             .await
             .unwrap();
         let quiet_deliveries: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM cms.webhook_deliveries WHERE workspace_id = $1",
+            "SELECT count(*) FROM yomi.webhook_deliveries WHERE workspace_id = $1",
         )
         .bind(quiet)
         .fetch_one(&server.pool)

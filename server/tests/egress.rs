@@ -4,10 +4,10 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use cms_server::config::{EgressConfig, EgressProxyConfig, ProxyConnectBy};
-use cms_server::egress::{Egress, EgressError, EgressRequest, StreamLimits};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpListener;
+use yomi_server::config::{EgressConfig, EgressProxyConfig, ProxyConnectBy};
+use yomi_server::egress::{Egress, EgressError, EgressRequest, StreamLimits};
 
 /// 届いたリクエストの先頭（リクエスト行とヘッダー）を記録し、決めた応答を返す相手。
 async fn peer(response: &'static str) -> (u16, Arc<Mutex<Vec<String>>>) {
@@ -270,7 +270,7 @@ fn limits() -> StreamLimits {
 
 /// 本文を終わりまで読む。途中で失敗したら、それまでに読んだものと失敗の理由を返す。
 async fn read_all(
-    stream: &mut cms_server::egress::EgressStream,
+    stream: &mut yomi_server::egress::EgressStream,
 ) -> (Vec<String>, Option<EgressError>) {
     let mut out = Vec::new();
     loop {

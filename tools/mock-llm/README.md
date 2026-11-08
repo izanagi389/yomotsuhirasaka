@@ -3,8 +3,8 @@
 OpenAI互換の埋め込みとチャットだけを持つ、開発とテスト用の小さなサーバーです（`docs/decisions/12-dev-environment.md`）。CMSからは普通の接続先として見えます。本番では使いません。依存はありません（Node.js の標準の機能だけで動きます）。
 
 ```sh
-npm run build -w @new-cms/mock-llm
-PORT=8080 npm start -w @new-cms/mock-llm     # 既定は PORT=8080・HOST=0.0.0.0
+npm run build -w @yomotsuhirasaka/mock-llm
+PORT=8080 npm start -w @yomotsuhirasaka/mock-llm     # 既定は PORT=8080・HOST=0.0.0.0
 ```
 
 - コンテナ: `deploy/mock-llm.Dockerfile`（開発用の `deploy/docker-compose.dev.yml` で起動）

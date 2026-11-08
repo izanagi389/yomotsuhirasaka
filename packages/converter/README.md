@@ -1,4 +1,4 @@
-# @new-cms/converter
+# @yomotsuhirasaka/converter
 
 本文（Tiptap の JSON）を Markdown と HTML にする変換器です（`docs/decisions/03-content-and-editing.md`「本文」、Q56）。
 
@@ -8,6 +8,6 @@
 - 出力が変わる変更をしたら `VERSION` を上げます（全記事の作り直しの判定に使います。Q58）。
 
 ```sh
-npm run sync:server -w @new-cms/converter   # ビルドして、サーバーのコピーを更新する
-npm test -w @new-cms/converter              # テスト（サーバーのコピーが最新かも確かめる）
+npm run sync:server -w @yomotsuhirasaka/converter   # ビルドして、サーバーのコピーを更新する
+npm test -w @yomotsuhirasaka/converter              # テスト（サーバーのコピーが最新かも確かめる）
 ```

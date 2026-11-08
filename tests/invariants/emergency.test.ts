@@ -23,31 +23,31 @@ inv(
     const instance: IsolatedInstance = await driver.createIsolatedInstance();
     const server = await started(instance.config);
     try {
-      const cms = server.client!;
-      const sa1 = await cms.login(instance.serverAdmin);
-      const sa2 = await cms.login(instance.serverAdmin);
-      await cms.reauthenticate(sa1, instance.serverAdmin);
-      const ws = await cms.createWorkspace(sa1, "inv-auth-23");
-      const member = await cms.createMember(sa1, ws.id, "admin");
-      const memberSession = await cms.login(member);
-      const token = await cms.createPersonalToken(memberSession, [ws.id], { scopes: ["read"] });
+      const yomi = server.client!;
+      const sa1 = await yomi.login(instance.serverAdmin);
+      const sa2 = await yomi.login(instance.serverAdmin);
+      await yomi.reauthenticate(sa1, instance.serverAdmin);
+      const ws = await yomi.createWorkspace(sa1, "inv-auth-23");
+      const member = await yomi.createMember(sa1, ws.id, "admin");
+      const memberSession = await yomi.login(member);
+      const token = await yomi.createPersonalToken(memberSession, [ws.id], { scopes: ["read"] });
 
       const sessions = [sa1, sa2, memberSession];
-      for (const s of sessions) expectSuccess(await cms.meRaw(asSession(s)), "緊急停止の前のセッション");
-      expectSuccess(await cms.meRaw(asBearer(token.secret)), "緊急停止の前の個人トークン");
+      for (const s of sessions) expectSuccess(await yomi.meRaw(asSession(s)), "緊急停止の前のセッション");
+      expectSuccess(await yomi.meRaw(asBearer(token.secret)), "緊急停止の前の個人トークン");
 
       // ネットワーク越しの管理APIには、一斉失効の操作がない
-      const names = cms.adminOperations.map((o) => o.name.toLowerCase());
+      const names = yomi.adminOperations.map((o) => o.name.toLowerCase());
       expect(names.filter((n) => /revokeall|emergency|killall/.test(n)), "管理APIに一斉失効の操作がある").toEqual([]);
 
       const result = await driver.emergencyRevokeAllSessions(instance.config);
       expect(result.exitCode, `緊急停止のCLIが失敗した:\n${result.output}`).toBe(0);
 
-      for (const s of sessions) expectRejected(await cms.meRaw(asSession(s)), "緊急停止の後のセッション");
-      expectRejected(await cms.meRaw(asBearer(token.secret)), "緊急停止の後の個人トークン");
+      for (const s of sessions) expectRejected(await yomi.meRaw(asSession(s)), "緊急停止の後のセッション");
+      expectRejected(await yomi.meRaw(asBearer(token.secret)), "緊急停止の後の個人トークン");
 
       // 対照: 新しくログインすれば使える
-      expectSuccess(await cms.meRaw(asSession(await cms.login(member))), "緊急停止の後の新しいログイン");
+      expectSuccess(await yomi.meRaw(asSession(await yomi.login(member))), "緊急停止の後の新しいログイン");
     } finally {
       await server.stop();
     }
@@ -65,14 +65,14 @@ inv("inv_key_03", "暗号化の鍵を新しいバージョンに入れ替えた�
   let webhookId: string;
   try {
     // 暗号化して保存される秘密を作る: TOTPの秘密と、Webhookの署名用の秘密
-    const cms = server.client!;
-    const sa = await cms.login(instance.serverAdmin);
-    await cms.reauthenticate(sa, instance.serverAdmin);
-    workspaceId = (await cms.createWorkspace(sa, "inv-key-03")).id;
-    member = await cms.createMember(sa, workspaceId, "admin"); // TOTPあり
-    const memberSession = await cms.login(member);
-    await cms.reauthenticate(memberSession, member);
-    const hook = await cms.createWebhook(memberSession, workspaceId, receiver.url(env.harnessAllowedHost, "/key03"));
+    const yomi = server.client!;
+    const sa = await yomi.login(instance.serverAdmin);
+    await yomi.reauthenticate(sa, instance.serverAdmin);
+    workspaceId = (await yomi.createWorkspace(sa, "inv-key-03")).id;
+    member = await yomi.createMember(sa, workspaceId, "admin"); // TOTPあり
+    const memberSession = await yomi.login(member);
+    await yomi.reauthenticate(memberSession, member);
+    const hook = await yomi.createWebhook(memberSession, workspaceId, receiver.url(env.harnessAllowedHost, "/key03"));
     webhookSecret = hook.secret;
     webhookId = hook.id;
   } finally {
@@ -86,14 +86,14 @@ inv("inv_key_03", "暗号化の鍵を新しいバージョンに入れ替えた�
 
   server = await started(rotated.config);
   try {
-    const cms = server.client!;
+    const yomi = server.client!;
     // TOTPの秘密を使える: 多要素認証でログインできる
-    const session = await cms.login(member!);
-    expectSuccess(await cms.meRaw(asSession(session)), "鍵の入れ替えの後の、多要素認証でのログイン");
+    const session = await yomi.login(member!);
+    expectSuccess(await yomi.meRaw(asSession(session)), "鍵の入れ替えの後の、多要素認証でのログイン");
 
     // Webhookの署名用の秘密を使える: テスト送信の署名を、元の秘密で検証できる
-    await cms.reauthenticate(session, member!);
-    await cms.testWebhookRaw(session, workspaceId!, webhookId!);
+    await yomi.reauthenticate(session, member!);
+    await yomi.testWebhookRaw(session, workspaceId!, webhookId!);
     const req = await receiver.waitFor((r) => r.path.startsWith("/key03"));
     const signing = driver.webhook.signing(req.headers, req.body);
     const expected = createHmac("sha256", signing.keyBytes(webhookSecret!)).update(signing.signingInput).digest(signing.encoding);

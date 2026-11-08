@@ -2,7 +2,7 @@
 // 本文の表示だけ（版の中身を見るとき）。エディタが知らない要素があれば、消さずに知らせ、文字だけを表示する。
 import type { JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/vue-3";
-import { type CustomNodeDecl, unknownTypes } from "@new-cms/editor-schema";
+import { type CustomNodeDecl, unknownTypes } from "@yomotsuhirasaka/editor-schema";
 
 import { editorExtensions } from "./extensions";
 
@@ -37,7 +37,7 @@ onBeforeUnmount(() => editor?.value?.destroy());
 </script>
 
 <template>
-  <div class="cms-editor rounded-md border">
+  <div class="yomi-editor rounded-md border">
     <EditorContent v-if="editor" :editor="editor" class="px-4 py-3" />
     <div v-else class="grid gap-2 px-4 py-3">
       <p class="text-sm text-muted-foreground" role="status">{{ t("versions.unknownNodes", { names: unknown.join(", ") }) }}</p>

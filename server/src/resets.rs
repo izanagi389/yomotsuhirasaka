@@ -52,7 +52,7 @@ pub async fn issue(
     lifetime_seconds: u32,
 ) -> Result<Issued> {
     sqlx::query(
-        "UPDATE cms.reset_tokens SET revoked_at = now()
+        "UPDATE yomi.reset_tokens SET revoked_at = now()
          WHERE user_id = $1 AND kind = $2 AND used_at IS NULL AND revoked_at IS NULL",
     )
     .bind(user_id)
@@ -62,7 +62,7 @@ pub async fn issue(
     let id = Uuid::new_v4();
     let token = token::generate();
     let expires_at: String = sqlx::query_scalar(crate::sql!(
-        "INSERT INTO cms.reset_tokens (id, user_id, kind, token_hash, issued_by, expires_at)
+        "INSERT INTO yomi.reset_tokens (id, user_id, kind, token_hash, issued_by, expires_at)
          VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))
          RETURNING to_char(expires_at AT TIME ZONE 'UTC', {RFC3339})"
     ))
@@ -88,7 +88,7 @@ pub async fn recently_issued<'e>(
     kind: Kind,
 ) -> Result<bool> {
     Ok(sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM cms.reset_tokens
+        "SELECT EXISTS (SELECT 1 FROM yomi.reset_tokens
                         WHERE user_id = $1 AND kind = $2 AND used_at IS NULL AND revoked_at IS NULL
                           AND created_at > now() - interval '1 minute')",
     )
@@ -118,7 +118,7 @@ pub async fn find_valid<'e>(
     let suffix = if lock { "FOR UPDATE OF r" } else { "" };
     let row: Option<(Uuid, Uuid, String, Option<String>)> = sqlx::query_as(crate::sql!(
         "SELECT r.id, r.user_id, u.email, u.locale
-         FROM cms.reset_tokens r JOIN cms.users u ON u.id = r.user_id
+         FROM yomi.reset_tokens r JOIN yomi.users u ON u.id = r.user_id
          WHERE r.token_hash = $1 AND r.kind = $2
            AND r.used_at IS NULL AND r.revoked_at IS NULL AND r.expires_at > now()
            AND NOT u.disabled AND NOT u.is_server_admin
@@ -138,7 +138,7 @@ pub async fn find_valid<'e>(
 
 /// トークンを使用済みにする。
 pub async fn mark_used(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
-    sqlx::query("UPDATE cms.reset_tokens SET used_at = now() WHERE id = $1")
+    sqlx::query("UPDATE yomi.reset_tokens SET used_at = now() WHERE id = $1")
         .bind(id)
         .execute(&mut **tx)
         .await?;
@@ -161,12 +161,12 @@ mod tests {
     #[test]
     fn links() {
         assert_eq!(
-            link("https://cms.example.com/", Kind::Password, "t"),
-            "https://cms.example.com/admin/reset-password#token=t"
+            link("https://yomi.example.com/", Kind::Password, "t"),
+            "https://yomi.example.com/admin/reset-password#token=t"
         );
         assert_eq!(
-            link("https://cms.example.com", Kind::Mfa, "t"),
-            "https://cms.example.com/admin/reset-mfa#token=t"
+            link("https://yomi.example.com", Kind::Mfa, "t"),
+            "https://yomi.example.com/admin/reset-mfa#token=t"
         );
     }
 }

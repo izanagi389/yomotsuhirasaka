@@ -698,12 +698,12 @@ mod tests {
     #[test]
     fn origins() {
         assert_eq!(
-            origin_of("https://CMS.example.com/"),
-            "https://cms.example.com"
+            origin_of("https://YOMI.example.com/"),
+            "https://yomi.example.com"
         );
         assert_eq!(
-            origin_of("https://cms.example.com:8443/admin?x"),
-            "https://cms.example.com:8443"
+            origin_of("https://yomi.example.com:8443/admin?x"),
+            "https://yomi.example.com:8443"
         );
     }
 }

@@ -25,9 +25,9 @@ jobs:
                     --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
         env:
             # server/tests/ のDBの結合テストが使う（なければ飛ばされる）
-            CMS_TEST_PG_SUPERUSER_URL: postgres://postgres:ci-only-superuser-pw-16@127.0.0.1:5432/postgres
+            YOMI_TEST_PG_SUPERUSER_URL: postgres://postgres:ci-only-superuser-pw-16@127.0.0.1:5432/postgres
             # キーワード検索の結合テスト（server/tests/keyword_search.rs）が使う。下の手順で、公式の拡張入りのイメージを起動する
-            CMS_TEST_PG_BIGM_URL: postgres://postgres:ci-only-superuser-pw-bigm@127.0.0.1:5434/postgres
+            YOMI_TEST_PG_BIGM_URL: postgres://postgres:ci-only-superuser-pw-bigm@127.0.0.1:5434/postgres
             # 結合テストはファイルごとに実行ファイルができ、デバッグ情報を丸ごと入れるとランナーのディスクが足りなくなる。
             # 失敗したときの行番号だけを残す（手元の Cargo.toml の設定は変えない）
             CARGO_INCREMENTAL: "0"
@@ -48,8 +48,8 @@ jobs:
                   rust-version: stable
             # pg_bigm と pgvector の入った PostgreSQL（deploy/postgres.Dockerfile。公式の Docker Compose と同じイメージ）
             - run: |
-                  docker build -q -t cms-postgres-bigm -f deploy/postgres.Dockerfile deploy
-                  docker run -d --name pg-bigm -e POSTGRES_PASSWORD=ci-only-superuser-pw-bigm -p 5434:5432 cms-postgres-bigm
+                  docker build -q -t yomi-postgres-bigm -f deploy/postgres.Dockerfile deploy
+                  docker run -d --name pg-bigm -e POSTGRES_PASSWORD=ci-only-superuser-pw-bigm -p 5434:5432 yomi-postgres-bigm
                   for i in $(seq 1 60); do docker exec pg-bigm pg_isready -h 127.0.0.1 -U postgres && break; sleep 1; done
                   docker exec pg-bigm pg_isready -h 127.0.0.1 -U postgres
             - run: cargo test --locked
@@ -95,34 +95,34 @@ jobs:
               run: npm audit --audit-level=high
             - name: Build and test the shared editor schema
               run: |
-                  npm run typecheck -w @new-cms/editor-schema
-                  npm test -w @new-cms/editor-schema
-                  npm run build -w @new-cms/editor-schema
+                  npm run typecheck -w @yomotsuhirasaka/editor-schema
+                  npm test -w @yomotsuhirasaka/editor-schema
+                  npm run build -w @yomotsuhirasaka/editor-schema
             # 変換器のテストは、サーバーに同梱したコピー（server/src/script/converter.js）が最新かも確かめる
             - name: Type check and test the body converter
               run: |
-                  npm run typecheck -w @new-cms/converter
-                  npm test -w @new-cms/converter
+                  npm run typecheck -w @yomotsuhirasaka/converter
+                  npm test -w @yomotsuhirasaka/converter
             # ライブプレビューのメッセージの決まり（管理画面とNuxtモジュールが使う。約束のテストが dist を読む。INV-PRV-03）
             - name: Build and test the live preview messages
               run: |
-                  npm run typecheck -w @new-cms/preview
-                  npm test -w @new-cms/preview
-                  npm run build -w @new-cms/preview
+                  npm run typecheck -w @yomotsuhirasaka/preview
+                  npm test -w @yomotsuhirasaka/preview
+                  npm run build -w @yomotsuhirasaka/preview
             # 擬似LLM（約束のテストのハーネスが dist/main.js を別のプロセスとして起動する）
             - name: Build and test the mock LLM
               run: |
-                  npm run typecheck -w @new-cms/mock-llm
-                  npm test -w @new-cms/mock-llm
-                  npm run build -w @new-cms/mock-llm
+                  npm run typecheck -w @yomotsuhirasaka/mock-llm
+                  npm test -w @yomotsuhirasaka/mock-llm
+                  npm run build -w @yomotsuhirasaka/mock-llm
             - name: Build and test the Nuxt module
               run: |
-                  npm run typecheck -w @new-cms/nuxt
-                  npm test -w @new-cms/nuxt
-                  npm run build -w @new-cms/nuxt
+                  npm run typecheck -w @yomotsuhirasaka/nuxt
+                  npm test -w @yomotsuhirasaka/nuxt
+                  npm run build -w @yomotsuhirasaka/nuxt
             # CLI（約束のテストが dist/index.js を実行する）。単体テストもここで流す
             - name: Build and test the CLI
-              run: npm test -w @new-cms/cli
+              run: npm test -w @yomotsuhirasaka/cli
             # 管理画面はサーバーが /admin/ で配信する（INV-HDR-01 などが応答を確かめる）。v-html の禁止は eslint で検査する
             - name: Lint, type check and build the admin UI
               working-directory: admin
@@ -147,14 +147,14 @@ jobs:
                   scripts/test-env/setup.sh \
                     postgres://postgres:ci-only-superuser-pw-16@127.0.0.1:5432/postgres \
                     postgres://postgres:ci-only-superuser-pw-15@127.0.0.1:5433/postgres \
-                    "$RUNNER_TEMP/cms-test"
+                    "$RUNNER_TEMP/yomi-test"
             - name: Type check
               working-directory: tests/invariants
               run: npm run typecheck
             - name: Invariant tests
               working-directory: tests/invariants
               run: |
-                  . "$RUNNER_TEMP/cms-test/test.env"
+                  . "$RUNNER_TEMP/yomi-test/test.env"
                   npm test
 
     # 公式の Docker Compose（deploy/）で、初期化・起動ができ、DBのポートが外に開いていないことを確かめる
@@ -166,7 +166,7 @@ jobs:
               working-directory: deploy
               run: |
                   set -o pipefail
-                  ./init.sh https://cms.example.test 2>&1 | tee "$RUNNER_TEMP/compose.log"
+                  ./init.sh https://yomi.example.test 2>&1 | tee "$RUNNER_TEMP/compose.log"
             - name: Start
               working-directory: deploy
               run: |
@@ -186,8 +186,8 @@ jobs:
                   # DBのポートはホストに開いていない
                   if (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then echo "PostgreSQL is reachable from the host" >&2; exit 1; fi
                   # 拡張が入っている
-                  docker compose exec -T db psql -U postgres -d cms -Atc "SELECT string_agg(extname, ',' ORDER BY extname) FROM pg_extension" | grep -q 'pg_bigm.*vector'
-                  docker compose exec -T cms cms-server create-server-admin --config /data/config.toml --email ci@example.test
+                  docker compose exec -T db psql -U postgres -d yomi -Atc "SELECT string_agg(extname, ',' ORDER BY extname) FROM pg_extension" | grep -q 'pg_bigm.*vector'
+                  docker compose exec -T yomi yomi-server create-server-admin --config /data/config.toml --email ci@example.test
             # 失敗したときは、ログの最後を注釈に出す（PRの画面から読めるように）
             - name: Logs
               if: failure()

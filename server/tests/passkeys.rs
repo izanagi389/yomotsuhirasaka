@@ -1,6 +1,6 @@
 //! パスキーの結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 //! ブラウザと認証器の代わりに、passkey-client と passkey-authenticator（ソフトウェアの認証器）を使う。
 
 mod common;
@@ -13,7 +13,7 @@ use passkey_types::ctap2::Aaguid;
 use passkey_types::webauthn::{CredentialCreationOptions, CredentialRequestOptions};
 use webauthn_rs::prelude::Url;
 
-const ORIGIN: &str = "https://cms.example.test";
+const ORIGIN: &str = "https://yomi.example.test";
 
 /// 利用者の確認（生体認証など）を必ず通す、ソフトウェアの認証器を持ったクライアント。
 macro_rules! device {
@@ -111,7 +111,7 @@ async fn passkeys_as_a_second_factor() {
                     server,
                     "POST",
                     "/api/admin/session/mfa/passkey",
-                    &[("Cookie", &format!("__Host-cms_session={pending}")), ("X-Forwarded-For", "198.18.60.1")],
+                    &[("Cookie", &format!("__Host-yomi_session={pending}")), ("X-Forwarded-For", "198.18.60.1")],
                     None,
                 )
                 .await
@@ -169,7 +169,7 @@ async fn passkeys_as_a_second_factor() {
         let res = send(&server, "POST", "/api/admin/me/mfa/totp/confirm", &s2, Some(&format!("{{\"code\":\"{}\"}}", code(&secret, 0)))).await;
         assert_eq!(res.status, 200, "{}", res.body);
         assert!(res.body.contains("\"recoveryCodes\":[]"), "{}", res.body);
-        let codes: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.recovery_codes rc JOIN cms.users u ON u.id = rc.user_id WHERE u.email = $1")
+        let codes: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.recovery_codes rc JOIN yomi.users u ON u.id = rc.user_id WHERE u.email = $1")
             .bind(email)
             .fetch_one(&server.pool)
             .await
@@ -185,7 +185,7 @@ async fn passkeys_as_a_second_factor() {
         assert_eq!(send(&server, "DELETE", &format!("/api/admin/me/mfa/passkeys/{id}"), &o, None).await.status, 404);
         assert_eq!(send(&server, "DELETE", &format!("/api/admin/me/mfa/passkeys/{id}"), &s2, None).await.status, 204);
         assert!(get(&server, "/api/admin/me", &s2).await.body.contains("\"mfaEnabled\":false"));
-        let codes: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.recovery_codes rc JOIN cms.users u ON u.id = rc.user_id WHERE u.email = $1")
+        let codes: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.recovery_codes rc JOIN yomi.users u ON u.id = rc.user_id WHERE u.email = $1")
             .bind(email)
             .fetch_one(&server.pool)
             .await
@@ -205,10 +205,10 @@ async fn passkeys_as_a_second_factor() {
 
         // 多要素認証のリセット（CLIと同じ処理）は、パスキーも消す
         let mut tx = server.pool.begin().await.unwrap();
-        let other_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM cms.users WHERE email = $1").bind(other).fetch_one(&mut *tx).await.unwrap();
-        cms_server::auth::mfa::disable(&mut tx, other_id).await.unwrap();
+        let other_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM yomi.users WHERE email = $1").bind(other).fetch_one(&mut *tx).await.unwrap();
+        yomi_server::auth::mfa::disable(&mut tx, other_id).await.unwrap();
         tx.commit().await.unwrap();
-        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.passkeys WHERE user_id = $1").bind(other_id).fetch_one(&server.pool).await.unwrap();
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.passkeys WHERE user_id = $1").bind(other_id).fetch_one(&server.pool).await.unwrap();
         assert_eq!(left, 0);
     })
     .await;

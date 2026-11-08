@@ -85,7 +85,7 @@ pub async fn ensure_keyword_indexes(migration: &PgPool) -> Result<()> {
     if keyword_schema(&mut conn).await?.is_none() {
         return Ok(());
     }
-    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM cms.workspaces ORDER BY created_at")
+    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM yomi.workspaces ORDER BY created_at")
         .fetch_all(&mut *conn)
         .await?;
     for id in ids {
@@ -203,7 +203,7 @@ pub async fn ensure_vector_indexes(migration: &PgPool, config: &Config) -> Resul
     if vector_schema(&mut *conn).await?.is_none() {
         return Ok(());
     }
-    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM cms.workspaces ORDER BY created_at")
+    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM yomi.workspaces ORDER BY created_at")
         .fetch_all(&mut *conn)
         .await?;
     for id in ids {

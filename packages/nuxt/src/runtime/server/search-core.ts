@@ -4,7 +4,7 @@
 // - 数えるのはサイトのサーバーのメモリの中だけ（複数のプロセスで動かすと、プロセスごとに数える）
 // - 同じ検索（検索語・ロケール・モード・件数）の結果を、短い時間だけ覚えておく。CMSのWebhookを受けたら消す
 
-import { DEFAULT_FIRST, MAX_FIRST, MAX_QUERY_CHARS, SEARCH_MODES, type CmsSearchMode, type CmsSearchResult } from "../search.ts";
+import { DEFAULT_FIRST, MAX_FIRST, MAX_QUERY_CHARS, SEARCH_MODES, type YomiSearchMode, type YomiSearchResult } from "../search.ts";
 import { QueryError } from "./fetch-query.ts";
 
 /** 1分あたりの回数の既定値。 */
@@ -18,7 +18,7 @@ const LOCALE = /^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/;
 export interface SearchParams {
   q: string;
   locale: string;
-  mode: CmsSearchMode;
+  mode: YomiSearchMode;
   first: number;
 }
 
@@ -34,7 +34,7 @@ export function parseSearchParams(query: Record<string, unknown>): SearchParams 
   if (q.length > MAX_QUERY_CHARS) throw new QueryError(400, `q is longer than ${MAX_QUERY_CHARS} characters`);
   const locale = one("locale") ?? "";
   if (!LOCALE.test(locale)) throw new QueryError(400, "locale is required");
-  const mode = (one("mode") ?? "HYBRID") as CmsSearchMode;
+  const mode = (one("mode") ?? "HYBRID") as YomiSearchMode;
   if (!SEARCH_MODES.includes(mode)) throw new QueryError(400, "mode must be HYBRID, VECTOR or KEYWORD");
   const rawFirst = one("first");
   const first = rawFirst === undefined ? DEFAULT_FIRST : Number(rawFirst);
@@ -43,7 +43,7 @@ export function parseSearchParams(query: Record<string, unknown>): SearchParams 
 }
 
 /** 空の検索語の結果（CMSを呼ばない）。 */
-export const EMPTY_RESULT: CmsSearchResult = { vectorSearch: "AVAILABLE", keywordSearch: "AVAILABLE", hits: [] };
+export const EMPTY_RESULT: YomiSearchResult = { vectorSearch: "AVAILABLE", keywordSearch: "AVAILABLE", hits: [] };
 
 /**
  * 訪問者のIPアドレス。`ipHeader` を設定していなければ接続元のアドレス。
@@ -81,10 +81,10 @@ export class RateLimiter {
   }
 }
 
-const results = new Map<string, { value: CmsSearchResult; at: number }>();
+const results = new Map<string, { value: YomiSearchResult; at: number }>();
 
 /** 覚えておいた結果があればそれを、なければ load の結果を覚えて返す。 */
-export async function cachedSearch(params: SearchParams, load: () => Promise<CmsSearchResult>, now: number = Date.now()): Promise<CmsSearchResult> {
+export async function cachedSearch(params: SearchParams, load: () => Promise<YomiSearchResult>, now: number = Date.now()): Promise<YomiSearchResult> {
   const key = JSON.stringify([params.q, params.locale, params.mode, params.first]);
   const hit = results.get(key);
   if (hit && now - hit.at < RESULT_TTL_MS) return hit.value;

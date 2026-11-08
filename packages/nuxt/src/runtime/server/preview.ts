@@ -15,14 +15,14 @@ import { clearPreviewCookie, setPreviewCookie } from "./preview-cookie.ts";
 export default defineEventHandler(async (event) => {
   setResponseHeader(event, "Cache-Control", "no-store");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  const config = useRuntimeConfig(event) as unknown as { cms: { url: string; workspaceId: string; readKey: string } };
+  const config = useRuntimeConfig(event) as unknown as { yomi: { url: string; workspaceId: string; readKey: string } };
   if (event.path.split("?")[0]?.endsWith("/exit")) {
     clearPreviewCookie(event);
     return sendRedirect(event, "/", 302);
   }
-  if (!config.cms.readKey) throw createError({ statusCode: 500, statusMessage: "The CMS read key is not configured" });
+  if (!config.yomi.readKey) throw createError({ statusCode: 500, statusMessage: "The CMS read key is not configured" });
   const token = getQuery(event)["token"];
-  const info = typeof token === "string" ? await checkPreviewToken(config.cms, token) : null;
+  const info = typeof token === "string" ? await checkPreviewToken(config.yomi, token) : null;
   if (!info || !token || typeof token !== "string") {
     clearPreviewCookie(event);
     throw createError({ statusCode: 401, statusMessage: "This preview link is not valid. Open the preview again from the CMS." });

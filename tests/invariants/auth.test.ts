@@ -18,9 +18,9 @@ inv("inv_auth_01", "ログインしていない利用者は、管理APIを使え
   const target = await disposableTarget(w, w.a);
 
   // 対照: ログインしていれば使える
-  expectSuccess(await w.cms.meRaw(asSession(w.a.adminSession)), "ログインした利用者の本人情報の取得");
+  expectSuccess(await w.yomi.meRaw(asSession(w.a.adminSession)), "ログインした利用者の本人情報の取得");
 
-  for (const op of operationsOf(w.cms)) {
+  for (const op of operationsOf(w.yomi)) {
     const res = await op.call({ kind: "none" }, target);
     expectRejected(res, `ログインせずに ${op.name}`);
     expectNotLeaked(res, w.a.secretMarker, `ログインせずに ${op.name}`);
@@ -31,21 +31,21 @@ inv("inv_auth_02", "ログアウトしたセッションや、有効期限の切
   const w = await world();
 
   // ログアウトしたセッション
-  const session = await w.cms.login(w.a.editor);
-  expectSuccess(await w.cms.meRaw(asSession(session)), "ログアウト前の本人情報の取得");
-  await w.cms.logout(session);
-  expectRejected(await w.cms.meRaw(asSession(session)), "ログアウトしたセッションでの本人情報の取得");
+  const session = await w.yomi.login(w.a.editor);
+  expectSuccess(await w.yomi.meRaw(asSession(session)), "ログアウト前の本人情報の取得");
+  await w.yomi.logout(session);
+  expectRejected(await w.yomi.meRaw(asSession(session)), "ログアウトしたセッションでの本人情報の取得");
 
   // 有効期限の切れたセッション: 有効期限を短くしたサーバーを別に起動して確かめる
   const config = { ...(await driver.validServerConfig()), sessionLifetimeSeconds: 2 };
   const server = await driver.startServer(config);
   try {
     expect(server.outcome, `有効期限を短くしたサーバーが起動しない:\n${server.output}`).toBe("ready");
-    const cms = server.client!;
-    const short = await cms.login(w.a.editor);
-    expectSuccess(await cms.meRaw(asSession(short)), "有効期限内の本人情報の取得");
+    const yomi = server.client!;
+    const short = await yomi.login(w.a.editor);
+    expectSuccess(await yomi.meRaw(asSession(short)), "有効期限内の本人情報の取得");
     await new Promise((r) => setTimeout(r, 4_000));
-    expectRejected(await cms.meRaw(asSession(short)), "有効期限の切れたセッションでの本人情報の取得");
+    expectRejected(await yomi.meRaw(asSession(short)), "有効期限の切れたセッションでの本人情報の取得");
   } finally {
     await server.stop();
   }
@@ -65,8 +65,8 @@ inv("inv_auth_03", "管理APIのどの応答にも、パスワードやそのハ
   };
 
   // ログインの応答（成功と失敗）
-  check(await w.cms.loginRaw(w.a.editor), "ログイン");
-  check(await w.cms.loginRaw({ ...w.a.editor, password: w.a.admin.password }), "誤ったパスワードでのログイン");
+  check(await w.yomi.loginRaw(w.a.editor), "ログイン");
+  check(await w.yomi.loginRaw({ ...w.a.editor, password: w.a.admin.password }), "誤ったパスワードでのログイン");
 
   // 読み取りの操作すべてを、サーバー管理者とワークスペースの管理者で呼ぶ
   // （状態を変える操作は、パスワードの変更などで舞台を壊すため、ここでは呼ばない）
@@ -75,7 +75,7 @@ inv("inv_auth_03", "管理APIのどの応答にも、パスワードやそのハ
     ["ワークスペースの管理者", w.a.adminSession],
   ];
   for (const [who, session] of sessions) {
-    for (const op of operationsOf(w.cms).filter((o) => !o.mutating)) {
+    for (const op of operationsOf(w.yomi).filter((o) => !o.mutating)) {
       check(await op.call(asSession(session), target), `${who}の ${op.name}`);
     }
   }
@@ -84,10 +84,10 @@ inv("inv_auth_03", "管理APIのどの応答にも、パスワードやそのハ
 inv("inv_auth_07", "CSRFトークンのない、状態を変えるリクエストは拒否される", async () => {
   const w = await world();
   const target = await disposableTarget(w, w.a);
-  await w.cms.reauthenticate(w.a.adminSession, w.a.admin);
+  await w.yomi.reauthenticate(w.a.adminSession, w.a.admin);
   // 別のセッションのCSRFトークン（同じ利用者の別のログイン）
-  const other = await w.cms.login(w.a.admin);
-  const ops = operationsOf(w.cms);
+  const other = await w.yomi.login(w.a.admin);
+  const ops = operationsOf(w.yomi);
 
   for (const op of ops.filter((o) => o.mutating)) {
     const missing: Auth = { kind: "session", session: w.a.adminSession, csrf: "missing" };
@@ -101,7 +101,7 @@ inv("inv_auth_07", "CSRFトークンのない、状態を変えるリクエス�
   expectSuccess(await createEntry.call(asSession(w.a.adminSession), target), "正しいCSRFトークンでの createEntry");
 
   // 拒否されたリクエストでセッションが壊れていない（拒否の理由がCSRFだけである）
-  expectSuccess(await w.cms.meRaw(asSession(w.a.adminSession)), "拒否の後の本人情報の取得");
+  expectSuccess(await w.yomi.meRaw(asSession(w.a.adminSession)), "拒否の後の本人情報の取得");
 });
 
 inv(
@@ -109,14 +109,14 @@ inv(
   "管理画面のセッションのCookieには、HttpOnly・Secure・SameSite=Strict が付き、名前に `__Host-` の接頭辞が付く",
   async () => {
     const w = await world();
-    const session = await w.cms.login(w.a.editor);
+    const session = await w.yomi.login(w.a.editor);
 
     // セッションのCookie = 取り除くとログインしていない扱いになるCookie
     const sessionCookieNames: string[] = [];
     for (const name of session.cookies.keys()) {
       const cookies = new Map(session.cookies);
       cookies.delete(name);
-      const res = await w.cms.meRaw(asSession({ ...session, cookies }));
+      const res = await w.yomi.meRaw(asSession({ ...session, cookies }));
       if (res.status === 401 || res.status === 403) sessionCookieNames.push(name);
     }
     expect(sessionCookieNames.length, "ログインの状態を保つCookieが見つからない").toBeGreaterThan(0);

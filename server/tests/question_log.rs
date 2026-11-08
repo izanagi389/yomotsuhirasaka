@@ -1,16 +1,16 @@
 //! 質問ログの管理API（`/api/admin/workspaces/{ws}/question-log`。M4）の結合テスト。
 //! 回答から質問ログへの記録と保存期間（INV-LOG-01, 02）は、約束のテスト `tests/invariants/question-log.test.ts` が確かめる。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::answer::log::{self, Outcome};
-use cms_server::workspace_db;
 use common::content::*;
 use common::server::*;
 use common::with_scratch;
 use serde_json::{Value, json};
+use yomi_server::answer::log::{self, Outcome};
+use yomi_server::workspace_db;
 
 fn parse(res: &Resp) -> Value {
     serde_json::from_str(&res.body).unwrap_or_else(|_| panic!("{}", res.body))
@@ -72,7 +72,7 @@ async fn question_log_api() {
 
         // 閲覧は重い権限 viewQuestionLog（管理者にも既定では付かない。INV-PERM-02）と再認証が要り、見るたびに監査ログに残る
         assert_eq!(get(&server, &view, &admin).await.status, 403);
-        let admin_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM cms.users WHERE email = 'admin@example.test'")
+        let admin_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM yomi.users WHERE email = 'admin@example.test'")
             .fetch_one(&server.pool)
             .await
             .unwrap();
@@ -87,7 +87,7 @@ async fn question_log_api() {
         assert!(!v.to_string().contains("無効のときの質問"));
         let today = &v["daily"][0];
         assert_eq!((today["answered"].as_i64(), today["noInformation"].as_i64(), today["error"].as_i64()), (Some(1), Some(4), Some(1)));
-        let viewed: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE workspace_id = $1 AND action = 'question_log.viewed'")
+        let viewed: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE workspace_id = $1 AND action = 'question_log.viewed'")
             .bind(ws)
             .fetch_one(&server.pool)
             .await

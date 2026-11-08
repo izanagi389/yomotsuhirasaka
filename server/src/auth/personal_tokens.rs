@@ -1,6 +1,6 @@
 //! CLI用の個人トークン（Q91, Q110, Q119）。
 //!
-//! - 形は `cms_pat_<ランダムな43文字>`。発行時に一度だけ渡し、DBにはハッシュだけを保存する（INV-KEY-01）。
+//! - 形は `yomi_pat_<ランダムな43文字>`。発行時に一度だけ渡し、DBにはハッシュだけを保存する（INV-KEY-01）。
 //! - 有効期限は必須（最長365日）。範囲（read・write・deploy）と、使えるワークスペースを発行時に決める。
 //! - 有効な権限は、トークンの範囲と、リクエストの時点での本人のロールの重なりだけ。
 //!   本人がワークスペースから外されたり、無効にされたりしたら、直ちに使えなくなる（照合のたびに確かめる）。
@@ -14,9 +14,9 @@ use super::session::{Current, TokenGrant};
 use super::token;
 
 /// 個人トークンの接頭辞。URLに載ったかどうかの検査にも使う。
-pub const PREFIX: &str = "cms_pat_";
+pub const PREFIX: &str = "yomi_pat_";
 /// 配信APIのキーの接頭辞（キーは次の段階で追加する。URLの検査はここで先に行う）。
-pub const API_KEY_PREFIX: &str = "cms_key_";
+pub const API_KEY_PREFIX: &str = "yomi_key_";
 /// 有効期限の上限（日）。
 pub const MAX_LIFETIME_DAYS: i32 = 365;
 /// 使った時刻の記録の間隔（秒）。毎回は書き込まない。
@@ -86,7 +86,7 @@ pub async fn issue<'e>(
     let id = Uuid::new_v4();
     let display_prefix: String = secret.chars().take(PREFIX.len() + 4).collect();
     let expires_at: String = sqlx::query_scalar(crate::sql!(
-        "INSERT INTO cms.personal_tokens (id, user_id, name, token_hash, display_prefix, scopes, workspace_ids, expires_at)
+        "INSERT INTO yomi.personal_tokens (id, user_id, name, token_hash, display_prefix, scopes, workspace_ids, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
          RETURNING to_char(expires_at AT TIME ZONE 'UTC', {RFC3339})"
     ))
@@ -139,7 +139,7 @@ pub async fn list(pool: &PgPool, user_id: Uuid) -> Result<Vec<Summary>> {
                 to_char(created_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(expires_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(last_used_at AT TIME ZONE 'UTC', {RFC3339})
-         FROM cms.personal_tokens
+         FROM yomi.personal_tokens
          WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
          ORDER BY created_at DESC"
     ))
@@ -175,7 +175,7 @@ pub async fn list(pool: &PgPool, user_id: Uuid) -> Result<Vec<Summary>> {
 /// 本人のトークンを失効させる。本人のものでなければ false。
 pub async fn revoke(pool: &PgPool, user_id: Uuid, id: Uuid) -> Result<bool> {
     let done = sqlx::query(
-        "UPDATE cms.personal_tokens SET revoked_at = now()
+        "UPDATE yomi.personal_tokens SET revoked_at = now()
          WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
     )
     .bind(id)
@@ -207,7 +207,7 @@ pub async fn resolve(pool: &PgPool, presented: &str) -> Result<Option<Current>> 
         "SELECT t.id, t.scopes, t.workspace_ids,
                 t.last_used_at IS NULL OR t.last_used_at < now() - make_interval(secs => $2),
                 u.id, u.email, u.is_server_admin, {}, u.locale
-         FROM cms.personal_tokens t JOIN cms.users u ON u.id = t.user_id
+         FROM yomi.personal_tokens t JOIN yomi.users u ON u.id = t.user_id
          WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now() AND NOT u.disabled",
         crate::auth::mfa::MFA_ENABLED_U
     ),
@@ -231,7 +231,7 @@ pub async fn resolve(pool: &PgPool, presented: &str) -> Result<Option<Current>> 
         return Ok(None);
     };
     if stale {
-        sqlx::query("UPDATE cms.personal_tokens SET last_used_at = now() WHERE id = $1")
+        sqlx::query("UPDATE yomi.personal_tokens SET last_used_at = now() WHERE id = $1")
             .bind(token_id)
             .execute(pool)
             .await?;
@@ -265,10 +265,10 @@ mod tests {
 
     #[test]
     fn credentials_in_urls_are_detected() {
-        assert!(credential_in_query("token=cms_pat_abc"));
-        assert!(credential_in_query("x=1&access_token=CMS_PAT_abc"));
-        assert!(credential_in_query("key=cms%5Fkey%5Fabc"));
-        assert!(credential_in_query("api_key=cms_key_abc"));
+        assert!(credential_in_query("token=yomi_pat_abc"));
+        assert!(credential_in_query("x=1&access_token=YOMI_PAT_abc"));
+        assert!(credential_in_query("key=yomi%5Fkey%5Fabc"));
+        assert!(credential_in_query("api_key=yomi_key_abc"));
         assert!(!credential_in_query("q=hello&page=2"));
         assert!(!credential_in_query(""));
     }

@@ -62,7 +62,7 @@ pub struct LockState {
 
 async fn holder(state: &AppState, current: &Current, lock: &Lock) -> Result<Holder, ApiError> {
     let name: Option<Option<String>> =
-        sqlx::query_scalar("SELECT display_name FROM cms.users WHERE id = $1")
+        sqlx::query_scalar("SELECT display_name FROM yomi.users WHERE id = $1")
             .bind(lock.user_id)
             .fetch_optional(&state.pool)
             .await

@@ -1,6 +1,6 @@
 //! 配信API（GraphQL）の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -155,7 +155,7 @@ async fn delivering_published_entries() {
         assert_eq!(post["body"]["content"][0]["content"][0]["text"], "PUBLISHED-BODY");
         let image = &post["body"]["content"][1]["attrs"];
         assert_eq!((image["width"].as_i64(), image["height"].as_i64()), (Some(3), Some(2)));
-        assert!(image["src"].as_str().unwrap().starts_with("https://cms.example.test/media/"));
+        assert!(image["src"].as_str().unwrap().starts_with("https://yomi.example.test/media/"));
         assert!(!res.body.contains("DRAFT-ONLY"));
         // 違うロケールを指定したら返らない
         assert_eq!(parse(&run(&server, ws, &read, &by_id_ref, json!({"id": ja, "locale": "en"})).await)["data"]["post"], Value::Null);

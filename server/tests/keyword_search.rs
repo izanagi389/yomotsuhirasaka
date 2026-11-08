@@ -1,17 +1,17 @@
 //! キーワード検索の結合テスト（08-search-and-related.md、M3）。pg_bigm の入った PostgreSQL を使う。
 //!
-//! 環境変数 `CMS_TEST_PG_BIGM_URL` に、pg_bigm と pgvector の入った PostgreSQL（`deploy/postgres.Dockerfile`）の
+//! 環境変数 `YOMI_TEST_PG_BIGM_URL` に、pg_bigm と pgvector の入った PostgreSQL（`deploy/postgres.Dockerfile`）の
 //! スーパーユーザーの接続先があるときだけ実行する。拡張がない環境の扱い（INV-SRC-05）は、約束のテストが確かめる。
 //! LLMの接続先は設定しない（キーワード検索は、埋め込みがなくても動く）。
 
 mod common;
 
-use cms_server::worker;
 use common::content::*;
 use common::server::*;
 use common::with_scratch_at;
 use serde_json::{Value, json};
 use uuid::Uuid;
+use yomi_server::worker;
 
 fn parse(res: &Resp) -> Value {
     serde_json::from_str(&res.body).unwrap_or_else(|_| panic!("{}", res.body))
@@ -41,7 +41,7 @@ async fn api_key(server: &Server, root: &Login, ws: Uuid, scopes: &[&str]) -> St
     res.json_str("key").unwrap()
 }
 
-const SEARCH: &str = "query($text: String!, $mode: CmsSearchMode) { search(text: $text, locale: \"ja\", first: 50, mode: $mode) { vectorSearch keywordSearch hits { entryId excerpt matches { start length } score } } }";
+const SEARCH: &str = "query($text: String!, $mode: YomiSearchMode) { search(text: $text, locale: \"ja\", first: 50, mode: $mode) { vectorSearch keywordSearch hits { entryId excerpt matches { start length } score } } }";
 
 /// 抜粋の中の、一致した箇所の文字列（位置は UTF-16 の単位）。
 fn matched(hit: &Value) -> Vec<String> {
@@ -71,7 +71,7 @@ fn ids(result: &Value) -> Vec<String> {
 
 #[tokio::test]
 async fn keyword_search_with_pg_bigm() {
-    with_scratch_at("CMS_TEST_PG_BIGM_URL", &["pg_bigm"], |app, migration| async move {
+    with_scratch_at("YOMI_TEST_PG_BIGM_URL", &["pg_bigm"], |app, migration| async move {
         let server = start(config(&app, &migration)).await;
         let (root, token) = root_with_deploy_token(&server).await;
         let manifest = blog_manifest().replace(

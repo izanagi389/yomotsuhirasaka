@@ -57,7 +57,7 @@ fn login_record((id, password_hash, disabled, blocked, mfa_enabled): LoginRow) -
 
 pub async fn find_for_login(pool: &PgPool, email: &str) -> Result<Option<LoginRecord>> {
     let row: Option<LoginRow> = sqlx::query_as(crate::sql!(
-        "SELECT {LOGIN_COLUMNS}, {} FROM cms.users u WHERE u.email = $1",
+        "SELECT {LOGIN_COLUMNS}, {} FROM yomi.users u WHERE u.email = $1",
         super::mfa::MFA_ENABLED_U
     ))
     .bind(email)
@@ -68,7 +68,7 @@ pub async fn find_for_login(pool: &PgPool, email: &str) -> Result<Option<LoginRe
 
 pub async fn find_by_id_for_login(pool: &PgPool, id: Uuid) -> Result<Option<LoginRecord>> {
     let row: Option<LoginRow> = sqlx::query_as(crate::sql!(
-        "SELECT {LOGIN_COLUMNS}, {} FROM cms.users u WHERE u.id = $1",
+        "SELECT {LOGIN_COLUMNS}, {} FROM yomi.users u WHERE u.id = $1",
         super::mfa::MFA_ENABLED_U
     ))
     .bind(id)
@@ -86,7 +86,7 @@ pub async fn create(
 ) -> Result<Uuid> {
     let id = Uuid::new_v4();
     let inserted = sqlx::query(
-        "INSERT INTO cms.users (id, email, password_hash, is_server_admin, password_changed_at)
+        "INSERT INTO yomi.users (id, email, password_hash, is_server_admin, password_changed_at)
          VALUES ($1, $2, $3, $4, now())
          ON CONFLICT (email) DO NOTHING",
     )
@@ -109,7 +109,7 @@ pub async fn set_password<'e>(
     password_hash: &str,
 ) -> Result<()> {
     sqlx::query(
-        "UPDATE cms.users SET password_hash = $2, password_changed_at = now(),
+        "UPDATE yomi.users SET password_hash = $2, password_changed_at = now(),
                 failed_login_count = 0, login_blocked_until = NULL
          WHERE id = $1",
     )

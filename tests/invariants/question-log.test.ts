@@ -37,12 +37,12 @@ const wordMarker = (label: string): string => marker(label).replace(/\d/g, (d) =
 
 /** 記事を公開し、検索に出る（埋め込みができる）まで待つ。 */
 async function publishSearchable(ws: AnswerWorkspace, word: string, text: string): Promise<string> {
-  const { cms } = await world();
-  const { id } = await cms.createEntry(ws.editorSession, ws.id, { title: marker("log-title"), body: doc(paragraph(text)) });
-  await cms.publishEntry(ws.editorSession, ws.id, id);
+  const { yomi } = await world();
+  const { id } = await yomi.createEntry(ws.editorSession, ws.id, { title: marker("log-title"), body: doc(paragraph(text)) });
+  await yomi.publishEntry(ws.editorSession, ws.id, id);
   const deadline = Date.now() + 120_000;
   for (;;) {
-    const r = await cms.search(ws.id, ws.readKey.secret, ws.searchQuery, { text: word, first: 50 });
+    const r = await yomi.search(ws.id, ws.readKey.secret, ws.searchQuery, { text: word, first: 50 });
     if (r.hits.some((h) => h.entryId === id)) return id;
     if (Date.now() > deadline) throw new Error(`公開した記事が検索に出ない（埋め込みができない）: ${id}`);
     await sleep(1);
@@ -50,16 +50,16 @@ async function publishSearchable(ws: AnswerWorkspace, word: string, text: string
 }
 
 async function askRaw(ws: AnswerWorkspace, question: string, stream = false): Promise<HttpResponse> {
-  const { cms } = await world();
-  return cms.answerRaw(ws.id, ws.answerKey.secret, stream ? ws.answerStreamQuery : ws.answerQuery, { question });
+  const { yomi } = await world();
+  return yomi.answerRaw(ws.id, ws.answerKey.secret, stream ? ws.answerStreamQuery : ws.answerQuery, { question });
 }
 
 /** まとめて返す回答。エラーなら、その内容で失敗する。 */
 async function ask(ws: AnswerWorkspace, question: string): Promise<AnswerResult> {
-  const { cms } = await world();
+  const { yomi } = await world();
   const res = await askRaw(ws, question);
-  const r = cms.parseAnswer(res);
-  expect(r, `回答が返らない（${res.status}）: ${JSON.stringify(cms.answerErrors(res))}`).not.toBeNull();
+  const r = yomi.parseAnswer(res);
+  expect(r, `回答が返らない（${res.status}）: ${JSON.stringify(yomi.answerErrors(res))}`).not.toBeNull();
   return r!;
 }
 
@@ -74,20 +74,20 @@ async function askUnanswerable(ws: AnswerWorkspace, question: string): Promise<v
 
 /** 質問ログを有効にする（管理者と再認証）。 */
 async function enableLog(ws: AnswerWorkspace, retentionDays?: number): Promise<void> {
-  const { cms } = await world();
-  await cms.reauthenticate(ws.adminSession, ws.admin);
-  await cms.setQuestionLogSettings(ws.adminSession, ws.id, retentionDays === undefined ? { enabled: true } : { enabled: true, retentionDays });
+  const { yomi } = await world();
+  await yomi.reauthenticate(ws.adminSession, ws.admin);
+  await yomi.setQuestionLogSettings(ws.adminSession, ws.id, retentionDays === undefined ? { enabled: true } : { enabled: true, retentionDays });
 }
 
 /** 質問ログを読める人（編集者に重い権限 viewQuestionLog を付ける）のセッション。読むたびに再認証する。 */
 async function logReader(ws: AnswerWorkspace): Promise<() => Promise<string[]>> {
-  const { cms } = await world();
-  await cms.reauthenticate(ws.adminSession, ws.admin);
-  const res = await cms.setMemberGrantsRaw(asSession(ws.adminSession), ws.id, ws.editor.userId, ["viewQuestionLog"]);
+  const { yomi } = await world();
+  await yomi.reauthenticate(ws.adminSession, ws.admin);
+  const res = await yomi.setMemberGrantsRaw(asSession(ws.adminSession), ws.id, ws.editor.userId, ["viewQuestionLog"]);
   expect(res.status, `質問ログの閲覧の権限を付与できない（${res.status}）: ${res.text}`).toBeLessThan(300);
   return async () => {
-    await cms.reauthenticate(ws.editorSession, ws.editor);
-    return (await cms.questionCandidates(ws.editorSession, ws.id)).map((c) => c.question);
+    await yomi.reauthenticate(ws.editorSession, ws.editor);
+    return (await yomi.questionCandidates(ws.editorSession, ws.id)).map((c) => c.question);
   };
 }
 
@@ -175,22 +175,22 @@ inv(
   "ワークスペースが拒否する語に指定した語を含む質問は、回答されず、外部のLLMにも埋め込みの作成にも送られず、質問ログにも質問文が残らない",
   async () => {
     const w = await world();
-    const { cms, llmKey } = w;
+    const { yomi, llmKey } = w;
     const ws = await w.workspace("qa16");
     const word = wordMarker("qasixteen");
     await publishSearchable(ws, word, `${word} は、拒否する語を確かめるための記事です。`);
     await enableLog(ws);
     const read = await logReader(ws);
     const refused = wordMarker("refusedword").toLowerCase();
-    await cms.reauthenticate(ws.adminSession, ws.admin);
-    await cms.setAnswerSettings(ws.adminSession, ws.id, { refusal: { words: [refused], creditCard: true } });
+    await yomi.reauthenticate(ws.adminSession, ws.admin);
+    await yomi.setAnswerSettings(ws.adminSession, ws.id, { refusal: { words: [refused], creditCard: true } });
 
     /** 拒否されて、LLMにも埋め込みにも何も送られない。 */
     const expectRefused = async (question: string, what: string) => {
       await mockLlm.clearRequests(llmKey);
       for (const stream of [false, true]) {
         const res = await askRaw(ws, question, stream);
-        const codes = cms.answerErrors(res).map((e) => e.code);
+        const codes = yomi.answerErrors(res).map((e) => e.code);
         expect(codes, `${what}: 拒否のエラーコードが返らない（${stream ? "ストリーミング" : "まとめて"}）`).toContain("QUESTION_REFUSED");
         expect(res.text, `${what}: 拒否したのに記事の内容が返った`).not.toContain("拒否する語を確かめる");
       }

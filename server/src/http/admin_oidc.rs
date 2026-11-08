@@ -37,7 +37,7 @@ use crate::auth::{session, token};
 use crate::invitations;
 
 /// ログインの途中で使う短命のCookie。IdPからのリダイレクト（別のサイトからの移動）で送られるよう、SameSite=Lax にする。
-const FLOW_COOKIE: &str = "__Host-cms_oidc";
+const FLOW_COOKIE: &str = "__Host-yomi_oidc";
 /// 始めてから戻るまでの期限（秒）。
 const FLOW_SECONDS: u32 = 10 * 60;
 
@@ -106,12 +106,12 @@ fn flow_cookie(value: &str) -> HeaderValue {
 }
 
 fn clear_flow_cookie() -> HeaderValue {
-    HeaderValue::from_static("__Host-cms_oidc=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
+    HeaderValue::from_static("__Host-yomi_oidc=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
 }
 
 /// PKCE の検証用の値を暗号化するときの、追加の認証データ。
 fn pkce_aad(id: Uuid) -> Vec<u8> {
-    format!("cms:oidc:{id}").into_bytes()
+    format!("yomi:oidc:{id}").into_bytes()
 }
 
 #[derive(Serialize)]
@@ -165,12 +165,12 @@ async fn begin(
         .keys
         .encrypt(started.pkce_verifier.as_bytes(), &pkce_aad(id))?;
     // 期限を過ぎた途中の状態は、ここで消す
-    sqlx::query("DELETE FROM cms.oidc_logins WHERE expires_at < now()")
+    sqlx::query("DELETE FROM yomi.oidc_logins WHERE expires_at < now()")
         .execute(&state.pool)
         .await
         .map_err(anyhow::Error::from)?;
     sqlx::query(
-        "INSERT INTO cms.oidc_logins
+        "INSERT INTO yomi.oidc_logins
              (id, browser_hash, state_hash, nonce, pkce_verifier, purpose, user_id, session_id, invitation_id, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now() + make_interval(secs => $10))",
     )
@@ -329,7 +329,7 @@ async fn take_flow(
         i64,
     );
     let row: Option<Row> = sqlx::query_as(
-        "DELETE FROM cms.oidc_logins
+        "DELETE FROM yomi.oidc_logins
          WHERE state_hash = $1 AND browser_hash = $2 AND expires_at > now()
          RETURNING id, nonce, pkce_verifier, purpose, user_id, session_id, invitation_id,
                    floor(extract(epoch FROM created_at))::bigint",
@@ -495,7 +495,7 @@ async fn owner(state: &AppState, flow: &Flow) -> Result<(Uuid, Uuid), Fail> {
 /// (iss, sub) にひも付いた利用者（無効にされた利用者は除く）。
 async fn find_identity(state: &AppState, v: &Verified) -> Result<Option<(Uuid, bool)>, Fail> {
     Ok(sqlx::query_as(
-        "SELECT u.id, u.disabled FROM cms.external_identities x JOIN cms.users u ON u.id = x.user_id
+        "SELECT u.id, u.disabled FROM yomi.external_identities x JOIN yomi.users u ON u.id = x.user_id
          WHERE x.issuer = $1 AND x.subject = $2",
     )
     .bind(&v.issuer)
@@ -516,7 +516,7 @@ async fn insert_identity<'e>(
 ) -> Result<Option<Uuid>, Fail> {
     let id = Uuid::new_v4();
     let done = sqlx::query(
-        "INSERT INTO cms.external_identities (id, user_id, issuer, subject, last_login_at)
+        "INSERT INTO yomi.external_identities (id, user_id, issuer, subject, last_login_at)
          VALUES ($1, $2, $3, $4, NULL)
          ON CONFLICT DO NOTHING",
     )
@@ -531,7 +531,7 @@ async fn insert_identity<'e>(
 
 async fn touch_identity(state: &AppState, v: &Verified) -> Result<(), Fail> {
     sqlx::query(
-        "UPDATE cms.external_identities SET last_login_at = now() WHERE issuer = $1 AND subject = $2",
+        "UPDATE yomi.external_identities SET last_login_at = now() WHERE issuer = $1 AND subject = $2",
     )
     .bind(&v.issuer)
     .bind(&v.subject)
@@ -540,9 +540,9 @@ async fn touch_identity(state: &AppState, v: &Verified) -> Result<(), Fail> {
     // 表示名をまだ決めていなければ、IdPの名前を入力欄の初期値として覚える（表示名にはしない）
     if let Some(name) = &v.name {
         sqlx::query(
-            "UPDATE cms.users SET display_name_suggestion = $3
+            "UPDATE yomi.users SET display_name_suggestion = $3
              WHERE display_name IS NULL
-               AND id = (SELECT user_id FROM cms.external_identities WHERE issuer = $1 AND subject = $2)",
+               AND id = (SELECT user_id FROM yomi.external_identities WHERE issuer = $1 AND subject = $2)",
         )
         .bind(&v.issuer)
         .bind(&v.subject)
@@ -579,7 +579,7 @@ async fn login(
     let mut tx = state.pool.begin().await?;
     let user_id = Uuid::new_v4();
     let inserted = sqlx::query(
-        "INSERT INTO cms.users (id, email) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING",
+        "INSERT INTO yomi.users (id, email) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING",
     )
     .bind(user_id)
     .bind(email)
@@ -630,7 +630,7 @@ async fn accept_invitation(
     }
     let user_id = Uuid::new_v4();
     let inserted = sqlx::query(
-        "INSERT INTO cms.users (id, email) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING",
+        "INSERT INTO yomi.users (id, email) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING",
     )
     .bind(user_id)
     .bind(email)

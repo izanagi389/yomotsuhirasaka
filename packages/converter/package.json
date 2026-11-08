@@ -1,5 +1,5 @@
 {
-  "name": "@new-cms/converter",
+  "name": "@yomotsuhirasaka/converter",
   "version": "0.1.0",
   "private": true,
   "description": "本文（TiptapのJSON）の変換器。Markdown と HTML を作る。サーバーの組み込みJSと管理画面で同じものを動かす（Q56）",

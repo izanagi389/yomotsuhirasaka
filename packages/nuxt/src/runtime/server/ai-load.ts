@@ -2,7 +2,7 @@
 // ここは Nitro に依存しない（ビルドのときにも呼ぶ）。
 
 import { cached } from "./cache.ts";
-import type { CmsAiCatalogItem } from "./ai.ts";
+import type { YomiAiCatalogItem } from "./ai.ts";
 import { type QueryTarget, fetchQuery } from "./fetch-query.ts";
 
 /** 配信APIが1回に返す目録の件数の上限。 */
@@ -11,11 +11,11 @@ const PAGE = 1000;
 const MAX_PAGES = 20;
 
 /** ロケールの目録をすべて（上限まで）取る。 */
-export function loadCatalog(target: QueryTarget, id: string, locale: string): Promise<CmsAiCatalogItem[]> {
+export function loadCatalog(target: QueryTarget, id: string, locale: string): Promise<YomiAiCatalogItem[]> {
   return cached(`ai:catalog:${locale}`, async () => {
-    const out: CmsAiCatalogItem[] = [];
+    const out: YomiAiCatalogItem[] = [];
     for (let page = 0; page < MAX_PAGES; page++) {
-      const data = (await fetchQuery(target, id, { locale, limit: PAGE, offset: page * PAGE })) as { aiCatalog?: CmsAiCatalogItem[] } | null;
+      const data = (await fetchQuery(target, id, { locale, limit: PAGE, offset: page * PAGE })) as { aiCatalog?: YomiAiCatalogItem[] } | null;
       const items = data?.aiCatalog ?? [];
       out.push(...items);
       if (items.length < PAGE) break;

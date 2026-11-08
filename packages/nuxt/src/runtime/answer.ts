@@ -10,7 +10,7 @@ import { hrefAllowed } from "./href.ts";
 export const MAX_QUESTION_CHARS = 500;
 
 /** 回答の出典（記事の該当セクション）。 */
-export interface CmsAnswerSource {
+export interface YomiAnswerSource {
   /** 本文の引用記号 `[n]` の番号。 */
   citation: number;
   entryId: string;
@@ -26,15 +26,15 @@ export interface CmsAnswerSource {
 }
 
 /** 最終判定（ANSWERED・NO_INFORMATION（記事に答えがない）・VIOLATION_DETECTED（本文の途中で規則が破られた。最終の本文を出す））。 */
-export type CmsAnswerStatus = "ANSWERED" | "NO_INFORMATION" | "VIOLATION_DETECTED";
+export type YomiAnswerStatus = "ANSWERED" | "NO_INFORMATION" | "VIOLATION_DETECTED";
 
-export interface CmsAnswer {
-  status: CmsAnswerStatus;
+export interface YomiAnswer {
+  status: YomiAnswerStatus;
   /** 回答の本文（Markdown）。NO_INFORMATION ならワークスペースの定型文。 */
   text: string;
   /** 長さの上限で打ち切ったか。 */
   truncated: boolean;
-  sources: CmsAnswerSource[];
+  sources: YomiAnswerSource[];
 }
 
 /**
@@ -45,7 +45,7 @@ export interface CmsAnswer {
  * - LLM_UNAVAILABLE: LLM を呼べなかった（時間をおいて送り直す）
  * - ANSWER_FAILED: そのほか（CMS に届かない・サイトの設定の誤りなど）
  */
-export type CmsAnswerErrorCode =
+export type YomiAnswerErrorCode =
   | "RATE_LIMITED"
   | "ANSWER_BUDGET_EXHAUSTED"
   | "QUESTION_EMPTY"
@@ -56,7 +56,7 @@ export type CmsAnswerErrorCode =
   | "ANSWER_FAILED";
 
 /** CMS の GraphQL のエラーのコードのうち、そのままブラウザに渡すもの。 */
-export const PASSED_ERROR_CODES: readonly CmsAnswerErrorCode[] = [
+export const PASSED_ERROR_CODES: readonly YomiAnswerErrorCode[] = [
   "ANSWER_BUDGET_EXHAUSTED",
   "QUESTION_EMPTY",
   "QUESTION_TOO_LONG",
@@ -69,11 +69,11 @@ export const PASSED_ERROR_CODES: readonly CmsAnswerErrorCode[] = [
  * サイトのサーバーのルートが送るイベント（SSE の `event:` が type、`data:` がそれ以外の項目の JSON）。
  * verdict（判定。answerable が false なら本文は来ない）→ delta（本文の断片）→ final（最終判定）。途中で error が来たら終わり。
  */
-export type CmsAnswerEvent =
-  | { type: "verdict"; answerable: boolean; sources: CmsAnswerSource[] }
+export type YomiAnswerEvent =
+  | { type: "verdict"; answerable: boolean; sources: YomiAnswerSource[] }
   | { type: "delta"; text: string }
-  | { type: "final"; answer: CmsAnswer }
-  | { type: "error"; code: CmsAnswerErrorCode; retryAfter?: number };
+  | { type: "final"; answer: YomiAnswer }
+  | { type: "error"; code: YomiAnswerErrorCode; retryAfter?: number };
 
 /** SSE の本文を少しずつ受け取り、まとまったイベント（`event:` と `data:`）を返す。 */
 export class SseReader {
@@ -103,23 +103,23 @@ export class SseReader {
 // --- Markdown の一部 ---
 
 /** 行の中の要素。 */
-export type CmsAnswerInline =
+export type YomiAnswerInline =
   | { type: "text"; text: string }
-  | { type: "strong"; children: CmsAnswerInline[] }
+  | { type: "strong"; children: YomiAnswerInline[] }
   | { type: "code"; text: string }
-  | { type: "link"; href: string; children: CmsAnswerInline[] }
+  | { type: "link"; href: string; children: YomiAnswerInline[] }
   | { type: "citation"; n: number };
 
 /** かたまり。見出しは段落（太字）にする。 */
-export type CmsAnswerBlock =
-  | { type: "paragraph"; children: CmsAnswerInline[] }
-  | { type: "list"; ordered: boolean; items: CmsAnswerInline[][] }
+export type YomiAnswerBlock =
+  | { type: "paragraph"; children: YomiAnswerInline[] }
+  | { type: "list"; ordered: boolean; items: YomiAnswerInline[][] }
   | { type: "code"; text: string };
 
 /** 回答の Markdown を、描いてよい要素だけの木にする（知らない書き方は文字のまま）。 */
-export function parseAnswerMarkdown(text: string): CmsAnswerBlock[] {
+export function parseAnswerMarkdown(text: string): YomiAnswerBlock[] {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
-  const blocks: CmsAnswerBlock[] = [];
+  const blocks: YomiAnswerBlock[] = [];
   let para: string[] = [];
   const flush = () => {
     if (para.length > 0) blocks.push({ type: "paragraph", children: parseInline(para.join("\n")) });
@@ -144,7 +144,7 @@ export function parseAnswerMarkdown(text: string): CmsAnswerBlock[] {
     if (item) {
       flush();
       const ordered = /\d/.test(item[1]!);
-      const items: CmsAnswerInline[][] = [];
+      const items: YomiAnswerInline[][] = [];
       for (; i < lines.length; i++) {
         const m = /^\s*([-*+]|\d{1,9}[.)])\s+(.*)$/.exec(lines[i]!);
         if (!m || /\d/.test(m[1]!) !== ordered) break;
@@ -169,8 +169,8 @@ export function parseAnswerMarkdown(text: string): CmsAnswerBlock[] {
 }
 
 /** 行の中を解釈する。 */
-export function parseInline(text: string): CmsAnswerInline[] {
-  const out: CmsAnswerInline[] = [];
+export function parseInline(text: string): YomiAnswerInline[] {
+  const out: YomiAnswerInline[] = [];
   const pushText = (t: string) => {
     if (!t) return;
     const last = out[out.length - 1];
@@ -232,7 +232,7 @@ export function parseInline(text: string): CmsAnswerInline[] {
 }
 
 /** 出典へのリンク先（記事のURLと、セクションのアンカー）。描いてよいURLでなければ null。 */
-export function sourceHref(source: CmsAnswerSource | undefined): string | null {
+export function sourceHref(source: YomiAnswerSource | undefined): string | null {
   if (!source?.url) return null;
   const href = source.anchor ? `${source.url}#${encodeURIComponent(source.anchor)}` : source.url;
   return hrefAllowed(href) && /^https?:\/\//i.test(href) ? href : null;
@@ -244,24 +244,24 @@ export function sourceHref(source: CmsAnswerSource | undefined): string | null {
  * 回答の状態。asking は送ってから判定が届くまで、streaming は本文が届いている間、done は最終判定が届いた後。
  * error のとき、error.code（と、回数の制限なら retryAfter 秒）を見る。
  */
-export type CmsAnswerPhase = "idle" | "asking" | "streaming" | "done" | "error";
+export type YomiAnswerPhase = "idle" | "asking" | "streaming" | "done" | "error";
 
-export interface CmsAnswerState {
-  phase: CmsAnswerPhase;
+export interface YomiAnswerState {
+  phase: YomiAnswerPhase;
   /** 判定（届くまで null）。false なら本文は来ず、最終判定の本文が「情報なし」の定型文になる。 */
   answerable: boolean | null;
   /** いまの本文（届いた断片をつないだもの。最終判定が届いたら、その本文に置き換える）。 */
   text: string;
-  sources: CmsAnswerSource[];
+  sources: YomiAnswerSource[];
   /** 最終判定（届いた後だけ）。 */
-  answer: CmsAnswer | null;
-  error: { code: CmsAnswerErrorCode; retryAfter?: number } | null;
+  answer: YomiAnswer | null;
+  error: { code: YomiAnswerErrorCode; retryAfter?: number } | null;
 }
 
-export const INITIAL_ANSWER_STATE: CmsAnswerState = { phase: "idle", answerable: null, text: "", sources: [], answer: null, error: null };
+export const INITIAL_ANSWER_STATE: YomiAnswerState = { phase: "idle", answerable: null, text: "", sources: [], answer: null, error: null };
 
 /** イベントを1つ受け取った後の状態。 */
-export function applyAnswerEvent(state: CmsAnswerState, event: CmsAnswerEvent): CmsAnswerState {
+export function applyAnswerEvent(state: YomiAnswerState, event: YomiAnswerEvent): YomiAnswerState {
   switch (event.type) {
     case "verdict":
       return { ...state, phase: event.answerable ? "streaming" : "asking", answerable: event.answerable, sources: event.sources };

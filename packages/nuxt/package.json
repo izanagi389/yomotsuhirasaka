@@ -1,5 +1,5 @@
 {
-  "name": "@new-cms/nuxt",
+  "name": "@yomotsuhirasaka/nuxt",
   "version": "0.1.0",
   "private": true,
   "description": "CMSの公式Nuxtモジュール（配信APIからの取得、本文の描画、リダイレクト、Webhookの受け口）",
@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@new-cms/preview": "0.1.0"
+    "@yomotsuhirasaka/preview": "0.1.0"
   },
   "peerDependencies": {
     "h3": "^1.15.0",

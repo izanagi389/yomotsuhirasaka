@@ -7,7 +7,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { afterAll, expect } from "vitest";
 import { inv } from "./support/inv.js";
-import { asSession, driver, type CmsClient, type ParsedWebhook, type Session, type WebhookEventKind } from "./support/driver.js";
+import { asSession, driver, type YomiClient, type ParsedWebhook, type Session, type WebhookEventKind } from "./support/driver.js";
 import { expectNotLeaked, expectSuccess, expectTextNotLeaked } from "./support/assert.js";
 import { simpleBody } from "./support/body.js";
 import { startDnsServer, type DnsServer } from "./support/dns.js";
@@ -40,9 +40,9 @@ function parseOrNull(body: string): ParsedWebhook | null {
 }
 
 /** 記事を作って公開し、そのIDを返す。 */
-async function publishNew(cms: CmsClient, session: Session, workspaceId: string, mark = marker("wh")): Promise<string> {
-  const e = await cms.createEntry(session, workspaceId, { title: mark, body: simpleBody(mark) });
-  await cms.publishEntry(session, workspaceId, e.id);
+async function publishNew(yomi: YomiClient, session: Session, workspaceId: string, mark = marker("wh")): Promise<string> {
+  const e = await yomi.createEntry(session, workspaceId, { title: mark, body: simpleBody(mark) });
+  await yomi.publishEntry(session, workspaceId, e.id);
   return e.id;
 }
 
@@ -52,17 +52,17 @@ inv(
   "inv_wh_01",
   "名前解決の結果が内部向けのアドレスになる送信先には、例外として許可されていない限りWebhookを送らない。検査の後に名前解決の結果が変わっても、検査したアドレス以外には接続しない",
   async () => {
-    const { cms, a } = await world();
+    const { yomi, a } = await world();
     const rc = await receiver();
     const server = await dns();
     const blockedIp = env.harnessBlockedHost;
     const toBlocked = (r: ReceivedRequest) => r.localAddress === blockedIp;
-    await cms.reauthenticate(a.adminSession, a.admin);
+    await yomi.reauthenticate(a.adminSession, a.admin);
 
     // 対照: 例外として許可した宛先には届く
     const okPath = uniquePath("wh01-ok");
-    await cms.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, okPath));
-    const okEntry = await publishNew(cms, a.editorSession, a.id);
+    await yomi.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, okPath));
+    const okEntry = await publishNew(yomi, a.editorSession, a.id);
     await rc.waitFor(forEntry(okPath, okEntry));
 
     // 内部向けのアドレス（例外にない）: 直接のIPアドレス、内部のアドレスに解決される名前
@@ -71,7 +71,7 @@ inv(
     const blockedUrls = [rc.url(blockedIp, uniquePath("wh01-ip")), rc.url(blockedName, uniquePath("wh01-name"))];
     for (const url of blockedUrls) {
       try {
-        await cms.createWebhook(a.adminSession, a.id, url);
+        await yomi.createWebhook(a.adminSession, a.id, url);
       } catch {
         // 登録の時点で拒否するのも可
       }
@@ -80,12 +80,12 @@ inv(
     const rebinding = uniqueName("wh01-rebind");
     server.set(rebinding, [env.harnessAllowedIp, blockedIp, env.harnessAllowedIp, blockedIp, blockedIp]);
     try {
-      await cms.createWebhook(a.adminSession, a.id, rc.url(rebinding, uniquePath("wh01-rebind")));
+      await yomi.createWebhook(a.adminSession, a.id, rc.url(rebinding, uniquePath("wh01-rebind")));
     } catch {
       // 登録の時点で拒否するのも可
     }
 
-    for (let i = 0; i < 3; i++) await publishNew(cms, a.editorSession, a.id);
+    for (let i = 0; i < 3; i++) await publishNew(yomi, a.editorSession, a.id);
     const leaked = await rc.collect(toBlocked, 10_000);
     expect(leaked.map((r) => r.path), "内部向けのアドレスに送られた").toEqual([]);
     expect(server.queryCount(rebinding), "リバインディングの名前が一度も問い合わされていない（DNSの設定を確認する）").toBeGreaterThan(0);
@@ -94,7 +94,7 @@ inv(
 );
 
 inv("inv_wh_02", "Webhookの送信はリダイレクトをたどらない", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const rc = await receiver();
   const from = uniquePath("wh02-redirect");
   const to = uniquePath("wh02-final");
@@ -104,25 +104,25 @@ inv("inv_wh_02", "Webhookの送信はリダイレクトをたどらない", asyn
       res.end();
     });
   }
-  await cms.reauthenticate(a.adminSession, a.admin);
+  await yomi.reauthenticate(a.adminSession, a.admin);
   for (const status of [301, 302, 307, 308]) {
-    await cms.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, `${from}-${status}`));
+    await yomi.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, `${from}-${status}`));
   }
-  const entry = await publishNew(cms, a.editorSession, a.id);
+  const entry = await publishNew(yomi, a.editorSession, a.id);
   for (const status of [301, 302, 307, 308]) await rc.waitFor(forEntry(`${from}-${status}`, entry));
   const followed = await rc.collect((r) => r.path.startsWith(to), 5_000);
   expect(followed.length, "リダイレクト先に送られた").toBe(0);
 });
 
 inv("inv_wh_03", "Webhookの署名には、送信時刻とイベントIDが含まれる", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const rc = await receiver();
   const path = uniquePath("wh03");
-  await cms.reauthenticate(a.adminSession, a.admin);
-  const hook = await cms.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, path));
+  await yomi.reauthenticate(a.adminSession, a.admin);
+  const hook = await yomi.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, path));
 
-  const e1 = await publishNew(cms, a.editorSession, a.id);
-  const e2 = await publishNew(cms, a.editorSession, a.id);
+  const e1 = await publishNew(yomi, a.editorSession, a.id);
+  const e2 = await publishNew(yomi, a.editorSession, a.id);
   const ids: string[] = [];
   for (const entry of [e1, e2]) {
     const req = await rc.waitFor(forEntry(path, entry));
@@ -144,7 +144,7 @@ inv("inv_wh_03", "Webhookの署名には、送信時刻とイベントIDが含�
 
 inv("inv_wh_04", "Webhookのテスト送信などの管理APIの応答には、送信先が返した本文が含まれない", async () => {
   const w = await world();
-  const { cms, a } = w;
+  const { yomi, a } = w;
   const rc = await receiver();
   const responseMarker = marker("wh04-response");
   const okPath = uniquePath("wh04-ok");
@@ -158,18 +158,18 @@ inv("inv_wh_04", "Webhookのテスト送信などの管理APIの応答には、�
     res.end(JSON.stringify({ error: responseMarker }));
   });
 
-  await cms.reauthenticate(a.adminSession, a.admin);
+  await yomi.reauthenticate(a.adminSession, a.admin);
   for (const path of [okPath, errorPath]) {
-    const hook = await cms.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, path));
-    const res = await cms.testWebhookRaw(a.adminSession, a.id, hook.id);
+    const hook = await yomi.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, path));
+    const res = await yomi.testWebhookRaw(a.adminSession, a.id, hook.id);
     await rc.waitFor((r) => r.path.startsWith(path));
     expectNotLeaked(res, responseMarker, `テスト送信（${path}）の応答`);
   }
   // 送信の記録などの、他の読み取りの操作にも出ない
-  await publishNew(cms, a.editorSession, a.id);
+  await publishNew(yomi, a.editorSession, a.id);
   await rc.waitFor((r) => r.path.startsWith(okPath) && parseOrNull(r.body) !== null);
   const target = { workspaceId: a.id, entryId: a.entryId, userId: a.editor.userId, apiKeyId: a.readKey.id };
-  for (const op of operationsOf(cms).filter((o) => !o.mutating && o.scope === "workspace")) {
+  for (const op of operationsOf(yomi).filter((o) => !o.mutating && o.scope === "workspace")) {
     expectNotLeaked(await op.call(asSession(a.adminSession), target), responseMarker, `${op.name} の応答`);
   }
 });
@@ -186,13 +186,13 @@ inv(
     const started = await driver.startServer({ ...instance.config, egressProxy: { url: proxy.url(env.harnessAllowedHost) } });
     try {
       expect(started.outcome, `出口のプロキシを設定したサーバーが起動しない:\n${started.output}`).toBe("ready");
-      const cms = started.client!;
-      const sa = await cms.login(instance.serverAdmin);
-      await cms.reauthenticate(sa, instance.serverAdmin);
-      const ws = (await cms.createWorkspace(sa, "inv-wh-05")).id;
-      const admin = await cms.createMember(sa, ws, "admin");
-      const adminSession = await cms.login(admin);
-      await cms.reauthenticate(adminSession, admin);
+      const yomi = started.client!;
+      const sa = await yomi.login(instance.serverAdmin);
+      await yomi.reauthenticate(sa, instance.serverAdmin);
+      const ws = (await yomi.createWorkspace(sa, "inv-wh-05")).id;
+      const admin = await yomi.createMember(sa, ws, "admin");
+      const adminSession = await yomi.login(admin);
+      await yomi.reauthenticate(adminSession, admin);
 
       const okName = uniqueName("wh05-ok");
       const blockedName = uniqueName("wh05-blocked");
@@ -201,15 +201,15 @@ inv(
       server.set(blockedName, [env.harnessBlockedHost]);
       server.set(rebindName, [env.harnessAllowedIp, env.harnessBlockedHost, env.harnessBlockedHost]);
       const okPath = uniquePath("wh05-ok");
-      await cms.createWebhook(adminSession, ws, tlsReceiver.url(okName, okPath));
+      await yomi.createWebhook(adminSession, ws, tlsReceiver.url(okName, okPath));
       for (const name of [blockedName, rebindName]) {
         try {
-          await cms.createWebhook(adminSession, ws, tlsReceiver.url(name, uniquePath("wh05-ng")));
+          await yomi.createWebhook(adminSession, ws, tlsReceiver.url(name, uniquePath("wh05-ng")));
         } catch {
           // 登録の時点で拒否するのも可
         }
       }
-      const entry = await publishNew(cms, adminSession, ws);
+      const entry = await publishNew(yomi, adminSession, ws);
 
       // 対照: プロキシ経由で、許可した宛先に届く
       await tlsReceiver.waitFor(forEntry(okPath, entry), 30_000);
@@ -237,11 +237,11 @@ inv(
   "inv_wh_06",
   "記事の公開・更新・非公開化・削除・訂正としての公開・版の本文の抹消・公開設定の変更・URLの変更のたびに、共有キャッシュの有無にかかわらず、対応するイベントのWebhookが送られる",
   async () => {
-    const { cms, a } = await world();
+    const { yomi, a } = await world();
     const rc = await receiver();
     const path = uniquePath("wh06");
-    await cms.reauthenticate(a.adminSession, a.admin);
-    await cms.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, path));
+    await yomi.reauthenticate(a.adminSession, a.admin);
+    await yomi.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, path));
     const types = driver.webhook.eventTypes();
     const s = a.editorSession;
     const expectEvent = async (entryId: string, kind: WebhookEventKind) => {
@@ -250,59 +250,59 @@ inv(
 
     // 共有キャッシュは無効（既定）のまま確かめる
     const firstMarker = marker("wh06-v1");
-    const e = await cms.createEntry(s, a.id, { title: "イベント", body: simpleBody(firstMarker), slug: `wh06-${randomUUID().slice(0, 8)}` });
-    await cms.publishEntry(s, a.id, e.id);
+    const e = await yomi.createEntry(s, a.id, { title: "イベント", body: simpleBody(firstMarker), slug: `wh06-${randomUUID().slice(0, 8)}` });
+    await yomi.publishEntry(s, a.id, e.id);
     await expectEvent(e.id, "published");
 
-    await cms.saveDraft(s, a.id, e.id, { body: simpleBody(marker("wh06-v2")) });
-    await cms.publishEntry(s, a.id, e.id);
+    await yomi.saveDraft(s, a.id, e.id, { body: simpleBody(marker("wh06-v2")) });
+    await yomi.publishEntry(s, a.id, e.id);
     await expectEvent(e.id, "updated");
 
-    await cms.saveDraft(s, a.id, e.id, { slug: `wh06-${randomUUID().slice(0, 8)}` });
-    await cms.publishEntry(s, a.id, e.id);
+    await yomi.saveDraft(s, a.id, e.id, { slug: `wh06-${randomUUID().slice(0, 8)}` });
+    await yomi.publishEntry(s, a.id, e.id);
     await expectEvent(e.id, "urlChanged");
 
     // 方針のスイッチは、既定では管理者だけが変えられる（INV-PERM-03）
-    await cms.changePublishSettings(a.adminSession, a.id, e.id);
+    await yomi.changePublishSettings(a.adminSession, a.id, e.id);
     await expectEvent(e.id, "settingsChanged");
 
-    await cms.saveDraft(s, a.id, e.id, { body: simpleBody(marker("wh06-v4")) });
-    await cms.publishEntry(s, a.id, e.id, { correction: true });
+    await yomi.saveDraft(s, a.id, e.id, { body: simpleBody(marker("wh06-v4")) });
+    await yomi.publishEntry(s, a.id, e.id, { correction: true });
     await expectEvent(e.id, "corrected");
 
-    const versions = await cms.listVersions(a.adminSession, a.id, e.id);
+    const versions = await yomi.listVersions(a.adminSession, a.id, e.id);
     let first: string | null = null;
     for (const v of versions) {
-      if ((await cms.getVersionRaw(asSession(a.adminSession), a.id, e.id, v.id)).text.includes(firstMarker)) first = v.id;
+      if ((await yomi.getVersionRaw(asSession(a.adminSession), a.id, e.id, v.id)).text.includes(firstMarker)) first = v.id;
     }
-    await cms.reauthenticate(a.adminSession, a.admin);
-    expectSuccess(await cms.eraseVersionRaw(a.adminSession, a.id, e.id, first!, []), "最初の版の抹消");
+    await yomi.reauthenticate(a.adminSession, a.admin);
+    expectSuccess(await yomi.eraseVersionRaw(a.adminSession, a.id, e.id, first!, []), "最初の版の抹消");
     await expectEvent(e.id, "erased");
 
-    await cms.unpublishEntry(s, a.id, e.id);
+    await yomi.unpublishEntry(s, a.id, e.id);
     await expectEvent(e.id, "unpublished");
 
-    await cms.deleteEntry(a.adminSession, a.id, e.id);
+    await yomi.deleteEntry(a.adminSession, a.id, e.id);
     await expectEvent(e.id, "deleted");
   },
   180_000,
 );
 
 inv("inv_wh_07", "Webhookの本文には、記事の本文と下書きの内容が含まれない", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const rc = await receiver();
   const path = uniquePath("wh07");
-  await cms.reauthenticate(a.adminSession, a.admin);
-  await cms.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, path));
+  await yomi.reauthenticate(a.adminSession, a.admin);
+  await yomi.createWebhook(a.adminSession, a.id, rc.url(env.harnessAllowedHost, path));
   const s = a.editorSession;
 
   const bodyMarker = marker("wh07-body");
   const draftMarker = marker("wh07-draft");
-  const e = await cms.createEntry(s, a.id, { title: "Webhookの本文", body: simpleBody(bodyMarker) });
-  await cms.publishEntry(s, a.id, e.id);
-  await cms.saveDraft(s, a.id, e.id, { title: draftMarker, body: simpleBody(draftMarker) }); // 公開しない下書き
-  await cms.changePublishSettings(a.adminSession, a.id, e.id); // 方針のスイッチは既定では管理者だけ
-  await cms.unpublishEntry(s, a.id, e.id);
+  const e = await yomi.createEntry(s, a.id, { title: "Webhookの本文", body: simpleBody(bodyMarker) });
+  await yomi.publishEntry(s, a.id, e.id);
+  await yomi.saveDraft(s, a.id, e.id, { title: draftMarker, body: simpleBody(draftMarker) }); // 公開しない下書き
+  await yomi.changePublishSettings(a.adminSession, a.id, e.id); // 方針のスイッチは既定では管理者だけ
+  await yomi.unpublishEntry(s, a.id, e.id);
 
   const received = await rc.collect((r) => r.path.startsWith(path) && parseOrNull(r.body)?.entryId === e.id, 10_000);
   expect(received.length, "この記事のWebhookが届いていない").toBeGreaterThanOrEqual(3);

@@ -95,7 +95,7 @@ pub async fn workspace_with_template(
 
 pub async fn add_member(server: &Server, ws: Uuid, email: &str, role: &str) {
     sqlx::query(
-        "INSERT INTO cms.memberships (workspace_id, user_id, role) SELECT $1, id, $3 FROM cms.users WHERE email = $2",
+        "INSERT INTO yomi.memberships (workspace_id, user_id, role) SELECT $1, id, $3 FROM yomi.users WHERE email = $2",
     )
     .bind(ws)
     .bind(email)

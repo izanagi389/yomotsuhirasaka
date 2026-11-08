@@ -2,12 +2,12 @@
 
 use std::net::SocketAddr;
 
-use cms_server::auth::{password, users};
-use cms_server::config::{AuthConfig, Config, DatabaseConfig, LimitsConfig, SessionConfig};
-use cms_server::{db, http, keys, migrate};
 use sqlx::PgPool;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use totp_rs::{Builder, Secret};
+use yomi_server::auth::{password, users};
+use yomi_server::config::{AuthConfig, Config, DatabaseConfig, LimitsConfig, SessionConfig};
+use yomi_server::{db, http, keys, migrate};
 
 pub const PASSWORD: &str = "correct horse battery staple";
 
@@ -15,7 +15,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
     Config {
         production: true,
         dev_mode: false,
-        public_url: "https://cms.example.test".to_owned(),
+        public_url: "https://yomi.example.test".to_owned(),
         listen: "127.0.0.1:0".to_owned(),
         log_level: "info".to_owned(),
         encryption_key_file: None,
@@ -28,7 +28,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
             login_attempts_per_ip_per_minute: 1000,
         },
         // 多くのテストは多要素認証のない利用者で操作するので、全員への必須は無効にする（有効な場合は admin_mfa.rs で確かめる）
-        default_locale: cms_server::locale::Locale::En,
+        default_locale: yomi_server::locale::Locale::En,
         auth: AuthConfig {
             mfa_required_for_everyone: false,
             breached_passwords: None,
@@ -36,8 +36,8 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         },
         smtp: None,
         login_history: Default::default(),
-        media: cms_server::config::MediaConfig::at(
-            std::env::temp_dir().join(format!("cms-test-media-{}", uuid::Uuid::new_v4().simple())),
+        media: yomi_server::config::MediaConfig::at(
+            std::env::temp_dir().join(format!("yomi-test-media-{}", uuid::Uuid::new_v4().simple())),
         ),
         delivery: Default::default(),
         answer: Default::default(),
@@ -67,13 +67,13 @@ pub async fn start(config: Config) -> Server {
     let app_role = db::current_role(&pool).await.unwrap();
     migrate::run(&migration).await.unwrap();
     migrate::apply_grants(&migration, &app_role).await.unwrap();
-    cms_server::workspace_db::upgrade_all(&migration)
+    yomi_server::workspace_db::upgrade_all(&migration)
         .await
         .unwrap();
-    cms_server::search::ensure_keyword_indexes(&migration)
+    yomi_server::search::ensure_keyword_indexes(&migration)
         .await
         .unwrap();
-    cms_server::search::ensure_vector_indexes(&migration, &config)
+    yomi_server::search::ensure_vector_indexes(&migration, &config)
         .await
         .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -141,7 +141,7 @@ pub async fn request(
 ) -> Resp {
     let mut stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
     let mut req =
-        format!("{method} {path} HTTP/1.1\r\nHost: cms.example.test\r\nConnection: close\r\n");
+        format!("{method} {path} HTTP/1.1\r\nHost: yomi.example.test\r\nConnection: close\r\n");
     for (k, v) in headers {
         req.push_str(&format!("{k}: {v}\r\n"));
     }
@@ -193,7 +193,7 @@ pub struct Login {
 
 impl Login {
     pub fn cookie_header(&self) -> String {
-        format!("__Host-cms_session={}", self.cookie)
+        format!("__Host-yomi_session={}", self.cookie)
     }
 }
 
@@ -216,7 +216,7 @@ pub async fn login(server: &Server, email: &str, password: &str) -> Login {
         .split(';')
         .next()
         .unwrap()
-        .strip_prefix("__Host-cms_session=")
+        .strip_prefix("__Host-yomi_session=")
         .unwrap()
         .to_owned();
     Login {
@@ -279,7 +279,7 @@ pub fn code(secret: &str, offset: i64) -> String {
 
 /// 使用済みのコードの記録を消す（同じ区切りのコードを、別の確認で使えるようにするため）。
 pub async fn forget_used_steps(pool: &PgPool, email: &str) {
-    sqlx::query("UPDATE cms.users SET totp_last_step = NULL WHERE email = $1")
+    sqlx::query("UPDATE yomi.users SET totp_last_step = NULL WHERE email = $1")
         .bind(email)
         .execute(pool)
         .await
@@ -293,7 +293,7 @@ pub async fn password_step(server: &Server, email: &str, password: &str) -> (Res
         c.split(';')
             .next()
             .unwrap()
-            .strip_prefix("__Host-cms_session=")
+            .strip_prefix("__Host-yomi_session=")
             .unwrap()
             .to_owned()
     });
@@ -306,7 +306,7 @@ pub async fn mfa_step(server: &Server, pending: &str, body: &str) -> Resp {
         "POST",
         "/api/admin/session/mfa",
         &[
-            ("Cookie", &format!("__Host-cms_session={pending}")),
+            ("Cookie", &format!("__Host-yomi_session={pending}")),
             ("X-Forwarded-For", "198.18.10.2"),
         ],
         Some(body),
@@ -320,7 +320,7 @@ pub fn session_from(res: &Resp) -> Login {
         .split(';')
         .next()
         .unwrap()
-        .strip_prefix("__Host-cms_session=")
+        .strip_prefix("__Host-yomi_session=")
         .unwrap()
         .to_owned();
     Login {
@@ -356,8 +356,8 @@ pub fn recovery_codes(body: &str) -> Vec<String> {
 /// 利用者のすべてのセッションの「最後の本人確認」を1時間前にする（再認証の有効時間を過ぎた状態を、待たずに作る）。
 pub async fn expire_reauth(pool: &PgPool, email: &str) {
     sqlx::query(
-        "UPDATE cms.sessions SET authenticated_at = now() - interval '1 hour'
-         WHERE user_id = (SELECT id FROM cms.users WHERE email = $1)",
+        "UPDATE yomi.sessions SET authenticated_at = now() - interval '1 hour'
+         WHERE user_id = (SELECT id FROM yomi.users WHERE email = $1)",
     )
     .bind(email)
     .execute(pool)
@@ -391,7 +391,7 @@ pub async fn request_bytes(
 ) -> RawResp {
     let mut stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
     let mut req =
-        format!("{method} {path} HTTP/1.1\r\nHost: cms.example.test\r\nConnection: close\r\n");
+        format!("{method} {path} HTTP/1.1\r\nHost: yomi.example.test\r\nConnection: close\r\n");
     for (k, v) in headers {
         req.push_str(&format!("{k}: {v}\r\n"));
     }

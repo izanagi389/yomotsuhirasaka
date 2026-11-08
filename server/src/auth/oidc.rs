@@ -438,12 +438,12 @@ mod tests {
         Oidc::new(
             OidcConfig {
                 issuer: "https://idp.example.test/".into(),
-                client_id: "cms".into(),
+                client_id: "yomi".into(),
                 client_secret: "secret-secret-secret-secret".into(),
                 display_name: "SSO".into(),
                 jit_domains: jit.iter().map(|s| (*s).to_owned()).collect(),
             },
-            "https://cms.example.test",
+            "https://yomi.example.test",
         )
     }
 
@@ -457,7 +457,7 @@ mod tests {
         assert_eq!(o.issuer(), "https://idp.example.test");
         assert_eq!(
             o.redirect_uri,
-            "https://cms.example.test/api/admin/session/oidc/callback"
+            "https://yomi.example.test/api/admin/session/oidc/callback"
         );
     }
 }

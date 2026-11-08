@@ -1,6 +1,6 @@
 //! 公開・非公開・削除、版、URLの変更履歴の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -43,12 +43,14 @@ async fn revision(server: &Server, path: &str, s: &Login) -> i64 {
 }
 
 async fn audit_count(server: &Server, ws: Uuid, action: &str) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE workspace_id = $1 AND action = $2")
-        .bind(ws)
-        .bind(action)
-        .fetch_one(&server.pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "SELECT count(*) FROM yomi.audit_log WHERE workspace_id = $1 AND action = $2",
+    )
+    .bind(ws)
+    .bind(action)
+    .fetch_one(&server.pool)
+    .await
+    .unwrap()
 }
 
 #[tokio::test]
@@ -226,7 +228,7 @@ async fn publishing_versions_and_url_history() {
         // 移行待ちの間: 公開は断る。非公開と削除はできる（取り下げを止めないため）
         let rev = revision(&server, &path, &editor).await;
         assert_eq!(send(&server, "POST", &publish_path, &editor, Some(&publish(rev, false))).await.status, 200);
-        sqlx::query("UPDATE cms.workspaces SET schema_state = 'pending', schema_target_version = 2 WHERE id = $1")
+        sqlx::query("UPDATE yomi.workspaces SET schema_state = 'pending', schema_target_version = 2 WHERE id = $1")
             .bind(ws)
             .execute(&server.state.migration)
             .await

@@ -261,7 +261,7 @@ pub async fn delete_candidate(conn: &mut PgConnection, id: &str) -> Result<bool>
 
 /// 保存期間を過ぎた質問ログを、すべてのワークスペースで消す（常駐の処理から1時間ごとに呼ぶ）。
 pub async fn sweep(pool: &PgPool) -> Result<u64> {
-    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM cms.workspaces ORDER BY created_at")
+    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM yomi.workspaces ORDER BY created_at")
         .fetch_all(pool)
         .await?;
     let mut removed = 0;

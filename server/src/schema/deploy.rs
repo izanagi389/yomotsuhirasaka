@@ -23,7 +23,7 @@ use crate::audit;
 use crate::workspace_db::WorkspaceDb;
 
 /// デプロイを同時に1つだけにするための、アドバイザリーロックのキー（任意の固定値）。
-const DEPLOY_LOCK_KEY: i64 = 0x636d_735f_6465_706c; // "cms_depl"
+const DEPLOY_LOCK_KEY: i64 = 0x636d_735f_6465_706c; // "yomi_depl"
 
 /// デプロイを受け付けなかった理由。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,7 +86,7 @@ pub async fn load_version<'e>(
     version: i32,
 ) -> Result<Option<Manifest>> {
     let raw: Option<String> = sqlx::query_scalar(
-        "SELECT manifest::text FROM cms.template_versions WHERE template = $1 AND version = $2",
+        "SELECT manifest::text FROM yomi.template_versions WHERE template = $1 AND version = $2",
     )
     .bind(template)
     .bind(version)
@@ -101,7 +101,7 @@ async fn latest_version(
     template: &str,
 ) -> Result<Option<(i32, Manifest)>> {
     let row: Option<(i32, String)> = sqlx::query_as(
-        "SELECT version, manifest::text FROM cms.template_versions
+        "SELECT version, manifest::text FROM yomi.template_versions
          WHERE template = $1 ORDER BY version DESC LIMIT 1",
     )
     .bind(template)
@@ -169,7 +169,7 @@ pub async fn check(
     let latest = latest_version(&mut conn, template).await?;
     out.current_version = latest.as_ref().map(|(v, _)| *v);
     out.workspaces = usize::try_from(
-        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM cms.workspaces WHERE template = $1")
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM yomi.workspaces WHERE template = $1")
             .bind(template)
             .fetch_one(&mut *conn)
             .await?,
@@ -252,7 +252,7 @@ async fn deploy_locked(
         _ => {
             let version = latest.as_ref().map_or(1, |(v, _)| v + 1);
             sqlx::query(
-                "INSERT INTO cms.template_versions (template, version, manifest, deployed_by)
+                "INSERT INTO yomi.template_versions (template, version, manifest, deployed_by)
                  VALUES ($1, $2, $3::jsonb, $4)",
             )
             .bind(template)
@@ -274,7 +274,7 @@ async fn deploy_locked(
     .await?;
 
     let ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM cms.workspaces
+        "SELECT id FROM yomi.workspaces
          WHERE template = $1 AND (schema_version IS DISTINCT FROM $2 OR schema_state <> 'ok')
          ORDER BY created_at, id",
     )
@@ -310,7 +310,7 @@ async fn broken_queries(
 ) -> Result<Vec<BrokenQuery>> {
     let schema = crate::delivery::schema::build(manifest, false, check.limits)?;
     let ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM cms.workspaces WHERE template = $1 ORDER BY created_at, id",
+        "SELECT id FROM yomi.workspaces WHERE template = $1 ORDER BY created_at, id",
     )
     .bind(template)
     .fetch_all(&mut *conn)
@@ -352,7 +352,7 @@ async fn migrate_workspace(
     let db = WorkspaceDb::names_for(workspace_id);
     let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let applied: Option<i32> =
-        sqlx::query_scalar("SELECT schema_version FROM cms.workspaces WHERE id = $1 FOR UPDATE")
+        sqlx::query_scalar("SELECT schema_version FROM yomi.workspaces WHERE id = $1 FOR UPDATE")
             .bind(workspace_id)
             .fetch_one(&mut *tx)
             .await?;
@@ -368,7 +368,7 @@ async fn migrate_workspace(
     match result {
         Ok(()) => {
             sqlx::query(
-                "UPDATE cms.workspaces SET schema_version = $2, schema_state = 'ok',
+                "UPDATE yomi.workspaces SET schema_version = $2, schema_state = 'ok',
                         schema_target_version = NULL, schema_error = NULL
                  WHERE id = $1",
             )
@@ -395,7 +395,7 @@ async fn migrate_workspace(
             tx.rollback().await?;
             let code = failure.code();
             sqlx::query(
-                "UPDATE cms.workspaces SET schema_state = 'pending', schema_target_version = $2, schema_error = $3
+                "UPDATE yomi.workspaces SET schema_state = 'pending', schema_target_version = $2, schema_error = $3
                  WHERE id = $1",
             )
             .bind(workspace_id)

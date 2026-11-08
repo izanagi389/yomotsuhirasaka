@@ -26,47 +26,47 @@ inv("inv_logs_01", "サーバーのログには、パスワード・トークン
 
   try {
     expect(server.outcome, `ログを詳しくしたサーバーが起動しない:\n${server.output}`).toBe("ready");
-    const cms = server.client!;
+    const yomi = server.client!;
 
     // パスワード（成功と失敗）と、多要素認証の秘密
-    const user = await w.cms.createMember(w.a.adminSession, w.a.id, "admin");
+    const user = await w.yomi.createMember(w.a.adminSession, w.a.id, "admin");
     keep("パスワード", user.password);
     keep("TOTPの秘密", user.totpSecret!);
     const wrong = `wrong-${randomBytes(12).toString("hex")}`;
     keep("誤ったパスワード", wrong);
-    await cms.loginRaw({ ...user, password: wrong }, { extras: { clientIp: uniqueIp() } });
-    const session = await cms.login(user);
+    await yomi.loginRaw({ ...user, password: wrong }, { extras: { clientIp: uniqueIp() } });
+    const session = await yomi.login(user);
     keepSession("ログイン", session);
-    await cms.reauthenticate(session, user);
+    await yomi.reauthenticate(session, user);
 
     // 記事の本文（保存と公開）
     const bodyMarker = marker("log-body");
     keep("記事の本文", bodyMarker);
-    const entry = await cms.createEntry(session, w.a.id, { title: "ログの確認", body: simpleBody(bodyMarker) });
+    const entry = await yomi.createEntry(session, w.a.id, { title: "ログの確認", body: simpleBody(bodyMarker) });
     const draftMarker = marker("log-draft");
     keep("下書きの本文", draftMarker);
-    await cms.saveDraft(session, w.a.id, entry.id, { body: simpleBody(draftMarker) });
-    await cms.publishEntry(session, w.a.id, entry.id);
+    await yomi.saveDraft(session, w.a.id, entry.id, { body: simpleBody(draftMarker) });
+    await yomi.publishEntry(session, w.a.id, entry.id);
 
     // APIキーと個人トークン（発行と使用）
-    const key = await cms.createApiKey(session, w.a.id, ["read"]);
+    const key = await yomi.createApiKey(session, w.a.id, ["read"]);
     keep("APIキー", key.secret);
-    await cms.deliveryRaw(w.a.id, key.secret, w.a.listQuery);
-    await cms.deliveryRaw(w.a.id, `${key.secret}x`, w.a.listQuery); // 誤ったキー
-    const token = await cms.createPersonalToken(session, [w.a.id], { scopes: ["read"] });
+    await yomi.deliveryRaw(w.a.id, key.secret, w.a.listQuery);
+    await yomi.deliveryRaw(w.a.id, `${key.secret}x`, w.a.listQuery); // 誤ったキー
+    const token = await yomi.createPersonalToken(session, [w.a.id], { scopes: ["read"] });
     keep("個人トークン", token.secret);
-    await cms.meRaw(asBearer(token.secret));
+    await yomi.meRaw(asBearer(token.secret));
 
     // リセット用・招待用のトークン
     let seen = await mailCursor(user.email);
-    await cms.requestPasswordResetRaw(user.email, { clientIp: uniqueIp() });
+    await yomi.requestPasswordResetRaw(user.email, { clientIp: uniqueIp() });
     keep("リセット用のトークン", await waitForToken(user.email, seen, "reset"));
     const invited = uniqueEmail("logs01");
     seen = await mailCursor(invited);
-    await cms.inviteRaw(session, w.a.id, invited, "editor");
+    await yomi.inviteRaw(session, w.a.id, invited, "editor");
     keep("招待用のトークン", await waitForToken(invited, seen, "invite"));
 
-    await cms.meRaw(asSession(session));
+    await yomi.meRaw(asSession(session));
     // 質問文（チャットボット、M4）は、M4で機能が入ったときにここへ足す
   } finally {
     await server.stop();

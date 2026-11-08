@@ -1,6 +1,6 @@
 //! 翻訳の作成と、元の記事・版の記録の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -128,7 +128,7 @@ async fn creating_translations_and_recording_their_source() {
         assert_eq!(parse(&get(&server, &format!("{entries}/{ja2}"), &viewer).await)["fields"]["title"], "English");
 
         // 移行待ちの間は作れない。読むことはできる
-        sqlx::query("UPDATE cms.workspaces SET schema_state = 'pending', schema_target_version = 2 WHERE id = $1")
+        sqlx::query("UPDATE yomi.workspaces SET schema_state = 'pending', schema_target_version = 2 WHERE id = $1")
             .bind(ws)
             .execute(&server.state.migration)
             .await

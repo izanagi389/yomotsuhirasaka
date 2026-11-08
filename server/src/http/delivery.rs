@@ -19,7 +19,7 @@
 //! - 本番では登録済みのクエリだけを実行する（INV-GQL-01）。複数のクエリの一括送信は受け付けない（INV-GQL-04）。
 //! - 登録のときに、スキーマに対する検証と、深さ・複雑さの上限を確かめる（INV-GQL-06）。データは読まない。
 //! - 応答は既定で `Cache-Control: private`（INV-GQL-08）。
-//! - プレビュー（M2、INV-PRV-01, 02）: 読み取り用のキーに加えて `X-Cms-Preview-Token` でプレビュー用トークンを送ると、その記事だけを
+//! - プレビュー（M2、INV-PRV-01, 02）: 読み取り用のキーに加えて `X-Yomi-Preview-Token` でプレビュー用トークンを送ると、その記事だけを
 //!   下書きで返す（1件を取るクエリだけ）。トークンだけでは使えない（キーの照合が先）。無効なトークンは 401。
 //!   トークン付きの応答は `Cache-Control: private, no-store`（共有キャッシュにもブラウザにも残さない）。
 //!
@@ -53,7 +53,7 @@ use crate::script::Host;
 use crate::workspace_db::{self, WorkspaceDb};
 
 /// プレビュー用トークンのヘッダー。
-const PREVIEW_HEADER: &str = "x-cms-preview-token";
+const PREVIEW_HEADER: &str = "x-yomi-preview-token";
 
 fn preview_token(headers: &HeaderMap) -> Option<&str> {
     headers.get(PREVIEW_HEADER)?.to_str().ok()

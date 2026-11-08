@@ -39,20 +39,20 @@ inv(
   "inv_hdr_01",
   "管理画面と管理APIの応答には、CSPとHSTSなどのセキュリティヘッダーが付く。CSPは `unsafe-inline` と `unsafe-eval` を許さず、`frame-ancestors 'none'` を含む",
   async () => {
-    const { cms, a } = await world();
-    expectSecurityHeaders(await cms.adminUiRaw("/"), "管理画面のトップ");
-    expectSecurityHeaders(await cms.adminUiRaw("/workspaces/some/deep/route"), "管理画面の深いパス");
-    expectSecurityHeaders(await cms.meRaw(asSession(a.adminSession)), "管理APIの成功の応答");
-    expectSecurityHeaders(await cms.meRaw({ kind: "none" }), "管理APIの拒否の応答");
+    const { yomi, a } = await world();
+    expectSecurityHeaders(await yomi.adminUiRaw("/"), "管理画面のトップ");
+    expectSecurityHeaders(await yomi.adminUiRaw("/workspaces/some/deep/route"), "管理画面の深いパス");
+    expectSecurityHeaders(await yomi.meRaw(asSession(a.adminSession)), "管理APIの成功の応答");
+    expectSecurityHeaders(await yomi.meRaw({ kind: "none" }), "管理APIの拒否の応答");
   },
 );
 
 inv("inv_hdr_02", "配信APIと管理APIは、別のドメインからのアクセスを許すCORSのヘッダーを返さない", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const origin = "https://evil.inv.test";
   for (const kind of ["adminApi", "deliveryApi"] as const) {
     for (const method of ["GET", "OPTIONS"] as const) {
-      const res = await cms.corsProbeRaw(kind, method, origin, a.id);
+      const res = await yomi.corsProbeRaw(kind, method, origin, a.id);
       const allowOrigin = res.headers.get("access-control-allow-origin");
       const what = `${kind} への ${method}（Origin: ${origin}）`;
       expect(allowOrigin === "*" || allowOrigin === origin, `${what} が別のドメインを許している: ${allowOrigin}`).toBe(false);

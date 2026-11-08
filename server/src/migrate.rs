@@ -1,7 +1,7 @@
-//! 共通のスキーマ（`cms`）の移行と、普段用のロールへの権限の付与。
+//! 共通のスキーマ（`yomi`）の移行と、普段用のロールへの権限の付与。
 //!
 //! - 移行は、移行・ロールの作成用の接続（Q173）で行う。普段用のロールはDDLができない（INV-DB-02, INV-CFG-03）。
-//! - 移行のSQLはバイナリに埋め込み、`cms.schema_migrations` に適用済みのバージョンを記録する。
+//! - 移行のSQLはバイナリに埋め込み、`yomi.schema_migrations` に適用済みのバージョンを記録する。
 //! - 権限は [`TABLE_PRIVILEGES`] に表として持ち、表にないテーブルがあれば起動を止める（付け忘れを防ぐ）。
 
 use anyhow::{Context, Result, bail};
@@ -163,7 +163,7 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
 ];
 
 /// 共通のスキーマの名前。
-pub const SHARED_SCHEMA: &str = "cms";
+pub const SHARED_SCHEMA: &str = "yomi";
 
 /// 普段用のロールに付ける、共通のスキーマのテーブルごとの権限。
 /// 監査ログは SELECT と INSERT だけ（更新・削除はできない。保存期間を過ぎたものの削除は専用のロールで行う）。
@@ -222,7 +222,7 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
 ];
 
 /// 移行の排他に使う、アドバイザリーロックのキー（任意の固定値）。
-const MIGRATION_LOCK_KEY: i64 = 0x636d_735f_6d69_6772; // "cms_migr"
+const MIGRATION_LOCK_KEY: i64 = 0x796f_6d69_5f6d_6967; // "yomi_mig"
 
 /// 未適用の移行を適用する。複数のプロセスが同時に呼んでも、1つずつ順に適用される。
 pub async fn run(migration: &PgPool) -> Result<Vec<i32>> {
@@ -340,7 +340,7 @@ pub fn audit_purger_role(app_role: &Ident) -> Result<Ident> {
 
 /// 保存期間を過ぎた監査ログの削除（11-permissions-and-audit.md「保護と保存期間」、Q111、計画の14番）。
 ///
-/// - 削除できるのは、ログインできない専用のロールだけ。そのロールが持つ関数 `cms.purge_audit_log(日数)` を、
+/// - 削除できるのは、ログインできない専用のロールだけ。そのロールが持つ関数 `yomi.purge_audit_log(日数)` を、
 ///   普段用のロールは呼べる（行を直接消す権限は持たない）。関数の中身は固定で、保存期間より古い行しか消さず、
 ///   30日より短い指定は受け付けない。
 /// - 書き出し先に送り終えていない記録は消さない（停止した書き出し先は除く）。インスタンス全体の書き出し先は

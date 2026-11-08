@@ -59,7 +59,7 @@ function findNamed(root: string, token: string): string[] {
 }
 
 inv("inv_med_01", "中身が許可した形式でないファイルは、拡張子にかかわらずアップロードを拒否される。SVGは既定で、AVIFは常に拒否される", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const s = a.editorSession;
   const refused: [string, UploadFile][] = [
     ["拡張子が .png のHTML", file("page.png", HTML_PAGE, "image/png")],
@@ -70,23 +70,23 @@ inv("inv_med_01", "中身が許可した形式でないファイルは、拡張�
     ["拡張子が .png のAVIF", file("photo.png", AVIF_IMAGE, "image/png")],
     ["拡張子が .webp のAVIF", file("photo.webp", AVIF_IMAGE, "image/webp")],
   ];
-  for (const [label, f] of refused) expectRefused(await cms.uploadMediaRaw(s, a.id, f), `${label}のアップロード`);
+  for (const [label, f] of refused) expectRefused(await yomi.uploadMediaRaw(s, a.id, f), `${label}のアップロード`);
 
   // 対照: 中身がPNG・JPEGなら、拡張子や申告の形式が違っても受け付ける
-  expectSuccess(await cms.uploadMediaRaw(s, a.id, file("photo.png", pngImage(8, 8), "image/png")), "PNGのアップロード");
-  expectSuccess(await cms.uploadMediaRaw(s, a.id, file("photo.jpg", jpegImage(), "image/jpeg")), "JPEGのアップロード");
-  expectSuccess(await cms.uploadMediaRaw(s, a.id, file("photo.txt", pngImage(8, 8), "text/plain")), "拡張子が .txt のPNGのアップロード");
+  expectSuccess(await yomi.uploadMediaRaw(s, a.id, file("photo.png", pngImage(8, 8), "image/png")), "PNGのアップロード");
+  expectSuccess(await yomi.uploadMediaRaw(s, a.id, file("photo.jpg", jpegImage(), "image/jpeg")), "JPEGのアップロード");
+  expectSuccess(await yomi.uploadMediaRaw(s, a.id, file("photo.txt", pngImage(8, 8), "text/plain")), "拡張子が .txt のPNGのアップロード");
 });
 
 inv("inv_med_02", "アップロードした画像の位置情報は、既定で削除される", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   for (const [label, f] of [
     ["JPEG", file("gps.jpg", jpegImage({ exif: exifWithGps() }), "image/jpeg")],
     ["PNG", file("gps.png", pngImage(16, 16, { exif: exifWithGps() }), "image/png")],
   ] as const) {
     expect(hasGpsExif(f.bytes), `テスト用の${label}に位置情報が入っていない`).toBe(true);
-    const media = await cms.uploadMedia(a.editorSession, a.id, f);
-    const fetched = await cms.fetchMediaRaw(media.url);
+    const media = await yomi.uploadMedia(a.editorSession, a.id, f);
+    const fetched = await yomi.fetchMediaRaw(media.url);
     expectSuccess(fetched, `${label}の取得`);
     expect(looksLikeImage(fetched.bytes), `保存された${label}が画像として読めない`).toBe(true);
     expect(hasGpsExif(fetched.bytes), `保存された${label}に位置情報が残っている`).toBe(false);
@@ -95,16 +95,16 @@ inv("inv_med_02", "アップロードした画像の位置情報は、既定で�
 });
 
 inv("inv_med_03", "メディアの応答には、スクリプトの実行を禁じるヘッダーが付く", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   for (const [label, f] of [
     ["PNG", file("h.png", pngImage(8, 8), "image/png")],
     ["JPEG", file("h.jpg", jpegImage(), "image/jpeg")],
     ["GIFとスクリプトを兼ねるファイル", file("h.gif", GIF_JS_POLYGLOT, "image/gif")],
   ] as const) {
-    const up = await cms.uploadMediaRaw(a.editorSession, a.id, f);
+    const up = await yomi.uploadMediaRaw(a.editorSession, a.id, f);
     if (!isSuccess(up)) continue; // 受け付けないなら配信もされない
-    const media = await cms.uploadMedia(a.editorSession, a.id, f);
-    const res = await cms.fetchMediaRaw(media.url);
+    const media = await yomi.uploadMedia(a.editorSession, a.id, f);
+    const res = await yomi.fetchMediaRaw(media.url);
     expectSuccess(res, `${label}の取得`);
     expect(res.headers.get("x-content-type-options")?.toLowerCase(), `${label}の X-Content-Type-Options`).toBe("nosniff");
     const csp = (res.headers.get("content-security-policy") ?? "").toLowerCase();
@@ -113,7 +113,7 @@ inv("inv_med_03", "メディアの応答には、スクリプトの実行を禁�
 });
 
 inv("inv_med_04", "利用者が指定したファイル名やパス（取り込みを含む）によって、保存先の外にファイルを書けない", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const token = `invmed04${randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const names = [
     `../../${token}-a.png`,
@@ -124,7 +124,7 @@ inv("inv_med_04", "利用者が指定したファイル名やパス（取り込�
     `${token}/../../../f.png`,
   ];
   for (const name of names) {
-    const res = await cms.uploadMediaRaw(a.editorSession, a.id, file(name, pngImage(8, 8), "image/png"));
+    const res = await yomi.uploadMediaRaw(a.editorSession, a.id, file(name, pngImage(8, 8), "image/png"));
     if (isSuccess(res)) expect(res.text.includes(token), `保存されたメディアの情報に、指定したファイル名（${name}）が使われている`).toBe(false);
   }
 
@@ -132,8 +132,8 @@ inv("inv_med_04", "利用者が指定したファイル名やパス（取り込�
   const source = mkdtempSync(join(tmpdir(), "inv-med04-"));
   writeFileSync(join(source, `${token}-import.png`), pngImage(8, 8));
   writeFileSync(join(source, "post.md"), `---\ntitle: 取り込み\nslug: med04-${token}\nlocale: ja\nurl: https://old.inv.test/med04\n---\n\n![画像](./${token}-import.png)\n`);
-  const importToken = await cms.createPersonalToken(a.adminSession, [a.id], { scopes: ["read", "write"] });
-  const result = await driver.runImport(cms.baseUrl, {
+  const importToken = await yomi.createPersonalToken(a.adminSession, [a.id], { scopes: ["read", "write"] });
+  const result = await driver.runImport(yomi.baseUrl, {
     sourceDir: source,
     workspaceId: a.id,
     token: importToken.secret,
@@ -147,18 +147,18 @@ inv("inv_med_04", "利用者が指定したファイル名やパス（取り込�
 });
 
 inv("inv_med_05", "ワークスペースの容量の上限を超えるアップロードは拒否される", async () => {
-  const { cms, serverAdmin, serverAdminSession } = await world();
-  await cms.reauthenticate(serverAdminSession, serverAdmin);
-  const ws = await cms.createWorkspace(serverAdminSession, `inv-med-05-${randomUUID().slice(0, 6)}`);
-  const editor = await cms.createMember(serverAdminSession, ws.id, "editor");
-  const session = await cms.login(editor);
-  await cms.setWorkspaceLimits(serverAdminSession, ws.id, { mediaBytes: 200_000 });
+  const { yomi, serverAdmin, serverAdminSession } = await world();
+  await yomi.reauthenticate(serverAdminSession, serverAdmin);
+  const ws = await yomi.createWorkspace(serverAdminSession, `inv-med-05-${randomUUID().slice(0, 6)}`);
+  const editor = await yomi.createMember(serverAdminSession, ws.id, "editor");
+  const session = await yomi.login(editor);
+  await yomi.setWorkspaceLimits(serverAdminSession, ws.id, { mediaBytes: 200_000 });
 
   const image = pngNoise(150, 150); // 圧縮の効かない約67KB
-  expectSuccess(await cms.uploadMediaRaw(session, ws.id, file("1.png", image, "image/png")), "上限の内側のアップロード");
+  expectSuccess(await yomi.uploadMediaRaw(session, ws.id, file("1.png", image, "image/png")), "上限の内側のアップロード");
   let refused = false;
   for (let i = 0; i < 12 && !refused; i++) {
-    const res = await cms.uploadMediaRaw(session, ws.id, file(`${i + 2}.png`, pngNoise(150, 150 + i), "image/png"));
+    const res = await yomi.uploadMediaRaw(session, ws.id, file(`${i + 2}.png`, pngNoise(150, 150 + i), "image/png"));
     if (!isSuccess(res)) {
       expectRefused(res, "容量の上限を超えるアップロード");
       refused = true;
@@ -168,11 +168,11 @@ inv("inv_med_05", "ワークスペースの容量の上限を超えるアップ�
 });
 
 inv("inv_med_06", "画素数の上限を超える画像は、ファイルの大きさにかかわらずアップロードを拒否される", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const bomb = pngPixelBomb();
   expect(bomb.length, "解凍爆弾のファイルが大きすぎる").toBeLessThan(200_000);
-  expectRefused(await cms.uploadMediaRaw(a.editorSession, a.id, file("bomb.png", bomb, "image/png")), "4億画素のPNG（ファイルは小さい）");
-  expectRefused(await cms.uploadMediaRaw(a.editorSession, a.id, file("huge.png", pngHeaderOnlyHuge(), "image/png")), "100億画素を宣言するPNG");
+  expectRefused(await yomi.uploadMediaRaw(a.editorSession, a.id, file("bomb.png", bomb, "image/png")), "4億画素のPNG（ファイルは小さい）");
+  expectRefused(await yomi.uploadMediaRaw(a.editorSession, a.id, file("huge.png", pngHeaderOnlyHuge(), "image/png")), "100億画素を宣言するPNG");
   // 対照: 普通の大きさの画像は受け付ける
-  expectSuccess(await cms.uploadMediaRaw(a.editorSession, a.id, file("ok.png", pngImage(100, 100), "image/png")), "100×100のPNG");
+  expectSuccess(await yomi.uploadMediaRaw(a.editorSession, a.id, file("ok.png", pngImage(100, 100), "image/png")), "100×100のPNG");
 });

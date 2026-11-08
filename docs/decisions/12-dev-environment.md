@@ -2,7 +2,7 @@
 
 ## 手元での起動（Q71）
 
-- 最初に初期化のコマンド（サーバーのバイナリのサブコマンド。例: `cms-server init`、Q180）で秘密の値と暗号化の鍵を生成する。鍵はDBとは別のファイルに書き出される（Q172、`13-security.md`）。
+- 最初に初期化のコマンド（サーバーのバイナリのサブコマンド。例: `yomi-server init`、Q180）で秘密の値と暗号化の鍵を生成する。鍵はDBとは別のファイルに書き出される（Q172、`13-security.md`）。
 - 公式のDocker Composeファイルを提供し、次を一式起動できるようにする。
   - CMSサーバー
   - 拡張（pgvector、pg_bigm または PGroonga）入りのPostgreSQL
@@ -10,7 +10,7 @@
 
 ```yaml
 services:
-  cms:
+  yomi:
     image: (CMS名)/server
     environment:
       LLM_BASE_URL: http://mock-llm:8080/v1   # 本番ではここを実際の接続先に変えるだけ

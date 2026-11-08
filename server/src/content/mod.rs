@@ -40,7 +40,7 @@ pub struct Applied {
 /// ワークスペースに適用済みのスキーマ（まだ何も適用していなければ None）。
 pub async fn applied_schema(pool: &PgPool, workspace_id: Uuid) -> Result<Option<Applied>> {
     let row: Option<(String, Option<i32>, String)> = sqlx::query_as(
-        "SELECT template, schema_version, schema_state FROM cms.workspaces WHERE id = $1",
+        "SELECT template, schema_version, schema_state FROM yomi.workspaces WHERE id = $1",
     )
     .bind(workspace_id)
     .fetch_optional(pool)

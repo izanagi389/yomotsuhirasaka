@@ -2,7 +2,7 @@
 // - template.json には `{ "file": "./functions/url.ts", ... }` と書く。CLIが esbuild で1つのESモジュールにまとめ、
 //   マニフェストの `{ "source": "...", ... }` にする。サーバーはJSのソースだけを受け取る（バイトコードは使わない）
 // - ファイルと、その中の import はテンプレートのフォルダの中の相対パスだけを許す（npm のパッケージや node: は使わない）。
-//   `import type` は変換で消えるので、型の入口（@new-cms/cli/types）は使える
+//   `import type` は変換で消えるので、型の入口（@yomotsuhirasaka/cli/types）は使える
 // - フォルダの外を指すパス（`..`、絶対パス、外に出るシンボリックリンク）は止める
 
 import { realpathSync, statSync } from "node:fs";
@@ -37,7 +37,7 @@ function resolveInside(root: string, from: string, spec: string, what: string): 
 /** import をテンプレートのフォルダの中の相対パスに限る esbuild のプラグイン。 */
 function onlyInside(root: string, what: string): Plugin {
   return {
-    name: "cms-only-inside-template",
+    name: "yomi-only-inside-template",
     setup(b) {
       b.onResolve({ filter: /.*/ }, (args) => {
         if (args.kind === "entry-point") return { path: args.path };

@@ -228,7 +228,7 @@ pub async fn schema_info(
         Option<String>,
     ) = sqlx::query_as(
         "SELECT template, schema_version, schema_state, schema_target_version, schema_error
-         FROM cms.workspaces WHERE id = $1",
+         FROM yomi.workspaces WHERE id = $1",
     )
     .bind(id)
     .fetch_one(&state.pool)

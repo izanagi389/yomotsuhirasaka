@@ -1,6 +1,6 @@
 //! 配信APIのキー（Q13, Q93, Q110, Q125, Q153）。
 //!
-//! - 形は `cms_key_<ランダムな43文字>`。発行時に一度だけ渡し、DBにはハッシュだけを保存する（INV-KEY-01）。
+//! - 形は `yomi_key_<ランダムな43文字>`。発行時に一度だけ渡し、DBにはハッシュだけを保存する（INV-KEY-01）。
 //! - ワークスペースごと。配信APIのURLのワークスペースIDと、キーのワークスペースを必ず照合する（Q125）。
 //! - スコープ: `read`（公開版の読み取り）、`register`（クエリの登録）、`answer`（回答API。お金がかかるので read と分ける。M4）。
 //!   用途（build・server）は回数制限の既定値だけに影響する。
@@ -41,7 +41,7 @@ pub async fn issue<'e>(
     let id = Uuid::new_v4();
     let display_prefix: String = secret.chars().take(PREFIX.len() + 4).collect();
     let expires_at: Option<String> = sqlx::query_scalar(crate::sql!(
-        "INSERT INTO cms.api_keys (id, workspace_id, name, key_hash, display_prefix, scopes, purpose, created_by, expires_at)
+        "INSERT INTO yomi.api_keys (id, workspace_id, name, key_hash, display_prefix, scopes, purpose, created_by, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
          RETURNING to_char(expires_at AT TIME ZONE 'UTC', {RFC3339})"
     ))
@@ -95,7 +95,7 @@ pub async fn list(pool: &PgPool, workspace_id: Uuid) -> Result<Vec<Summary>> {
                 to_char(created_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(expires_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(last_used_at AT TIME ZONE 'UTC', {RFC3339})
-         FROM cms.api_keys
+         FROM yomi.api_keys
          WHERE workspace_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
          ORDER BY created_at DESC"
     ))
@@ -124,7 +124,7 @@ pub async fn list(pool: &PgPool, workspace_id: Uuid) -> Result<Vec<Summary>> {
 /// キーを失効させる。そのワークスペースの有効なキーでなければ false。
 pub async fn revoke(pool: &PgPool, workspace_id: Uuid, id: Uuid) -> Result<bool> {
     let done = sqlx::query(
-        "UPDATE cms.api_keys SET revoked_at = now()
+        "UPDATE yomi.api_keys SET revoked_at = now()
          WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL",
     )
     .bind(id)
@@ -187,7 +187,7 @@ pub async fn authenticate_any(
     let row: Option<ResolvedRow> = sqlx::query_as(
         "SELECT id, workspace_id, scopes, purpose,
                 last_used_at IS NULL OR last_used_at < now() - make_interval(secs => $2)
-         FROM cms.api_keys
+         FROM yomi.api_keys
          WHERE key_hash = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())",
     )
     .bind(token::digest(presented))
@@ -210,7 +210,7 @@ pub async fn authenticate_any(
         return Ok(Err(Denied::MissingScope));
     }
     if stale {
-        sqlx::query("UPDATE cms.api_keys SET last_used_at = now() WHERE id = $1")
+        sqlx::query("UPDATE yomi.api_keys SET last_used_at = now() WHERE id = $1")
             .bind(key_id)
             .execute(pool)
             .await?;

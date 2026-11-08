@@ -106,27 +106,27 @@ mod tests {
     #[test]
     fn accepts_simple_names() {
         for ok in [
-            "cms",
-            "cms_app",
+            "yomi",
+            "yomi_app",
             "_x",
             "ws_0123456789abcdef0123456789abcdef",
             &"a".repeat(63),
         ] {
             assert!(Ident::new(ok).is_ok(), "{ok}");
         }
-        assert_eq!(Ident::new("cms_app").unwrap().to_string(), "\"cms_app\"");
+        assert_eq!(Ident::new("yomi_app").unwrap().to_string(), "\"yomi_app\"");
     }
 
     #[test]
     fn rejects_everything_else() {
         for bad in [
             "",
-            "Cms",
-            "1cms",
-            "cms-app",
-            "cms app",
-            "cms\"; drop",
-            "cms.app",
+            "Yomi",
+            "1yomi",
+            "yomi-app",
+            "yomi app",
+            "yomi\"; drop",
+            "yomi.app",
             "ｃｍｓ",
             "é",
             &"a".repeat(64),

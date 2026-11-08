@@ -10,7 +10,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/mock-llm.Dockerfile
-    image: new-cms/mock-llm:local
+    image: yomotsuhirasaka/mock-llm:local
     networks:
       - internal
     restart: unless-stopped

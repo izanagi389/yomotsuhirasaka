@@ -7,41 +7,41 @@
 
 import { expect } from "vitest";
 import { inv } from "./support/inv.js";
-import type { CmsClient, Session, TodoItem } from "./support/driver.js";
+import type { YomiClient, Session, TodoItem } from "./support/driver.js";
 import { simpleBody } from "./support/body.js";
 import { lazyWorld, marker, type WorkspaceFixture } from "./support/world.js";
 
 const world = lazyWorld();
 
 /** 訂正として公開し、説明を書かないままにした記事。 */
-async function unwrittenCorrection(cms: CmsClient, ws: WorkspaceFixture, label: string): Promise<string> {
-  const e = await cms.createEntry(ws.editorSession, ws.id, { title: marker(label), body: simpleBody(marker(label)) });
-  await cms.publishEntry(ws.editorSession, ws.id, e.id);
-  await cms.saveDraft(ws.editorSession, ws.id, e.id, { body: simpleBody(marker(`${label}-fix`)) });
-  await cms.publishEntry(ws.editorSession, ws.id, e.id, { correction: true });
+async function unwrittenCorrection(yomi: YomiClient, ws: WorkspaceFixture, label: string): Promise<string> {
+  const e = await yomi.createEntry(ws.editorSession, ws.id, { title: marker(label), body: simpleBody(marker(label)) });
+  await yomi.publishEntry(ws.editorSession, ws.id, e.id);
+  await yomi.saveDraft(ws.editorSession, ws.id, e.id, { body: simpleBody(marker(`${label}-fix`)) });
+  await yomi.publishEntry(ws.editorSession, ws.id, e.id, { correction: true });
   return e.id;
 }
 
 const has = (items: TodoItem[], kind: TodoItem["kind"], entryId: string) => items.some((i) => i.kind === kind && i.entryId === entryId);
 
 inv("inv_todo_01", "「やること」の一覧には、その利用者が対応する権限を持たない項目と、他のワークスペースの項目は含まれない", async () => {
-  const { cms, a, b } = await world();
-  await cms.reauthenticate(a.adminSession, a.admin);
-  const author = await cms.login(await cms.createMember(a.adminSession, a.id, "author"));
-  const viewer = await cms.login(await cms.createMember(a.adminSession, a.id, "viewer"));
-  const todo = (s: Session, ws: string) => cms.getTodo(s, ws);
+  const { yomi, a, b } = await world();
+  await yomi.reauthenticate(a.adminSession, a.admin);
+  const author = await yomi.login(await yomi.createMember(a.adminSession, a.id, "author"));
+  const viewer = await yomi.login(await yomi.createMember(a.adminSession, a.id, "viewer"));
+  const todo = (s: Session, ws: string) => yomi.getTodo(s, ws);
 
   // A の項目: レビュー待ち、未記入の訂正、原文の更新
-  const reviewed = await cms.createEntry(author, a.id, { title: marker("todo01-review"), body: simpleBody(marker("todo01-review")) });
-  await cms.requestReview(author, a.id, reviewed.id);
-  const corrected = await unwrittenCorrection(cms, a, "todo01-correction");
-  const source = await cms.createEntry(a.editorSession, a.id, { title: marker("todo01-ja"), body: simpleBody(marker("todo01-ja")), locale: "ja" });
-  await cms.publishEntry(a.editorSession, a.id, source.id);
-  const translation = await cms.createTranslation(a.editorSession, a.id, source.id, "en");
-  await cms.saveDraft(a.editorSession, a.id, source.id, { body: simpleBody(marker("todo01-ja2")) });
-  await cms.publishEntry(a.editorSession, a.id, source.id);
+  const reviewed = await yomi.createEntry(author, a.id, { title: marker("todo01-review"), body: simpleBody(marker("todo01-review")) });
+  await yomi.requestReview(author, a.id, reviewed.id);
+  const corrected = await unwrittenCorrection(yomi, a, "todo01-correction");
+  const source = await yomi.createEntry(a.editorSession, a.id, { title: marker("todo01-ja"), body: simpleBody(marker("todo01-ja")), locale: "ja" });
+  await yomi.publishEntry(a.editorSession, a.id, source.id);
+  const translation = await yomi.createTranslation(a.editorSession, a.id, source.id, "en");
+  await yomi.saveDraft(a.editorSession, a.id, source.id, { body: simpleBody(marker("todo01-ja2")) });
+  await yomi.publishEntry(a.editorSession, a.id, source.id);
   // B の項目: 未記入の訂正
-  const correctedInB = await unwrittenCorrection(cms, b, "todo01-b");
+  const correctedInB = await unwrittenCorrection(yomi, b, "todo01-b");
 
   // 編集者（公開でき、「訂正と鮮度」の権限を持つ）には3つとも出る（対照）
   const editorTodo = await todo(a.editorSession, a.id);

@@ -1,4 +1,4 @@
-// ドライバーの一部: 管理APIへの接続（CmsClient）。管理APIのURLや本文の形は、ここに閉じ込める。
+// ドライバーの一部: 管理APIへの接続（YomiClient）。管理APIのURLや本文の形は、ここに閉じ込める。
 // 規則は driver.ts の冒頭のとおり（合否の判定を書かない、失敗を成功に見せかけない、Raw は応答をそのまま返す）。
 //
 // サーバーにまだない操作は、呼び出されたときに NotImplementedError を投げる。
@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, AnswerError, AnswerSettings, AssistBudget, AssistSettings, ConflictCheck, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, CmsClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, AnswerError, AnswerSettings, AssistBudget, AssistSettings, ConflictCheck, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, YomiClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -57,7 +57,7 @@ function ensure(what: string, res: HttpResponse): HttpResponse {
   return res;
 }
 
-export function connectAdmin(baseUrl: string, todo: (what: string) => never): CmsClient {
+export function connectAdmin(baseUrl: string, todo: (what: string) => never): YomiClient {
   const base = baseUrl.replace(/\/+$/, "");
 
   async function request(method: string, path: string, options: RequestOptions = {}): Promise<HttpResponse> {
@@ -123,7 +123,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
     if (!isSuccess(start)) return result(start);
     const back = await viaIdp(start, cookies, options.extras);
     setCookieHeaders.push(...back.setCookies);
-    if (!back.setCookies.some((c) => parseSetCookie(c).name === "__Host-cms_session")) return result(back);
+    if (!back.setCookies.some((c) => parseSetCookie(c).name === "__Host-yomi_session")) return result(back);
     // 戻った画面が、CSRFトークンを一度だけ受け取る
     const done = await request("POST", `${ADMIN}/session/oidc/complete`, { cookies, extras: options.extras });
     applySetCookies(cookies, done.setCookies);
@@ -139,7 +139,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const usedSteps = new Map<string, number>();
   // 同じ時間の区切りのコードは一度しか使えない（サーバーが再利用を拒む）。テストのファイルごとに別のプロセスになるので、
   // 使った区切りはプロセスの外（一時ディレクトリのファイル）にも記録し、プロセスをまたいで同じコードを使わないようにする。
-  const stepFile = (secret: string) => join(tmpdir(), `cms-inv-totp-${createHash("sha256").update(secret).digest("hex").slice(0, 16)}`);
+  const stepFile = (secret: string) => join(tmpdir(), `yomi-inv-totp-${createHash("sha256").update(secret).digest("hex").slice(0, 16)}`);
   const lastUsedStep = (secret: string): number => {
     let fromFile = -Infinity;
     try {
@@ -487,7 +487,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       case "search":
         return `query($text: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $first: Int) { search(text: $text, locale: $locale, first: $first) { vectorSearch keywordSearch hits { entryId locale anchor breadcrumb excerpt score } } }`;
       case "searchWithMode":
-        return `query($text: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $first: Int, $mode: CmsSearchMode) { search(text: $text, locale: $locale, first: $first, mode: $mode) { vectorSearch keywordSearch hits { entryId locale anchor breadcrumb excerpt score } } }`;
+        return `query($text: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $first: Int, $mode: YomiSearchMode) { search(text: $text, locale: $locale, first: $first, mode: $mode) { vectorSearch keywordSearch hits { entryId locale anchor breadcrumb excerpt score } } }`;
       // 関連記事（M3。server/src/delivery）
       case "relatedEntries":
         return `query($id: ID!, $first: Int) { ${SINGLE}(id: $id) { id relatedEntries(first: $first) { id contentType locale url title pinned score } } }`;
@@ -500,7 +500,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       case "answerStream": {
         const [v, a] = spec.visitorId ? [", $visitorId: String", ", visitorId: $visitorId"] : ["", ""];
         const fields = spec.cached ? `${ANSWER_FIELDS} cached` : ANSWER_FIELDS;
-        return `subscription($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}${v}) { answerStream(question: $question, locale: $locale${a}) { __typename ... on CmsAnswerVerdict { answerable sources { ${ANSWER_SOURCE_FIELDS} } } ... on CmsAnswerDelta { text } ... on CmsAnswerFinal { ${fields} } } }`;
+        return `subscription($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}${v}) { answerStream(question: $question, locale: $locale${a}) { __typename ... on YomiAnswerVerdict { answerable sources { ${ANSWER_SOURCE_FIELDS} } } ... on YomiAnswerDelta { text } ... on YomiAnswerFinal { ${fields} } } }`;
       }
       case "text":
         return spec.text;
@@ -544,7 +544,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   const isEventStream = (res: HttpResponse) => (res.headers.get("content-type") ?? "").startsWith("text/event-stream");
   const deliveryAuth = (apiKey: string | null): Auth => (apiKey === null ? { kind: "none" } : { kind: "bearer", token: apiKey });
   // プレビュー用トークンは専用のヘッダーで送る（APIキーの Authorization とは別。server/src/delivery）
-  const PREVIEW_HEADER = "X-Cms-Preview-Token";
+  const PREVIEW_HEADER = "X-Yomi-Preview-Token";
   const previewTokensPath = (workspaceId: string, entryId: string) => `${ADMIN}/workspaces/${workspaceId}/entries/${entryId}/preview-tokens`;
   const issuePreviewTokenRaw = (auth: Auth, workspaceId: string, entryId: string, ttlSeconds?: number, extras?: RequestExtras): Promise<HttpResponse> =>
     request("POST", previewTokensPath(workspaceId, entryId), { auth, extras, body: ttlSeconds === undefined ? {} : { ttlSeconds } });
@@ -584,8 +584,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
   };
   // 操作の一覧で登録する送信先。テストの実行環境の宛先（例外として許可済み）の、何も待ち受けていないポート（9: discard）にする。
   // テストの実行環境の宛先がなければ、名前解決できない宛先にする（登録は断られる）
-  const OPERATION_WEBHOOK_URL = process.env["CMS_TEST_HARNESS_ALLOWED_HOST"]
-    ? `http://${process.env["CMS_TEST_HARNESS_ALLOWED_HOST"]}:9/inv-operation`
+  const OPERATION_WEBHOOK_URL = process.env["YOMI_TEST_HARNESS_ALLOWED_HOST"]
+    ? `http://${process.env["YOMI_TEST_HARNESS_ALLOWED_HOST"]}:9/inv-operation`
     : "https://inv-operation.invalid/";
 
   // 操作の一覧で使うテンプレート（何度デプロイしても同じ内容なので、版は増えない）
@@ -1131,13 +1131,13 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
         const e = (data as { data?: { answerStream?: Record<string, unknown> | null } | null } | null)?.data?.answerStream;
         if (!e) continue;
         switch (e["__typename"]) {
-          case "CmsAnswerVerdict":
+          case "YomiAnswerVerdict":
             out.push({ type: "verdict", answerable: e["answerable"] as boolean, sources: e["sources"] as AnswerSource[] });
             break;
-          case "CmsAnswerDelta":
+          case "YomiAnswerDelta":
             out.push({ type: "delta", text: e["text"] as string });
             break;
-          case "CmsAnswerFinal":
+          case "YomiAnswerFinal":
             out.push({ type: "final", ...toAnswerResult(e) });
             break;
           default:
@@ -1465,14 +1465,14 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Cm
       );
       return secret;
     },
-  } satisfies Partial<CmsClient>;
+  } satisfies Partial<YomiClient>;
 
   // まだない操作は、呼ばれたときに NotImplementedError を投げる
   return new Proxy(implemented, {
     get(target, prop, receiver) {
       if (typeof prop !== "string" || prop in target) return Reflect.get(target, prop, receiver);
       if (prop === "then") return undefined; // Promise と取り違えられないように
-      return () => todo(`CmsClient.${prop}`);
+      return () => todo(`YomiClient.${prop}`);
     },
-  }) as unknown as CmsClient;
+  }) as unknown as YomiClient;
 }

@@ -2,11 +2,11 @@
 
 テンプレートのデプロイ、カスタムノードの雛形づくり、既存のブログ（Markdownのフォルダ）からの取り込みを行います。
 
-リポジトリのルートの npm workspaces の一部です（管理画面と、本文のノードの定義 `@new-cms/editor-schema` を共有します）。
+リポジトリのルートの npm workspaces の一部です（管理画面と、本文のノードの定義 `@yomotsuhirasaka/editor-schema` を共有します）。
 
 ```sh
 # リポジトリのルートで
-npm ci && npm run build -w @new-cms/editor-schema && npm run build -w @new-cms/cli
+npm ci && npm run build -w @yomotsuhirasaka/editor-schema && npm run build -w @yomotsuhirasaka/cli
 ```
 
 ## テンプレートのデプロイ（`docs/decisions/02-schema-and-delivery-api.md`）
@@ -18,7 +18,7 @@ npm ci && npm run build -w @new-cms/editor-schema && npm run build -w @new-cms/c
 
 ```sh
 # デプロイの範囲の個人トークン（サーバー管理者・多要素認証）
-CMS_TOKEN=<個人トークン> node cli/dist/index.js deploy templates/blog --url https://cms.example.com [--dry-run]
+YOMI_TOKEN=<個人トークン> node cli/dist/index.js deploy templates/blog --url https://yomi.example.com [--dry-run]
 node cli/dist/index.js schema build templates/blog   # マニフェストを表示するだけ
 ```
 
@@ -48,7 +48,7 @@ node cli/dist/index.js schema build templates/blog   # マニフェストを表�
 ```
 
 - CLIが esbuild で1つの ES モジュールにまとめ、マニフェストに JS のソースとして入れます。サーバーはソースだけを受け取ります。
-- `import` できるのは、テンプレートのフォルダの中の相対パスだけです。npm のパッケージや `node:` は使えません。型は `import type { ... } from "@new-cms/cli/types"` で使えます（変換で消えます）。
+- `import` できるのは、テンプレートのフォルダの中の相対パスだけです。npm のパッケージや `node:` は使えません。型は `import type { ... } from "@yomotsuhirasaka/cli/types"` で使えます（変換で消えます）。
 - フォルダの外を指すパス（`..`、絶対パス、外に出るシンボリックリンク）は止めます。
 - デプロイの前に、サーバーと同じ規則で早めに検査します（カスタムノードの `toMarkdown` は必須、`http.fetch` は非同期のフックだけ、など）。判定はサーバーがもう一度行います。
 
@@ -62,8 +62,8 @@ node cli/dist/index.js node scaffold callout --template templates/blog [--inline
 ## 既存のブログからの取り込み（`docs/decisions/03-content-and-editing.md`「既存ブログからの取り込み」）
 
 ```sh
-CMS_TOKEN=<個人トークン（write の範囲）> node cli/dist/index.js import ./content \
-  --url https://cms.example.com --workspace <ワークスペースID> \
+YOMI_TOKEN=<個人トークン（write の範囲）> node cli/dist/index.js import ./content \
+  --url https://yomi.example.com --workspace <ワークスペースID> \
   --config import.json --redirects redirects.json [--static-dir ./public]
 ```
 

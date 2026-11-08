@@ -2,16 +2,16 @@
 
 -- デプロイしたテンプレートの版。マニフェストは、検査を通ったものだけを保存する。
 -- 書き込みはデプロイの処理（移行・ロールの作成用の接続）だけが行う。普段用のロールは読むだけ。
-CREATE TABLE cms.template_versions (
+CREATE TABLE yomi.template_versions (
     template     text NOT NULL,
     version      integer NOT NULL CHECK (version > 0),
     manifest     jsonb NOT NULL,
-    deployed_by  uuid REFERENCES cms.users (id) ON DELETE SET NULL,
+    deployed_by  uuid REFERENCES yomi.users (id) ON DELETE SET NULL,
     deployed_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (template, version)
 );
 
-ALTER TABLE cms.workspaces
+ALTER TABLE yomi.workspaces
     -- ワークスペースのスキーマの土台のテーブル（記事・版など）の版。サーバーの起動時にそろえる
     ADD COLUMN base_version           integer NOT NULL DEFAULT 0,
     -- 適用済みのテンプレートの版（まだなければ NULL）

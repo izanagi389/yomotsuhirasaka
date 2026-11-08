@@ -38,7 +38,7 @@ const MAX_BATCHES_PER_TICK: usize = 10;
 
 /// 秘密の暗号化のAAD（書き出し先ごと）。
 pub fn secret_aad(sink_id: Uuid) -> Vec<u8> {
-    format!("cms:audit-sink-secret:{sink_id}").into_bytes()
+    format!("yomi:audit-sink-secret:{sink_id}").into_bytes()
 }
 
 /// 書き出し先。
@@ -69,7 +69,7 @@ async fn next_batch(
 ) -> Result<Vec<Entry>> {
     let rows: Vec<audit::Row> = sqlx::query_as(crate::sql!(
         r#"SELECT {}
-           FROM cms.audit_log a
+           FROM yomi.audit_log a
            WHERE ($1::uuid IS NULL OR a.workspace_id = $1)
              AND (a.created_at, a.id) > ($2::timestamptz, $3)
              AND a.created_at < now() - interval '5 seconds'
@@ -144,7 +144,7 @@ async fn send(
                     ),
                     (
                         hyper::header::USER_AGENT,
-                        hyper::header::HeaderValue::from_static("cms-audit/1"),
+                        hyper::header::HeaderValue::from_static("yomi-audit/1"),
                     ),
                     (
                         hyper::header::HeaderName::from_static(webhooks::SIGNATURE_HEADER),
@@ -173,7 +173,7 @@ async fn lock_cursor(
         Cursor::Instance(key) => {
             sqlx::query_as(
                 r#"SELECT to_char(cursor_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), cursor_id
-                   FROM cms.audit_export_cursors
+                   FROM yomi.audit_export_cursors
                    WHERE sink_key = $1 AND stopped_at IS NULL
                      AND (failing_since IS NULL OR last_attempt_at < now() - make_interval(secs => $2))
                    FOR UPDATE SKIP LOCKED"#,
@@ -186,7 +186,7 @@ async fn lock_cursor(
         Cursor::Workspace(id) => {
             sqlx::query_as(
                 r#"SELECT to_char(cursor_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), cursor_id
-                   FROM cms.audit_sinks
+                   FROM yomi.audit_sinks
                    WHERE id = $1 AND stopped_at IS NULL
                      AND (failing_since IS NULL OR last_attempt_at < now() - make_interval(secs => $2))
                    FOR UPDATE SKIP LOCKED"#,
@@ -201,18 +201,18 @@ async fn lock_cursor(
 }
 
 /// 成功: 進み具合を進め、失敗の記録を消す。
-const ADVANCE_INSTANCE: &str = "UPDATE cms.audit_export_cursors
+const ADVANCE_INSTANCE: &str = "UPDATE yomi.audit_export_cursors
      SET cursor_at = $2::timestamptz, cursor_id = $3, failing_since = NULL, last_error = NULL, last_attempt_at = now()
      WHERE sink_key = $1";
-const ADVANCE_WORKSPACE: &str = "UPDATE cms.audit_sinks
+const ADVANCE_WORKSPACE: &str = "UPDATE yomi.audit_sinks
      SET cursor_at = $2::timestamptz, cursor_id = $3, failing_since = NULL, last_error = NULL, last_attempt_at = now()
      WHERE id = $1::uuid";
 /// 失敗: 理由を記録し、続いて7日を過ぎたら停止にする。
-const FAIL_INSTANCE: &str = "UPDATE cms.audit_export_cursors
+const FAIL_INSTANCE: &str = "UPDATE yomi.audit_export_cursors
      SET failing_since = COALESCE(failing_since, now()), last_error = $2, last_attempt_at = now(),
          stopped_at = CASE WHEN COALESCE(failing_since, now()) < now() - make_interval(secs => $3) THEN now() END
      WHERE sink_key = $1";
-const FAIL_WORKSPACE: &str = "UPDATE cms.audit_sinks
+const FAIL_WORKSPACE: &str = "UPDATE yomi.audit_sinks
      SET failing_since = COALESCE(failing_since, now()), last_error = $2, last_attempt_at = now(),
          stopped_at = CASE WHEN COALESCE(failing_since, now()) < now() - make_interval(secs => $3) THEN now() END
      WHERE id = $1::uuid";
@@ -299,7 +299,7 @@ fn instance_sinks(config: &AuditExportConfig) -> Vec<String> {
 pub async fn register_instance_sinks(pool: &PgPool, config: &AuditExportConfig) -> Result<()> {
     for key in instance_sinks(config) {
         sqlx::query(
-            "INSERT INTO cms.audit_export_cursors (sink_key) VALUES ($1) ON CONFLICT DO NOTHING",
+            "INSERT INTO yomi.audit_export_cursors (sink_key) VALUES ($1) ON CONFLICT DO NOTHING",
         )
         .bind(&key)
         .execute(pool)
@@ -331,7 +331,7 @@ async fn tick(state: &AppState) -> Result<()> {
         drain(state, Cursor::Instance(&key), None, &target).await?;
     }
     let sinks: Vec<(Uuid, Uuid, String, Vec<u8>)> = sqlx::query_as(
-        "SELECT id, workspace_id, url, secret_enc FROM cms.audit_sinks WHERE stopped_at IS NULL ORDER BY created_at",
+        "SELECT id, workspace_id, url, secret_enc FROM yomi.audit_sinks WHERE stopped_at IS NULL ORDER BY created_at",
     )
     .fetch_all(&state.pool)
     .await?;

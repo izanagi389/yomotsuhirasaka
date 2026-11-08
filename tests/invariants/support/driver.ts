@@ -626,7 +626,7 @@ export interface MailMessage {
 // CMSへの接続
 // ---------------------------------------------------------------------------
 
-export interface CmsClient {
+export interface YomiClient {
   readonly baseUrl: string;
 
   // --- ログインとセッション ---
@@ -1016,7 +1016,7 @@ export interface StartedServer {
   /** 標準出力と標準エラー出力（停止するまでの分。stop の後に読むとすべて入っている）。 */
   readonly output: string;
   /** outcome が "ready" のときの接続先。 */
-  client: CmsClient | null;
+  client: YomiClient | null;
   stop(): Promise<void>;
 }
 
@@ -1126,7 +1126,7 @@ export const driver = {
   },
 
   /** 起動済みのCMSにつなぐ。 */
-  connect(baseUrl: string): CmsClient {
+  connect(baseUrl: string): YomiClient {
     return connectAdmin(baseUrl, todo);
   },
 
@@ -1145,7 +1145,7 @@ export const driver = {
     return startServerProcess(config, (baseUrl) => driver.connect(baseUrl));
   },
 
-  /** 新しいDBで初期化（`cms-server init`）し、サーバー管理者を作る。 */
+  /** 新しいDBで初期化（`yomi-server init`）し、サーバー管理者を作る。 */
   createIsolatedInstance(): Promise<IsolatedInstance> {
     return createIsolatedInstance();
   },
@@ -1161,8 +1161,8 @@ export const driver = {
   },
 
   /** Markdownの取り込みCLI（Node.js）を実行する。 */
-  runImport(cmsUrl: string, options: ImportOptions): Promise<CliResult> {
-    return runImportCli(cmsUrl, options);
+  runImport(yomiUrl: string, options: ImportOptions): Promise<CliResult> {
+    return runImportCli(yomiUrl, options);
   },
 
   /** 取り込みCLIが書き出したリダイレクト設定を読む（Nuxt の routeRules。cli/src/import/run.ts）。 */
@@ -1193,7 +1193,7 @@ export const driver = {
       };
       const expectedWindow = {};
       const accepted = mod.acceptPreviewMessage(
-        { origin: message.origin, source: message.fromExpectedWindow ? expectedWindow : {}, data: { type: "cms:preview:ready" } },
+        { origin: message.origin, source: message.fromExpectedWindow ? expectedWindow : {}, data: { type: "yomi:preview:ready" } },
         { origins: allowedOrigins, source: expectedWindow },
       );
       return accepted !== null;
@@ -1322,8 +1322,8 @@ export const driver = {
   mail: {
     // テスト環境の準備（support/global-setup.ts）が起動したSMTPの受け手のメールを読む
     list: async (to: string): Promise<MailMessage[]> => {
-      const dir = process.env["CMS_TEST_MAIL_DIR"];
-      if (!dir) return todo("mail.list（CMS_TEST_MAIL_DIR がない）");
+      const dir = process.env["YOMI_TEST_MAIL_DIR"];
+      if (!dir) return todo("mail.list（YOMI_TEST_MAIL_DIR がない）");
       return listMail(dir, to);
     },
     /** リセット・招待のメールから、トークンを取り出す。 */
@@ -1336,14 +1336,14 @@ export const driver = {
     },
   },
 
-  // ワークスペースのスキーマとロールの名前は、CMSが共通のスキーマ（cms.workspaces）に登録した値を読む
+  // ワークスペースのスキーマとロールの名前は、CMSが共通のスキーマ（yomi.workspaces）に登録した値を読む
   db: {
     workspaceSchema: async (workspaceId: string): Promise<string> => (await registeredDbNames(workspaceId)).schema,
     workspaceRole: async (workspaceId: string): Promise<string> => (await registeredDbNames(workspaceId)).role,
     // 共通のスキーマ（server/src/migrate.rs の SHARED_SCHEMA）
-    sharedSchemas: async (): Promise<string[]> => ["cms"],
+    sharedSchemas: async (): Promise<string[]> => ["yomi"],
     // 監査ログのテーブル（server/migrations/0001_init.sql）
-    auditLogTables: async (): Promise<string[]> => ["cms.audit_log"],
+    auditLogTables: async (): Promise<string[]> => ["yomi.audit_log"],
   } satisfies DbLayout,
 };
 
@@ -1361,7 +1361,7 @@ function superuserUrlFor(config: ServerConfig): string {
 
 async function createIsolatedInstance(): Promise<IsolatedInstance> {
   const base = validServerConfigFromEnv();
-  const dbName = `cms_iso_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const dbName = `yomi_iso_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
   const roleOf = (url: string) => decodeURIComponent(new URL(url).username);
   await withClient(env.dbSuperuserUrl, async (c) => {
     await c.query(`CREATE DATABASE ${ident(dbName)} OWNER ${ident(roleOf(base.migrationDatabaseUrl))}`);
@@ -1378,7 +1378,7 @@ async function createIsolatedInstance(): Promise<IsolatedInstance> {
     u.pathname = `/${dbName}`;
     return u.toString();
   };
-  const keyDir = mkdtempSync(join(tmpdir(), "cms-iso-key-"));
+  const keyDir = mkdtempSync(join(tmpdir(), "yomi-iso-key-"));
   const keyFile = join(keyDir, "encryption.key");
   if (base.encryptionKeyFile === null) throw new Error("テスト環境の暗号化の鍵のファイルがない");
   copyFileSync(base.encryptionKeyFile, keyFile);
@@ -1392,18 +1392,18 @@ async function createIsolatedInstance(): Promise<IsolatedInstance> {
   const started = await driver.startServer(config);
   try {
     if (started.outcome !== "ready" || !started.client) throw new Error(`新しいインスタンスのサーバーが起動しない:\n${started.output}`);
-    const cms = started.client;
+    const yomi = started.client;
     const email = `inv-iso-root-${randomUUID().slice(0, 8)}@inv.test`;
     const created = await runServerCli(config, ["create-server-admin", "--email", email]);
     const password = created.output.match(/Password \(shown only once\): (\S+)/)?.[1];
     if (created.exitCode !== 0 || !password) throw new Error(`新しいインスタンスのサーバー管理者を作れない:\n${created.output}`);
-    const first = await cms.loginPasswordOnly({ email, password });
-    const totpSecret = await cms.enrollTotp(first, { email, password });
+    const first = await yomi.loginPasswordOnly({ email, password });
+    const totpSecret = await yomi.enrollTotp(first, { email, password });
     const creds = { email, password, totpSecret };
-    const session = await cms.login(creds);
-    const { userId } = await cms.me(session);
-    const token = await cms.deployToken(session, creds);
-    const res = await cms.deployTemplateRaw(asBearer(token), BASE_TEMPLATE);
+    const session = await yomi.login(creds);
+    const { userId } = await yomi.me(session);
+    const token = await yomi.deployToken(session, creds);
+    const res = await yomi.deployTemplateRaw(asBearer(token), BASE_TEMPLATE);
     if (res.status < 200 || res.status >= 300) throw new Error(`新しいインスタンスに BASE_TEMPLATE をデプロイできない（${res.status}）: ${res.text}`);
     return { config, serverAdmin: { ...creds, userId } };
   } finally {
@@ -1412,20 +1412,20 @@ async function createIsolatedInstance(): Promise<IsolatedInstance> {
 }
 
 /**
- * 取り込みのCLI（cli/、ビルド済みの dist/index.js）を実行する。CMS_TEST_CLI_BIN で別の場所を指定できる。
- * 取り込みの設定はJSONのファイルに書いて渡し、トークンは環境変数 CMS_TOKEN で渡す（cli/src/index.ts）。
+ * 取り込みのCLI（cli/、ビルド済みの dist/index.js）を実行する。YOMI_TEST_CLI_BIN で別の場所を指定できる。
+ * 取り込みの設定はJSONのファイルに書いて渡し、トークンは環境変数 YOMI_TOKEN で渡す（cli/src/index.ts）。
  */
-async function runImportCli(cmsUrl: string, options: ImportOptions, timeoutMs = 120_000): Promise<CliResult> {
-  const bin = process.env["CMS_TEST_CLI_BIN"] ?? fileURLToPath(new URL("../../../cli/dist/index.js", import.meta.url));
-  const dir = mkdtempSync(join(tmpdir(), "cms-import-config-"));
+async function runImportCli(yomiUrl: string, options: ImportOptions, timeoutMs = 120_000): Promise<CliResult> {
+  const bin = process.env["YOMI_TEST_CLI_BIN"] ?? fileURLToPath(new URL("../../../cli/dist/index.js", import.meta.url));
+  const dir = mkdtempSync(join(tmpdir(), "yomi-import-config-"));
   const configPath = join(dir, "import.json");
   const config: Record<string, unknown> = { originalUrlKey: options.originalUrlKey, componentMap: options.componentMap ?? {} };
   if (options.translationKey) config["translationKey"] = options.translationKey;
   if (options.translationOf) config["translationOf"] = options.translationOf;
   writeFileSync(configPath, JSON.stringify(config));
   try {
-    const args = [bin, "import", options.sourceDir, "--url", cmsUrl, "--workspace", options.workspaceId, "--config", configPath, "--redirects", options.redirectOutput];
-    const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CMS_TOKEN: options.token } });
+    const args = [bin, "import", options.sourceDir, "--url", yomiUrl, "--workspace", options.workspaceId, "--config", configPath, "--redirects", options.redirectOutput];
+    const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, YOMI_TOKEN: options.token } });
     let output = "";
     child.stdout.on("data", (c: Buffer) => (output += c.toString("utf8")));
     child.stderr.on("data", (c: Buffer) => (output += c.toString("utf8")));
@@ -1449,7 +1449,7 @@ async function runImportCli(cmsUrl: string, options: ImportOptions, timeoutMs = 
 /** CMSが登録したワークスペースのDBの名前（スキーマとロール）。 */
 async function registeredDbNames(workspaceId: string): Promise<{ schema: string; role: string }> {
   return withClient(env.dbSuperuserUrl, async (c) => {
-    const r = await c.query<{ db_schema: string; db_role: string }>("SELECT db_schema, db_role FROM cms.workspaces WHERE id = $1", [workspaceId]);
+    const r = await c.query<{ db_schema: string; db_role: string }>("SELECT db_schema, db_role FROM yomi.workspaces WHERE id = $1", [workspaceId]);
     const row = r.rows[0];
     if (!row) throw new Error(`ワークスペース ${workspaceId} がDBに登録されていない`);
     return { schema: row.db_schema, role: row.db_role };

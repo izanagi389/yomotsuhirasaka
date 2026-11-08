@@ -2,8 +2,8 @@
 //
 // 次の実装の細部は、ここに閉じ込める（server/src/script/ に合わせる）。
 // - モジュールの書き方: 既定のエクスポートが関数本体
-// - ホスト関数: `cms.content.get(id)` は `{id, contentType, locale, fields}` か null、
-//   `cms.http.fetch(url, {method, headers, body})` は `{status, body}` を返す（失敗は例外）
+// - ホスト関数: `yomi.content.get(id)` は `{id, contentType, locale, fields}` か null、
+//   `yomi.http.fetch(url, {method, headers, body})` は `{status, body}` を返す（失敗は例外）
 // - URL生成関数の受け取る値: `{id, contentType, locale, slug, fields}`。返す値: URLの文字列
 // - 同期のフックの受け取る値: `{entry: {id, contentType, locale, fields}}`。
 //   beforeSave は `{fields: {...}}`（直すフィールド）、beforePublish は `{errors: [{field?, message}]}` を返す
@@ -29,7 +29,7 @@ export function readingUrlFunction(ids: string[]): string {
 const IDS = ${lit(ids)};
 function titleOf(id) {
   try {
-    const e = cms.content.get(id);
+    const e = yomi.content.get(id);
     return e && e.fields && typeof e.fields.title === "string" ? e.fields.title : "none";
   } catch (_) {
     return "denied";
@@ -82,7 +82,7 @@ const TRY_SEND = `
 function trySend(url, payload) {
   const body = JSON.stringify(payload);
   const attempts = [
-    () => cms.http.fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body }),
+    () => yomi.http.fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body }),
     () => fetch(url, { method: "POST", body }),
     () => { const x = new XMLHttpRequest(); x.open("POST", url, false); x.send(body); },
   ];
@@ -130,7 +130,7 @@ export function beforeSaveReading(ids: string[]): string {
   return `
 function titleOf(id) {
   try {
-    const e = cms.content.get(id);
+    const e = yomi.content.get(id);
     return e && e.fields && typeof e.fields.title === "string" ? e.fields.title : "none";
   } catch (_) {
     return "denied";

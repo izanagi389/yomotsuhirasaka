@@ -74,27 +74,27 @@ img.ProseMirror-separator {
 }
 
 /* 本文の見た目（管理画面の中だけ。公開サイトの見た目はサイト側が決める） */
-.cms-editor .ProseMirror {
+.yomi-editor .ProseMirror {
   min-height: 16rem;
   outline: none;
   line-height: 1.75;
 }
-.cms-editor .ProseMirror > * + * {
+.yomi-editor .ProseMirror > * + * {
   margin-top: 0.75em;
 }
-.cms-editor .ProseMirror h1 { font-size: 1.75rem; font-weight: 700; }
-.cms-editor .ProseMirror h2 { font-size: 1.5rem; font-weight: 700; margin-top: 1.5em; }
-.cms-editor .ProseMirror h3 { font-size: 1.25rem; font-weight: 600; margin-top: 1.25em; }
-.cms-editor .ProseMirror h4,
-.cms-editor .ProseMirror h5,
-.cms-editor .ProseMirror h6 { font-size: 1.05rem; font-weight: 600; }
-.cms-editor .ProseMirror ul { list-style: disc; padding-left: 1.5rem; }
-.cms-editor .ProseMirror ol { list-style: decimal; padding-left: 1.5rem; }
-.cms-editor .ProseMirror blockquote { border-left: 3px solid var(--border); padding-left: 1rem; color: var(--muted-foreground); }
-.cms-editor .ProseMirror pre { background: var(--muted); border-radius: 0.375rem; padding: 0.75rem 1rem; font-family: ui-monospace, monospace; font-size: 0.875rem; }
-.cms-editor .ProseMirror code { background: var(--muted); border-radius: 0.25rem; padding: 0.1em 0.3em; font-family: ui-monospace, monospace; font-size: 0.9em; }
-.cms-editor .ProseMirror pre code { background: none; padding: 0; }
-.cms-editor .ProseMirror a { color: var(--primary); text-decoration: underline; }
-.cms-editor .ProseMirror hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
-.cms-editor .ProseMirror .ProseMirror-selectednode { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 0.375rem; }
-.cms-editor .ProseMirror-gapcursor:after { border-top-color: var(--foreground); }
+.yomi-editor .ProseMirror h1 { font-size: 1.75rem; font-weight: 700; }
+.yomi-editor .ProseMirror h2 { font-size: 1.5rem; font-weight: 700; margin-top: 1.5em; }
+.yomi-editor .ProseMirror h3 { font-size: 1.25rem; font-weight: 600; margin-top: 1.25em; }
+.yomi-editor .ProseMirror h4,
+.yomi-editor .ProseMirror h5,
+.yomi-editor .ProseMirror h6 { font-size: 1.05rem; font-weight: 600; }
+.yomi-editor .ProseMirror ul { list-style: disc; padding-left: 1.5rem; }
+.yomi-editor .ProseMirror ol { list-style: decimal; padding-left: 1.5rem; }
+.yomi-editor .ProseMirror blockquote { border-left: 3px solid var(--border); padding-left: 1rem; color: var(--muted-foreground); }
+.yomi-editor .ProseMirror pre { background: var(--muted); border-radius: 0.375rem; padding: 0.75rem 1rem; font-family: ui-monospace, monospace; font-size: 0.875rem; }
+.yomi-editor .ProseMirror code { background: var(--muted); border-radius: 0.25rem; padding: 0.1em 0.3em; font-family: ui-monospace, monospace; font-size: 0.9em; }
+.yomi-editor .ProseMirror pre code { background: none; padding: 0; }
+.yomi-editor .ProseMirror a { color: var(--primary); text-decoration: underline; }
+.yomi-editor .ProseMirror hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+.yomi-editor .ProseMirror .ProseMirror-selectednode { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 0.375rem; }
+.yomi-editor .ProseMirror-gapcursor:after { border-top-color: var(--foreground); }

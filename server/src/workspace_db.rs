@@ -1,7 +1,7 @@
 //! ワークスペースごとのDBのスキーマとロール（Q92, Q111, Q120）。
 //!
-//! - ワークスペースごとに、スキーマ `ws_<ID>` とロール `cms_ws_<ID>`（ログイン不可）を作る。
-//! - ロールは自分のスキーマにだけ権限を持ち、共通のスキーマ（`cms`）や他のワークスペースには触れられない。
+//! - ワークスペースごとに、スキーマ `ws_<ID>` とロール `yomi_ws_<ID>`（ログイン不可）を作る。
+//! - ロールは自分のスキーマにだけ権限を持ち、共通のスキーマ（`yomi`）や他のワークスペースには触れられない。
 //! - 普段用のロールは、ワークスペースのロールに切り替える権限（SET）だけを持ち、その権限を引き継がない（INHERIT FALSE）。
 //! - ワークスペースの処理は、[`begin`] で始めたトランザクションの中で、そのロールに切り替えて行う。
 //!
@@ -31,7 +31,7 @@ impl WorkspaceDb {
         Self {
             workspace_id,
             schema: Ident::new(&format!("ws_{hex}")).expect("uuid hex is a valid identifier"),
-            role: Ident::new(&format!("cms_ws_{hex}")).expect("uuid hex is a valid identifier"),
+            role: Ident::new(&format!("yomi_ws_{hex}")).expect("uuid hex is a valid identifier"),
         }
     }
 }
@@ -66,7 +66,7 @@ pub async fn provision(
             .await
             .with_context(|| format!("cannot provision workspace {workspace_id}"))?;
     }
-    sqlx::query("INSERT INTO cms.workspaces (id, name, template, db_schema, db_role) VALUES ($1, $2, $3, $4, $5)")
+    sqlx::query("INSERT INTO yomi.workspaces (id, name, template, db_schema, db_role) VALUES ($1, $2, $3, $4, $5)")
         .bind(workspace_id)
         .bind(name)
         .bind(template)
@@ -188,7 +188,7 @@ pub async fn upgrade_base(conn: &mut PgConnection, db: &WorkspaceDb) -> Result<(
     for &(version, sql) in BASE_MIGRATIONS {
         let mut tx = sqlx::Connection::begin(&mut *conn).await?;
         let current: i32 =
-            sqlx::query_scalar("SELECT base_version FROM cms.workspaces WHERE id = $1 FOR UPDATE")
+            sqlx::query_scalar("SELECT base_version FROM yomi.workspaces WHERE id = $1 FOR UPDATE")
                 .bind(db.workspace_id)
                 .fetch_one(&mut *tx)
                 .await?;
@@ -207,7 +207,7 @@ pub async fn upgrade_base(conn: &mut PgConnection, db: &WorkspaceDb) -> Result<(
                     db.workspace_id
                 )
             })?;
-        sqlx::query("UPDATE cms.workspaces SET base_version = $2 WHERE id = $1")
+        sqlx::query("UPDATE yomi.workspaces SET base_version = $2 WHERE id = $1")
             .bind(db.workspace_id)
             .bind(version)
             .execute(&mut *tx)
@@ -222,7 +222,7 @@ pub async fn upgrade_all(migration: &PgPool) -> Result<()> {
     let latest = BASE_MIGRATIONS.last().map_or(0, |m| m.0);
     let mut conn = migration.acquire().await?;
     let ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM cms.workspaces WHERE base_version < $1 ORDER BY created_at",
+        "SELECT id FROM yomi.workspaces WHERE base_version < $1 ORDER BY created_at",
     )
     .bind(latest)
     .fetch_all(&mut *conn)
@@ -236,7 +236,7 @@ pub async fn upgrade_all(migration: &PgPool) -> Result<()> {
 /// ワークスペースのDBの名前を、共通のスキーマから引く（普段用のロールで呼ぶ）。
 pub async fn lookup(app: &PgPool, workspace_id: Uuid) -> Result<Option<WorkspaceDb>> {
     let row: Option<(String, String)> =
-        sqlx::query_as("SELECT db_schema, db_role FROM cms.workspaces WHERE id = $1")
+        sqlx::query_as("SELECT db_schema, db_role FROM yomi.workspaces WHERE id = $1")
             .bind(workspace_id)
             .fetch_optional(app)
             .await?;
@@ -289,6 +289,6 @@ mod tests {
         let id = Uuid::parse_str("0123456789abcdef0123456789abcdef").unwrap();
         let db = WorkspaceDb::names_for(id);
         assert_eq!(db.schema.as_str(), "ws_0123456789abcdef0123456789abcdef");
-        assert_eq!(db.role.as_str(), "cms_ws_0123456789abcdef0123456789abcdef");
+        assert_eq!(db.role.as_str(), "yomi_ws_0123456789abcdef0123456789abcdef");
     }
 }

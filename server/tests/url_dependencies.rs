@@ -1,19 +1,19 @@
 //! URL生成関数の依存の記録と再計算の結合テスト（本物のPostgreSQL、組み込みJS、ジョブ）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::worker;
 use common::content::*;
 use common::server::*;
 use common::with_scratch;
 use serde_json::{Value, json};
+use yomi_server::worker;
 
 /// 子の記事のURLに、親の記事（subtitle にIDを書く）のスラッグを入れるURL生成関数。
 fn manifest(prefix: &str) -> String {
     let source = format!(
-        "export default function (e) {{ const pid = e.fields.subtitle; let parent = 'root'; if (pid) {{ const p = cms.content.get(pid); parent = p ? p.fields.slug : 'missing'; }} return 'https://site.example.test/{prefix}' + e.locale + '/' + parent + '/' + e.slug; }}"
+        "export default function (e) {{ const pid = e.fields.subtitle; let parent = 'root'; if (pid) {{ const p = yomi.content.get(pid); parent = p ? p.fields.slug : 'missing'; }} return 'https://site.example.test/{prefix}' + e.locale + '/' + parent + '/' + e.slug; }}"
     );
     let mut m: Value = serde_json::from_str(&blog_manifest()).unwrap();
     m["contentTypes"][0]["urlFunction"] =
@@ -85,8 +85,8 @@ async fn urls_follow_their_dependencies() {
         let drain = || async { while worker::run_once(&server.state).await.unwrap() {} };
         // 記事のいまのURLは、ワークスペースのロールに切り替えて読む（普段用のロールはワークスペースのスキーマを読めない）
         let child_url = || async {
-            let db = cms_server::workspace_db::WorkspaceDb::names_for(ws);
-            let mut tx = cms_server::workspace_db::begin(&server.pool, &db)
+            let db = yomi_server::workspace_db::WorkspaceDb::names_for(ws);
+            let mut tx = yomi_server::workspace_db::begin(&server.pool, &db)
                 .await
                 .unwrap();
             let url: String = sqlx::query_scalar("SELECT url FROM entries WHERE id = $1")
@@ -156,10 +156,11 @@ async fn urls_follow_their_dependencies() {
             "https://site.example.test/v2/ja/missing/c"
         );
         // URLの変更のWebhookのジョブは、受け手がなければ積まれない。ジョブは残っていない
-        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.jobs WHERE failed_at IS NULL")
-            .fetch_one(&server.pool)
-            .await
-            .unwrap();
+        let left: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM yomi.jobs WHERE failed_at IS NULL")
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
         assert_eq!(left, 0);
     })
     .await;

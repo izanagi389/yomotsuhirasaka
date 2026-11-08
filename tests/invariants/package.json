@@ -1,5 +1,5 @@
 {
-  "name": "cms-invariant-tests",
+  "name": "yomi-invariant-tests",
   "private": true,
   "type": "module",
   "description": "約束（docs/invariants.md）のテスト。外から見た振る舞いだけを検査する",

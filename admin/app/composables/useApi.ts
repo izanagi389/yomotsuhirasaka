@@ -4,7 +4,7 @@
 //   新しいタブでは、状態を変える操作の前にログインし直してもらう。
 // - 再認証が要る操作（`reauth_required`）は、再認証のダイアログを出し、通ったらもう一度送る。
 
-const CSRF_KEY = "cms:csrf";
+const CSRF_KEY = "yomi:csrf";
 const API = "/api/admin";
 
 export class ApiError extends Error {

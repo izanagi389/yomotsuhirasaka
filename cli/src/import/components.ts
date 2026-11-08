@@ -24,9 +24,9 @@ export interface Prepared {
 }
 
 /** 部品の始まりの印。markdown-it では1つのHTMLのブロックになる。 */
-export const openMarker = (i: number) => `<!--cms:component:${i}-->`;
-export const closeMarker = (i: number) => `<!--cms:end:${i}-->`;
-export const MARKER = /^<!--cms:(component|end):(\d+)-->\s*$/;
+export const openMarker = (i: number) => `<!--yomi:component:${i}-->`;
+export const closeMarker = (i: number) => `<!--yomi:end:${i}-->`;
+export const MARKER = /^<!--yomi:(component|end):(\d+)-->\s*$/;
 
 const NAME = "[A-Za-z][\\w.-]*";
 const MDC_OPEN = new RegExp(`^(:{2,})(${NAME})(\\{.*\\})?\\s*$`);

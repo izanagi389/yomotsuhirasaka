@@ -15,25 +15,25 @@ const world = lazyWorld();
 const slug = (label: string) => `${label}-${randomUUID().slice(0, 8)}`;
 
 async function redirects(): Promise<RedirectRule[]> {
-  const { cms, a } = await world();
-  const query = await cms.registerQuery(a.id, a.registerKey.secret, { kind: "redirects" });
-  const res = await cms.deliveryRaw(a.id, a.readKey.secret, query);
+  const { yomi, a } = await world();
+  const query = await yomi.registerQuery(a.id, a.registerKey.secret, { kind: "redirects" });
+  const res = await yomi.deliveryRaw(a.id, a.readKey.secret, query);
   expectSuccess(res, "リダイレクト一覧の取得");
   return driver.redirects.parse(res.text);
 }
 
 /** 記事を作って公開し、スラッグを順に変えて公開し直す。公開したURLを順に返す。 */
 async function publishThrough(slugs: string[]): Promise<{ id: string; urls: string[] }> {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const s = a.editorSession;
-  const { id } = await cms.createEntry(s, a.id, { title: marker("red"), slug: slugs[0]!, body: simpleBody("本文") });
-  await cms.publishEntry(s, a.id, id);
+  const { id } = await yomi.createEntry(s, a.id, { title: marker("red"), slug: slugs[0]!, body: simpleBody("本文") });
+  await yomi.publishEntry(s, a.id, id);
   for (const next of slugs.slice(1)) {
-    await cms.saveDraft(s, a.id, id, { slug: next });
-    await cms.publishEntry(s, a.id, id);
+    await yomi.saveDraft(s, a.id, id, { slug: next });
+    await yomi.publishEntry(s, a.id, id);
   }
   // 公開したURLは、変更履歴の from と最後の to から読む（URLの組み立て方に依存しないため）
-  const history = await cms.getUrlHistory(s, a.id, id);
+  const history = await yomi.getUrlHistory(s, a.id, id);
   expect(history.length, "スラッグを変えて公開し直したのに、URLの変更履歴がない").toBe(slugs.length - 1);
   return { id, urls: [...history.map((h) => h.from), history[history.length - 1]!.to] };
 }
@@ -47,9 +47,9 @@ inv("inv_red_01", "リダイレクト一覧に連鎖はなく、すべての旧U
   // X → Y → X と、元のURLに戻った記事
   const back = await publishThrough([slug("red01-x"), slug("red01-y")]);
   const [x, y] = back.urls as [string, string];
-  const { cms, a: ws } = await world();
-  await cms.saveDraft(ws.editorSession, ws.id, back.id, { slug: x.split("/").pop()! });
-  await cms.publishEntry(ws.editorSession, ws.id, back.id);
+  const { yomi, a: ws } = await world();
+  await yomi.saveDraft(ws.editorSession, ws.id, back.id, { slug: x.split("/").pop()! });
+  await yomi.publishEntry(ws.editorSession, ws.id, back.id);
 
   const rules = await redirects();
   // すべての旧URLは、最終的なURLへ直接転送される
@@ -71,7 +71,7 @@ inv("inv_red_01", "リダイレクト一覧に連鎖はなく、すべての旧U
 });
 
 inv("inv_red_02", "削除した記事のURLは、リダイレクト一覧に「消えた（410）」として含まれる", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const gone = await publishThrough([slug("red02-a"), slug("red02-b")]);
   const [oldUrl, lastUrl] = gone.urls as [string, string];
 
@@ -80,7 +80,7 @@ inv("inv_red_02", "削除した記事のURLは、リダイレクト一覧に「�
   expect(ruleFor(rules, oldUrl), "削除する前の旧URLの転送").toEqual([{ from: oldUrl, to: lastUrl, status: 301 }]);
   expect(ruleFor(rules, lastUrl), "削除する前の公開中のURL").toEqual([]);
 
-  await cms.deleteEntry(a.editorSession, a.id, gone.id);
+  await yomi.deleteEntry(a.editorSession, a.id, gone.id);
   rules = await redirects();
   // 削除した記事の、最後のURLも過去のURLも「消えた（410）」
   for (const url of [lastUrl, oldUrl]) {

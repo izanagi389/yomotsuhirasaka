@@ -81,7 +81,7 @@ pub async fn list(
         "SELECT id, url, to_char(created_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(failing_since AT TIME ZONE 'UTC', {RFC3339}), last_error,
                 to_char(stopped_at AT TIME ZONE 'UTC', {RFC3339})
-         FROM cms.audit_sinks WHERE workspace_id = $1 ORDER BY created_at"
+         FROM yomi.audit_sinks WHERE workspace_id = $1 ORDER BY created_at"
     ))
     .bind(ws)
     .fetch_all(&state.pool)
@@ -150,14 +150,14 @@ pub async fn create(
 
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     sqlx::query(
-        "SELECT pg_advisory_xact_lock(hashtextextended('cms:audit-sinks:' || $1::text, 0))",
+        "SELECT pg_advisory_xact_lock(hashtextextended('yomi:audit-sinks:' || $1::text, 0))",
     )
     .bind(ws)
     .execute(&mut *tx)
     .await
     .map_err(anyhow::Error::from)?;
     let count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM cms.audit_sinks WHERE workspace_id = $1")
+        sqlx::query_scalar("SELECT count(*) FROM yomi.audit_sinks WHERE workspace_id = $1")
             .bind(ws)
             .fetch_one(&mut *tx)
             .await
@@ -172,7 +172,7 @@ pub async fn create(
     let id = Uuid::new_v4();
     let (secret, sealed) = audit_export::new_secret(&state.keys, id)?;
     sqlx::query(
-        "INSERT INTO cms.audit_sinks (id, workspace_id, url, secret_enc, created_by) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO yomi.audit_sinks (id, workspace_id, url, secret_enc, created_by) VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(id)
     .bind(ws)
@@ -202,7 +202,7 @@ pub async fn delete(
     let (ws, id) = (parse_id(&ws)?, parse_id(&id)?);
     admin(&state, &current, ws, true).await?;
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
-    let done = sqlx::query("DELETE FROM cms.audit_sinks WHERE id = $1 AND workspace_id = $2")
+    let done = sqlx::query("DELETE FROM yomi.audit_sinks WHERE id = $1 AND workspace_id = $2")
         .bind(id)
         .bind(ws)
         .execute(&mut *tx)
@@ -234,7 +234,7 @@ pub async fn resume(
     admin(&state, &current, ws, true).await?;
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     let done = sqlx::query(
-        "UPDATE cms.audit_sinks SET stopped_at = NULL, failing_since = NULL, last_error = NULL, last_attempt_at = NULL
+        "UPDATE yomi.audit_sinks SET stopped_at = NULL, failing_since = NULL, last_error = NULL, last_attempt_at = NULL
          WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)

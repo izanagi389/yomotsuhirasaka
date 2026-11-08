@@ -126,7 +126,7 @@ struct Job {
 
 /// 秘密の暗号化のAAD（Webhookごと）。
 pub fn secret_aad(webhook_id: Uuid) -> Vec<u8> {
-    format!("cms:webhook-secret:{webhook_id}").into_bytes()
+    format!("yomi:webhook-secret:{webhook_id}").into_bytes()
 }
 
 /// 新しい署名用の秘密。
@@ -266,7 +266,7 @@ pub async fn emit_related_changed(
         return Ok(());
     }
     let hooks: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM cms.webhooks WHERE workspace_id = $1")
+        sqlx::query_scalar("SELECT count(*) FROM yomi.webhooks WHERE workspace_id = $1")
             .bind(workspace_id)
             .fetch_one(pool)
             .await?;
@@ -309,7 +309,7 @@ async fn enqueue_all(
     let event_id = Uuid::new_v4();
     let mut tx = pool.begin().await?;
     let hooks: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM cms.webhooks WHERE workspace_id = $1 ORDER BY created_at",
+        "SELECT id FROM yomi.webhooks WHERE workspace_id = $1 ORDER BY created_at",
     )
     .bind(workspace_id)
     .fetch_all(&mut *tx)
@@ -344,7 +344,7 @@ async fn enqueue_one(
 ) -> Result<Uuid> {
     let delivery_id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO cms.webhook_deliveries (id, webhook_id, workspace_id, event_id, event_type, entry_id)
+        "INSERT INTO yomi.webhook_deliveries (id, webhook_id, workspace_id, event_id, event_type, entry_id)
          VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(delivery_id)
@@ -431,7 +431,7 @@ pub async fn deliver(
     // 送るたびに、現在の送信先と秘密を読む（削除されていれば送らない）
     let hook: Option<HookRow> = sqlx::query_as(
         "SELECT url, secret_enc, previous_secret_enc, coalesce(previous_secret_until > now(), false)
-         FROM cms.webhooks WHERE id = $1",
+         FROM yomi.webhooks WHERE id = $1",
     )
     .bind(job.webhook_id)
     .fetch_optional(pool)
@@ -484,7 +484,7 @@ pub async fn deliver(
             ),
             (
                 hyper::header::USER_AGENT,
-                hyper::header::HeaderValue::from_static("cms-webhook/1"),
+                hyper::header::HeaderValue::from_static("yomi-webhook/1"),
             ),
             (
                 hyper::header::HeaderName::from_static(SIGNATURE_HEADER),
@@ -518,7 +518,7 @@ async fn record(
         Outcome::Retry(e) | Outcome::Fail(e) => ("failed", Some(e)),
     };
     sqlx::query(
-        "UPDATE cms.webhook_deliveries
+        "UPDATE yomi.webhook_deliveries
          SET state = $2, attempts = $3, last_status = $4, last_error = $5, last_attempt_at = now()
          WHERE id = $1",
     )

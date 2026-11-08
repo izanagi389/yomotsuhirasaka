@@ -1,7 +1,7 @@
 //! 埋め込みモデルの切り替え（08-search-and-related.md「モデルの変更」、Q30・Q138、M3）。
 //!
 //! - 切り替え先のモデルは設定の `[llm.next_embedding]` に書く。書いただけでは埋め込みを作らない。サーバー管理者が見積もりを見て
-//!   開始すると（`cms.embedding_switch`）、ワークスペースごとに、検索用データのジョブが新しいモデルの埋め込みを作る。
+//!   開始すると（`yomi.embedding_switch`）、ワークスペースごとに、検索用データのジョブが新しいモデルの埋め込みを作る。
 //! - 切り替えはワークスペースごと。新しいモデルの埋め込みがそのワークスペースのすべてのチャンクにそろうまでは、検索も質問の埋め込みも
 //!   旧モデルのまま（INV-EMB-01）。そろったら、ジョブが一括で切り替える（`search_models`）。
 //! - 切り替えの途中に公開・更新された記事は、旧モデルの埋め込みを先に作り、新しいモデルの分も作る（記事が欠けないように）。
@@ -66,7 +66,7 @@ pub async fn recorded(conn: &mut PgConnection) -> Result<Recorded> {
 /// サーバー管理者が開始した切り替え先のモデル（なければ None）。
 pub async fn started(pool: &PgPool) -> Result<Option<ModelId>> {
     let row: Option<(String, i32)> =
-        sqlx::query_as("SELECT model, dimensions FROM cms.embedding_switch")
+        sqlx::query_as("SELECT model, dimensions FROM yomi.embedding_switch")
             .fetch_optional(pool)
             .await?;
     Ok(row.map(|(m, d)| (m, u32::try_from(d).unwrap_or(0))))
@@ -257,7 +257,7 @@ pub async fn status(
 /// 開始する（切り替え先のモデルを記録する。前の記録は書き直す）。
 pub async fn start(pool: &PgPool, model: &ModelId, user_id: uuid::Uuid) -> Result<()> {
     sqlx::query(
-        "INSERT INTO cms.embedding_switch (id, model, dimensions, started_by, started_at)
+        "INSERT INTO yomi.embedding_switch (id, model, dimensions, started_by, started_at)
          VALUES (true, $1, $2, $3, now())
          ON CONFLICT (id) DO UPDATE SET model = $1, dimensions = $2, started_by = $3, started_at = now()",
     )
@@ -279,7 +279,7 @@ pub async fn warn_unconfigured(
         return Ok(());
     }
     let ids: Vec<uuid::Uuid> =
-        sqlx::query_scalar("SELECT id FROM cms.workspaces ORDER BY created_at")
+        sqlx::query_scalar("SELECT id FROM yomi.workspaces ORDER BY created_at")
             .fetch_all(pool)
             .await?;
     for id in ids {

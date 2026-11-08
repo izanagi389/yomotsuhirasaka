@@ -4,28 +4,28 @@
 
 import { createError, defineEventHandler, getRequestURL, sendRedirect } from "h3";
 import { useRuntimeConfig } from "nitropack/runtime";
-import queries from "#cms/queries";
+import queries from "#yomi/queries";
 
 import { cached } from "./cache.ts";
 import { fetchQuery } from "./fetch-query.ts";
-import { type CmsRedirect, type PathRule, normalizePath, toPathRules } from "./redirect-rules.ts";
+import { type YomiRedirect, type PathRule, normalizePath, toPathRules } from "./redirect-rules.ts";
 import { REDIRECTS_QUERY } from "./names.ts";
 
 export default defineEventHandler(async (event) => {
   if (event.method !== "GET" && event.method !== "HEAD") return;
   const config = useRuntimeConfig(event) as unknown as {
-    cms: { url: string; workspaceId: string; readKey: string; siteUrl: string };
-    public: { cms: { routePrefix: string } };
+    yomi: { url: string; workspaceId: string; readKey: string; siteUrl: string };
+    public: { yomi: { routePrefix: string } };
   };
   const url = getRequestURL(event);
-  if (url.pathname.startsWith("/_nuxt/") || url.pathname.startsWith("/_cms/")) return;
+  if (url.pathname.startsWith("/_nuxt/") || url.pathname.startsWith("/_yomi/")) return;
   const id = Object.hasOwn(queries, REDIRECTS_QUERY) ? queries[REDIRECTS_QUERY] : undefined;
-  if (!id || !config.cms.readKey || !config.cms.siteUrl) return;
+  if (!id || !config.yomi.readKey || !config.yomi.siteUrl) return;
   let rules: Map<string, PathRule>;
   try {
     rules = await cached("redirects", async () => {
-      const data = (await fetchQuery(config.cms, id, undefined)) as { redirects?: CmsRedirect[] } | null;
-      return toPathRules(data?.redirects ?? [], config.cms.siteUrl);
+      const data = (await fetchQuery(config.yomi, id, undefined)) as { redirects?: YomiRedirect[] } | null;
+      return toPathRules(data?.redirects ?? [], config.yomi.siteUrl);
     });
   } catch {
     return;

@@ -1,13 +1,12 @@
 //! Webhookの結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 //! 受け手は手元（127.0.0.1）で待ち受け、外部への送信の例外として許す。
 
 mod common;
 
 use std::sync::{Arc, Mutex};
 
-use cms_server::worker;
 use common::content::*;
 use common::server::*;
 use common::with_scratch;
@@ -15,6 +14,7 @@ use hmac::{KeyInit as _, Mac as _};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpListener;
+use yomi_server::worker;
 
 /// 届いたリクエスト（生のまま）を記録し、200 と目印入りの本文を返す受け手。
 async fn receiver() -> (u16, Arc<Mutex<Vec<String>>>) {

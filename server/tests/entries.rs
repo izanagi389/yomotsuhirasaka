@@ -1,6 +1,6 @@
 //! 記事と下書きの結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -156,7 +156,7 @@ async fn creating_reading_and_saving_drafts() {
         // 所属していないサーバー管理者の作成は、監査ログに残る（Q122）
         let res = send(&server, "POST", &entries, &root, Some(&entry_body(json!({"slug": "by-root"})))).await;
         assert_eq!(res.status, 201, "{}", res.body);
-        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE workspace_id = $1 AND action = 'entry.created'")
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE workspace_id = $1 AND action = 'entry.created'")
             .bind(ws)
             .fetch_one(&server.pool)
             .await
@@ -164,7 +164,7 @@ async fn creating_reading_and_saving_drafts() {
         assert_eq!(n, 1);
 
         // 移行待ちの間は、作成と保存を断る。読むことはできる（INV-SCH-04）
-        sqlx::query("UPDATE cms.workspaces SET schema_state = 'pending', schema_target_version = 2 WHERE id = $1")
+        sqlx::query("UPDATE yomi.workspaces SET schema_state = 'pending', schema_target_version = 2 WHERE id = $1")
             .bind(ws)
             .execute(&server.state.migration)
             .await

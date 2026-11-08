@@ -1,5 +1,5 @@
-// 管理画面のエディタの拡張機能。スキーマは共有パッケージ（@new-cms/editor-schema）のもので、ここでは画面の描き方だけを足す。
-import { CmsEmbed, CmsImage, type CustomNodeDecl, customNodeExtension, standardExtensions } from "@new-cms/editor-schema";
+// 管理画面のエディタの拡張機能。スキーマは共有パッケージ（@yomotsuhirasaka/editor-schema）のもので、ここでは画面の描き方だけを足す。
+import { YomiEmbed, YomiImage, type CustomNodeDecl, customNodeExtension, standardExtensions } from "@yomotsuhirasaka/editor-schema";
 import { VueNodeViewRenderer } from "@tiptap/vue-3";
 // StarterKit のコマンド（toggleBold など）の型を読み込む（共有パッケージの型定義には含まれないため）
 import type {} from "@tiptap/starter-kit";
@@ -21,11 +21,11 @@ export interface ViewOptions {
 }
 
 export function editorExtensions(options: ViewOptions) {
-  const image = CmsImage.extend({
+  const image = YomiImage.extend({
     addOptions: () => ({ workspaceId: options.workspaceId, isEditable: options.isEditable }),
     addNodeView: () => VueNodeViewRenderer(ImageView),
   });
-  const embed = CmsEmbed.extend({
+  const embed = YomiEmbed.extend({
     addOptions: () => ({ embedProviders: options.embedProviders }),
     addNodeView: () => VueNodeViewRenderer(EmbedView),
   });

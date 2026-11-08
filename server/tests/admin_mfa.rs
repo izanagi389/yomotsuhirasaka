@@ -1,6 +1,6 @@
 //! 多要素認証（TOTPと復旧コード）の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -24,17 +24,17 @@ async fn enroll_then_login_requires_second_factor() {
         let secret = setup.json_str("secret").unwrap();
         let url = setup.json_str("otpauthUrl").unwrap();
         assert!(
-            url.starts_with("otpauth://totp/cms.example.test%3Amfa%40example.test?"),
+            url.starts_with("otpauth://totp/yomi.example.test%3Amfa%40example.test?"),
             "{url}"
         );
         assert!(
-            url.contains(&format!("secret={secret}")) && url.contains("issuer=cms.example.test")
+            url.contains(&format!("secret={secret}")) && url.contains("issuer=yomi.example.test")
         );
 
         // 秘密は暗号化して保存されている
         let raw = Secret::try_from_base32(&secret).unwrap();
         let stored: Vec<u8> =
-            sqlx::query_scalar("SELECT totp_pending_secret_enc FROM cms.users WHERE email = $1")
+            sqlx::query_scalar("SELECT totp_pending_secret_enc FROM yomi.users WHERE email = $1")
                 .bind(email)
                 .fetch_one(&server.pool)
                 .await
@@ -265,7 +265,7 @@ async fn regenerate_and_disable() {
         let me = get(&server, "/api/admin/me", &s).await;
         assert!(me.body.contains("\"mfaEnabled\":false"), "{}", me.body);
         let remaining: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM cms.recovery_codes r JOIN cms.users u ON u.id = r.user_id WHERE u.email = $1",
+            "SELECT count(*) FROM yomi.recovery_codes r JOIN yomi.users u ON u.id = r.user_id WHERE u.email = $1",
         )
         .bind(email)
         .fetch_one(&server.pool)

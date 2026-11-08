@@ -82,7 +82,7 @@ pub async fn request_password_reset(
         return Ok(accepted);
     };
     let row: Option<(Uuid, bool, bool, Option<String>)> = sqlx::query_as(
-        "SELECT id, disabled, is_server_admin, locale FROM cms.users WHERE email = $1",
+        "SELECT id, disabled, is_server_admin, locale FROM yomi.users WHERE email = $1",
     )
     .bind(&email)
     .fetch_optional(&state.pool)
@@ -284,7 +284,7 @@ async fn issue_reset(
         return Err(ApiError::reauth_required());
     }
     let row: Option<(String, bool, Option<String>)> =
-        sqlx::query_as("SELECT email, is_server_admin, locale FROM cms.users WHERE id = $1")
+        sqlx::query_as("SELECT email, is_server_admin, locale FROM yomi.users WHERE id = $1")
             .bind(target)
             .fetch_optional(&state.pool)
             .await
@@ -344,7 +344,7 @@ async fn issue_reset(
     // サーバー管理者がインスタンスの操作として発行したときも、対象が所属するワークスペースの監査ログに残す（Q122、INV-AUD-05）
     if workspace.is_none() {
         let member_of: Vec<Uuid> =
-            sqlx::query_scalar("SELECT workspace_id FROM cms.memberships WHERE user_id = $1")
+            sqlx::query_scalar("SELECT workspace_id FROM yomi.memberships WHERE user_id = $1")
                 .bind(target)
                 .fetch_all(&mut *tx)
                 .await

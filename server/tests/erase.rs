@@ -1,6 +1,6 @@
 //! 版の本文の抹消の結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
@@ -38,7 +38,7 @@ fn doc(text: &str, images: &[&str]) -> Value {
 }
 
 async fn fetch_status(server: &Server, url: &str) -> u16 {
-    let path = url.strip_prefix("https://cms.example.test").unwrap();
+    let path = url.strip_prefix("https://yomi.example.test").unwrap();
     request_bytes(server, "GET", path, &[], None).await.status
 }
 
@@ -128,8 +128,8 @@ async fn erasing_version_bodies() {
         assert!(parse(&get(&server, &format!("{target}/versions/{v2}"), &admin).await)["fields"].is_object());
 
         // 回答キャッシュ: v1 を引用したものと、v2 を引用したもの（抹消で消えるのは v1 を引用したものだけ。Q134）
-        let db = cms_server::workspace_db::lookup(&server.pool, ws).await.unwrap().unwrap();
-        let cite = |vid: &str| cms_server::answer::Source {
+        let db = yomi_server::workspace_db::lookup(&server.pool, ws).await.unwrap().unwrap();
+        let cite = |vid: &str| yomi_server::answer::Source {
             citation: 1,
             entry_id: id.parse().unwrap(),
             locale: "ja".into(),
@@ -140,13 +140,13 @@ async fn erasing_version_bodies() {
             last_reviewed_at: None,
             review_expired: false,
         };
-        let mut tx = cms_server::workspace_db::begin(&server.pool, &db).await.unwrap();
+        let mut tx = yomi_server::workspace_db::begin(&server.pool, &db).await.unwrap();
         for (key, vid) in [(b"cites-v1", &v1), (b"cites-v2", &v2)] {
-            cms_server::answer::cache::store(&mut tx, key, "答え [1]", false, &[cite(vid)]).await.unwrap();
+            yomi_server::answer::cache::store(&mut tx, key, "答え [1]", false, &[cite(vid)]).await.unwrap();
         }
         tx.commit().await.unwrap();
         let cached_keys = || async {
-            let mut tx = cms_server::workspace_db::begin(&server.pool, &db).await.unwrap();
+            let mut tx = yomi_server::workspace_db::begin(&server.pool, &db).await.unwrap();
             let keys: Vec<Vec<u8>> = sqlx::query_scalar("SELECT key FROM answer_cache ORDER BY key").fetch_all(&mut *tx).await.unwrap();
             tx.commit().await.unwrap();
             keys
@@ -190,7 +190,7 @@ async fn erasing_version_bodies() {
         assert_eq!(parse(&res)["deletedMediaIds"], json!([]));
 
         // 監査ログ: 誰が行っても残る
-        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.audit_log WHERE workspace_id = $1 AND action = 'version.erased'")
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE workspace_id = $1 AND action = 'version.erased'")
             .bind(ws)
             .fetch_one(&server.pool)
             .await

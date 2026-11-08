@@ -102,8 +102,8 @@ pub async fn list_workspaces(
     let rows: Vec<WorkspaceRow> = sqlx::query_as(crate::sql!(
         "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role,
                 w.schema_version, w.schema_state
-         FROM cms.workspaces w
-         LEFT JOIN cms.memberships m ON m.workspace_id = w.id AND m.user_id = $1
+         FROM yomi.workspaces w
+         LEFT JOIN yomi.memberships m ON m.workspace_id = w.id AND m.user_id = $1
          WHERE (m.user_id IS NOT NULL OR $2)
            AND ($3::uuid[] IS NULL OR w.id = ANY ($3))
          ORDER BY w.created_at, w.id"
@@ -127,8 +127,8 @@ async fn fetch_workspace(
     let row: WorkspaceRow = sqlx::query_as(crate::sql!(
         "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role,
                 w.schema_version, w.schema_state
-         FROM cms.workspaces w
-         LEFT JOIN cms.memberships m ON m.workspace_id = w.id AND m.user_id = $2
+         FROM yomi.workspaces w
+         LEFT JOIN yomi.memberships m ON m.workspace_id = w.id AND m.user_id = $2
          WHERE w.id = $1"
     ))
     .bind(id)
@@ -269,7 +269,7 @@ fn member_sql(filter: &str) -> sqlx::AssertSqlSafe<String> {
     crate::sql!(
         "SELECT u.id, u.email, m.role, m.grants, {mfa},
                 to_char(m.created_at AT TIME ZONE 'UTC', {RFC3339})
-         FROM cms.memberships m JOIN cms.users u ON u.id = m.user_id
+         FROM yomi.memberships m JOIN yomi.users u ON u.id = m.user_id
          WHERE m.workspace_id = $1 {filter}
          ORDER BY m.created_at, u.id",
         mfa = crate::auth::mfa::MFA_ENABLED_U
@@ -337,7 +337,7 @@ async fn ensure_other_admin_remains(
     user: Uuid,
 ) -> Result<(), ApiError> {
     let admins: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT user_id FROM cms.memberships WHERE workspace_id = $1 AND role = 'admin' FOR UPDATE",
+        "SELECT user_id FROM yomi.memberships WHERE workspace_id = $1 AND role = 'admin' FOR UPDATE",
     )
     .bind(ws)
     .fetch_all(&mut **tx)
@@ -394,7 +394,7 @@ pub async fn change_member_role(
         ensure_other_admin_remains(&mut tx, ws, user).await?;
     }
     let current_grants: Option<Vec<String>> = sqlx::query_scalar(
-        "SELECT grants FROM cms.memberships WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+        "SELECT grants FROM yomi.memberships WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
     )
     .bind(ws)
     .bind(user)
@@ -415,7 +415,7 @@ pub async fn change_member_role(
         }
     }
     sqlx::query(
-        "UPDATE cms.memberships SET role = coalesce($3, role), grants = $4
+        "UPDATE yomi.memberships SET role = coalesce($3, role), grants = $4
          WHERE workspace_id = $1 AND user_id = $2",
     )
     .bind(ws)
@@ -470,7 +470,7 @@ pub async fn remove_member(
     }
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     ensure_other_admin_remains(&mut tx, ws, user).await?;
-    let done = sqlx::query("DELETE FROM cms.memberships WHERE workspace_id = $1 AND user_id = $2")
+    let done = sqlx::query("DELETE FROM yomi.memberships WHERE workspace_id = $1 AND user_id = $2")
         .bind(ws)
         .bind(user)
         .execute(&mut *tx)
@@ -509,7 +509,7 @@ pub async fn list_users(
     access::server_admin(&current)?;
     let rows: Vec<(Uuid, String, bool, bool, bool)> = sqlx::query_as(crate::sql!(
         "SELECT id, email, is_server_admin, disabled, {}
-         FROM cms.users ORDER BY email",
+         FROM yomi.users ORDER BY email",
         crate::auth::mfa::MFA_ENABLED
     ))
     .fetch_all(&state.pool)

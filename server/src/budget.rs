@@ -102,7 +102,7 @@ pub async fn ceiling(
     type Default = fn(&L) -> (Option<u64>, Option<u64>);
     let (sql, defaults): (&str, Default) = match (kind, direction) {
         (Kind::Embedding, Direction::Input) => (
-            "SELECT embedding_tokens_per_month, embedding_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
+            "SELECT embedding_tokens_per_month, embedding_tokens_per_day FROM yomi.workspace_limits WHERE workspace_id = $1",
             |l| {
                 (
                     l.default_workspace_embedding_tokens_per_month,
@@ -111,7 +111,7 @@ pub async fn ceiling(
             },
         ),
         (Kind::VisitorAnswers, Direction::Input) => (
-            "SELECT answer_input_tokens_per_month, answer_input_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
+            "SELECT answer_input_tokens_per_month, answer_input_tokens_per_day FROM yomi.workspace_limits WHERE workspace_id = $1",
             |l| {
                 (
                     l.default_workspace_answer_input_tokens_per_month,
@@ -120,7 +120,7 @@ pub async fn ceiling(
             },
         ),
         (Kind::VisitorAnswers, Direction::Output) => (
-            "SELECT answer_output_tokens_per_month, answer_output_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
+            "SELECT answer_output_tokens_per_month, answer_output_tokens_per_day FROM yomi.workspace_limits WHERE workspace_id = $1",
             |l| {
                 (
                     l.default_workspace_answer_output_tokens_per_month,
@@ -129,7 +129,7 @@ pub async fn ceiling(
             },
         ),
         (Kind::EditorAssist, Direction::Input) => (
-            "SELECT assist_input_tokens_per_month, assist_input_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
+            "SELECT assist_input_tokens_per_month, assist_input_tokens_per_day FROM yomi.workspace_limits WHERE workspace_id = $1",
             |l| {
                 (
                     l.default_workspace_assist_input_tokens_per_month,
@@ -138,7 +138,7 @@ pub async fn ceiling(
             },
         ),
         (Kind::EditorAssist, Direction::Output) => (
-            "SELECT assist_output_tokens_per_month, assist_output_tokens_per_day FROM cms.workspace_limits WHERE workspace_id = $1",
+            "SELECT assist_output_tokens_per_month, assist_output_tokens_per_day FROM yomi.workspace_limits WHERE workspace_id = $1",
             |l| {
                 (
                     l.default_workspace_assist_output_tokens_per_month,
@@ -170,7 +170,7 @@ pub async fn limits(
 ) -> Result<Limits> {
     let ceiling = ceiling(pool, config, workspace_id, kind, direction).await?;
     let set: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
-        "SELECT tokens_per_month, tokens_per_day FROM cms.workspace_budgets
+        "SELECT tokens_per_month, tokens_per_day FROM yomi.workspace_budgets
          WHERE workspace_id = $1 AND kind = $2 AND direction = $3",
     )
     .bind(workspace_id)
@@ -197,7 +197,7 @@ pub async fn set_limits(
     actor: Uuid,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO cms.workspace_budgets (workspace_id, kind, direction, tokens_per_month, tokens_per_day, updated_by)
+        "INSERT INTO yomi.workspace_budgets (workspace_id, kind, direction, tokens_per_month, tokens_per_day, updated_by)
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (workspace_id, kind, direction)
          DO UPDATE SET tokens_per_month = $4, tokens_per_day = $5, updated_by = $6, updated_at = now()",
@@ -216,7 +216,7 @@ pub async fn set_limits(
 /// 上限が変わった（ワークスペースの上限か天井）。今の期間の「断った」の印を消す（次に断ったら、また知らせる）。
 pub async fn resumed(pool: &PgPool, workspace_id: Uuid, kind: Kind) -> Result<()> {
     sqlx::query(
-        "UPDATE cms.budget_usage SET exhausted_at = NULL
+        "UPDATE yomi.budget_usage SET exhausted_at = NULL
          WHERE workspace_id = $1 AND kind = $2 AND exhausted_at IS NOT NULL
            AND ((period = 'month' AND period_start = date_trunc('month', now() AT TIME ZONE 'UTC')::date)
              OR (period = 'day' AND period_start = (now() AT TIME ZONE 'UTC')::date))",
@@ -244,7 +244,7 @@ pub async fn usage(
     direction: Direction,
 ) -> Result<Usage> {
     let rows: Vec<(String, i64, Option<String>)> = sqlx::query_as(
-        r#"SELECT period, tokens, to_char(exhausted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM cms.budget_usage
+        r#"SELECT period, tokens, to_char(exhausted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM yomi.budget_usage
          WHERE workspace_id = $1 AND kind = $2 AND direction = $3
            AND ((period = 'month' AND period_start = date_trunc('month', now() AT TIME ZONE 'UTC')::date)
              OR (period = 'day' AND period_start = (now() AT TIME ZONE 'UTC')::date))"#,
@@ -326,7 +326,7 @@ pub async fn reserve(
     .fetch_one(&mut *tx)
     .await?;
     sqlx::query(
-        "INSERT INTO cms.budget_usage (workspace_id, kind, direction, period, period_start)
+        "INSERT INTO yomi.budget_usage (workspace_id, kind, direction, period, period_start)
          VALUES ($1, $2, $3, 'month', $4::date), ($1, $2, $3, 'day', $5::date)
          ON CONFLICT DO NOTHING",
     )
@@ -339,7 +339,7 @@ pub async fn reserve(
     .await?;
     // 両方の行を、決まった順（月 → 日）で締める
     let rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT period, tokens FROM cms.budget_usage
+        "SELECT period, tokens FROM yomi.budget_usage
          WHERE workspace_id = $1 AND kind = $2 AND direction = $3
            AND ((period = 'month' AND period_start = $4::date) OR (period = 'day' AND period_start = $5::date))
          ORDER BY period DESC
@@ -357,7 +357,7 @@ pub async fn reserve(
     let day_ok = used("day").saturating_add(tokens) <= limit.per_day;
     if month_ok && day_ok {
         sqlx::query(
-            "UPDATE cms.budget_usage SET tokens = tokens + $6
+            "UPDATE yomi.budget_usage SET tokens = tokens + $6
              WHERE workspace_id = $1 AND kind = $2 AND direction = $3
                AND ((period = 'month' AND period_start = $4::date) OR (period = 'day' AND period_start = $5::date))",
         )
@@ -381,7 +381,7 @@ pub async fn reserve(
     }
     // 足りない期間の行に「断った」の印を付ける（初めてなら知らせる）
     let marked: Vec<(String,)> = sqlx::query_as(
-        "UPDATE cms.budget_usage SET exhausted_at = now()
+        "UPDATE yomi.budget_usage SET exhausted_at = now()
          WHERE workspace_id = $1 AND kind = $2 AND direction = $3 AND exhausted_at IS NULL
            AND ((period = 'month' AND period_start = $4::date AND $6) OR (period = 'day' AND period_start = $5::date AND $7))
          RETURNING period",
@@ -409,7 +409,7 @@ pub async fn settle(pool: &PgPool, reservation: &Reservation, actual: i64) -> Re
         return Ok(());
     }
     sqlx::query(
-        "UPDATE cms.budget_usage SET tokens = GREATEST(tokens + $6, 0)
+        "UPDATE yomi.budget_usage SET tokens = GREATEST(tokens + $6, 0)
          WHERE workspace_id = $1 AND kind = $2 AND direction = $3
            AND ((period = 'month' AND period_start = $4::date) OR (period = 'day' AND period_start = $5::date))",
     )

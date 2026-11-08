@@ -480,7 +480,7 @@ pub async fn forget_version(conn: &mut PgConnection, version_id: Uuid) -> Result
 
 /// 残す時間を過ぎた支援の結果（矛盾の検知と、ボタンで動く支援）を、すべてのワークスペースで消す（常駐の処理から呼ぶ）。
 pub async fn sweep(pool: &PgPool) -> Result<u64> {
-    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM cms.workspaces ORDER BY created_at")
+    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM yomi.workspaces ORDER BY created_at")
         .fetch_all(pool)
         .await?;
     let mut removed = 0;

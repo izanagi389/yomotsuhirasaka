@@ -15,40 +15,40 @@ import { lazyWorld, marker } from "./support/world.js";
 const world = lazyWorld();
 
 inv("inv_lock_01", "他の利用者が編集中の記事は、編集の引き継ぎ操作をしない限り保存できない", async () => {
-  const { cms, a } = await world();
-  await cms.reauthenticate(a.adminSession, a.admin);
-  const other = await cms.createMember(a.adminSession, a.id, "editor");
-  const otherSession = await cms.login(other);
-  const { id } = await cms.createEntry(a.editorSession, a.id, { title: marker("lock01"), body: simpleBody("最初") });
-  const bodyOf = async () => JSON.stringify((await cms.getDraft(a.editorSession, a.id, id)).body);
-  const revision = async () => (await cms.getDraft(a.editorSession, a.id, id)).revision;
+  const { yomi, a } = await world();
+  await yomi.reauthenticate(a.adminSession, a.admin);
+  const other = await yomi.createMember(a.adminSession, a.id, "editor");
+  const otherSession = await yomi.login(other);
+  const { id } = await yomi.createEntry(a.editorSession, a.id, { title: marker("lock01"), body: simpleBody("最初") });
+  const bodyOf = async () => JSON.stringify((await yomi.getDraft(a.editorSession, a.id, id)).body);
+  const revision = async () => (await yomi.getDraft(a.editorSession, a.id, id)).revision;
 
   // 編集者が記事の画面を開いて、編集中になる
-  const editing = await cms.acquireEditLock(a.editorSession, a.id, id);
+  const editing = await yomi.acquireEditLock(a.editorSession, a.id, id);
   const mine = marker("lock01-mine");
-  expectSuccess(await cms.saveDraftRaw(asSession(a.editorSession), a.id, id, { body: simpleBody(mine) }, await revision(), { lockId: editing }), "ロックを持つ人の保存");
+  expectSuccess(await yomi.saveDraftRaw(asSession(a.editorSession), a.id, id, { body: simpleBody(mine) }, await revision(), { lockId: editing }), "ロックを持つ人の保存");
 
   // ほかの人は、最新のリビジョン番号でも保存できない（ロックのIDを付けずに / ロックを取ろうとして）
   const blocked = marker("lock01-blocked");
-  expectRefused(await cms.saveDraftRaw(asSession(otherSession), a.id, id, { body: simpleBody(blocked) }, await revision()), "編集中の記事への、ほかの人の保存");
-  expectRefused(await cms.acquireEditLockRaw(asSession(otherSession), a.id, id), "編集中の記事の、ほかの人によるロックの取得");
+  expectRefused(await yomi.saveDraftRaw(asSession(otherSession), a.id, id, { body: simpleBody(blocked) }, await revision()), "編集中の記事への、ほかの人の保存");
+  expectRefused(await yomi.acquireEditLockRaw(asSession(otherSession), a.id, id), "編集中の記事の、ほかの人によるロックの取得");
   expect(await bodyOf(), "断られたはずの保存の内容が入っている").not.toContain(blocked);
   expect(await bodyOf(), "編集中の人の保存の内容が上書きされた").toContain(mine);
 
   // 編集を引き継げば保存でき、引き継がれた側の保存は断られる
-  const takenOver = await cms.takeOverEditLock(otherSession, a.id, id);
+  const takenOver = await yomi.takeOverEditLock(otherSession, a.id, id);
   const theirs = marker("lock01-theirs");
-  expectSuccess(await cms.saveDraftRaw(asSession(otherSession), a.id, id, { body: simpleBody(theirs) }, await revision(), { lockId: takenOver }), "引き継いだ人の保存");
+  expectSuccess(await yomi.saveDraftRaw(asSession(otherSession), a.id, id, { body: simpleBody(theirs) }, await revision(), { lockId: takenOver }), "引き継いだ人の保存");
   const stale = marker("lock01-stale");
   expectRefused(
-    await cms.saveDraftRaw(asSession(a.editorSession), a.id, id, { body: simpleBody(stale) }, await revision(), { lockId: editing }),
+    await yomi.saveDraftRaw(asSession(a.editorSession), a.id, id, { body: simpleBody(stale) }, await revision(), { lockId: editing }),
     "引き継がれた側の、前のロックでの保存",
   );
-  expectRefused(await cms.saveDraftRaw(asSession(a.editorSession), a.id, id, { body: simpleBody(stale) }, await revision()), "引き継がれた側の、ロックのない保存");
+  expectRefused(await yomi.saveDraftRaw(asSession(a.editorSession), a.id, id, { body: simpleBody(stale) }, await revision()), "引き継がれた側の、ロックのない保存");
   expect(await bodyOf(), "引き継がれた側の保存の内容が入っている").not.toContain(stale);
   expect(await bodyOf(), "引き継いだ人の保存の内容が上書きされた").toContain(theirs);
 
   // 対照: ロックが外れれば、ロックのIDを付けない保存も通る
-  await cms.releaseEditLock(otherSession, a.id, id, takenOver);
-  expectSuccess(await cms.saveDraftRaw(asSession(a.editorSession), a.id, id, { body: simpleBody(marker("lock01-free")) }, await revision()), "ロックがないときの保存");
+  await yomi.releaseEditLock(otherSession, a.id, id, takenOver);
+  expectSuccess(await yomi.saveDraftRaw(asSession(a.editorSession), a.id, id, { body: simpleBody(marker("lock01-free")) }, await revision()), "ロックがないときの保存");
 });

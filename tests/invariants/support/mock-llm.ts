@@ -1,7 +1,7 @@
 // 擬似LLM（tools/mock-llm）。ドライバーの一部。
 //
 // - テストの舞台を作るとき（global-setup.ts）に、ビルド済みの dist/main.js を別のプロセスとして起動する。
-//   CMS_TEST_MOCK_LLM_BIN で別の場所を指定できる。CMSからは普通の接続先（OpenAI互換の /v1）に見える。
+//   YOMI_TEST_MOCK_LLM_BIN で別の場所を指定できる。CMSからは普通の接続先（OpenAI互換の /v1）に見える。
 // - 障害の設定・回答の組み立て方・受け取ったリクエストの記録は、APIキーごとに分かれる。
 //   テストは自分のワークスペース用のキーを使い、他のテストと混ざらないようにする。
 
@@ -18,9 +18,9 @@ export interface StartedMockLlm {
 
 /** 擬似LLMを別のプロセスとして起動し、待ち受けを始めるまで待つ。 */
 export async function startMockLlmProcess(): Promise<StartedMockLlm> {
-  const bin = process.env["CMS_TEST_MOCK_LLM_BIN"] ?? fileURLToPath(new URL("../../../tools/mock-llm/dist/main.js", import.meta.url));
+  const bin = process.env["YOMI_TEST_MOCK_LLM_BIN"] ?? fileURLToPath(new URL("../../../tools/mock-llm/dist/main.js", import.meta.url));
   if (!existsSync(bin)) {
-    throw new Error(`擬似LLMがビルドされていません: ${bin}（npm run build -w @new-cms/mock-llm）`);
+    throw new Error(`擬似LLMがビルドされていません: ${bin}（npm run build -w @yomotsuhirasaka/mock-llm）`);
   }
   const child: ChildProcess = spawn(process.execPath, [bin], {
     env: { ...process.env, PORT: "0", HOST: "127.0.0.1" },

@@ -1,7 +1,7 @@
 //! ログインの回数制限（Q105）。
 //!
 //! - アカウント単位: 失敗が続くと、次に試せるまでの待ち時間を段階的に延ばす（上限15分。完全なロックにはしない）。
-//!   状態はDB（`cms.users`）に持つ。待ち時間中は、正しいパスワードでもログインできない。
+//!   状態はDB（`yomi.users`）に持つ。待ち時間中は、正しいパスワードでもログインできない。
 //! - IPアドレス単位: 1分あたりの試行の回数を制限する。状態はプロセスのメモリに持つ。
 
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ pub const MAX_DELAY_SECONDS: f64 = 15.0 * 60.0;
 /// 待ち時間は、FREE_FAILURES 回目の失敗で BASE_DELAY_SECONDS、以後2倍ずつ、上限 MAX_DELAY_SECONDS。
 pub async fn record_failure(pool: &PgPool, user_id: Uuid) -> Result<()> {
     sqlx::query(
-        "UPDATE cms.users SET
+        "UPDATE yomi.users SET
             failed_login_count = failed_login_count + 1,
             login_blocked_until = CASE
                 WHEN failed_login_count + 1 >= $2
@@ -45,7 +45,7 @@ pub async fn record_failure(pool: &PgPool, user_id: Uuid) -> Result<()> {
 /// 成功したら、失敗の記録を消す。
 pub async fn record_success(pool: &PgPool, user_id: Uuid) -> Result<()> {
     sqlx::query(
-        "UPDATE cms.users SET failed_login_count = 0, login_blocked_until = NULL
+        "UPDATE yomi.users SET failed_login_count = 0, login_blocked_until = NULL
          WHERE id = $1 AND (failed_login_count <> 0 OR login_blocked_until IS NOT NULL)",
     )
     .bind(user_id)

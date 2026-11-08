@@ -7,7 +7,7 @@
 import { createError, defineEventHandler, getRequestURL, setResponseHeader } from "h3";
 import type { H3Event } from "h3";
 import { useRuntimeConfig } from "nitropack/runtime";
-import queries from "#cms/queries";
+import queries from "#yomi/queries";
 
 import { type AiConfig, articlePath, toLlmsTxt, toRobotsTxt } from "./ai.ts";
 import { loadCatalog, loadMarkdown, loadOptOuts } from "./ai-load.ts";
@@ -15,9 +15,9 @@ import { QueryError, type QueryTarget } from "./fetch-query.ts";
 import { AI_CATALOG_QUERY, AI_MARKDOWN_QUERY, AI_OPT_OUTS_QUERY } from "./names.ts";
 
 function setup(event: H3Event): { target: QueryTarget; ai: AiConfig } | null {
-  const config = useRuntimeConfig(event) as unknown as { cms: QueryTarget & { ai: AiConfig | null } };
-  if (!config.cms.ai || !config.cms.readKey) return null;
-  return { target: config.cms, ai: config.cms.ai };
+  const config = useRuntimeConfig(event) as unknown as { yomi: QueryTarget & { ai: AiConfig | null } };
+  if (!config.yomi.ai || !config.yomi.readKey) return null;
+  return { target: config.yomi, ai: config.yomi.ai };
 }
 
 const queryId = (name: string): string | undefined => (Object.hasOwn(queries, name) ? queries[name] : undefined);
@@ -35,7 +35,7 @@ async function guarded<T>(load: () => Promise<T>): Promise<T> {
 export const markdownMiddleware = defineEventHandler(async (event) => {
   if (event.method !== "GET" && event.method !== "HEAD") return;
   const path = getRequestURL(event).pathname;
-  if (!path.endsWith(".md") || path.startsWith("/_nuxt/") || path.startsWith("/_cms/")) return;
+  if (!path.endsWith(".md") || path.startsWith("/_nuxt/") || path.startsWith("/_yomi/")) return;
   const s = setup(event);
   const catalogId = queryId(AI_CATALOG_QUERY);
   const markdownId = queryId(AI_MARKDOWN_QUERY);

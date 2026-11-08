@@ -1,16 +1,16 @@
 //! まとめて1回だけ動かすジョブ（保存後のフック）の結合テスト（本物のPostgreSQL）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
 
 mod common;
 
-use cms_server::jobs;
 use common::server::*;
 use common::with_scratch;
+use yomi_server::jobs;
 
 async fn pending(server: &Server) -> Vec<(i32, f64)> {
     sqlx::query_as(
-        "SELECT attempts, EXTRACT(EPOCH FROM run_at - now())::float8 FROM cms.jobs WHERE dedupe_key = 'k' ORDER BY created_at",
+        "SELECT attempts, EXTRACT(EPOCH FROM run_at - now())::float8 FROM yomi.jobs WHERE dedupe_key = 'k' ORDER BY created_at",
     )
     .fetch_all(&server.pool)
     .await

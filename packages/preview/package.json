@@ -1,5 +1,5 @@
 {
-  "name": "@new-cms/preview",
+  "name": "@yomotsuhirasaka/preview",
   "version": "0.1.0",
   "private": true,
   "description": "ライブプレビューの、管理画面とサイトの間のメッセージの決まりと、受け付けてよいかの判定（INV-PRV-03）。管理画面とNuxtモジュールが同じものを使う",

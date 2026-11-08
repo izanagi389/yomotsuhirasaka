@@ -1,6 +1,6 @@
 -- 利用者とセッション（共通のスキーマ）。利用者はインスタンス単位で存在する（Q101）。
 
-CREATE TABLE cms.users (
+CREATE TABLE yomi.users (
     id                    uuid PRIMARY KEY,
     -- 比較は小文字にそろえて行う
     email                 text NOT NULL UNIQUE CHECK (email = lower(email)),
@@ -16,9 +16,9 @@ CREATE TABLE cms.users (
 );
 
 -- セッション。セッションIDとCSRFトークンは、DBにはハッシュ（SHA-256）だけを保存する（Q91, Q93）。
-CREATE TABLE cms.sessions (
+CREATE TABLE yomi.sessions (
     id                    uuid PRIMARY KEY,
-    user_id               uuid NOT NULL REFERENCES cms.users (id) ON DELETE CASCADE,
+    user_id               uuid NOT NULL REFERENCES yomi.users (id) ON DELETE CASCADE,
     token_hash            bytea NOT NULL UNIQUE,
     csrf_hash             bytea NOT NULL,
     created_at            timestamptz NOT NULL DEFAULT now(),
@@ -29,4 +29,4 @@ CREATE TABLE cms.sessions (
     authenticated_at      timestamptz NOT NULL DEFAULT now(),
     revoked_at            timestamptz
 );
-CREATE INDEX sessions_user ON cms.sessions (user_id) WHERE revoked_at IS NULL;
+CREATE INDEX sessions_user ON yomi.sessions (user_id) WHERE revoked_at IS NULL;

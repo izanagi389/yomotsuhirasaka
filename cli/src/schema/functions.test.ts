@@ -10,7 +10,7 @@ import { scaffoldNode } from "./scaffold.js";
 import { TemplateError, loadTemplate } from "./template.js";
 
 function folder(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "cms-fn-"));
+  const root = mkdtempSync(join(tmpdir(), "yomi-fn-"));
   const dir = join(root, "blog");
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(join(dir, path, ".."), { recursive: true });
@@ -21,7 +21,7 @@ function folder(files: Record<string, string>): string {
 
 test("functions become one ES module without imports", async () => {
   const dir = folder({
-    "functions/url.ts": `import { prefix } from "./shared";\nimport type { UrlInput } from "@new-cms/cli/types";\nexport default function url(e: UrlInput): string { return prefix + e.slug; }\n`,
+    "functions/url.ts": `import { prefix } from "./shared";\nimport type { UrlInput } from "@yomotsuhirasaka/cli/types";\nexport default function url(e: UrlInput): string { return prefix + e.slug; }\n`,
     "functions/shared.ts": `export const prefix: string = "https://example.com/";\n`,
   });
   const source = await bundleFunction(dir, "./functions/url.ts", "urlFunction.file");
@@ -94,7 +94,7 @@ test("the CLI checks the same rules as the server", () => {
   });
   for (const needle of [
     "customNodes[0].toMarkdown: a Markdown conversion function is required",
-    "cms node scaffold callout",
+    "yomi node scaffold callout",
     "customNodes[1].toMarkdown.permissions",
     "urlFunction.permissions",
     "hooks.beforeSave.permissions",

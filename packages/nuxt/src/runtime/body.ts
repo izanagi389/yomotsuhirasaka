@@ -1,4 +1,4 @@
-// 本文（Tiptapの構造化JSON）を、飾りのない意味のあるHTMLとして描く部品（`<CmsBody :doc="post.body" />`）。
+// 本文（Tiptapの構造化JSON）を、飾りのない意味のあるHTMLとして描く部品（`<YomiBody :doc="post.body" />`）。
 // - 見た目はサイトが決める（原則1）。クラスもスタイルも付けない。ノードやマークごとに、サイトの部品で置き換えられる
 //   （`:components="{ image: MyImage, embed: MyEmbed }"`。部品は `node` を受け取り、子は既定のスロットに入る）
 // - v-html を使わず、仮想DOMで組み立てる（文字はすべて文字として描く）
@@ -117,12 +117,12 @@ function renderNode(node: BodyNode, overrides: Overrides): VNode | string | null
     }
     default:
       // 知らないノード（カスタムノードなど）は、子があれば子だけを描く。サイトの部品で置き換えられる
-      return node.content ? h("div", { "data-cms-node": node.type }, children()) : null;
+      return node.content ? h("div", { "data-yomi-node": node.type }, children()) : null;
   }
 }
 
 export default defineComponent({
-  name: "CmsBody",
+  name: "YomiBody",
   props: {
     /** 本文（配信APIが返す JSON）。 */
     doc: { type: Object as PropType<BodyNode | null | undefined>, default: null },

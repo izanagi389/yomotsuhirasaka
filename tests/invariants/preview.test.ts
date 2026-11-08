@@ -17,28 +17,28 @@ const world = lazyWorld();
 
 /** 公開した後に、下書きだけを変えた記事。 */
 async function publishedWithDraft(label: string) {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const published = marker(`${label}-published`);
   const draft = marker(`${label}-draft`);
-  const e = await cms.createEntry(a.editorSession, a.id, { title: published, body: simpleBody(published) });
-  await cms.publishEntry(a.editorSession, a.id, e.id);
-  await cms.saveDraft(a.editorSession, a.id, e.id, { title: draft, body: simpleBody(draft) });
-  const slug = (await cms.getDraft(a.editorSession, a.id, e.id)).slug;
+  const e = await yomi.createEntry(a.editorSession, a.id, { title: published, body: simpleBody(published) });
+  await yomi.publishEntry(a.editorSession, a.id, e.id);
+  await yomi.saveDraft(a.editorSession, a.id, e.id, { title: draft, body: simpleBody(draft) });
+  const slug = (await yomi.getDraft(a.editorSession, a.id, e.id)).slug;
   return { id: e.id, slug, published, draft };
 }
 
 inv("inv_prv_01", "プレビュー用トークンは対象の記事の下書きだけを読め、失効後は使えない", async () => {
-  const { cms, a } = await world();
-  const bySlug: RegisteredQuery = await cms.registerQuery(a.id, a.registerKey.secret, { kind: "bySlug", include: ["body"] });
-  const list: RegisteredQuery = await cms.registerQuery(a.id, a.registerKey.secret, { kind: "list", fields: ["title"] });
+  const { yomi, a } = await world();
+  const bySlug: RegisteredQuery = await yomi.registerQuery(a.id, a.registerKey.secret, { kind: "bySlug", include: ["body"] });
+  const list: RegisteredQuery = await yomi.registerQuery(a.id, a.registerKey.secret, { kind: "list", fields: ["title"] });
   const x = await publishedWithDraft("prv01-x");
   const y = await publishedWithDraft("prv01-y");
   const neverPublished = marker("prv01-new");
-  const z = await cms.createEntry(a.editorSession, a.id, { title: neverPublished, body: simpleBody(neverPublished) });
+  const z = await yomi.createEntry(a.editorSession, a.id, { title: neverPublished, body: simpleBody(neverPublished) });
 
-  const tx = await cms.issuePreviewToken(a.editorSession, a.id, x.id);
+  const tx = await yomi.issuePreviewToken(a.editorSession, a.id, x.id);
   const preview = (token: string, query: RegisteredQuery, variables: Record<string, unknown>) =>
-    cms.deliveryPreviewRaw(a.id, a.readKey.secret, token, query, variables);
+    yomi.deliveryPreviewRaw(a.id, a.readKey.secret, token, query, variables);
 
   // 対象の記事は、IDでもスラッグでも下書きで返る
   const xById = await preview(tx.token, a.byIdQuery, { id: x.id });
@@ -58,35 +58,35 @@ inv("inv_prv_01", "プレビュー用トークンは対象の記事の下書き�
   expect(listed.text.includes(x.draft), "一覧に対象の記事の下書きが出た").toBe(false);
 
   // まだ一度も公開していない記事も、その記事のトークンなら1件のクエリで読める（対照）。他の記事のトークンでは読めない
-  const tz = await cms.issuePreviewToken(a.editorSession, a.id, z.id);
+  const tz = await yomi.issuePreviewToken(a.editorSession, a.id, z.id);
   expect((await preview(tz.token, a.byIdQuery, { id: z.id })).text.includes(neverPublished), "未公開の記事の下書きが、その記事のトークンで返らない").toBe(true);
   expect((await preview(tx.token, a.byIdQuery, { id: z.id })).text.includes(neverPublished), "他の記事のトークンで、未公開の記事の下書きが返った").toBe(false);
 
   // 失効させた後は、下書きを読めない
-  await cms.revokePreviewToken(a.editorSession, a.id, x.id, tx.id);
+  await yomi.revokePreviewToken(a.editorSession, a.id, x.id, tx.id);
   expect((await preview(tx.token, a.byIdQuery, { id: x.id })).text.includes(x.draft), "失効させたトークンで下書きが返った（ID）").toBe(false);
   expect((await preview(tx.token, bySlug, { slug: x.slug })).text.includes(x.draft), "失効させたトークンで下書きが返った（スラッグ）").toBe(false);
 
   // 有効期間が過ぎた後も、下書きを読めない
-  const short = await cms.issuePreviewToken(a.editorSession, a.id, x.id, { ttlSeconds: 1 });
+  const short = await yomi.issuePreviewToken(a.editorSession, a.id, x.id, { ttlSeconds: 1 });
   expect((await preview(short.token, a.byIdQuery, { id: x.id })).text.includes(x.draft), "有効期間内のトークンで下書きが返らない（対照）").toBe(true);
   await sleep(2.5);
   expect((await preview(short.token, a.byIdQuery, { id: x.id })).text.includes(x.draft), "有効期間を過ぎたトークンで下書きが返った").toBe(false);
 });
 
 inv("inv_prv_02", "プレビュー用トークンは、配信APIのAPIキーとして使えない", async () => {
-  const { cms, a } = await world();
+  const { yomi, a } = await world();
   const x = await publishedWithDraft("prv02");
-  const { token } = await cms.issuePreviewToken(a.editorSession, a.id, x.id);
+  const { token } = await yomi.issuePreviewToken(a.editorSession, a.id, x.id);
 
   // 対照: 読み取り用のキーなら、同じクエリが通る
-  expectSuccess(await cms.deliveryRaw(a.id, a.readKey.secret, a.byIdQuery, { id: x.id }), "読み取り用のキーでの取得");
+  expectSuccess(await yomi.deliveryRaw(a.id, a.readKey.secret, a.byIdQuery, { id: x.id }), "読み取り用のキーでの取得");
 
   // APIキーの場所にトークンを入れても、プレビューのヘッダーだけを付けても、使えない
-  const asKey = await cms.deliveryRaw(a.id, token, a.byIdQuery, { id: x.id });
+  const asKey = await yomi.deliveryRaw(a.id, token, a.byIdQuery, { id: x.id });
   expectRejected(asKey, "トークンをAPIキーとして使った取得");
   expect(asKey.text.includes(x.draft) || asKey.text.includes(x.published), "トークンをAPIキーとして使った応答に、記事の内容がある").toBe(false);
-  const tokenOnly = await cms.deliveryPreviewRaw(a.id, null, token, a.byIdQuery, { id: x.id });
+  const tokenOnly = await yomi.deliveryPreviewRaw(a.id, null, token, a.byIdQuery, { id: x.id });
   expectRejected(tokenOnly, "APIキーなしで、プレビューのヘッダーだけを付けた取得");
   expect(tokenOnly.text.includes(x.draft) || tokenOnly.text.includes(x.published), "APIキーなしの応答に、記事の内容がある").toBe(false);
 });

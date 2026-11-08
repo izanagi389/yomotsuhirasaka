@@ -1,6 +1,6 @@
 //! DBのロールと権限の結合テスト（本物のPostgreSQLを使う）。
 //!
-//! 環境変数 `CMS_TEST_PG_SUPERUSER_URL` にスーパーユーザーの接続先を渡すと実行する（なければ飛ばす）。
+//! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` にスーパーユーザーの接続先を渡すと実行する（なければ飛ばす）。
 //! テストごとに使い捨てのロールとDBを作り、終わったら消す。
 //!
 //! ここで確かめるのは実装の部品の振る舞い。約束そのもの（INV-DB-*、INV-CFG-03）は
@@ -8,10 +8,10 @@
 
 mod common;
 
-use cms_server::{db, migrate, workspace_db};
 use common::{Scratch, superuser_url};
 use sqlx::Executor;
 use uuid::Uuid;
+use yomi_server::{db, migrate, workspace_db};
 
 /// SQLが権限の不足（42501）で失敗することを確かめる。
 async fn expect_denied<'c, E: Executor<'c, Database = sqlx::Postgres>>(
@@ -38,7 +38,7 @@ async fn expect_denied<'c, E: Executor<'c, Database = sqlx::Postgres>>(
 #[tokio::test]
 async fn workspace_roles_are_isolated() {
     let Some(url) = superuser_url() else {
-        eprintln!("skipped: CMS_TEST_PG_SUPERUSER_URL is not set");
+        eprintln!("skipped: YOMI_TEST_PG_SUPERUSER_URL is not set");
         return;
     };
     let s = Scratch::new(&url).await;
@@ -67,7 +67,7 @@ async fn workspace_roles_are_isolated() {
         // ワークスペースのテーブル（移行の役目のロールが作る）
         for w in [&a, &b] {
             migration
-                .execute(cms_server::sql!(
+                .execute(yomi_server::sql!(
                     "CREATE TABLE {}.posts (id int PRIMARY KEY, title text)",
                     w.schema
                 ))
@@ -106,11 +106,12 @@ async fn workspace_roles_are_isolated() {
                 "write another workspace",
             ),
             (
-                "SELECT * FROM cms.workspaces".to_owned(),
+                "SELECT * FROM yomi.workspaces".to_owned(),
                 "read shared table",
             ),
             (
-                "INSERT INTO cms.audit_log (id, action) VALUES (gen_random_uuid(), 'x')".to_owned(),
+                "INSERT INTO yomi.audit_log (id, action) VALUES (gen_random_uuid(), 'x')"
+                    .to_owned(),
                 "write shared table",
             ),
             ("CREATE TABLE extra (x int)".to_owned(), "DDL in own schema"),
@@ -129,11 +130,11 @@ async fn workspace_roles_are_isolated() {
                 "read workspace data without switching (INHERIT FALSE)",
             ),
             (
-                "UPDATE cms.audit_log SET action = action".to_owned(),
+                "UPDATE yomi.audit_log SET action = action".to_owned(),
                 "update audit log",
             ),
-            ("DELETE FROM cms.audit_log".to_owned(), "delete audit log"),
-            ("TRUNCATE cms.audit_log".to_owned(), "truncate audit log"),
+            ("DELETE FROM yomi.audit_log".to_owned(), "delete audit log"),
+            ("TRUNCATE yomi.audit_log".to_owned(), "truncate audit log"),
             ("CREATE ROLE t_should_not_exist".to_owned(), "create role"),
             (
                 "CREATE SCHEMA t_should_not_exist".to_owned(),
@@ -144,21 +145,21 @@ async fn workspace_roles_are_isolated() {
                 "create table in public",
             ),
             (
-                "CREATE TABLE cms.t_should_not_exist (x int)".to_owned(),
-                "create table in cms",
+                "CREATE TABLE yomi.t_should_not_exist (x int)".to_owned(),
+                "create table in yomi",
             ),
             (
-                "UPDATE cms.workspaces SET name = name".to_owned(),
+                "UPDATE yomi.workspaces SET name = name".to_owned(),
                 "update workspace registry",
             ),
         ] {
             expect_denied(&app, &sql, what).await;
         }
         // 監査ログへの追記と読み取りはできる
-        app.execute("INSERT INTO cms.audit_log (id, action) VALUES (gen_random_uuid(), 'test')")
+        app.execute("INSERT INTO yomi.audit_log (id, action) VALUES (gen_random_uuid(), 'test')")
             .await
             .unwrap();
-        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM cms.audit_log")
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log")
             .fetch_one(&app)
             .await
             .unwrap();
@@ -175,7 +176,7 @@ async fn workspace_roles_are_isolated() {
 #[tokio::test]
 async fn grants_refuse_tables_without_policy() {
     let Some(url) = superuser_url() else {
-        eprintln!("skipped: CMS_TEST_PG_SUPERUSER_URL is not set");
+        eprintln!("skipped: YOMI_TEST_PG_SUPERUSER_URL is not set");
         return;
     };
     let s = Scratch::new(&url).await;
@@ -184,7 +185,7 @@ async fn grants_refuse_tables_without_policy() {
     let app_role = db::current_role(&app).await.unwrap();
     migrate::run(&migration).await.unwrap();
     migration
-        .execute("CREATE TABLE cms.unlisted (x int)")
+        .execute("CREATE TABLE yomi.unlisted (x int)")
         .await
         .unwrap();
     let err = migrate::apply_grants(&migration, &app_role)
@@ -198,7 +199,7 @@ async fn grants_refuse_tables_without_policy() {
 #[tokio::test]
 async fn audit_log_is_purged_only_through_the_dedicated_function() {
     let Some(url) = superuser_url() else {
-        eprintln!("skipped: CMS_TEST_PG_SUPERUSER_URL is not set");
+        eprintln!("skipped: YOMI_TEST_PG_SUPERUSER_URL is not set");
         return;
     };
     let s = Scratch::new(&url).await;
@@ -215,7 +216,7 @@ async fn audit_log_is_purged_only_through_the_dedicated_function() {
         // 古い記録（400日前）と新しい記録
         let insert = |days: i32, action: &str| {
             format!(
-                "INSERT INTO cms.audit_log (id, action, created_at) VALUES (gen_random_uuid(), '{action}', now() - interval '{days} days')"
+                "INSERT INTO yomi.audit_log (id, action, created_at) VALUES (gen_random_uuid(), '{action}', now() - interval '{days} days')"
             )
         };
         for (days, action) in [(400, "old1"), (400, "old2"), (1, "new")] {
@@ -226,7 +227,7 @@ async fn audit_log_is_purged_only_through_the_dedicated_function() {
         }
         let actions = || async {
             let mut v: Vec<String> =
-                sqlx::query_scalar("SELECT action FROM cms.audit_log ORDER BY action")
+                sqlx::query_scalar("SELECT action FROM yomi.audit_log ORDER BY action")
                     .fetch_all(&app)
                     .await
                     .unwrap();
@@ -237,12 +238,12 @@ async fn audit_log_is_purged_only_through_the_dedicated_function() {
         // 普段用のロールは、行を直接は消せない。30日より短い指定は受け付けない
         expect_denied(
             &app,
-            "DELETE FROM cms.audit_log",
+            "DELETE FROM yomi.audit_log",
             "delete audit log directly",
         )
         .await;
         assert!(
-            sqlx::query_scalar::<_, i64>("SELECT cms.purge_audit_log(10)")
+            sqlx::query_scalar::<_, i64>("SELECT yomi.purge_audit_log(10)")
                 .fetch_one(&app)
                 .await
                 .is_err()
@@ -250,20 +251,20 @@ async fn audit_log_is_purged_only_through_the_dedicated_function() {
 
         // 送り終えていないインスタンス全体の書き出し先があれば、その記録は消さない
         migration
-            .execute("INSERT INTO cms.audit_export_cursors (sink_key, cursor_at) VALUES ('stdout', now() - interval '500 days')")
+            .execute("INSERT INTO yomi.audit_export_cursors (sink_key, cursor_at) VALUES ('stdout', now() - interval '500 days')")
             .await
             .unwrap();
-        let n: i64 = sqlx::query_scalar("SELECT cms.purge_audit_log(365)")
+        let n: i64 = sqlx::query_scalar("SELECT yomi.purge_audit_log(365)")
             .fetch_one(&app)
             .await
             .unwrap();
         assert_eq!(n, 0);
         // 停止した書き出し先は止めない
         migration
-            .execute("UPDATE cms.audit_export_cursors SET stopped_at = now()")
+            .execute("UPDATE yomi.audit_export_cursors SET stopped_at = now()")
             .await
             .unwrap();
-        let n: i64 = sqlx::query_scalar("SELECT cms.purge_audit_log(365)")
+        let n: i64 = sqlx::query_scalar("SELECT yomi.purge_audit_log(365)")
             .fetch_one(&app)
             .await
             .unwrap();

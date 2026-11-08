@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn files_outside_the_root_are_not_served() {
         let dir =
-            std::env::temp_dir().join(format!("cms-admin-ui-{}", uuid::Uuid::new_v4().simple()));
+            std::env::temp_dir().join(format!("yomi-admin-ui-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(dir.join("_nuxt")).unwrap();
         std::fs::write(dir.join("index.html"), "<html><script>x()</script></html>").unwrap();
         std::fs::write(dir.join("_nuxt/app.js"), "x").unwrap();
