@@ -81,11 +81,10 @@ impl Rules {
     }
 }
 
-/// 区切り（空白・ハイフン）を含む数字の並び（全角の数字も）。並びごとの数字（0〜9）の列。
+/// 区切り（マスクと同じ文字。`mask::is_number_separator`）を含む数字の並び（全角の数字も）。並びごとの数字（0〜9）の列。
 fn digit_runs(text: &str) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     let mut cur: Vec<u8> = Vec::new();
-    let mut pending_sep = false;
     for c in text.chars() {
         let digit = match c {
             '0'..='9' => Some(c as u8 - b'0'),
@@ -95,19 +94,12 @@ fn digit_runs(text: &str) -> Vec<Vec<u8>> {
         match digit {
             Some(d) => {
                 cur.push(d);
-                pending_sep = false;
             }
-            None if !cur.is_empty()
-                && !pending_sep
-                && matches!(c, ' ' | '-' | '　' | '－' | '‐') =>
-            {
-                pending_sep = true;
-            }
+            None if crate::mask::is_number_separator(c) => {}
             None => {
                 if !cur.is_empty() {
                     out.push(std::mem::take(&mut cur));
                 }
-                pending_sep = false;
             }
         }
     }
@@ -189,6 +181,18 @@ mod tests {
         assert!(!on.refuses("4111 1111 1111 1112"));
         assert!(!on.refuses("電話 090-1234-5678"));
         assert!(!rules(&[], false, false).refuses("4111 1111 1111 1111"));
+    }
+
+    #[test]
+    fn card_numbers_with_any_separator_are_found() {
+        for q in [
+            "4111−1111−1111−1111",
+            "4111–1111–1111–1111",
+            "4111/1111/1111/1111",
+            "4111 - 1111 - 1111 - 1111",
+        ] {
+            assert_eq!(digit_runs(q), digit_runs("4111111111111111"), "{q}");
+        }
     }
 
     #[test]

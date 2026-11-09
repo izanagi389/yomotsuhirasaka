@@ -212,7 +212,7 @@ const { text, result, status } = useYomiSearch({ locale: "ja", mode: "HYBRID", f
 - `useYomiSearch` の `locale` は必須です（サイトのロケールの決め方はサイトごとに違うので、モジュールは推測しません）。既定は `HYBRID` で 10 件（上限 50）。入力が止まってから（既定 300 ミリ秒）検索し、後から始めた検索の結果を古い結果で上書きしません。`status` は `idle`・`loading`・`done`・`error`・`rateLimited` です。
 - `<YomiSearchBox>` は、`<search>` の中にラベル付きの検索欄と結果の `<ol>` を描きます。クラスもスタイルも、決まった文言も持ちません。状態はスロット（`loading`・`empty`・`budgetExhausted`・`keywordDisabled`・`rateLimited`・`error`）でだけ描きます。結果1件は `#hit="{ hit, href, segments }"` で置き換えられます。既定は、パンくず（なければURL）のリンクと、一致した箇所を `<mark>` で囲んだ抜粋です。
 - 結果の `breadcrumb` に記事のタイトルが入るのは、タイトルのフィールドが検索の対象のときだけです。`vectorSearch` が `BUDGET_EXHAUSTED` なら埋め込みの予算切れ（キーワード検索の結果だけ）、`keywordSearch` が `DISABLED` なら日本語の全文検索の拡張がないCMSです。
-- 検索のクエリはモジュールが登録します（`yomi/queries/yomiSearch.graphql` という名前は使えません）。
+- 検索のクエリはモジュールが登録します（`yomi/queries/yomiSearch.graphql` という名前は使えません）。検索や回答のクエリは、汎用のルート（`routePrefix`）からは呼べません。
 
 ### チャットボットの回答（`answer` を設定したとき）
 

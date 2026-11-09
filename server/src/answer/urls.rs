@@ -413,7 +413,8 @@ fn link(rest: &str, image: bool, line_start: bool, end: bool, policy: &mut Polic
                 ds
             }..after];
             let out = match (policy(dest, false), image) {
-                (true, true) => format!("![{text}]({written})"),
+                // 代替テキストの中のリンクも、公式の変換器やSDKはリンクとして扱う
+                (true, true) => format!("![{}]({written})", filter_all(text, policy)),
                 (true, false) => format!("[{}]({written})", filter_all(text, policy)),
                 (false, true) => String::new(),
                 (false, false) => filter_all(text, policy),
@@ -678,6 +679,20 @@ mod tests {
         ] {
             assert_eq!(filtered(text), text);
         }
+    }
+
+    #[test]
+    fn links_inside_alt_text_are_filtered() {
+        // 外側の画像は許可した宛先でも、代替テキストの中のリンクは別に検査する（改行があっても）
+        let out = filtered(&format!(
+            "![x\n[y](https://evil.example.net/p)]({SITE}/a.png)"
+        ));
+        assert!(!out.contains("evil.example.net"), "{out}");
+        assert!(out.contains(&format!("({SITE}/a.png)")), "{out}");
+        let out = filtered(&format!("![![z](//evil.example.net/i.png)]({SITE}/a.png)"));
+        assert!(!out.contains("evil.example.net"), "{out}");
+        let kept = format!("![[ok]({SITE}/b)]({SITE}/a.png)");
+        assert_eq!(filtered(&kept), kept);
     }
 
     #[test]
