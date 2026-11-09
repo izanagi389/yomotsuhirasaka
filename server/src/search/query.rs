@@ -165,7 +165,7 @@ pub struct Services<'a> {
     pub embedding: Option<&'a crate::config::LlmConfig>,
     pub egress: Option<&'a Egress>,
     pub cache: &'a Cache,
-    /// 検索語の埋め込みを出す予算（訪問者の検索と質問は [`budget::Kind::VisitorEmbedding`]、矛盾の検知は編集者向けの支援）。
+    /// 検索語の埋め込みを出す予算（訪問者の検索と質問は [`budget::Kind::VisitorEmbedding`]、矛盾の検知は埋め込みの作成）。
     pub query_budget: budget::Kind,
 }
 
