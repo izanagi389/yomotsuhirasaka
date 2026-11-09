@@ -178,8 +178,7 @@ pub fn spawn_sweeper(state: AppState) -> tokio::task::JoinHandle<()> {
                 tracing::error!("conflict detection sweeper: {e:#}");
             }
             // 保存期間を過ぎた監査ログ（専用のロールの関数だけが消せる。送り終えていない記録は残す）
-            match sqlx::query_scalar::<_, i64>("SELECT yomi.purge_audit_log($1)")
-                .bind(state.config.audit.retention_days)
+            match sqlx::query_scalar::<_, i64>("SELECT yomi.purge_audit_log()")
                 .fetch_one(&state.pool)
                 .await
             {

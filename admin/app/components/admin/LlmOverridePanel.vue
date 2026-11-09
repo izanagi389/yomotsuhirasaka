@@ -41,7 +41,8 @@ const price = (v: string) => (v.trim() === "" ? undefined : Number(v));
 const priceProblem = computed(() =>
   [inputPrice.value, outputPrice.value].some((v) => v.trim() !== "" && !(Number(v) >= 0)) ? t("llmOverride.priceInvalid") : null,
 );
-const keyRequired = computed(() => !data.value?.settings && apiKey.value.trim() === "");
+// 初めてのときと、接続先を変えるときは、キーを入れ直す
+const keyRequired = computed(() => apiKey.value.trim() === "" && (!data.value?.settings || data.value.settings.endpoint !== endpoint.value));
 
 const busy = ref(false);
 const saveError = ref<unknown>(null);

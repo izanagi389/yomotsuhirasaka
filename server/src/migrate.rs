@@ -165,10 +165,18 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "second_factor_throttle",
         include_str!("../migrations/0034_second_factor_throttle.sql"),
     ),
+    (
+        38,
+        "audit_retention",
+        include_str!("../migrations/0038_audit_retention.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
 pub const SHARED_SCHEMA: &str = "yomi";
+
+/// 普段用のロールに権限を付けない、共通のスキーマのテーブル。
+const NO_APP_ACCESS: &[&str] = &["audit_retention"];
 
 /// 普段用のロールに付ける、共通のスキーマのテーブルごとの権限。
 /// 監査ログは SELECT と INSERT だけ（更新・削除はできない。保存期間を過ぎたものの削除は専用のロールで行う）。
@@ -303,7 +311,10 @@ pub async fn apply_grants(migration: &PgPool, app_role: &Ident) -> Result<()> {
     .await?;
     let unknown: Vec<&String> = tables
         .iter()
-        .filter(|t| !TABLE_PRIVILEGES.iter().any(|(name, _)| name == t))
+        .filter(|t| {
+            !TABLE_PRIVILEGES.iter().any(|(name, _)| name == t)
+                && !NO_APP_ACCESS.contains(&t.as_str())
+        })
         .collect();
     if !unknown.is_empty() {
         bail!("tables without a privilege policy in schema {SHARED_SCHEMA}: {unknown:?}");
@@ -338,6 +349,15 @@ pub async fn apply_grants(migration: &PgPool, app_role: &Ident) -> Result<()> {
 /// 監査ログの保存期間の下限（日）。
 pub const MIN_AUDIT_RETENTION_DAYS: i32 = 30;
 
+/// 設定の監査ログの保存期間を、DBに書く（移行のロールで、起動のたびに）。
+pub async fn set_audit_retention(migration: &PgPool, days: i32) -> Result<()> {
+    sqlx::query("UPDATE yomi.audit_retention SET days = $1")
+        .bind(days)
+        .execute(migration)
+        .await?;
+    Ok(())
+}
+
 /// 監査ログの削除の専用のロール（ログインできない）の名前。普段用のロールの名前から作る（インスタンスごとに別）。
 pub fn audit_purger_role(app_role: &Ident) -> Result<Ident> {
     Ok(Ident::new(&format!("{}_audit_purger", app_role.as_str()))?)
@@ -347,7 +367,7 @@ pub fn audit_purger_role(app_role: &Ident) -> Result<Ident> {
 ///
 /// - 削除できるのは、ログインできない専用のロールだけ。そのロールが持つ関数 `yomi.purge_audit_log(日数)` を、
 ///   普段用のロールは呼べる（行を直接消す権限は持たない）。関数の中身は固定で、保存期間より古い行しか消さず、
-///   30日より短い指定は受け付けない。
+///   保存期間は、移行のロールだけが書ける表（`yomi.audit_retention`）から読む。普段用のロールを奪われても縮められない。
 /// - 書き出し先に送り終えていない記録は消さない（停止した書き出し先は除く）。インスタンス全体の書き出し先は
 ///   すべての記録を、ワークスペースの書き出し先はそのワークスペースの記録を待つ。
 /// - 何度実行しても同じ結果になる（起動のたびに作り直す）。
@@ -392,15 +412,27 @@ async fn apply_audit_purge(migration: &PgPool, app_role: &Ident) -> Result<()> {
     ))
     .execute(&mut *tx)
     .await?;
-    // 中身は固定（引数は日数だけ）。search_path を固定し、SECURITY DEFINER で持ち主（専用のロール）として動く
     sqlx::query(crate::sql!(
-        r#"CREATE OR REPLACE FUNCTION {schema}.purge_audit_log(retention_days integer) RETURNS bigint
+        "GRANT SELECT ON {schema}.audit_retention TO {purger}"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(crate::sql!(
+        "DROP FUNCTION IF EXISTS {schema}.purge_audit_log(integer)"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    // 中身は固定（引数なし）。search_path を固定し、SECURITY DEFINER で持ち主（専用のロール）として動く
+    sqlx::query(crate::sql!(
+        r#"CREATE OR REPLACE FUNCTION {schema}.purge_audit_log() RETURNS bigint
            LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
            DECLARE
+             retention_days integer;
              boundary timestamptz;
              instance_cursor timestamptz;
              deleted bigint;
            BEGIN
+             SELECT days INTO retention_days FROM {schema}.audit_retention;
              IF retention_days IS NULL OR retention_days < {MIN_AUDIT_RETENTION_DAYS} THEN
                RAISE EXCEPTION 'retention_days must be at least {MIN_AUDIT_RETENTION_DAYS}';
              END IF;
@@ -420,17 +452,17 @@ async fn apply_audit_purge(migration: &PgPool, app_role: &Ident) -> Result<()> {
     .execute(&mut *tx)
     .await?;
     sqlx::query(crate::sql!(
-        "ALTER FUNCTION {schema}.purge_audit_log(integer) OWNER TO {purger}"
+        "ALTER FUNCTION {schema}.purge_audit_log() OWNER TO {purger}"
     ))
     .execute(&mut *tx)
     .await?;
     sqlx::query(crate::sql!(
-        "REVOKE ALL ON FUNCTION {schema}.purge_audit_log(integer) FROM PUBLIC"
+        "REVOKE ALL ON FUNCTION {schema}.purge_audit_log() FROM PUBLIC"
     ))
     .execute(&mut *tx)
     .await?;
     sqlx::query(crate::sql!(
-        "GRANT EXECUTE ON FUNCTION {schema}.purge_audit_log(integer) TO {app_role}"
+        "GRANT EXECUTE ON FUNCTION {schema}.purge_audit_log() TO {app_role}"
     ))
     .execute(&mut *tx)
     .await?;

@@ -117,3 +117,30 @@ async fn question_log_api() {
     })
     .await;
 }
+
+/// 質問の文の件数には上限がある。超えても、日ごとの件数は数える（R31）。
+#[tokio::test]
+async fn question_text_stops_being_stored_at_the_limit() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        assert_eq!(deploy(&server, &token, "blog", &blog_manifest(), "").await.status, 200);
+        let ws = workspace_with_template(&server, &root, "A", "blog").await;
+        let db = workspace_db::lookup(&server.pool, ws).await.unwrap().unwrap();
+        let mut tx = workspace_db::begin(&server.pool, &db).await.unwrap();
+        log::change_settings(&mut tx, &log::SettingsChange { enabled: Some(true), retention_days: None }).await.unwrap().unwrap();
+        sqlx::query("INSERT INTO question_log (id, key, question, locale) SELECT gen_random_uuid(), 'k', 'q', 'ja' FROM generate_series(1, $1)")
+            .bind(log::MAX_ROWS)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        log::record(&server.pool, &db, log::Outcome::NoInformation, "ja", Some("もう1件")).await.unwrap();
+        let mut tx = workspace_db::begin(&server.pool, &db).await.unwrap();
+        let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM question_log").fetch_one(&mut *tx).await.unwrap();
+        let counted: i64 = sqlx::query_scalar("SELECT COALESCE(sum(count), 0)::bigint FROM question_counts").fetch_one(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!((rows, counted), (log::MAX_ROWS, 1));
+    })
+    .await;
+}
