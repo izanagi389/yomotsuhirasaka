@@ -61,6 +61,11 @@
 | 項目 | 既定 | 内容 |
 |---|---|---|
 | `login_attempts_per_ip_per_minute` | 30 | IP アドレス（IPv6 は /64）ごとの、1分あたりのログインの試行 |
+| `admin_requests_per_user_per_minute` | 600 | 利用者ごとの、1分あたりの管理 API のリクエスト。個人トークンも合わせて数えます |
+| `admin_requests_per_workspace_per_minute` | 3000 | ワークスペースごとの、1分あたりの管理 API のリクエスト。所属する人のリクエストだけを数えます |
+| `max_entries_per_workspace` | 100000 | ワークスペースごとの記事の数。翻訳は別の記事として数え、物理削除を待つ記事も含みます |
+| `max_queries_per_workspace` | 1000 | ワークスペースごとの登録クエリの数 |
+| `query_registrations_per_workspace_per_minute` | 60 | ワークスペースごとの、1分あたりのクエリの新規登録。登録済みの文の登録し直しは数えません |
 
 ## 認証（`[auth]`）
 

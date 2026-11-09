@@ -42,6 +42,12 @@ pub enum Subject {
         workspace: Uuid,
         user: Uuid,
     },
+    /// 管理APIの利用者ごとの回数（1分あたり）。
+    AdminUser(Uuid),
+    /// 管理APIのワークスペースごとの回数（1分あたり）。
+    AdminWorkspace(Uuid),
+    /// クエリの新規登録の回数（1分あたり）。
+    QueryRegistration(Uuid),
     /// Webhookのテスト送信の回数（1分あたり）。
     WebhookTest {
         workspace: Uuid,
