@@ -38,6 +38,7 @@ pub mod delivery;
 pub mod error;
 pub mod extract;
 pub mod realtime;
+pub mod serve;
 
 use std::ops::Deref;
 use std::sync::Arc;

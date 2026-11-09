@@ -12,7 +12,6 @@ use uuid::Uuid;
 use yomi_server::{audit, auth, config, db, http, keys, migrate, startup, worker};
 
 use std::io::{BufRead as _, Write as _};
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -997,11 +996,12 @@ async fn serve(config: Config) -> Result<()> {
         .await
         .with_context(|| format!("cannot listen on {listen}"))?;
     tracing::info!("ready: listening on {}", listener.local_addr()?);
-    axum::serve(
+    http::serve::run(
         listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
+        app,
+        shutdown_signal(),
+        http::serve::HEADER_READ_TIMEOUT,
     )
-    .with_graceful_shutdown(shutdown_signal())
     .await?;
     Ok(())
 }
