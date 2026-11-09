@@ -286,6 +286,7 @@ pub fn router(state: AppState) -> Router {
         .route("/me/sessions/{id}", delete(admin_auth::revoke_session))
         .route("/me/login-history", get(admin_auth::login_history))
         .route("/me/identities", get(admin_auth::list_identities))
+        .route("/me/identities/{id}", delete(admin_oidc::unlink))
         .route(
             "/me/mfa/totp",
             post(admin_mfa::begin_totp).delete(admin_mfa::disable_totp),

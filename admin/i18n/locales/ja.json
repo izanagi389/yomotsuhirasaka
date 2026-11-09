@@ -105,7 +105,8 @@
     "identitiesTitle": "外部のアカウント",
     "identitiesDescription": "{name} のアカウントをひも付けると、そのアカウントでログインできます。",
     "identityLink": "{name} のアカウントをひも付ける",
-    "identityLinkedAt": "{at} にひも付け"
+    "identityLinkedAt": "{at} にひも付け",
+    "identityUnlink": "解除する"
   },
   "errors": {
     "generic": "処理できませんでした（{status}）。",
@@ -164,6 +165,8 @@
     "server_admin_target": "サーバー管理者は、サーバーのCLIでだけ復旧できます。",
     "outside_scope": "この人は、あなたが管理していないワークスペースにも所属しています。サーバー管理者に依頼してください。",
     "deploy_scope_forbidden": "デプロイの権限のトークンを発行できるのは、サーバー管理者だけです。",
+    "deploy_scope_exclusive": "デプロイの権限は、ほかの権限と一緒に選べません。",
+    "last_sign_in_method": "ログインの手段がなくなるため、解除できません。先にパスワードを設定してください。",
     "oidc_not_configured": "このサーバーでは、シングルサインオンを使えません。",
     "oidc_unavailable": "外部への送信の設定に問題があるため、シングルサインオンを使えません。",
     "idp_unreachable": "IdPにつながらないか、IdPの設定に問題があります。",
@@ -517,6 +520,9 @@
       "auth": {
         "login": "ログイン",
         "identity_linked": "外部のアカウントのひも付け",
+        "identity_unlinked": "外部のアカウントのひも付けの解除",
+        "user_disabled": "利用者の停止",
+        "user_enabled": "利用者の再開",
         "user_provisioned": "SSOによる利用者の作成"
       },
       "emergency": {
@@ -699,7 +705,7 @@
       "linked": "ひも付けた日時: {at}"
     },
     "tokens": {
-      "help": "CLI（取り込みやデプロイなど）で使うトークンです。使えるのは、トークンの権限と、その時点のあなたのロールの両方で許される操作だけです。",
+      "help": "CLI（取り込みやデプロイなど）で使うトークンです。使えるのは、トークンの権限と、その時点のあなたのロールの両方で許される操作だけです。デプロイの権限はほかの権限と一緒に選べず、有効期間は最長30日です。",
       "days": "有効な日数（最長365日）",
       "workspaces": "使えるワークスペース",
       "create": "発行する",

@@ -12,6 +12,12 @@ pub mod action {
     pub const LOGIN: &str = "auth.login";
     /// 外部のIdP（OIDC）のアカウントをひも付けた（本人の操作か、招待の承諾）。
     pub const IDENTITY_LINKED: &str = "auth.identity_linked";
+    /// 外部のIdPのアカウントのひも付けを、本人が解除した。
+    pub const IDENTITY_UNLINKED: &str = "auth.identity_unlinked";
+    /// サーバー上のコマンドで利用者を止めた。
+    pub const USER_DISABLED: &str = "auth.user_disabled";
+    /// サーバー上のコマンドで利用者を再開した。
+    pub const USER_ENABLED: &str = "auth.user_enabled";
     /// SSOのログインで、ドメインのルール（JIT）により利用者を作った。
     pub const USER_PROVISIONED: &str = "auth.user_provisioned";
     /// 本人が表示名を変えた（名前そのものは書かない）。
@@ -165,6 +171,7 @@ pub const NOTIFY: &[&str] = &[
     action::MFA_RESET_COMPLETED,
     action::AUDIT_SINK_DELETED,
     action::AUDIT_EXPORT_STOPPED,
+    action::USER_DISABLED,
     action::AUDIT_EXPORT_REMOVED,
     action::BUDGET_EXHAUSTED,
     action::ANSWER_BUDGET_EXHAUSTED,

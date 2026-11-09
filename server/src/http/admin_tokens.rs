@@ -103,6 +103,15 @@ pub async fn create(
             "Only server administrators can create tokens with the deploy scope.",
         ));
     }
+    // デプロイの範囲は、ほかの範囲と混ぜられない（漏れたときの影響を分ける）
+    let deploy = scopes.iter().any(|s| s == "deploy");
+    if deploy && scopes.len() > 1 {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "deploy_scope_exclusive",
+            "The deploy scope cannot be combined with other scopes.",
+        ));
+    }
     // 選べるのは、本人が所属するワークスペースだけ（所属していなければ、存在しないものと同じ）
     let mut workspaces: Vec<Uuid> = Vec::new();
     for ws in req.workspace_ids {
@@ -121,7 +130,11 @@ pub async fn create(
         None => sqlx::query_scalar(
             r#"SELECT to_char((now() + make_interval(days => $1)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"#,
         )
-        .bind(DEFAULT_LIFETIME_DAYS)
+        .bind(if deploy {
+            personal_tokens::MAX_DEPLOY_LIFETIME_DAYS
+        } else {
+            DEFAULT_LIFETIME_DAYS
+        })
         .fetch_one(&state.pool)
         .await
         .map_err(anyhow::Error::from)?,
@@ -139,6 +152,12 @@ pub async fn create(
                 personal_tokens::MAX_LIFETIME_DAYS
             )));
         }
+    }
+    if deploy && !personal_tokens::within_deploy_lifetime(&state.pool, &expires_at).await? {
+        return Err(ApiError::bad_request(format!(
+            "`expiresAt` of a token with the deploy scope must be within {} days.",
+            personal_tokens::MAX_DEPLOY_LIFETIME_DAYS
+        )));
     }
 
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;

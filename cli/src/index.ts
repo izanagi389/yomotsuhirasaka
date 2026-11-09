@@ -25,7 +25,7 @@ folder, referred to as { "file": "./functions/x.ts" }; only relative imports ins
 are allowed.
 
 Environment:
-  YOMI_TOKEN  personal token: "deploy" scope for deploy (server administrator), "write" scope for import`;
+  YOMI_TOKEN  personal token: "deploy" scope for deploy (server administrator), "read" and "write" scopes for import`;
 
 const log: Logger = {
   info: (m) => process.stdout.write(`${m}\n`),

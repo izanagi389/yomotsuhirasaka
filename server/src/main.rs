@@ -78,8 +78,23 @@ enum Command {
         #[arg(long)]
         password_stdin: bool,
     },
-    /// Remove multi-factor authentication from a user. All sessions of the user are revoked.
+    /// Remove multi-factor authentication from a user. All sessions and personal tokens of the user
+    /// are revoked, and external account links are removed.
     ResetMfa {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        email: String,
+    },
+    /// Stop a user from signing in. All sessions and personal tokens of the user are revoked.
+    DisableUser {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        email: String,
+    },
+    /// Let a stopped user sign in again.
+    EnableUser {
         #[arg(long)]
         config: PathBuf,
         #[arg(long)]
@@ -261,6 +276,8 @@ fn main() -> ExitCode {
             password_stdin,
         } => reset_password_main(&config, &email, password_stdin),
         Command::ResetMfa { config, email } => reset_mfa_main(&config, &email),
+        Command::DisableUser { config, email } => set_disabled_main(&config, &email, true),
+        Command::EnableUser { config, email } => set_disabled_main(&config, &email, false),
         Command::ResumeAuditExport { config } => resume_audit_export_main(&config),
         Command::RevokeAllSessions { config, yes } => revoke_all_sessions_main(&config, yes),
         Command::RotateApiKeys {
@@ -653,7 +670,7 @@ fn reset_password_main(config_path: &Path, email: &str, password_stdin: bool) ->
         let hash = auth::password::hash(password.clone()).await?;
         let mut tx = pool.begin().await?;
         auth::users::set_password(&mut *tx, user_id, &hash).await?;
-        auth::session::revoke_all(&mut *tx, user_id).await?;
+        auth::users::cut_off_after_recovery(&mut tx, user_id).await?;
         audit::record(
             &mut *tx,
             None,
@@ -663,9 +680,30 @@ fn reset_password_main(config_path: &Path, email: &str, password_stdin: bool) ->
         )
         .await?;
         tx.commit().await?;
-        println!("Password reset for {email}. All sessions were revoked.");
+        println!(
+            "Password reset for {email}. All sessions and personal tokens were revoked, and external account links were removed."
+        );
         if generated {
             println!("New password (shown only once): {password}");
+        }
+        Ok(())
+    })
+}
+
+fn set_disabled_main(config_path: &Path, email: &str, disabled: bool) -> ExitCode {
+    let email = email.to_owned();
+    with_checked_config(config_path, "cannot change the user", |config| async move {
+        let (pool, migration, _) = prepare_database(&config).await?;
+        migration.close().await;
+        let user_id = find_user_for_cli(&pool, &email).await?;
+        let changed = auth::users::set_disabled(&pool, user_id, disabled).await?;
+        match (changed, disabled) {
+            (true, true) => {
+                println!("{email} was stopped. All sessions and personal tokens were revoked.")
+            }
+            (true, false) => println!("{email} can sign in again."),
+            (false, true) => println!("{email} was already stopped."),
+            (false, false) => println!("{email} was not stopped."),
         }
         Ok(())
     })
@@ -682,7 +720,7 @@ fn reset_mfa_main(config_path: &Path, email: &str) -> ExitCode {
             let user_id = find_user_for_cli(&pool, &email).await?;
             let mut tx = pool.begin().await?;
             auth::mfa::disable(&mut tx, user_id).await?;
-            auth::session::revoke_all(&mut *tx, user_id).await?;
+            auth::users::cut_off_after_recovery(&mut tx, user_id).await?;
             audit::record(
                 &mut *tx,
                 None,
@@ -693,7 +731,7 @@ fn reset_mfa_main(config_path: &Path, email: &str) -> ExitCode {
             .await?;
             tx.commit().await?;
             println!(
-                "Multi-factor authentication was removed for {email}. All sessions were revoked."
+                "Multi-factor authentication was removed for {email}. All sessions and personal tokens were revoked, and external account links were removed."
             );
             println!("Sign in with the password and set it up again.");
             Ok(())

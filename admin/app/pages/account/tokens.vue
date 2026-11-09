@@ -36,7 +36,15 @@ const busy = ref(false);
 const actionError = ref<unknown>(null);
 const created = ref<{ token: string; name: string } | null>(null);
 const toggled = (list: string[], v: string, on: boolean) => (on ? [...new Set([...list, v])] : list.filter((x) => x !== v));
-const toggleScope = (v: string, on: boolean) => (scopes.value = toggled(scopes.value, v, on));
+const toggleScope = (v: string, on: boolean) => {
+  // デプロイの権限はほかの権限と混ぜられず、有効期間は最長30日（サーバーも確かめる）
+  if (on && v === "deploy") {
+    scopes.value = ["deploy"];
+    days.value = Math.min(days.value, 30);
+  } else {
+    scopes.value = toggled(on ? scopes.value.filter((s) => s !== "deploy") : scopes.value, v, on);
+  }
+};
 const toggleWorkspace = (v: string, on: boolean) => (chosen.value = toggled(chosen.value, v, on));
 async function create() {
   busy.value = true;

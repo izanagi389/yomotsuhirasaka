@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
@@ -250,6 +250,84 @@ pub async fn start_link(
         None,
     )
     .await
+}
+
+/// ひも付けの変更を本人に知らせる（乗っ取りの間に作られたものに気づけるように）。
+async fn notify_identity(
+    state: &AppState,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    event: crate::mail::notify::Event,
+) -> Result<(), anyhow::Error> {
+    let (email, locale): (String, Option<String>) =
+        sqlx::query_as("SELECT email, locale FROM yomi.users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    let locale = locale
+        .as_deref()
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(state.config.default_locale);
+    let notice = crate::mail::notify::mail(&email, &state.issuer, event, locale);
+    crate::mail::enqueue(&mut **tx, &state.keys, state.config.smtp.as_ref(), &notice).await?;
+    Ok(())
+}
+
+/// 外部のアカウントのひも付けを解除する。再認証が必要。ログインの手段がなくなる場合は断る。
+pub async fn unlink(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    require_cookie_session(&current)?;
+    if !current.reauth_fresh {
+        return Err(ApiError::reauth_required());
+    }
+    let id = Uuid::parse_str(&id).map_err(|_| ApiError::not_found())?;
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
+    let (has_password, others): (bool, i64) = sqlx::query_as(
+        "SELECT u.password_hash IS NOT NULL,
+                (SELECT count(*) FROM yomi.external_identities x WHERE x.user_id = u.id AND x.id <> $2)
+         FROM yomi.users u WHERE u.id = $1",
+    )
+    .bind(current.user_id)
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(anyhow::Error::from)?;
+    if !has_password && others == 0 {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "last_sign_in_method",
+            "Set a password before removing your only way to sign in.",
+        ));
+    }
+    let done = sqlx::query("DELETE FROM yomi.external_identities WHERE id = $1 AND user_id = $2")
+        .bind(id)
+        .bind(current.user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(anyhow::Error::from)?;
+    if done.rows_affected() == 0 {
+        return Err(ApiError::not_found());
+    }
+    audit::record(
+        &mut *tx,
+        None,
+        Some(current.user_id),
+        action::IDENTITY_UNLINKED,
+        &[current.user_id, id],
+    )
+    .await?;
+    notify_identity(
+        &state,
+        &mut tx,
+        current.user_id,
+        crate::mail::notify::Event::IdentityUnlinked,
+    )
+    .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// IdPでの再ログインによる再認証を始める。SSOでログインした、管理者でない人だけ（管理者はパスキー。Q131）。
@@ -683,6 +761,13 @@ async fn link(state: &AppState, v: &Verified, user_id: Uuid) -> Result<Done, Fai
         Some(user_id),
         action::IDENTITY_LINKED,
         &[user_id, identity_id],
+    )
+    .await?;
+    notify_identity(
+        state,
+        &mut tx,
+        user_id,
+        crate::mail::notify::Event::IdentityLinked,
     )
     .await?;
     tx.commit().await?;
