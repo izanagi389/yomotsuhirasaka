@@ -54,6 +54,7 @@ async fn erasing_version_bodies() {
             add_member(&server, ws, email, role).await;
         }
         let admin = login(&server, "admin@example.test", PASSWORD).await;
+        let (totp, _) = enroll(&server, &admin).await;
         let editor = login(&server, "editor@example.test", PASSWORD).await;
         let entries = format!("/api/admin/workspaces/{ws}/entries");
         let up = |seed: u8| {
@@ -122,7 +123,7 @@ async fn erasing_version_bodies() {
         expire_reauth(&server.pool, "admin@example.test").await;
         let res = send(&server, "POST", &erase(&v1), &admin, Some(&body(&[]))).await;
         assert_eq!((res.status, res.json_str("error").as_deref()), (403, Some("reauth_required")));
-        let admin = login(&server, "admin@example.test", PASSWORD).await;
+        let admin = login_with_totp(&server, "admin@example.test", &totp).await;
         let res = send(&server, "POST", &erase(&v2), &admin, Some(&body(&[]))).await;
         assert_eq!((res.status, res.json_str("error").as_deref()), (409, Some("version_is_published")));
         assert!(parse(&get(&server, &format!("{target}/versions/{v2}"), &admin).await)["fields"].is_object());

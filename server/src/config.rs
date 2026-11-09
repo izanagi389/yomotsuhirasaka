@@ -277,6 +277,14 @@ pub struct DeliveryConfig {
     pub shared_cache_seconds: u32,
     /// テンプレートのデプロイで、登録済みのクエリを検証する範囲。この日数より長く使われていないクエリは検証しない（既定は90日。Q151）。
     pub query_check_unused_days: u32,
+    /// 1回のクエリの実行時間の上限（秒。既定は15）。
+    pub max_query_seconds: u64,
+    /// 1回のクエリで解決する記事の数の上限（既定は10000）。一覧と参照の組み合わせで件数が掛け算で増えるのを止める。
+    pub max_resolved_entries: usize,
+    /// ワークスペースごとの、同時に実行するクエリの数の上限（既定は6）。
+    pub max_concurrent_queries_per_workspace: u32,
+    /// インスタンス全体の、同時に実行するクエリの数の上限（既定は12。DBの接続は全体で16本なので、管理画面とジョブの分を残す）。
+    pub max_concurrent_queries: u32,
 }
 
 impl Default for DeliveryConfig {
@@ -291,6 +299,10 @@ impl Default for DeliveryConfig {
             shared_cache: false,
             shared_cache_seconds: 60,
             query_check_unused_days: 90,
+            max_query_seconds: 15,
+            max_resolved_entries: 10_000,
+            max_concurrent_queries_per_workspace: 6,
+            max_concurrent_queries: 12,
         }
     }
 }
@@ -755,12 +767,21 @@ impl Default for SessionConfig {
 pub struct LimitsConfig {
     /// 接続元のIPアドレス（IPv6は /64）ごとの、1分あたりのログインの試行の上限（成功・失敗を問わない）。
     pub login_attempts_per_ip_per_minute: u32,
+    /// 接続元のIPアドレス（IPv6は /64）ごとの、1分あたりの無効な配信APIのキーの上限。
+    pub invalid_api_keys_per_ip_per_minute: u32,
+    /// リクエストの処理時間の上限（秒。本文の読み込みを含む。ストリームの本文は含まない。デプロイと取り込みは除く）。
+    pub request_timeout_seconds: u64,
+    /// 同時に処理するリクエストの数の上限。超えたら待たせずに断る。
+    pub max_concurrent_requests: u32,
 }
 
 impl Default for LimitsConfig {
     fn default() -> Self {
         Self {
             login_attempts_per_ip_per_minute: 30,
+            invalid_api_keys_per_ip_per_minute: 600,
+            request_timeout_seconds: 120,
+            max_concurrent_requests: 2048,
         }
     }
 }

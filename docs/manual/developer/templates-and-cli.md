@@ -9,7 +9,7 @@ CLI の入れ方は [最初のサイトを作るまでの流れ](getting-started
 | `yomi deploy <フォルダ> --url <CMSのURL>` | テンプレートをデプロイする | デプロイの範囲 |
 | `yomi schema build <フォルダ> [--out <ファイル>]` | マニフェストを書き出すだけ | 不要 |
 | `yomi node scaffold <名前> --template <フォルダ> [--inline]` | カスタムノードの雛形を作る | 不要 |
-| `yomi import <フォルダ> --url <CMSのURL> --workspace <ID> --redirects <出力>` | 既存のブログを取り込む | 書くの範囲 |
+| `yomi import <フォルダ> --url <CMSのURL> --workspace <ID> --redirects <出力>` | 既存のブログを取り込む | 読むと書くの範囲 |
 
 トークンは環境変数 `YOMI_TOKEN` で渡します（引数に書くと、プロセスの一覧に出るためです）。トークンは管理画面の「アカウント」→「個人トークン」で発行します。
 
@@ -87,7 +87,7 @@ CLI の入れ方は [最初のサイトを作るまでの流れ](getting-started
 
 ## デプロイ
 
-デプロイできるのは、多要素認証を設定したサーバー管理者だけです。**マニフェストに JS が入るので、デプロイの権限はサーバーの上でコードを動かす権限と同じです。**
+デプロイできるのは、多要素認証を設定したサーバー管理者だけです。**マニフェストに JS が入るので、デプロイの権限はサーバーの上でコードを動かす権限と同じです。** そのため、デプロイの範囲のトークンはほかの範囲と混ぜられず、有効期限は最長30日です。CI で使うときは、期限の前に発行し直してください。
 
 ```bash
 YOMI_TOKEN=<デプロイの範囲の個人トークン> yomi deploy templates/blog --url https://yomi.example.com --dry-run
@@ -124,7 +124,7 @@ YOMI_TOKEN=<デプロイの範囲の個人トークン> yomi deploy templates/bl
 Markdown のフォルダから記事を取り込みます。
 
 ```bash
-YOMI_TOKEN=<書くの範囲の個人トークン> yomi import ./content --url https://yomi.example.com --workspace <ワークスペースID> --config import.json --redirects redirects.json --static-dir ./public
+YOMI_TOKEN=<読むと書くの範囲の個人トークン> yomi import ./content --url https://yomi.example.com --workspace <ワークスペースID> --config import.json --redirects redirects.json --static-dir ./public
 ```
 
 - すべてのファイルを先に検査し、1つでも問題があれば何も取り込みません。

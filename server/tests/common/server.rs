@@ -26,6 +26,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         session: SessionConfig::default(),
         limits: LimitsConfig {
             login_attempts_per_ip_per_minute: 1000,
+            ..Default::default()
         },
         // 多くのテストは多要素認証のない利用者で操作するので、全員への必須は無効にする（有効な場合は admin_mfa.rs で確かめる）
         default_locale: yomi_server::locale::Locale::En,
@@ -344,6 +345,16 @@ pub async fn enroll(server: &Server, s: &Login) -> (String, String) {
     .await;
     assert_eq!(confirm.status, 200, "{}", confirm.body);
     (secret, confirm.body)
+}
+
+/// 多要素認証を設定した人がログインし直す（パスワードとTOTPのコード）。
+pub async fn login_with_totp(server: &Server, email: &str, secret: &str) -> Login {
+    let (_, pending) = password_step(server, email, PASSWORD).await;
+    forget_used_steps(&server.pool, email).await;
+    let body = format!("{{\"totpCode\":\"{}\"}}", code(secret, 0));
+    let res = mfa_step(server, &pending.unwrap(), &body).await;
+    assert_eq!(res.status, 200, "{}", res.body);
+    session_from(&res)
 }
 
 pub fn recovery_codes(body: &str) -> Vec<String> {

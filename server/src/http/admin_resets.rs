@@ -170,7 +170,7 @@ pub async fn complete_password_reset(
     };
     resets::mark_used(&mut tx, valid.id).await?;
     users::set_password(&mut *tx, valid.user_id, &hash).await?;
-    session::revoke_all(&mut *tx, valid.user_id).await?;
+    users::cut_off_after_recovery(&mut tx, valid.user_id).await?;
     let notice = mail::notify::mail(
         &valid.email,
         &state.issuer,
@@ -214,7 +214,7 @@ pub async fn complete_mfa_reset(
     };
     resets::mark_used(&mut tx, valid.id).await?;
     mfa::disable(&mut tx, valid.user_id).await?;
-    session::revoke_all(&mut *tx, valid.user_id).await?;
+    users::cut_off_after_recovery(&mut tx, valid.user_id).await?;
     let notice = mail::notify::mail(
         &valid.email,
         &state.issuer,

@@ -48,6 +48,7 @@ async fn creating_reading_and_saving_drafts() {
         let author = login(&server, "author@example.test", PASSWORD).await;
         let viewer = login(&server, "viewer@example.test", PASSWORD).await;
         let outsider = login(&server, "outsider@example.test", PASSWORD).await;
+        enroll(&server, &outsider).await;
         let entries = format!("/api/admin/workspaces/{ws}/entries");
 
         // 作成: 執筆者はできる。閲覧者・他のワークスペースの人はできない

@@ -156,6 +156,24 @@ async fn settle(
     Ok(matched)
 }
 
+/// 2段目（多要素認証のコードと再認証）の結果を記録する。パスワードの失敗の待ち時間は見ない
+/// （パスワードを知らない人に、ログイン中の人の再認証を止めさせない）。パスワードの成功では、この記録は消えない。
+async fn settle_second_factor(
+    state: &AppState,
+    record: &users::LoginRecord,
+    matched: bool,
+) -> anyhow::Result<bool> {
+    if record.disabled || record.second_factor_blocked {
+        return Ok(false);
+    }
+    if matched {
+        throttle::record_second_factor_success(&state.pool, record.id).await?;
+    } else {
+        throttle::record_second_factor_failure(&state.pool, record.id).await?;
+    }
+    Ok(matched)
+}
+
 /// 新しいパスワードが漏えいの一覧に載っていれば断る（照会を有効にしたときだけ。Q170）。
 /// 照会先に届かないときは通す（INV-AUTH-22）。
 pub(super) async fn reject_breached(state: &AppState, new_password: &str) -> Result<(), ApiError> {
@@ -190,6 +208,16 @@ async fn check_password(
     Ok(settle(state, &record, matched).await?.then_some(record))
 }
 
+/// セッションを持つ本人のパスワードを確かめる（再認証とパスワードの変更）。数え方は2段目と同じ。
+async fn check_session_password(
+    state: &AppState,
+    record: &users::LoginRecord,
+    presented: String,
+) -> anyhow::Result<bool> {
+    let matched = password::verify(presented, record.password_hash.clone()).await?;
+    settle_second_factor(state, record, matched).await
+}
+
 /// 多要素認証の2段目（TOTPのコード・復旧コード・パスキーの応答のどれか1つ）。
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -208,7 +236,7 @@ async fn check_second_factor(
     factor: SecondFactor,
     challenge: (Uuid, passkeys::Purpose),
 ) -> anyhow::Result<bool> {
-    if record.disabled || record.blocked || !record.mfa_enabled {
+    if record.disabled || record.second_factor_blocked || !record.mfa_enabled {
         return Ok(false);
     }
     let matched = match (factor.totp_code, factor.recovery_code, factor.passkey) {
@@ -233,7 +261,7 @@ async fn check_second_factor(
         },
         _ => false,
     };
-    settle(state, record, matched).await
+    settle_second_factor(state, record, matched).await
 }
 
 fn device_cookie(value: &str) -> HeaderValue {
@@ -580,7 +608,7 @@ pub async fn reauth(
     let ok = match req.password {
         // 多要素認証を設定した人は、パスワードだけでは通さない
         Some(_) if record.mfa_enabled => false,
-        Some(p) => check_password(&state, Some(record), p).await?.is_some(),
+        Some(p) => check_session_password(&state, &record, p).await?,
         None => {
             let factor = SecondFactor {
                 totp_code: req.totp_code,
@@ -630,11 +658,10 @@ pub async fn change_password(
         ));
     }
     reject_breached(&state, &req.new_password).await?;
-    let record = users::find_by_id_for_login(&state.pool, current.user_id).await?;
-    if check_password(&state, record, req.current_password)
+    let record = users::find_by_id_for_login(&state.pool, current.user_id)
         .await?
-        .is_none()
-    {
+        .ok_or_else(ApiError::unauthenticated)?;
+    if !check_session_password(&state, &record, req.current_password).await? {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "invalid_current_password",

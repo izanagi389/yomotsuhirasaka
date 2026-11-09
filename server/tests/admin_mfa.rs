@@ -229,6 +229,92 @@ async fn wrong_codes_count_toward_the_account_throttle() {
     .await;
 }
 
+/// パスワードの成功で2段目の失敗の記録が消えると、パスワードを知っている人がコードを総当たりできる。
+#[tokio::test]
+async fn correct_password_does_not_reset_second_factor_failures() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        let email = "brute2@example.test";
+        create_user(&server.pool, email, false).await;
+        let s = login(&server, email, PASSWORD).await;
+        let (secret, _) = enroll(&server, &s).await;
+        let failed = || async {
+            sqlx::query_scalar::<_, i32>("SELECT second_factor_failed_count FROM yomi.users WHERE email = $1")
+                .bind(email)
+                .fetch_one(&server.pool)
+                .await
+                .unwrap()
+        };
+
+        // 1段目を毎回やり直しても、2段目の失敗は積み上がる
+        for n in 1..=4 {
+            let (_, pending) = password_step(&server, email, PASSWORD).await;
+            let res = mfa_step(&server, &pending.unwrap(), "{\"totpCode\":\"000000\"}").await;
+            assert_eq!(res.status, 401);
+            assert_eq!(failed().await, n);
+        }
+        // 5回目で待ち時間に入り、正しいコードも通らない
+        let (_, pending) = password_step(&server, email, PASSWORD).await;
+        let pending = pending.unwrap();
+        assert_eq!(mfa_step(&server, &pending, "{\"totpCode\":\"000000\"}").await.status, 401);
+        forget_used_steps(&server.pool, email).await;
+        let good = format!("{{\"totpCode\":\"{}\"}}", code(&secret, 0));
+        assert_eq!(mfa_step(&server, &pending, &good).await.status, 401);
+
+        // 待ち時間が明ければ入れて、記録が消える
+        sqlx::query("UPDATE yomi.users SET second_factor_blocked_until = now() - interval '1 second' WHERE email = $1")
+            .bind(email)
+            .execute(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(mfa_step(&server, &pending, &good).await.status, 200);
+        assert_eq!(failed().await, 0);
+    })
+    .await;
+}
+
+/// パスワードを知らない人のログインの失敗で、ログイン中の人の再認証は止まらない。
+#[tokio::test]
+async fn failed_logins_do_not_block_reauthentication() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        let email = "victim@example.test";
+        create_user(&server.pool, email, false).await;
+        let s = login(&server, email, PASSWORD).await;
+        let (secret, _) = enroll(&server, &s).await;
+
+        for i in 0..10 {
+            let ip = format!("198.18.70.{i}");
+            assert_eq!(
+                login_raw(&server, email, "wrong-password-1234", &ip)
+                    .await
+                    .status,
+                401
+            );
+        }
+        // ログインは待ち時間中（INV-AUTH-04）
+        assert_eq!(
+            login_raw(&server, email, PASSWORD, "198.18.70.100")
+                .await
+                .status,
+            401
+        );
+
+        forget_used_steps(&server.pool, email).await;
+        let body = format!("{{\"totpCode\":\"{}\"}}", code(&secret, 0));
+        let res = send(
+            &server,
+            "POST",
+            "/api/admin/session/reauth",
+            &s,
+            Some(&body),
+        )
+        .await;
+        assert_eq!(res.status, 204, "{}", res.body);
+    })
+    .await;
+}
+
 #[tokio::test]
 async fn regenerate_and_disable() {
     with_scratch(|app, migration| async move {

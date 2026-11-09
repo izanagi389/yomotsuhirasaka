@@ -391,15 +391,17 @@ async fn check(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) ->
     let mut fragments: Vec<Fragment> = Vec::new();
     let mut seen: HashSet<(Uuid, String)> = HashSet::new();
     for section in &changed {
+        let (held, vector) = search::query_embedding(&services, db, tx, ws, section).await?;
+        tx = held;
         let found = search::fragments(
             &services,
             &mut tx,
-            ws,
             manifest,
             section,
             &draft.locale,
             PER_SECTION * 3,
             MIN_SIMILARITY,
+            vector?,
         )
         .await?;
         let mut taken = 0;
