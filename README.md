@@ -32,12 +32,13 @@ A headless CMS for blogs: self-hosted, open source (Apache-2.0), with several wo
 
 ## 動かす
 
-公式の Docker Compose で動かします。手順は `deploy/README.md` にあります。
+公式の Docker Compose で動かします。手順は [手順書の「導入」](docs/manual/operator/install.md) にあります。
 
 ## 資料
 
 | 資料 | 内容 |
 |---|---|
+| [`docs/manual/`](docs/manual/README.md) | 手順書（サーバー管理者、開発者、編集者・ワークスペースの管理者向け） |
 | `docs/decisions/` | 現在有効な設計の決定（一覧は `docs/decisions/00-index.md`） |
 | `docs/invariants.md` | 絶対に破らない約束の一覧。約束ごとに `tests/invariants/` に自動テストがある |
 | `docs/history/` | 決定の経緯 |
