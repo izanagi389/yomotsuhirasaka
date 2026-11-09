@@ -200,6 +200,15 @@ pub struct SavedDraft {
     hook_failure: Option<&'static str>,
 }
 
+/// 記事の数の上限に達している。
+pub(super) fn entry_limit_reached() -> ApiError {
+    ApiError::new(
+        StatusCode::CONFLICT,
+        "entry_limit_reached",
+        "This workspace has reached its entry limit.",
+    )
+}
+
 pub async fn create(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
@@ -239,6 +248,9 @@ pub async fn create(
     let columns = fields::convert_all(manifest, ct, &changes).map_err(invalid)?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     check_against_data(&mut tx, ct, id, &locale, &columns).await??;
+    if !entries::room_for(&mut tx, state.config.limits.max_entries_per_workspace, 1).await? {
+        return Err(entry_limit_reached());
+    }
     entries::create(
         &mut tx,
         ct,

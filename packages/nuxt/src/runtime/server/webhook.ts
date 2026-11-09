@@ -5,10 +5,11 @@
 // - 本文の中身は使わない（どの記事が変わっても、キャッシュとサイト内検索の結果をまとめて消す）。
 //   関連記事の一覧が変わった知らせ（entries.related_changed）も同じように扱う（モジュールは関連記事を覚えていない）
 
-import { createError, defineEventHandler, getHeader, readRawBody, setResponseStatus } from "h3";
+import { createError, defineEventHandler, getHeader, getRequestWebStream, setResponseStatus } from "h3";
 import { useRuntimeConfig } from "nitropack/runtime";
 
 import { clearAll } from "./cache.ts";
+import { readLimitedText } from "./read-body.ts";
 import { clearSearchCache } from "./search-core.ts";
 import { MAX_BODY_BYTES, SeenEvents, verifySignature } from "./webhook-verify.ts";
 
@@ -18,9 +19,8 @@ export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig(event) as unknown as { yomi: { webhookSecret: string } };
   const secrets = (config.yomi.webhookSecret ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   if (secrets.length === 0) throw createError({ statusCode: 404, statusMessage: "Not Found" });
-  const length = Number(getHeader(event, "content-length") ?? "0");
-  if (!Number.isFinite(length) || length > MAX_BODY_BYTES) throw createError({ statusCode: 413, statusMessage: "Payload Too Large" });
-  const body = (await readRawBody(event, "utf8")) ?? "";
+  const body = await readLimitedText(getRequestWebStream(event), MAX_BODY_BYTES);
+  if (body === null) throw createError({ statusCode: 413, statusMessage: "Payload Too Large" });
   if (!verifySignature(getHeader(event, "webhook-signature"), body, secrets, seen)) {
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
   }

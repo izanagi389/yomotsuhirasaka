@@ -4,7 +4,7 @@ import { renderToString } from "vue/server-renderer";
 
 import { yomiHighlight, type YomiSearchHit, type YomiSearchResult } from "../src/runtime/search.ts";
 import { QueryError } from "../src/runtime/server/fetch-query.ts";
-import { EMPTY_RESULT, RateLimiter, cachedSearch, clearSearchCache, clientIp, parseSearchParams } from "../src/runtime/server/search-core.ts";
+import { EMPTY_RESULT, RateLimiter, cachedSearch, clearSearchCache, clientIp, limitKey, parseSearchParams } from "../src/runtime/server/search-core.ts";
 
 vi.mock("nuxt/app", () => ({
   useRuntimeConfig: () => ({ public: { yomi: { searchRoute: "/_yomi/search" } } }),
@@ -76,6 +76,23 @@ describe("parseSearchParams", () => {
       expect(() => parseSearchParams(bad), JSON.stringify(bad)).toThrow(QueryError);
     }
     expect(parseSearchParams({ q: "x".repeat(500), locale: "ja" }).q).toHaveLength(500);
+  });
+});
+
+describe("limitKey", () => {
+  it("IPv6 は /64 にまとめ、書き方の違いを同じに扱う", () => {
+    expect(limitKey("2001:db8:1:2:3:4:5:6")).toBe(limitKey("2001:db8:1:2:aaaa::1"));
+    expect(limitKey("2001:DB8:1:2::1")).toBe(limitKey("2001:db8:1:2:0:0:0:9"));
+    expect(limitKey("2001:db8:1:3::1")).not.toBe(limitKey("2001:db8:1:2::1"));
+    expect(limitKey("::1")).toBe(limitKey("0:0:0:0:0:0:0:1"));
+  });
+  it("IPv4 はそのまま。IPv4射影アドレスは IPv4 に直す", () => {
+    expect(limitKey("203.0.113.7")).toBe("203.0.113.7");
+    expect(limitKey("::ffff:203.0.113.7")).toBe("203.0.113.7");
+    expect(limitKey("unknown")).toBe("unknown");
+  });
+  it("clientIp にも効く", () => {
+    expect(clientIp({}, "2001:db8:1:2::5", "")).toBe(clientIp({}, "2001:db8:1:2::6", ""));
   });
 });
 

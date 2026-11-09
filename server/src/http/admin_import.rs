@@ -21,6 +21,7 @@ use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Role};
 use crate::audit::action;
+use crate::content::entries;
 use crate::content::import::{self, Failed, Imported, Item};
 use crate::content::publishing::{Refused, Scripts};
 use crate::script::Host;
@@ -67,7 +68,12 @@ pub async fn import(
     let plan = import::plan(manifest, ct, &req.entries).map_err(invalid)?;
 
     let db = db(&state, ws).await?;
+    let _hook_slot = state.hook_slot().await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let limit = state.config.limits.max_entries_per_workspace;
+    if !entries::room_for(&mut tx, limit, req.entries.len()).await? {
+        return Err(super::admin_entries::entry_limit_reached());
+    }
     let scripts = Scripts {
         engine: &state.scripts,
         host: Host::new(state.pool.clone(), db.clone()),

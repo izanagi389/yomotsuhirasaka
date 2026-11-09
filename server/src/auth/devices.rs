@@ -1,7 +1,8 @@
 //! 新しい端末の判定と、ログインの履歴（13-security.md「本人への通知」、Q171, Q175, Q176, Q181）。
 //!
 //! - ログインに成功した端末に、長期のCookie（ランダムなID）を置く。DBにはハッシュだけを保存する。
-//! - このCookieは新しい端末の通知だけに使う。多要素認証の省略などには使わない（Q181）。
+//! - このCookieは、新しい端末の通知と、ログインの失敗を端末ごとに数えることに使う。多要素認証の省略などには使わない（Q181）。
+//!   知っている端末の失敗はアカウントの待ち時間に入れず、アカウントの待ち時間にも止められない（`throttle`）。
 //! - ログインの履歴には、IPアドレス、ブラウザの種類（決まった名前の1つ）、国（GeoIPのデータがある場合だけ）を残す。
 //! - 知っている端末でも、前回と違う国からのログインなら知らせる（国のデータがある場合だけ。Q175）。
 //!   User-Agent はそのまま保存しない。保存期間を過ぎた履歴は、定期的に削除する（INV-AUD-07）。
@@ -51,6 +52,27 @@ fn well_formed(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// この利用者の知っている端末か（Cookie の形が正しく、記録があるとき）。あれば端末のハッシュと、待ち時間中かを返す。
+pub async fn known_device(
+    pool: &PgPool,
+    user_id: Uuid,
+    presented: Option<&str>,
+) -> Result<Option<(Vec<u8>, bool)>> {
+    let Some(value) = presented.filter(|v| well_formed(v)) else {
+        return Ok(None);
+    };
+    let hash = token::digest(value);
+    let blocked: Option<bool> = sqlx::query_scalar(
+        "SELECT coalesce(login_blocked_until > now(), false) FROM yomi.known_devices
+         WHERE user_id = $1 AND device_hash = $2",
+    )
+    .bind(user_id)
+    .bind(&hash)
+    .fetch_optional(pool)
+    .await?;
+    Ok(blocked.map(|b| (hash, b)))
 }
 
 /// User-Agent を、ブラウザの種類の決まった名前の1つにまとめる。

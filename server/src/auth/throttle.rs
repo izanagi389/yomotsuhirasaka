@@ -2,6 +2,8 @@
 //!
 //! - アカウント単位: 失敗が続くと、次に試せるまでの待ち時間を段階的に延ばす（上限15分。完全なロックにはしない）。
 //!   状態はDB（`yomi.users`）に持つ。待ち時間中は、正しいパスワードでもログインできない。
+//! - 知っている端末からのログインは、端末ごとに同じように数える（`yomi.known_devices`）。アカウントの待ち時間の対象にせず、
+//!   アカウントの失敗にも数えない。パスワードを知らない人が失敗を送り続けても、本人を締め出せないようにするため。
 //! - 本人確認の2段目（多要素認証のコードと再認証）の失敗は、パスワードの失敗とは別に数える。
 //!   パスワードの成功で消えると、パスワードを知っている人がコードを総当たりできるため。
 //!   また、パスワードを知らない人の失敗で、ログイン中の人の再認証が止まらないようにするため。
@@ -52,6 +54,42 @@ pub async fn record_success(pool: &PgPool, user_id: Uuid) -> Result<()> {
          WHERE id = $1 AND (failed_login_count <> 0 OR login_blocked_until IS NOT NULL)",
     )
     .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// 知っている端末からの失敗を記録し、必要なら待ち時間を設定する（数え方はアカウントと同じ）。
+pub async fn record_device_failure(pool: &PgPool, user_id: Uuid, device_hash: &[u8]) -> Result<()> {
+    sqlx::query(
+        "UPDATE yomi.known_devices SET
+            failed_login_count = failed_login_count + 1,
+            login_blocked_until = CASE
+                WHEN failed_login_count + 1 >= $3
+                THEN now() + make_interval(secs => LEAST($5, $4 * power(2::float8, LEAST(failed_login_count + 1 - $3, 30)::float8)))
+                ELSE login_blocked_until
+            END
+         WHERE user_id = $1 AND device_hash = $2",
+    )
+    .bind(user_id)
+    .bind(device_hash)
+    .bind(FREE_FAILURES)
+    .bind(BASE_DELAY_SECONDS)
+    .bind(MAX_DELAY_SECONDS)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// 知っている端末からパスワードが通ったら、その端末の失敗の記録を消す（アカウントの記録は消さない）。
+pub async fn record_device_success(pool: &PgPool, user_id: Uuid, device_hash: &[u8]) -> Result<()> {
+    sqlx::query(
+        "UPDATE yomi.known_devices SET failed_login_count = 0, login_blocked_until = NULL
+         WHERE user_id = $1 AND device_hash = $2
+           AND (failed_login_count <> 0 OR login_blocked_until IS NOT NULL)",
+    )
+    .bind(user_id)
+    .bind(device_hash)
     .execute(pool)
     .await?;
     Ok(())

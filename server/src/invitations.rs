@@ -188,6 +188,41 @@ pub async fn revoke(pool: &PgPool, workspace_id: Uuid, id: Uuid) -> Result<bool>
     Ok(done.rows_affected() == 1)
 }
 
+/// ある人が出した、ワークスペースの未使用の招待を失効させる（管理者でなくなったとき）。
+pub async fn revoke_issued_by<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE yomi.invitations SET revoked_at = now()
+         WHERE workspace_id = $1 AND invited_by = $2 AND accepted_at IS NULL AND revoked_at IS NULL",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// ある人が出した招待と、その人宛の招待を失効させる（所属から外したとき。戻って来られないように）。
+pub async fn revoke_involving<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE yomi.invitations SET revoked_at = now()
+         WHERE workspace_id = $1 AND accepted_at IS NULL AND revoked_at IS NULL
+           AND (invited_by = $2 OR email = (SELECT email FROM yomi.users WHERE id = $2))",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 /// 招待のリンク。トークンはURLのフラグメントに入れ、サーバーやプロキシのアクセスログに残りにくくする。
 pub fn link(public_url: &str, token: &str) -> String {
     format!(

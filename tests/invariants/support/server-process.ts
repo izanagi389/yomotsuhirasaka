@@ -138,6 +138,7 @@ export function renderConfig(config: ServerConfig, listen: string): string {
   const egress: string[] = [];
   if (config.internalDestinationExceptions.length > 0) {
     egress.push(`internal_destination_exceptions = [${config.internalDestinationExceptions.map(tomlString).join(", ")}]`);
+    egress.push(`workspace_internal_destination_exceptions = [${config.internalDestinationExceptions.map(tomlString).join(", ")}]`);
   }
   const harnessCa = process.env["YOMI_TEST_HARNESS_TLS_CA"];
   if (harnessCa) egress.push(`extra_ca_files = [${tomlString(harnessCa)}]`);

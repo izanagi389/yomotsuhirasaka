@@ -59,6 +59,8 @@ pub(super) struct Me {
     sso: bool,
     /// 管理操作の前に、CMS側のパスキーの登録が必要か（SSOでログインした管理者で、パスキーがない。Q131）。
     passkey_required: bool,
+    /// SSOのセッションで、パスキーを登録するためにTOTPか復旧コードで再認証する人か。
+    second_factor_reauth: bool,
     /// IdPでの再ログインで再認証できるか（SSOでログインした、管理者でない人。管理者はパスキーだけ）。
     idp_reauth_allowed: bool,
     /// 他の操作の前に、多要素認証の設定が必要か（全員への必須が有効で、まだ設定していない。Q197）。
@@ -84,6 +86,7 @@ impl Me {
             mfa_enabled: c.mfa_enabled,
             sso: c.sso,
             passkey_required: c.sso && c.admin_anywhere && !c.has_passkey,
+            second_factor_reauth: c.sso && c.mfa_enabled && !c.has_passkey,
             idp_reauth_allowed: c.sso && !c.admin_anywhere,
             mfa_setup_required: mfa_setup_pending(state, c),
             locale: c.locale,
@@ -196,6 +199,7 @@ async fn check_password(
     state: &AppState,
     record: Option<users::LoginRecord>,
     presented: String,
+    device: Option<&str>,
 ) -> anyhow::Result<Option<users::LoginRecord>> {
     let stored = record
         .as_ref()
@@ -205,7 +209,22 @@ async fn check_password(
     let Some(record) = record else {
         return Ok(None);
     };
-    Ok(settle(state, &record, matched).await?.then_some(record))
+    // 知っている端末は端末ごとに数える（他の人の失敗で、本人を締め出させない）。2段目の待ち時間は端末によらず効く
+    let passed = match devices::known_device(&state.pool, record.id, device).await? {
+        Some((hash, blocked)) => {
+            if record.disabled || record.second_factor_blocked || blocked {
+                false
+            } else if matched {
+                throttle::record_device_success(&state.pool, record.id, &hash).await?;
+                true
+            } else {
+                throttle::record_device_failure(&state.pool, record.id, &hash).await?;
+                false
+            }
+        }
+        None => settle(state, &record, matched).await?,
+    };
+    Ok(passed.then_some(record))
 }
 
 /// セッションを持つ本人のパスワードを確かめる（再認証とパスワードの変更）。数え方は2段目と同じ。
@@ -385,7 +404,9 @@ pub async fn login(
         None => None,
     };
     let attempted = record.as_ref().map(|r| r.id);
-    let Some(record) = check_password(&state, record, req.password).await? else {
+    let device = cookie(&headers, devices::DEVICE_COOKIE);
+    let Some(record) = check_password(&state, record, req.password, device.as_deref()).await?
+    else {
         // 管理者への通知の急増の検知（計画の15番）。存在しないアドレスへの試行は、利用者なしで数える
         crate::alerts::note(crate::alerts::Kind::LoginFailure, Some(ip), attempted);
         return Err(ApiError::invalid_credentials());
@@ -586,7 +607,10 @@ pub async fn reauth(
         ));
     }
     // SSOでログインしたセッションは、IdPでの再ログインかパスキーで再認証する（Q108, Q131）
-    if current.sso && req.passkey.is_none() {
+    // ただし、パスキーがなくTOTPを設定した人は、パスキーを登録するためにTOTPか復旧コードで確かめる
+    let second_factor_for_passkey =
+        current.mfa_enabled && !current.has_passkey && req.password.is_none();
+    if current.sso && req.passkey.is_none() && !second_factor_for_passkey {
         return Err(ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "reauth_method_not_allowed",
@@ -673,6 +697,14 @@ pub async fn change_password(
     users::set_password(&mut *tx, current.user_id, &hash).await?;
     session::revoke_others(&mut *tx, current.user_id, current.id).await?;
     notify(&state, &mut *tx, &current, Event::PasswordChanged).await?;
+    audit::record(
+        &mut *tx,
+        None,
+        Some(current.user_id),
+        audit::action::PASSWORD_CHANGED,
+        &[current.user_id],
+    )
+    .await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }

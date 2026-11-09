@@ -153,6 +153,7 @@ pub async fn put_schedule(
     }
     let applied = writable(&state, ws).await?;
     let db = db(&state, ws).await?;
+    let _hook_slot = state.hook_slot().await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     match scheduling::check_time(&mut tx, &req.publish_at).await? {
         TimeCheck::Ok => {}

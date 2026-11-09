@@ -95,6 +95,8 @@ jobs:
             # 既知の脆弱性（重要度 high 以上）があれば失敗させる（13-security.md「依存ライブラリと配布物」）
             - name: Audit the npm dependencies
               run: npm audit --audit-level=high
+            - name: Check where the npm packages come from
+              run: node scripts/check-lockfile-sources.mjs package-lock.json tests/invariants/package-lock.json
             - name: Build and test the shared editor schema
               run: |
                   npm run typecheck -w @yomotsuhirasaka/editor-schema

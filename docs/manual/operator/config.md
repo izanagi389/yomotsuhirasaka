@@ -61,6 +61,11 @@
 | 項目 | 既定 | 内容 |
 |---|---|---|
 | `login_attempts_per_ip_per_minute` | 30 | IP アドレス（IPv6 は /64）ごとの、1分あたりのログインの試行 |
+| `admin_requests_per_user_per_minute` | 600 | 利用者ごとの、1分あたりの管理 API のリクエスト。個人トークンも合わせて数えます |
+| `admin_requests_per_workspace_per_minute` | 3000 | ワークスペースごとの、1分あたりの管理 API のリクエスト。所属する人のリクエストだけを数えます |
+| `max_entries_per_workspace` | 100000 | ワークスペースごとの記事の数。翻訳は別の記事として数え、物理削除を待つ記事も含みます |
+| `max_queries_per_workspace` | 1000 | ワークスペースごとの登録クエリの数 |
+| `query_registrations_per_workspace_per_minute` | 60 | ワークスペースごとの、1分あたりのクエリの新規登録。登録済みの文の登録し直しは数えません |
 
 ## 認証（`[auth]`）
 
@@ -134,6 +139,7 @@ SMTP を設定しないと、次のようになります。
 | `max_file_bytes` | 20971520（20MB） | 1つのファイルの大きさの上限 |
 | `default_workspace_quota_bytes` | 5368709120（5GB） | ワークスペースの容量の上限 |
 | `processing_timeout_seconds` | 20 | 画像の処理の時間の上限 |
+| `max_concurrent_serves` | 512 | 同時に配信するファイルの数の上限。超えた分は 503 を返します |
 
 **メディアは管理画面とは別のドメイン（例: `https://media.example.com`）から配信することを勧めます。** 設定がなくてもスクリプトの実行を禁じるヘッダーは付きますが、別のドメインなら、より安全です。
 
@@ -183,12 +189,15 @@ Webhook、監査ログの書き出し、フックからの通信、LLM、OIDC �
 
 | 項目 | 既定 | 内容 |
 |---|---|---|
-| `internal_destination_exceptions` | `[]` | 例外として許す内部の宛先（ホスト名か IP アドレス）。http での送信も許します |
+| `internal_destination_exceptions` | `[]` | サーバー管理者が設定した宛先（LLM、OIDC、インスタンスの監査ログの書き出し先）で、例外として許す内部の宛先。http での送信も許します |
+| `workspace_internal_destination_exceptions` | `[]` | ワークスペースの管理者が決める宛先（Webhook、フックの送信、ワークスペースの監査ログの書き出し先）で、例外として許す内部の宛先。自前のビルドサーバーなどに使います |
 | `extra_ca_files` | `[]` | 追加で信頼する CA の証明書（PEM）のファイル |
 | `connect_timeout_seconds` | 10 | 接続の上限の時間 |
 | `request_timeout_seconds` | 30 | 1回の送信全体の上限の時間 |
 
-例外には必要な宛先だけを書いてください。Webhook やフックもその宛先に送れるようになります。
+どちらも、ホスト名か IP アドレスで書きます。`ollama.internal:11434` や `[::1]:8080` のようにポートを付けると、そのポートだけを許します。
+
+例外には必要な宛先とポートだけを書いてください。`workspace_internal_destination_exceptions` に書いた宛先には、どのワークスペースの管理者も送れるようになります。
 
 ### 出口のプロキシ（`[egress.proxy]`）
 

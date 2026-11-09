@@ -179,6 +179,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "secrets": {
+          "description": "`secrets.read` で読む秘密の名前。",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false,
@@ -198,6 +205,11 @@
           "description": "外部へHTTPで送る（`yomi.http.fetch(url, options)`）。非同期のフックだけ。宛先は `allowedHosts` に限る。",
           "type": "string",
           "const": "http.fetch"
+        },
+        {
+          "description": "ワークスペースに登録した秘密を読む（`yomi.secrets.get(name)`）。非同期のフックだけ。名前は `secrets` に宣言する。",
+          "type": "string",
+          "const": "secrets.read"
         }
       ]
     },

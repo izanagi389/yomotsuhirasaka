@@ -12,14 +12,15 @@
 //! | 権限 | 関数 | 内容 |
 //! |---|---|---|
 //! | `content.read` | `yomi.content.get(id)` | 同じワークスペースの公開中の記事（`{id, contentType, locale, fields}`）。なければ null |
+//! | `secrets.read` | `yomi.secrets.get(name)` | 宣言した名前の秘密の値（文字列）。登録がなければ `null`。非同期のフックだけ |
 //! | `http.fetch` | `yomi.http.fetch(url, {method, headers, body})` | `{status, body}`（本文は1MBまで。3xxもそのまま返す）。失敗は例外 |
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use rquickjs::function::Opt;
-use rquickjs::{Ctx, Exception, Function, Object, Value as JsValue};
+use rquickjs::{Ctx, Exception, Function, IntoJs, Object, Value as JsValue};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -41,6 +42,8 @@ pub struct Host {
     pool: PgPool,
     db: WorkspaceDb,
     fetch: Option<Fetch>,
+    /// 宣言した名前の秘密（非同期のフックだけが持つ）。
+    secrets: Option<Arc<HashMap<String, String>>>,
     /// `yomi.content.get` で読もうとした記事のID（URL生成関数の依存の記録に使う。05-urls-and-redirects.md、Q39）。
     reads: Arc<Mutex<BTreeSet<Uuid>>>,
 }
@@ -58,6 +61,7 @@ impl Host {
             pool,
             db,
             fetch: None,
+            secrets: None,
             reads: Arc::default(),
         }
     }
@@ -89,9 +93,19 @@ impl Host {
         }
     }
 
+    /// 秘密を付ける（非同期のフック用）。
+    pub fn with_secrets(self, secrets: HashMap<String, String>) -> Self {
+        Self {
+            secrets: Some(Arc::new(secrets)),
+            ..self
+        }
+    }
+
+    /// 同期の実行用に、外部へ送る手段と秘密を外す。
     pub(super) fn without_fetch(self) -> Self {
         Self {
             fetch: None,
+            secrets: None,
             ..self
         }
     }
@@ -119,6 +133,7 @@ pub(super) fn install<'js>(
     }
     let yomi = Object::new(ctx.clone())?;
     let Bound { host, handle } = bound;
+    let secret_values = host.secrets.clone();
     if permissions.contains(&Permission::HttpFetch)
         && let Some(fetch) = host.fetch.clone()
     {
@@ -197,6 +212,22 @@ pub(super) fn install<'js>(
         )?;
         content.set("get", get)?;
         yomi.set("content", content)?;
+    }
+    if permissions.contains(&Permission::SecretsRead)
+        && let Some(values) = secret_values
+    {
+        let secrets = Object::new(ctx.clone())?;
+        let get = Function::new(
+            ctx.clone(),
+            move |ctx: Ctx<'js>, name: String| -> rquickjs::Result<JsValue<'js>> {
+                match values.get(&name) {
+                    Some(value) => value.as_str().into_js(&ctx),
+                    None => Ok(JsValue::new_null(ctx)),
+                }
+            },
+        )?;
+        secrets.set("get", get)?;
+        yomi.set("secrets", secrets)?;
     }
     ctx.globals().set("yomi", yomi)
 }

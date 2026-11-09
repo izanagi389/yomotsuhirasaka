@@ -1,6 +1,6 @@
 // サイトのサーバーのルート `<routePrefix>/<クエリの名前>?v=<変数のJSON>`。
 // ブラウザでの画面の移動のときも、ここを通して取る（ブラウザから配信APIを直接呼ばせない。原則1）。
-// 呼べるのは、ビルドのときに登録したクエリだけ。
+// 呼べるのは、ビルドのときに登録したサイトのクエリと、訂正の一覧だけ（検索や回答などのモジュールのクエリは呼べない）。
 // プレビュー中（プレビュー用のクッキーがあるとき）は、トークンを付けて取り、応答をキャッシュさせない。
 // トークンが切れていたら、クッキーを消して公開中の内容を返す。
 
@@ -10,11 +10,13 @@ import { useRuntimeConfig } from "nitropack/runtime";
 import queries from "#yomi/queries";
 
 import { QueryError, fetchQuery, parseVariables } from "./fetch-query.ts";
+import { isModuleOnlyQuery } from "./names.ts";
 import { clearPreviewCookie, previewTokenOf } from "./preview-cookie.ts";
 
 export default defineEventHandler(async (event) => {
   const name = getRouterParam(event, "name") ?? "";
-  const id = Object.hasOwn(queries, name) ? queries[name] : undefined;
+  // 検索や回答などのモジュールのクエリは、専用のルートだけから呼ぶ（回数の制限を迂回させない）
+  const id = Object.hasOwn(queries, name) && !isModuleOnlyQuery(name) ? queries[name] : undefined;
   if (!id) throw createError({ statusCode: 404, statusMessage: "Unknown query" });
   const config = useRuntimeConfig(event) as unknown as { yomi: { url: string; workspaceId: string; readKey: string } };
   if (!config.yomi.readKey) throw createError({ statusCode: 500, statusMessage: "The CMS read key is not configured" });

@@ -14,7 +14,7 @@ function checkFunction(path: string, f: unknown, kind: "async" | "sync" | "conve
   const permissions = list(f["permissions"]);
   const hosts = list(f["allowedHosts"]);
   if (kind === "conversion") {
-    if (permissions.length > 0 || hosts.length > 0) problems.push(`${path}.permissions: conversion functions are pure and cannot use host functions`);
+    if (permissions.length > 0 || hosts.length > 0 || list(f["secrets"]).length > 0) problems.push(`${path}.permissions: conversion functions are pure and cannot use host functions`);
     return;
   }
   const fetches = permissions.includes("http.fetch");
@@ -23,6 +23,13 @@ function checkFunction(path: string, f: unknown, kind: "async" | "sync" | "conve
   }
   if (fetches && hosts.length === 0) problems.push(`${path}.allowedHosts: list the hosts that "http.fetch" may send to`);
   if (!fetches && hosts.length > 0) problems.push(`${path}.allowedHosts: only for functions with the "http.fetch" permission`);
+  const readsSecrets = permissions.includes("secrets.read");
+  const secrets = list(f["secrets"]);
+  if (readsSecrets && kind !== "async") {
+    problems.push(`${path}.permissions: "secrets.read" is only allowed in asynchronous hooks (${ASYNC_HOOKS.join(", ")})`);
+  }
+  if (readsSecrets && secrets.length === 0) problems.push(`${path}.secrets: list the secrets this function reads`);
+  if (!readsSecrets && secrets.length > 0) problems.push(`${path}.secrets: only for functions with the "secrets.read" permission`);
 }
 
 /** template.json の関数の宣言を検査し、問題の一覧を返す（空なら問題なし）。 */

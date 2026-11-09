@@ -353,3 +353,77 @@ async fn assist_budget_api_and_settings() {
     })
     .await;
 }
+
+/// 訪問者の検索語と質問文の埋め込みは、記事の埋め込みと同じ上限で別に数える（使い切っても、記事の分は減らない）。
+#[tokio::test]
+async fn visitor_embeddings_do_not_use_up_the_article_embedding_budget() {
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.llm = Some(llm(Some(1000), Some(1000)));
+        let server = start(cfg.clone()).await;
+        create_user(&server.pool, "root@example.test", true).await;
+        let root = login(&server, "root@example.test", PASSWORD).await;
+        enroll(&server, &root).await;
+        let ws = workspace(&server, &root, "A").await;
+        let admin_id: Uuid =
+            sqlx::query_scalar("SELECT id FROM yomi.users WHERE email = 'root@example.test'")
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        budget::set_limits(
+            &server.pool,
+            ws,
+            Kind::Embedding,
+            Direction::Input,
+            Some(100),
+            None,
+            admin_id,
+        )
+        .await
+        .unwrap();
+        let take = |kind, tokens| {
+            let (pool, cfg) = (server.pool.clone(), cfg.clone());
+            async move {
+                budget::reserve(&pool, &cfg, ws, kind, Direction::Input, tokens)
+                    .await
+                    .unwrap()
+            }
+        };
+        // 訪問者の分を使い切る。上限は記事の分の設定と同じ値
+        assert!(matches!(
+            take(Kind::VisitorEmbedding, 100).await,
+            Reserved::Ok(_)
+        ));
+        assert!(matches!(
+            take(Kind::VisitorEmbedding, 1).await,
+            Reserved::Exhausted { .. }
+        ));
+        // 記事の分は1トークンも減っていない
+        let usage = budget::usage(&server.pool, ws, Kind::Embedding, Direction::Input)
+            .await
+            .unwrap();
+        assert_eq!(usage.month, 0);
+        assert!(matches!(take(Kind::Embedding, 100).await, Reserved::Ok(_)));
+        // 上限を変えると、訪問者の分の「断った」の印も消える
+        budget::set_limits(
+            &server.pool,
+            ws,
+            Kind::Embedding,
+            Direction::Input,
+            Some(200),
+            None,
+            admin_id,
+        )
+        .await
+        .unwrap();
+        let usage = budget::usage(&server.pool, ws, Kind::VisitorEmbedding, Direction::Input)
+            .await
+            .unwrap();
+        assert_eq!((usage.month, usage.exhausted_at), (100, None));
+        assert!(matches!(
+            take(Kind::VisitorEmbedding, 100).await,
+            Reserved::Ok(_)
+        ));
+    })
+    .await;
+}

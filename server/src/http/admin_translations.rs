@@ -24,7 +24,7 @@ use super::admin_publishing::publisher;
 use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::audit;
-use crate::content::entries::Draft;
+use crate::content::entries::{self, Draft};
 use crate::content::translations::{
     self, ReflectRefused, Refused, SetSourceRefused, SourceDiff, TranslationInfo,
 };
@@ -68,6 +68,9 @@ pub async fn create(
     }
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    if !entries::room_for(&mut tx, state.config.limits.max_entries_per_workspace, 1).await? {
+        return Err(super::admin_entries::entry_limit_reached());
+    }
     let draft =
         match translations::create(&mut tx, &applied.manifest, id, &req.locale, current.user_id)
             .await

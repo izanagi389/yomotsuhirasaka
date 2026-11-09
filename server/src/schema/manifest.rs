@@ -16,6 +16,8 @@ const MAX_CONTENT_TYPES: usize = 100;
 const MAX_FIELDS: usize = 200;
 const MAX_LOCALES: usize = 50;
 const MAX_ALLOWED_HOSTS: usize = 50;
+/// 1つの関数が宣言できる秘密の数の上限。
+const MAX_DECLARED_SECRETS: usize = 20;
 const MAX_CUSTOM_ATTRS: usize = 50;
 const MAX_BODY_NODES: usize = 100;
 const MAX_TEXT_CHARS: usize = 2000;
@@ -304,6 +306,9 @@ pub struct TemplateScript {
     /// `http.fetch` で送ってよいホスト名かIPアドレス。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
+    /// `secrets.read` で読む秘密の名前。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secrets: Vec<String>,
 }
 
 impl Body {
@@ -561,13 +566,39 @@ fn script_problems(path: &str, s: &crate::script::Script, is_async: bool) -> Vec
             ));
         }
     }
+    let reads_secrets = s.permissions.contains(&Permission::SecretsRead);
+    if reads_secrets && !is_async {
+        problems.push(format!(
+            "{path}.permissions: `secrets.read` is only allowed in asynchronous hooks (afterSave, afterPublish, afterUnpublish)"
+        ));
+    }
+    if reads_secrets && s.secrets.is_empty() {
+        problems.push(format!(
+            "{path}.secrets: list the secrets this function reads"
+        ));
+    }
+    if !reads_secrets && !s.secrets.is_empty() {
+        problems.push(format!(
+            "{path}.secrets: only for functions with the `secrets.read` permission"
+        ));
+    }
+    if s.secrets.len() > MAX_DECLARED_SECRETS {
+        problems.push(format!("{path}.secrets: at most {MAX_DECLARED_SECRETS}"));
+    }
+    for (i, name) in s.secrets.iter().enumerate() {
+        if !crate::hook_secrets::valid_name(name) {
+            problems.push(format!(
+                "{path}.secrets[{i}]: must start with a letter and use only letters, digits and underscores"
+            ));
+        }
+    }
     problems
 }
 
 /// 変換関数の検査: 形の検査に加え、ホスト関数を使わない純粋な関数であること（Q36）。
 fn conversion_problems(path: &str, s: &crate::script::Script) -> Vec<String> {
     let mut problems = script_problems(path, s, false);
-    if !s.permissions.is_empty() || !s.allowed_hosts.is_empty() {
+    if !s.permissions.is_empty() || !s.allowed_hosts.is_empty() || !s.secrets.is_empty() {
         problems.push(format!(
             "{path}.permissions: conversion functions are pure and cannot use host functions"
         ));
@@ -1080,6 +1111,39 @@ pub(crate) mod tests {
                 problems.iter().any(|p| p.contains(needle)),
                 "{needle}: {problems:?}"
             );
+        }
+    }
+
+    #[test]
+    fn secrets_are_only_for_asynchronous_hooks_that_declare_them() {
+        let script = |json: &str| -> crate::script::Script {
+            serde_json::from_str(&format!(
+                r#"{{"source": "export default function () {{}}", {json}}}"#
+            ))
+            .unwrap()
+        };
+        let good = script(r#""permissions": ["secrets.read"], "secrets": ["API_KEY"]"#);
+        let mut m = sample();
+        m.content_types[0].hooks.after_publish = Some(good.clone());
+        assert_eq!(validate(&m), Vec::<String>::new());
+        let mut m = sample();
+        m.content_types[0].hooks.before_publish = Some(good);
+        assert!(
+            validate(&m)
+                .iter()
+                .any(|p| p.contains("only allowed in asynchronous"))
+        );
+        for (bad, needle) in [
+            (r#""permissions": ["secrets.read"]"#, "list the secrets"),
+            (r#""secrets": ["API_KEY"]"#, "only for functions"),
+            (
+                r#""permissions": ["secrets.read"], "secrets": ["bad name"]"#,
+                "must start with",
+            ),
+        ] {
+            let mut m = sample();
+            m.content_types[0].hooks.after_publish = Some(script(bad));
+            assert!(validate(&m).iter().any(|p| p.contains(needle)), "{bad}");
         }
     }
 

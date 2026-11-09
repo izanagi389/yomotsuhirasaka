@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use super::{applied_schema, entries, fields, publishing};
 use crate::egress::Egress;
+use crate::hook_secrets;
 use crate::jobs::Outcome;
 use crate::keys::KeyRing;
 use crate::schema::manifest::{ContentType, Manifest};
@@ -223,6 +224,7 @@ pub async fn schedule_after(
 /// フックのジョブを1つ実行する。テンプレートが変わってフックがなくなっていれば、何もせずに終える。
 pub async fn run(
     pool: &PgPool,
+    keys: &KeyRing,
     engine: &Engine,
     egress: Option<&Egress>,
     payload: &[u8],
@@ -264,7 +266,10 @@ pub async fn run(
     if script.permissions.contains(&Permission::HttpFetch)
         && let Some(egress) = egress
     {
-        host = host.with_fetch(egress.clone(), &script.allowed_hosts);
+        host = host.with_fetch(egress.for_workspace_destinations(), &script.allowed_hosts);
+    }
+    if script.permissions.contains(&Permission::SecretsRead) {
+        host = host.with_secrets(hook_secrets::load(pool, keys, ws, &script.secrets).await?);
     }
     let input = json!({ "event": job.event, "entry": entry });
     Ok(match engine.after(script, host, &input).await {

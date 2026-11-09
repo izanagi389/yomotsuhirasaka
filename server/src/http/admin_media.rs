@@ -12,12 +12,14 @@
 //!
 //! - アップロードは管理者・編集者・執筆者とサーバー管理者。削除は管理者・編集者とサーバー管理者（記事の削除と同じ。Q200）。
 //! - 画像は中身で形式を判定し、検査してエンコードし直したものだけを保存する（`media::process`）。
-//!   処理は別のスレッドで、同時に動かす数と時間に上限を付けて行う。
+//!   処理は別のスレッドで、同時に動かす数と時間に上限を付けて行う。処理のスレッドは止められないので、同時に動かす枠は、
+//!   応答を返した後も処理が本当に終わるまで持ち続ける。
 //! - 容量の上限を超えるアップロードは 413 にする（INV-MED-05）。
 //! - 配信の応答には、スクリプトの実行を禁じるヘッダー（CSPの sandbox、nosniff）を必ず付ける（INV-MED-03）。
+//! - 配信はファイルを少しずつ送る（全体をメモリに読まない）。同時に配信する数と、送る時間に上限を付ける（`media::serve`）。
 //! - 下書きや非公開の記事で使っているメディアも、URLを知っていれば取得できる（13-security.md「メディア」）。
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use axum::Json;
@@ -39,15 +41,47 @@ use crate::audit::{self, action};
 use crate::auth::session::Current;
 use crate::content::applied_schema;
 use crate::media::process::{self, Rejected};
+use crate::media::serve;
 use crate::media::store::{self, MediaInfo, Usage};
 use crate::workspace_db;
 
 /// 画像の処理を同時に動かす数（大きな画像のデコードはメモリを多く使うため）。
 const CONCURRENT_PROCESSING: usize = 2;
 
-fn processing_slots() -> &'static Semaphore {
-    static SLOTS: OnceLock<Semaphore> = OnceLock::new();
-    SLOTS.get_or_init(|| Semaphore::new(CONCURRENT_PROCESSING))
+fn processing_slots() -> &'static Arc<Semaphore> {
+    static SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    SLOTS.get_or_init(|| Arc::new(Semaphore::new(CONCURRENT_PROCESSING)))
+}
+
+/// 枠を待って別のスレッドで処理する。枠は `work` が終わるまで持ち続け、時間切れや切断では手放さない
+/// （処理のスレッドは止められないので、手放すと画像のデコードがいくつでも重なる）。枠を待つ時間も `timeout` に含める。
+async fn run_in_slot<T: Send + 'static>(
+    slots: &Arc<Semaphore>,
+    timeout: Duration,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, Slowed> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    let permit = tokio::time::timeout_at(deadline, slots.clone().acquire_owned())
+        .await
+        .map_err(|_| Slowed::NoSlot)?
+        .map_err(|_| Slowed::Panicked)?;
+    let job = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        work()
+    });
+    match tokio::time::timeout_at(deadline, job).await {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(_)) => Err(Slowed::Panicked),
+        Err(_) => Err(Slowed::Timeout),
+    }
+}
+
+/// [`run_in_slot`] で結果が得られなかった理由。
+#[derive(Debug, PartialEq, Eq)]
+enum Slowed {
+    NoSlot,
+    Timeout,
+    Panicked,
 }
 
 /// 配信のURLの先頭。
@@ -137,17 +171,22 @@ pub async fn upload(
 
     let max_pixels = state.config.media.max_pixels;
     let timeout = Duration::from_secs(u64::from(state.config.media.processing_timeout_seconds));
-    let permit = processing_slots()
-        .acquire()
-        .await
-        .map_err(|_| ApiError::internal())?;
-    let job = tokio::task::spawn_blocking(move || process::process(&body, max_pixels));
-    let processed = match tokio::time::timeout(timeout, job).await {
-        Ok(Ok(Ok(p))) => p,
-        Ok(Ok(Err(r))) => return Err(rejected(r)),
-        Ok(Err(_)) => return Err(rejected(Rejected::Corrupt)),
-        // 時間切れ: 処理のスレッドは止められないが、上限の画素数で抑えてある
-        Err(_) => {
+    let job = run_in_slot(processing_slots(), timeout, move || {
+        process::process(&body, max_pixels)
+    });
+    let processed = match job.await {
+        Ok(Ok(p)) => p,
+        Ok(Err(r)) => return Err(rejected(r)),
+        Err(Slowed::Panicked) => return Err(rejected(Rejected::Corrupt)),
+        Err(Slowed::NoSlot) => {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "media_processing_busy",
+                "Too many images are being processed. Try again later.",
+            ));
+        }
+        // 時間切れ: 処理のスレッドは止められないが、上限の画素数で抑えてあり、終わるまで枠を持ち続ける
+        Err(Slowed::Timeout) => {
             return Err(ApiError::new(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "image_processing_timeout",
@@ -155,7 +194,6 @@ pub async fn upload(
             ));
         }
     };
-    drop(permit);
     if processed.bytes.len() as u64 > state.config.media.max_file_bytes {
         return Err(file_too_large());
     }
@@ -570,11 +608,19 @@ pub async fn serve(
     let Some((path, format)) = store::served_path(&state.config.media.root, &ws, &file) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let bytes = match tokio::fs::read(&path).await {
-        Ok(b) => b,
-        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+    let Ok(permit) = state.media_serves.clone().try_acquire_owned() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let mut res = bytes.into_response();
+    let opened = async {
+        let file = tokio::fs::File::open(&path).await?;
+        let meta = file.metadata().await?;
+        std::io::Result::Ok((file, meta))
+    };
+    let (file, len) = match opened.await {
+        Ok((file, meta)) if meta.is_file() => (file, meta.len()),
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let mut res = serve::file_body(file, len, permit, serve::SendLimits::DEFAULT).into_response();
     let headers = res.headers_mut();
     headers.insert(
         header::CONTENT_TYPE,
@@ -584,4 +630,44 @@ pub async fn serve(
         headers.insert(*name, HeaderValue::from_static(value));
     }
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_processing_slot_is_held_until_the_work_really_ends() {
+        let slots = Arc::new(Semaphore::new(1));
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let timed_out = run_in_slot(&slots, Duration::from_millis(30), move || {
+            let _ = wait.recv();
+        })
+        .await;
+        assert_eq!(timed_out, Err(Slowed::Timeout));
+        // 応答は返っても、処理が終わるまで枠は空かない
+        assert_eq!(slots.available_permits(), 0);
+        let queued = run_in_slot(&slots, Duration::from_millis(30), || ()).await;
+        assert_eq!(queued, Err(Slowed::NoSlot));
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), slots.acquire())
+            .await
+            .unwrap()
+            .unwrap()
+            .forget();
+    }
+
+    #[tokio::test]
+    async fn a_processing_slot_comes_back_after_success() {
+        let slots = Arc::new(Semaphore::new(1));
+        assert_eq!(
+            run_in_slot(&slots, Duration::from_secs(5), || 7).await,
+            Ok(7)
+        );
+        tokio::time::timeout(Duration::from_secs(5), slots.acquire())
+            .await
+            .unwrap()
+            .unwrap()
+            .forget();
+    }
 }
