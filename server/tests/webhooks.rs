@@ -84,7 +84,7 @@ fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
 async fn webhooks_are_signed_and_carry_no_content() {
     with_scratch(|app, migration| async move {
         let mut cfg = config(&app, &migration);
-        cfg.egress.internal_destination_exceptions = vec!["127.0.0.1".to_owned()];
+        cfg.egress.workspace_internal_destination_exceptions = vec!["127.0.0.1".to_owned()];
         let server = start(cfg).await;
         let (root, token) = root_with_deploy_token(&server).await;
         assert_eq!(deploy(&server, &token, "blog", &blog_manifest(), "").await.status, 200);
@@ -196,7 +196,7 @@ async fn webhooks_are_signed_and_carry_no_content() {
 async fn publish_settings_are_saved_and_announced() {
     with_scratch(|app, migration| async move {
         let mut cfg = config(&app, &migration);
-        cfg.egress.internal_destination_exceptions = vec!["127.0.0.1".to_owned()];
+        cfg.egress.workspace_internal_destination_exceptions = vec!["127.0.0.1".to_owned()];
         let server = start(cfg).await;
         let (root, token) = root_with_deploy_token(&server).await;
         assert_eq!(deploy(&server, &token, "blog", &blog_manifest(), "").await.status, 200);

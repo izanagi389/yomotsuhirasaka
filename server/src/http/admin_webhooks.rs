@@ -122,7 +122,11 @@ pub async fn create(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("outbound HTTP is not available"))?;
     // 登録の時点でも検査する（送るたびにも検査し直す）
-    egress.check(&url).await.map_err(destination_refused)?;
+    egress
+        .for_workspace_destinations()
+        .check(&url)
+        .await
+        .map_err(destination_refused)?;
 
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     // 数の上限は、同じワークスペースの登録を順に処理して数える（ワークスペースごとのアドバイザリーロック）

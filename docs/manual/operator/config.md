@@ -184,12 +184,15 @@ Webhook、監査ログの書き出し、フックからの通信、LLM、OIDC �
 
 | 項目 | 既定 | 内容 |
 |---|---|---|
-| `internal_destination_exceptions` | `[]` | 例外として許す内部の宛先（ホスト名か IP アドレス）。http での送信も許します |
+| `internal_destination_exceptions` | `[]` | サーバー管理者が設定した宛先（LLM、OIDC、インスタンスの監査ログの書き出し先）で、例外として許す内部の宛先。http での送信も許します |
+| `workspace_internal_destination_exceptions` | `[]` | ワークスペースの管理者が決める宛先（Webhook、フックの送信、ワークスペースの監査ログの書き出し先）で、例外として許す内部の宛先。自前のビルドサーバーなどに使います |
 | `extra_ca_files` | `[]` | 追加で信頼する CA の証明書（PEM）のファイル |
 | `connect_timeout_seconds` | 10 | 接続の上限の時間 |
 | `request_timeout_seconds` | 30 | 1回の送信全体の上限の時間 |
 
-例外には必要な宛先だけを書いてください。Webhook やフックもその宛先に送れるようになります。
+どちらも、ホスト名か IP アドレスで書きます。`ollama.internal:11434` や `[::1]:8080` のようにポートを付けると、そのポートだけを許します。
+
+例外には必要な宛先とポートだけを書いてください。`workspace_internal_destination_exceptions` に書いた宛先には、どのワークスペースの管理者も送れるようになります。
 
 ### 出口のプロキシ（`[egress.proxy]`）
 

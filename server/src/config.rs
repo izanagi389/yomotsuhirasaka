@@ -208,8 +208,12 @@ pub struct AdminConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct EgressConfig {
-    /// 例外として送信を許す内部の宛先（ホスト名かIPアドレス）。例外の宛先には、HTTP（HTTPSでない）での送信も許す（Q139）。
+    /// サーバー管理者が設定した宛先（LLM、OIDC、インスタンスの監査ログの書き出し先）で、例外として送信を許す内部の宛先。
+    /// ホスト名かIPアドレスで、`:ポート` を付けるとそのポートだけになる。例外の宛先には、HTTP（HTTPSでない）での送信も許す（Q139）。
     pub internal_destination_exceptions: Vec<String>,
+    /// ワークスペースの管理者が決める宛先（Webhook、フックの送信、ワークスペースの監査ログの書き出し先）で、
+    /// 例外として送信を許す内部の宛先（書き方は同じ）。自前のビルドサーバーなど。どのワークスペースからも送れるようになる。
+    pub workspace_internal_destination_exceptions: Vec<String>,
     /// 標準の一覧（Mozilla）に加えて信頼する、CAの証明書（PEM）のファイル。社内のCAなど。
     pub extra_ca_files: Vec<PathBuf>,
     /// 接続（名前解決したアドレスへのTCPの接続とTLSの確立）の上限の時間（秒）。
@@ -224,6 +228,7 @@ impl Default for EgressConfig {
     fn default() -> Self {
         Self {
             internal_destination_exceptions: Vec::new(),
+            workspace_internal_destination_exceptions: Vec::new(),
             extra_ca_files: Vec::new(),
             connect_timeout_seconds: 10,
             request_timeout_seconds: 30,
