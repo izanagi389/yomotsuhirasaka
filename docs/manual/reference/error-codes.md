@@ -145,6 +145,8 @@
 |---|---|---|
 | `destination_not_allowed` | 422 | この送信先には送れません（https で、公開のアドレスに解決される URL だけです） |
 | `too_many_webhooks` | 409 | Webhook の数の上限です |
+| `invalid_hook_secret` | 422 | フックの秘密の名前か値が正しくありません |
+| `too_many_hook_secrets` | 409 | フックの秘密の数の上限（50個）です |
 | `webhook_test_rate_limited` | 429 | テスト送信が多すぎます。Webhook ごとに1分10回までです |
 | `too_many_audit_sinks` | 409 | 書き出し先の数の上限です |
 

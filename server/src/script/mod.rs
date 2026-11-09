@@ -72,6 +72,9 @@ pub enum Permission {
     /// 外部へHTTPで送る（`yomi.http.fetch(url, options)`）。非同期のフックだけ。宛先は `allowedHosts` に限る。
     #[serde(rename = "http.fetch")]
     HttpFetch,
+    /// ワークスペースに登録した秘密を読む（`yomi.secrets.get(name)`）。非同期のフックだけ。名前は `secrets` に宣言する。
+    #[serde(rename = "secrets.read")]
+    SecretsRead,
 }
 
 /// テンプレートに書かれた関数（CLIがTSをJSに変換して入れる。Q49）。
@@ -87,6 +90,9 @@ pub struct Script {
     /// 外部への送信の検査は外れない（13-security.md「外部への送信」、INV-HOOK-05）。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
+    /// `secrets.read` で読む秘密の名前。ここにない名前は読めない（値はワークスペースに登録する）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secrets: Vec<String>,
 }
 
 /// 1回の実行の上限（Q89）。
@@ -491,6 +497,7 @@ mod tests {
             source: source.into(),
             permissions: vec![],
             allowed_hosts: vec![],
+            secrets: vec![],
         }
     }
 

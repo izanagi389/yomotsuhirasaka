@@ -16,6 +16,7 @@ pub mod delivery;
 pub mod egress;
 pub mod emergency;
 pub mod geoip;
+pub mod hook_secrets;
 pub mod http;
 pub mod invitations;
 pub mod jobs;

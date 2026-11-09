@@ -14,6 +14,10 @@ pub mod action {
     pub const IDENTITY_LINKED: &str = "auth.identity_linked";
     /// 外部のIdPのアカウントのひも付けを、本人が解除した。
     pub const IDENTITY_UNLINKED: &str = "auth.identity_unlinked";
+    /// フックが読む秘密を登録した、または置き換えた（名前と値は記録しない）。
+    pub const HOOK_SECRET_SAVED: &str = "hook_secret.saved";
+    /// フックが読む秘密を消した。
+    pub const HOOK_SECRET_DELETED: &str = "hook_secret.deleted";
     /// 本人がパスワードを変えた。
     pub const PASSWORD_CHANGED: &str = "auth.password_changed";
     /// 本人がTOTPを設定した。

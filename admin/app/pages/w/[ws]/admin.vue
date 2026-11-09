@@ -10,6 +10,7 @@ import InvitationsPanel from "~/components/admin/InvitationsPanel.vue";
 import QuestionLogSettingsPanel from "~/components/admin/QuestionLogSettingsPanel.vue";
 import MembersPanel from "~/components/admin/MembersPanel.vue";
 import RelatedRecomputePanel from "~/components/admin/RelatedRecomputePanel.vue";
+import HookSecretsPanel from "~/components/admin/HookSecretsPanel.vue";
 import WebhooksPanel from "~/components/admin/WebhooksPanel.vue";
 import WorkspaceSettingsPanel from "~/components/admin/WorkspaceSettingsPanel.vue";
 import type { MemberInfo } from "~/utils/admin";
@@ -45,6 +46,7 @@ watch(tab, async (v) => {
         <TabsTrigger value="invitations">{{ t("adminTabs.invitations") }}</TabsTrigger>
         <TabsTrigger value="apiKeys">{{ t("adminTabs.apiKeys") }}</TabsTrigger>
         <TabsTrigger value="webhooks">{{ t("adminTabs.webhooks") }}</TabsTrigger>
+        <TabsTrigger value="hookSecrets">{{ t("adminTabs.hookSecrets") }}</TabsTrigger>
         <TabsTrigger value="correctionTemplates">{{ t("adminTabs.correctionTemplates") }}</TabsTrigger>
         <TabsTrigger value="audit">{{ t("adminTabs.audit") }}</TabsTrigger>
         <TabsTrigger value="settings">{{ t("adminTabs.settings") }}</TabsTrigger>
@@ -58,6 +60,7 @@ watch(tab, async (v) => {
       <TabsContent value="invitations" class="mt-4"><InvitationsPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="apiKeys" class="mt-4"><ApiKeysPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="webhooks" class="mt-4"><WebhooksPanel :workspace-id="ws" /></TabsContent>
+      <TabsContent value="hookSecrets" class="mt-4"><HookSecretsPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="correctionTemplates" class="mt-4">
         <CorrectionTemplatesPanel :workspace-id="ws" :locales="manifest?.locales ?? []" />
       </TabsContent>

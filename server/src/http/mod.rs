@@ -11,6 +11,7 @@ pub mod admin_budgets;
 pub mod admin_corrections;
 pub mod admin_embedding_switch;
 pub mod admin_entries;
+pub mod admin_hook_secrets;
 pub mod admin_import;
 pub mod admin_invitations;
 pub mod admin_locks;
@@ -435,6 +436,14 @@ pub fn router(state: AppState) -> Router {
             delete(admin_locks::release),
         )
         .route("/workspaces/{ws}/schema", get(admin_templates::schema_info))
+        .route(
+            "/workspaces/{ws}/hook-secrets",
+            get(admin_hook_secrets::list),
+        )
+        .route(
+            "/workspaces/{ws}/hook-secrets/{name}",
+            put(admin_hook_secrets::save).delete(admin_hook_secrets::delete),
+        )
         .route(
             "/workspaces/{ws}/entries",
             get(admin_entries::list).post(admin_entries::create),

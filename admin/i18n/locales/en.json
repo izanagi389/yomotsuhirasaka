@@ -399,7 +399,8 @@
     "webhooks": "Webhooks",
     "audit": "Audit log",
     "correctionTemplates": "Correction templates",
-    "settings": "Settings"
+    "settings": "Settings",
+    "hookSecrets": "Hook secrets"
   },
   "secretOnce": {
     "warning": "This value is shown only now. Once closed it cannot be shown again, so store it somewhere safe.",
@@ -663,6 +664,10 @@
       },
       "assist": {
         "settings_changed": "Changed the editor AI assist setting"
+      },
+      "hook_secret": {
+        "saved": "Hook secret saved",
+        "deleted": "Hook secret removed"
       }
     },
     "you": "You",
@@ -1242,5 +1247,14 @@
       "LLM_UNAVAILABLE": "The LLM could not be reached. Try again later.",
       "INTERNAL_ERROR": "An error occurred on the server."
     }
+  },
+  "hookSecrets": {
+    "help": "Store keys for external APIs that hooks call here. Do not write them in function source. Values are encrypted and never shown after saving. Only asynchronous hooks that declare the permission and the name can read them.",
+    "name": "Name",
+    "value": "Value",
+    "save": "Save",
+    "empty": "No secrets yet.",
+    "updatedAt": "Updated: {at}",
+    "remove": "Remove"
   }
 }
