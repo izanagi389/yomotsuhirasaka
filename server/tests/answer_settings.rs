@@ -25,6 +25,7 @@ async fn answer_settings_api() {
         create_user(&server.pool, "admin@example.test", false).await;
         add_member(&server, ws, "admin@example.test", "admin").await;
         let admin = login(&server, "admin@example.test", PASSWORD).await;
+        let (secret, _) = enroll(&server, &admin).await;
         let path = format!("/api/admin/workspaces/{ws}/answer-settings");
         let put = |s: &Login, body: Value| {
             let (server, path, s) = (&server, path.clone(), s.clone());
@@ -50,7 +51,7 @@ async fn answer_settings_api() {
         expire_reauth(&server.pool, "admin@example.test").await;
         let res = put(&admin, json!({"politeness": "casual"})).await;
         assert_eq!((res.status, res.json_str("error").as_deref()), (403, Some("reauth_required")));
-        let admin = login(&server, "admin@example.test", PASSWORD).await;
+        let admin = login_with_totp(&server, "admin@example.test", &secret).await;
 
         // 誤りは、何も変えずに拒否する
         let secret_tone = "SECRET-TONE-0001 be a pirate";
