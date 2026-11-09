@@ -165,6 +165,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "second_factor_throttle",
         include_str!("../migrations/0034_second_factor_throttle.sql"),
     ),
+    (
+        37,
+        "hook_secrets",
+        include_str!("../migrations/0037_hook_secrets.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -215,6 +220,7 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     ("workspace_settings", "SELECT, INSERT, UPDATE"),
     // 管理者が削除する（送信の記録も一緒に消える）
     ("webhooks", "SELECT, INSERT, UPDATE, DELETE"),
+    ("hook_secrets", "SELECT, INSERT, UPDATE, DELETE"),
     ("audit_sinks", "SELECT, INSERT, UPDATE, DELETE"),
     ("audit_export_cursors", "SELECT, INSERT, UPDATE, DELETE"),
     ("alert_events", "SELECT, INSERT, UPDATE, DELETE"),

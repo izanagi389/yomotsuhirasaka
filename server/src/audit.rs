@@ -14,6 +14,10 @@ pub mod action {
     pub const IDENTITY_LINKED: &str = "auth.identity_linked";
     /// 外部のIdPのアカウントのひも付けを、本人が解除した。
     pub const IDENTITY_UNLINKED: &str = "auth.identity_unlinked";
+    /// フックが読む秘密を登録した、または置き換えた（名前と値は記録しない）。
+    pub const HOOK_SECRET_SAVED: &str = "hook_secret.saved";
+    /// フックが読む秘密を消した。
+    pub const HOOK_SECRET_DELETED: &str = "hook_secret.deleted";
     /// サーバー上のコマンドで利用者を止めた。
     pub const USER_DISABLED: &str = "auth.user_disabled";
     /// サーバー上のコマンドで利用者を再開した。

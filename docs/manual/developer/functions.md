@@ -58,11 +58,13 @@ export default url;
 | 権限 | 関数 | 内容 |
 |---|---|---|
 | `content.read` | `yomi.content.get(id)` | 同じワークスペースの公開中の記事（`{ id, contentType, locale, fields }`）。なければ `null` |
+| `secrets.read` | `yomi.secrets.get(name)` | `secrets` に宣言した名前の秘密の値（文字列）。登録がなければ `null`。非同期のフックだけで使えます |
 | `http.fetch` | `yomi.http.fetch(url, { method, headers, body })` | `{ status, body }` を返す。本文は 1MB まで。リダイレクトはたどらない。失敗は例外 |
 
 - `http.fetch` は非同期のフックだけで使えます。同期の処理（URL生成関数、保存前、公開前）で外部と通信することはできません。
 - 宛先は `allowedHosts` に書いたものだけです。外部への送信の共通の仕組みを通るので、内部向けのアドレスには送れません。
 - 他のワークスペースのデータには、どの関数でも触れられません。
+- **API キーなどの秘密を、関数のソースに書かないでください。** ソースはリポジトリと CMS のデータベースに平文で残ります。ワークスペースの管理者が管理画面の「フックの秘密」に登録し、フックの `permissions` に `secrets.read`、`secrets` に使う名前を書きます。
 - URL生成関数が `yomi.content.get` で読んだ記事は自動で記録され、読んだ記事が変わると URL を計算し直します。
 
 ## 制限
