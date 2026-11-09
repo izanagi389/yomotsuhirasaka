@@ -4,6 +4,7 @@ import { containsSecret } from "../src/module.ts";
 import { RegisterError, checkUrl, registerQueries } from "../src/register.ts";
 import { QueryError, fetchQuery, parseVariables } from "../src/runtime/server/fetch-query.ts";
 import { readLimitedText } from "../src/runtime/server/read-body.ts";
+import { ANSWER_QUERY, CORRECTIONS_QUERY, SEARCH_QUERY, isModuleOnlyQuery } from "../src/runtime/server/names.ts";
 
 const target = { url: "https://yomi.example.com", workspaceId: "ws-1", readKey: "yomi_key_read" };
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -20,6 +21,15 @@ describe("readLimitedText", () => {
     expect(await readLimitedText(streamOf("ab", "cd"), 4)).toBe("abcd");
     expect(await readLimitedText(streamOf("ab", "cde"), 4)).toBeNull();
     expect(await readLimitedText(undefined, 4)).toBe("");
+  });
+});
+
+describe("isModuleOnlyQuery", () => {
+  it("検索と回答は汎用のルートから呼べず、サイトのクエリと訂正の一覧は呼べる", () => {
+    expect(isModuleOnlyQuery(SEARCH_QUERY)).toBe(true);
+    expect(isModuleOnlyQuery(ANSWER_QUERY)).toBe(true);
+    expect(isModuleOnlyQuery(CORRECTIONS_QUERY)).toBe(false);
+    expect(isModuleOnlyQuery("postBySlug")).toBe(false);
   });
 });
 
