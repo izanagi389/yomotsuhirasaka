@@ -165,6 +165,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "second_factor_throttle",
         include_str!("../migrations/0034_second_factor_throttle.sql"),
     ),
+    (
+        36,
+        "device_login_throttle",
+        include_str!("../migrations/0036_device_login_throttle.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
