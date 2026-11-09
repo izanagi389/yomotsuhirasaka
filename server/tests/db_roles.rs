@@ -242,9 +242,29 @@ async fn audit_log_is_purged_only_through_the_dedicated_function() {
             "delete audit log directly",
         )
         .await;
+        // 普段用のロールは保存期間を変えられず、読めもしない。関数に日数を渡すこともできない
+        expect_denied(
+            &app,
+            "UPDATE yomi.audit_retention SET days = 30",
+            "change the audit retention",
+        )
+        .await;
+        expect_denied(
+            &app,
+            "SELECT days FROM yomi.audit_retention",
+            "read the audit retention",
+        )
+        .await;
         assert!(
             sqlx::query_scalar::<_, i64>("SELECT yomi.purge_audit_log(10)")
                 .fetch_one(&app)
+                .await
+                .is_err()
+        );
+        // 移行のロールでも、30日より短くはできない
+        assert!(
+            migration
+                .execute("UPDATE yomi.audit_retention SET days = 10")
                 .await
                 .is_err()
         );
@@ -254,7 +274,7 @@ async fn audit_log_is_purged_only_through_the_dedicated_function() {
             .execute("INSERT INTO yomi.audit_export_cursors (sink_key, cursor_at) VALUES ('stdout', now() - interval '500 days')")
             .await
             .unwrap();
-        let n: i64 = sqlx::query_scalar("SELECT yomi.purge_audit_log(365)")
+        let n: i64 = sqlx::query_scalar("SELECT yomi.purge_audit_log()")
             .fetch_one(&app)
             .await
             .unwrap();
@@ -264,7 +284,7 @@ async fn audit_log_is_purged_only_through_the_dedicated_function() {
             .execute("UPDATE yomi.audit_export_cursors SET stopped_at = now()")
             .await
             .unwrap();
-        let n: i64 = sqlx::query_scalar("SELECT yomi.purge_audit_log(365)")
+        let n: i64 = sqlx::query_scalar("SELECT yomi.purge_audit_log()")
             .fetch_one(&app)
             .await
             .unwrap();

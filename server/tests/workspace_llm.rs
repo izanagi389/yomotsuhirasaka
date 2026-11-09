@@ -45,6 +45,10 @@ async fn workspace_llm_api() {
             allowed_endpoints: vec![AllowedEndpoint {
                 name: "primary".into(),
                 base_url: "https://primary.example.test/v1".into(),
+            },
+            AllowedEndpoint {
+                name: "secondary".into(),
+                base_url: "https://secondary.example.test/v1".into(),
             }],
             allowed_embedding_models: vec![AllowedEmbeddingModel {
                 model: "ws-embed".into(),
@@ -72,7 +76,7 @@ async fn workspace_llm_api() {
         // 既定: 上書きは許されていない。選べる接続先の名前だけが見える
         let v = parse(&get(&server, &path, &root).await);
         assert_eq!(v["allowed"], false);
-        assert_eq!(v["endpoints"], json!(["primary"]));
+        assert_eq!(v["endpoints"], json!(["primary", "secondary"]));
         assert_eq!(v["embeddingModels"], json!(["ws-embed"]));
         assert_eq!(v["settings"], Value::Null);
         assert_eq!(v["embedding"]["state"], "switched");
@@ -123,6 +127,8 @@ async fn workspace_llm_api() {
         let res = put(json!({"endpoint": "primary", "chatModel": "ws-chat-2"})).await;
         assert_eq!(res.status, 200, "{}", res.body);
         assert_eq!(parse(&res)["settings"]["apiKeyUpdatedAt"], updated);
+        // 接続先を変えるときは、キーを入れ直す（保存済みのキーを別の接続先へ送らない）
+        assert_eq!(error(&put(json!({"endpoint": "secondary"})).await), (422, Some("invalid_llm_settings".to_owned())));
         assert_eq!(effective().await.0.api_key, SECRET);
 
         // 監査ログには変えた項目の名前だけ（キーは残さない）

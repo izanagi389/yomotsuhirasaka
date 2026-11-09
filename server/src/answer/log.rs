@@ -19,6 +19,9 @@ use uuid::Uuid;
 use super::cache;
 use crate::workspace_db::{self, WorkspaceDb};
 
+/// ワークスペースごとの、質問の文の件数の上限。
+pub const MAX_ROWS: i64 = 100_000;
+
 /// 保存期間の範囲（日）。
 pub const RETENTION_DAYS: std::ops::RangeInclusive<i32> = 7..=365;
 /// 候補の一覧に出す数の上限。
@@ -74,7 +77,13 @@ pub async fn record(
             sqlx::query_scalar("SELECT enabled FROM question_log_settings FOR SHARE")
                 .fetch_one(&mut *tx)
                 .await?;
-        if enabled {
+        // 件数の上限を超えたら文を残さない（日ごとの件数は数える）
+        let full: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM question_log OFFSET $1 LIMIT 1)")
+                .bind(MAX_ROWS - 1)
+                .fetch_one(&mut *tx)
+                .await?;
+        if enabled && !full {
             sqlx::query(
                 "INSERT INTO question_log (id, key, question, locale) VALUES ($1, $2, $3, $4)",
             )
