@@ -79,6 +79,7 @@ inv(
     const target = await disposableTarget(w, w.a);
     const changeRole = yomi.adminOperations.find((o) => o.name === "changeMemberRole")!;
     expectRejected(await changeRole.call(asSession(session), target), "多要素認証のないワークスペースの管理者によるロールの変更");
+    expectRejected(await yomi.getEntryRaw(asSession(session), w.a.id, w.a.entryId), "多要素認証のないワークスペースの管理者による記事の取得");
     // 対照: 多要素認証を設定すれば実行できる
     const totpSecret = await yomi.enrollTotp(session, wsAdmin);
     const withMfa = { ...wsAdmin, totpSecret };
@@ -91,6 +92,7 @@ inv(
     let saSession = await yomi.login(serverAdmin);
     await yomi.reauthenticate(saSession, serverAdmin);
     expectRejected(await yomi.createWorkspaceRaw(asSession(saSession), "inv-auth-05-nomfa"), "多要素認証のないサーバー管理者によるワークスペースの作成");
+    expectRejected(await yomi.getEntryRaw(asSession(saSession), w.a.id, w.a.entryId), "多要素認証のないサーバー管理者による、所属していないワークスペースの記事の取得");
     const saTotp = await yomi.enrollTotp(saSession, serverAdmin);
     const saWithMfa = { ...serverAdmin, totpSecret: saTotp };
     saSession = await yomi.login(saWithMfa);
@@ -110,6 +112,7 @@ inv(
       const sso = await yomi.loginWithOidcRaw();
       expectSuccess(await yomi.meRaw(asSession(sso.session)), "SSOでログインした管理者の本人情報の取得");
       expectRejected(await yomi.inviteRaw(sso.session, w.a.id, uniqueEmail("auth05sso"), "editor"), "パスキーのないSSOの管理者による招待");
+      expectRejected(await yomi.getEntryRaw(asSession(sso.session), w.a.id, w.a.entryId), "パスキーのないSSOの管理者による記事の取得");
 
       // 対照: パスキーを設定し、パスキーで再認証すれば実行できる
       const passkey = await yomi.enrollPasskey(sso.session, ssoAdmin);

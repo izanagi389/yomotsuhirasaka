@@ -346,6 +346,16 @@ pub async fn enroll(server: &Server, s: &Login) -> (String, String) {
     (secret, confirm.body)
 }
 
+/// 多要素認証を設定した人がログインし直す（パスワードとTOTPのコード）。
+pub async fn login_with_totp(server: &Server, email: &str, secret: &str) -> Login {
+    let (_, pending) = password_step(server, email, PASSWORD).await;
+    forget_used_steps(&server.pool, email).await;
+    let body = format!("{{\"totpCode\":\"{}\"}}", code(secret, 0));
+    let res = mfa_step(server, &pending.unwrap(), &body).await;
+    assert_eq!(res.status, 200, "{}", res.body);
+    session_from(&res)
+}
+
 pub fn recovery_codes(body: &str) -> Vec<String> {
     let list = body.split('[').nth(1).unwrap().split(']').next().unwrap();
     list.split(',')

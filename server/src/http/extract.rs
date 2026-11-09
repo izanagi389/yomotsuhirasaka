@@ -69,7 +69,14 @@ async fn authenticate(parts: &mut Parts, state: &AppState) -> Result<session::Cu
             .grant
             .as_ref()
             .expect("token sessions carry a grant");
-        // 状態を変える操作には write の範囲が要る（実際にできるかは、さらに本人のロールで決まる）
+        // 読むには read、状態を変えるには write の範囲が要る（実際にできるかは、さらに本人のロールで決まる）
+        if is_safe(&parts.method) && !grant.has_scope("read") {
+            return Err(ApiError::new(
+                axum::http::StatusCode::FORBIDDEN,
+                "insufficient_scope",
+                "This token is not allowed to read.",
+            ));
+        }
         if !is_safe(&parts.method) && !grant.has_scope("write") {
             return Err(ApiError::new(
                 axum::http::StatusCode::FORBIDDEN,
