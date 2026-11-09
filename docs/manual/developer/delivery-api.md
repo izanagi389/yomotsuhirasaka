@@ -57,7 +57,7 @@ Nuxt を使うなら、[Nuxtモジュール](nuxt-module.md) がこの章の内�
 | `search(text, locale, mode, first)` | サイト内検索。`mode` は `HYBRID`（既定）、`VECTOR`、`KEYWORD`、`first` は50まで、`text` は500文字まで |
 | `answer`、`answerStream` | [回答API](answer-api.md) |
 
-検索の応答の `vectorSearch` が `BUDGET_EXHAUSTED` なら埋め込みの予算切れ（キーワード検索の結果だけ）、`keywordSearch` が `DISABLED` なら日本語の全文検索の拡張がないサーバーです。
+検索の応答の `vectorSearch` が `BUDGET_EXHAUSTED` なら訪問者の分の埋め込みの予算切れ（キーワード検索の結果だけ）、`keywordSearch` が `DISABLED` なら日本語の全文検索の拡張がないサーバーです。
 
 非公開、削除、対象外の記事は、返すたびに今の状態と照合して落とします。
 

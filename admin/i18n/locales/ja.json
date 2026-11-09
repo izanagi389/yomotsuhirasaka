@@ -399,7 +399,8 @@
     "webhooks": "Webhook",
     "audit": "監査ログ",
     "correctionTemplates": "訂正の定型文",
-    "settings": "設定"
+    "settings": "設定",
+    "hookSecrets": "フックの秘密"
   },
   "secretOnce": {
     "warning": "この値は今だけ表示します。閉じると二度と表示できないので、安全な場所に保管してください。",
@@ -521,6 +522,12 @@
         "login": "ログイン",
         "identity_linked": "外部のアカウントのひも付け",
         "identity_unlinked": "外部のアカウントのひも付けの解除",
+        "password_changed": "パスワードの変更",
+        "totp_enabled": "認証アプリの設定",
+        "totp_removed": "認証アプリの解除",
+        "passkey_added": "パスキーの登録",
+        "passkey_removed": "パスキーの解除",
+        "recovery_codes_regenerated": "復旧コードの作り直し",
         "user_disabled": "利用者の停止",
         "user_enabled": "利用者の再開",
         "user_provisioned": "SSOによる利用者の作成"
@@ -657,6 +664,10 @@
       },
       "assist": {
         "settings_changed": "編集者向けのAI支援の設定を変更"
+      },
+      "hook_secret": {
+        "saved": "フックの秘密の登録",
+        "deleted": "フックの秘密の削除"
       }
     },
     "you": "あなた",
@@ -981,6 +992,7 @@
     "topUsers": "件数の多いアカウント"
   },
   "budget": {
+    "visitorUsage": "訪問者の検索語と質問文の埋め込みは、同じ上限で別に数えます。尽きるとキーワード検索だけで動きます。今月 {month} トークン、今日 {day} トークン。",
     "embeddingTitle": "埋め込みの作成の予算",
     "help": "検索と関連記事のために、公開した記事から埋め込みを作るときの予算です。トークン数で数え、予算の範囲でだけLLMを呼びます。尽きたら作成を止め、それまでの埋め込みで動き続けます。",
     "egressNote": "検索の対象のフィールドの内容は、埋め込みを作るために、サーバーに設定したLLMの接続先に送られます。",
@@ -1235,5 +1247,14 @@
       "LLM_UNAVAILABLE": "LLMを呼べませんでした。時間をおいて試してください。",
       "INTERNAL_ERROR": "サーバーでエラーが起きました。"
     }
+  },
+  "hookSecrets": {
+    "help": "フックが外部のAPIを呼ぶときのキーなどを、ここに登録します。関数のソースに書かないでください。値は暗号化して保存し、登録の後は表示しません。読めるのは、権限と名前を宣言した非同期のフックだけです。",
+    "name": "名前",
+    "value": "値",
+    "save": "保存",
+    "empty": "登録した秘密はありません。",
+    "updatedAt": "更新: {at}",
+    "remove": "削除"
   }
 }

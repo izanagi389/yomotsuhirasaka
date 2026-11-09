@@ -494,7 +494,7 @@ pub async fn deliver(
         body: job.body.clone().into_bytes(),
         read_body_limit: None,
     };
-    let (status, outcome) = match egress.send(request).await {
+    let (status, outcome) = match egress.for_workspace_destinations().send(request).await {
         Ok(res) if (200..300).contains(&res.status) => (Some(res.status), Outcome::Done),
         Ok(res) => (Some(res.status), Outcome::Retry("http_status")),
         Err(e) if permanent(e) => (None, Outcome::Fail(e.code())),

@@ -27,12 +27,15 @@ async function failLogins(times: number, email: string): Promise<void> {
   }
 }
 
-inv("inv_auth_04", "ログインの失敗が続いた後は、一定時間、正しいパスワードでもログインできない", async () => {
+inv("inv_auth_04", "ログインの失敗が続いた後は、一定時間、正しいパスワードでもログインできない。ただし、前にログインした端末は端末ごとに数え、他の場所からの失敗では止まらない", async () => {
   const w = await world();
   const user = await w.yomi.createMember(w.a.adminSession, w.a.id, "editor");
 
   // 対照: 失敗が続く前は、正しいパスワードで入れる
-  expectSuccess(await w.yomi.loginRaw(user, { extras: { clientIp: uniqueIp() } }), "失敗が続く前のログイン");
+  const first = await w.yomi.loginRaw(user, { extras: { clientIp: uniqueIp() } });
+  expectSuccess(first, "失敗が続く前のログイン");
+  const device = first.setCookies.map((c) => c.split(";")[0]!).find((c) => c.startsWith("__Host-yomi_device="));
+  expect(device, "ログインで端末のCookieが届かない").toBeDefined();
 
   await failLogins(10, user.email);
 
@@ -40,6 +43,13 @@ inv("inv_auth_04", "ログインの失敗が続いた後は、一定時間、正
   const res = await w.yomi.loginRaw(user, { extras: { clientIp: uniqueIp() } });
   expect(isSuccess(res), "失敗が続いた直後に、正しいパスワードでログインできてしまった").toBe(false);
   await expect(w.yomi.login(user, { extras: { clientIp: uniqueIp() } }), "失敗が続いた直後のログイン").rejects.toThrow();
+
+  // 前にログインした端末は、他の場所からの失敗では止まらない
+  const fromDevice = { extras: { clientIp: uniqueIp(), headers: { Cookie: device! } } };
+  expectSuccess(await w.yomi.loginRaw(user, fromDevice), "他の場所からの失敗が続いた後の、知っている端末からのログイン");
+  // その端末を使っても、誤ったパスワードが続けば止まる（総当たりに使えない）
+  for (let i = 0; i < 10; i++) await w.yomi.loginRaw({ ...user, password: strongPassword() }, fromDevice);
+  expect(isSuccess(await w.yomi.loginRaw(user, fromDevice)), "知っている端末から失敗が続いた後に、ログインできてしまった").toBe(false);
 });
 
 inv(
@@ -113,6 +123,9 @@ inv(
       expectSuccess(await yomi.meRaw(asSession(sso.session)), "SSOでログインした管理者の本人情報の取得");
       expectRejected(await yomi.inviteRaw(sso.session, w.a.id, uniqueEmail("auth05sso"), "editor"), "パスキーのないSSOの管理者による招待");
       expectRejected(await yomi.getEntryRaw(asSession(sso.session), w.a.id, w.a.entryId), "パスキーのないSSOの管理者による記事の取得");
+
+      // TOTPを設定した管理者は、SSOのログインの直後でも、TOTPを確かめるまでパスキーを登録できない
+      expect((await yomi.beginPasskeyRaw(sso.session)).status, "TOTPを確かめずにパスキーの登録を始められた").toBe(403);
 
       // 対照: パスキーを設定し、パスキーで再認証すれば実行できる
       const passkey = await yomi.enrollPasskey(sso.session, ssoAdmin);

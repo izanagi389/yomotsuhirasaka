@@ -59,7 +59,7 @@ default_workspace_assist_output_tokens_per_day = 10000
 
 ```toml
 [egress]
-internal_destination_exceptions = ["ollama.internal"]
+internal_destination_exceptions = ["ollama.internal:11434"]
 
 [llm]
 base_url = "http://ollama.internal:11434/v1"

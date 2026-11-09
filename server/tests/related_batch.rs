@@ -214,7 +214,7 @@ async fn admins_can_start_a_recomputation_now() {
 async fn changed_entries_are_sent_in_parts_of_one_hundred() {
     with_scratch(|app, migration| async move {
         let mut cfg = config(&app, &migration);
-        cfg.egress.internal_destination_exceptions = vec!["127.0.0.1".to_owned()];
+        cfg.egress.workspace_internal_destination_exceptions = vec!["127.0.0.1".to_owned()];
         let server = start(cfg).await;
         let (root, token) = root_with_deploy_token(&server).await;
         assert_eq!(

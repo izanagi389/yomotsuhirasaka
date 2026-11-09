@@ -1,6 +1,6 @@
 //! ジョブを実行する常駐の処理。サーバーの起動中、キューを見て実行する。
 //! 時間のかかるフックのジョブがメールやWebhookを待たせないよう、複数の取り出し手で並べて動かす
-//! （フックのジョブは、ワークスペースごとに1つずつ。`jobs::claim`）。
+//! （同時に実行する数はワークスペースごとに制限する。フックのジョブは、ワークスペースごとに1つずつ。`jobs::claim`）。
 
 use std::time::Duration;
 
@@ -100,14 +100,18 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
                     Outcome::Fail("internal_error")
                 })
         }
-        (Some(payload), hooks::JOB_KIND) => {
-            hooks::run(&state.pool, &state.scripts, state.egress.as_ref(), payload)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::error!(job_id = %job.id, "hook: {e:#}");
-                    Outcome::Retry("internal_error")
-                })
-        }
+        (Some(payload), hooks::JOB_KIND) => hooks::run(
+            &state.pool,
+            &state.keys,
+            &state.scripts,
+            state.egress.as_ref(),
+            payload,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!(job_id = %job.id, "hook: {e:#}");
+            Outcome::Retry("internal_error")
+        }),
         (Some(_), _) => Outcome::Fail("unknown_job_kind"),
     };
     if !matches!(outcome, Outcome::Done) {

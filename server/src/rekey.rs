@@ -78,6 +78,7 @@ pub async fn reencrypt_all(pool: &PgPool, keys: &KeyRing) -> Result<Outcome> {
         reencrypt_webhooks(pool, keys, &active, column, &mut outcome).await?;
     }
     reencrypt_audit_sinks(pool, keys, &active, &mut outcome).await?;
+    reencrypt_hook_secrets(pool, keys, &active, &mut outcome).await?;
     reencrypt_workspace_llm(pool, keys, &active, &mut outcome).await?;
     Ok(outcome)
 }
@@ -161,6 +162,41 @@ async fn reencrypt_audit_sinks(
         }
         tx.commit().await?;
     }
+    Ok(())
+}
+
+async fn reencrypt_hook_secrets(
+    pool: &PgPool,
+    keys: &KeyRing,
+    active: &[u8],
+    outcome: &mut Outcome,
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    let rows: Vec<(Uuid, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT workspace_id, name, value_enc FROM yomi.hook_secrets
+         WHERE substring(value_enc FROM 1 FOR 4) <> $1
+         FOR UPDATE",
+    )
+    .bind(active)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (workspace_id, name, sealed) in rows {
+        let aad = crate::hook_secrets::aad(workspace_id, &name);
+        let Ok(plain) = keys.decrypt(&sealed, &aad) else {
+            outcome.failed += 1;
+            continue;
+        };
+        sqlx::query(
+            "UPDATE yomi.hook_secrets SET value_enc = $3 WHERE workspace_id = $1 AND name = $2",
+        )
+        .bind(workspace_id)
+        .bind(&name)
+        .bind(keys.encrypt(&plain, &aad)?)
+        .execute(&mut *tx)
+        .await?;
+        outcome.reencrypted += 1;
+    }
+    tx.commit().await?;
     Ok(())
 }
 

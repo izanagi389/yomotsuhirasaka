@@ -336,7 +336,12 @@ async fn drain(
         let Some(last) = entries.last() else {
             return Ok(());
         };
-        let result = send(target, state.egress.as_ref(), &state.pool, &entries).await;
+        // ワークスペースの書き出し先は、ワークスペースの管理者が決めた宛先
+        let egress = state.egress.as_ref().map(|e| match workspace {
+            Some(_) => e.for_workspace_destinations(),
+            None => e.clone(),
+        });
+        let result = send(target, egress.as_ref(), &state.pool, &entries).await;
         let failed = result.as_ref().err().cloned();
         record(&mut tx, &cursor, workspace, last, failed.as_deref()).await?;
         tx.commit().await?;

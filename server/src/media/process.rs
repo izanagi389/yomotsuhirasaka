@@ -6,7 +6,8 @@
 //!   （解凍爆弾の対策、INV-MED-06）。
 //! - 受け付けた画像は、すべてデコードしてエンコードし直す。位置情報（EXIF）などのメタデータは書き出さない（INV-MED-02）。
 //!   画像とスクリプトを兼ねるファイルも、ここで無害化される。
-//! - 向き（EXIFの Orientation）は画素に反映してから捨てる。色の情報（ICCプロファイル）は残す（位置情報を含まないため）。
+//! - 向き（EXIFの Orientation）は画素に反映してから捨てる。色の情報（ICCプロファイル）も捨てる。プロファイルには任意のバイト列を
+//!   入れられ、エンコードし直しによる無害化に穴が開くため（第三者の確認の R25）。広色域の写真は、色が少し地味に見えることがある。
 //! - 保存の形式: JPEG（画質90）、PNG、GIF（アニメーションを保つ）、WebP（劣化なし。Rustだけのエンコーダーは劣化なしだけのため）。
 //!   WebPのアニメーションは最初のフレームだけになる。
 //!
@@ -19,8 +20,7 @@ use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::codecs::webp::WebPEncoder;
 use image::{
-    AnimationDecoder, DynamicImage, ImageDecoder, ImageEncoder, ImageError, ImageFormat,
-    ImageReader, Limits,
+    AnimationDecoder, DynamicImage, ImageDecoder, ImageError, ImageFormat, ImageReader, Limits,
 };
 
 /// 保存する形式。
@@ -125,17 +125,13 @@ pub fn process(input: &[u8], max_pixels: u64) -> Result<Processed, Rejected> {
         return Err(Rejected::TooManyPixels);
     }
     let orientation = decoder.orientation().map_err(|e| rejected(&e))?;
-    let icc = decoder.icc_profile().ok().flatten();
     let mut img = DynamicImage::from_decoder(decoder).map_err(|e| rejected(&e))?;
     img.apply_orientation(orientation);
     let (width, height) = (img.width(), img.height());
     let mut out = Vec::new();
     let result = match format {
         Format::Jpeg => {
-            let mut enc = JpegEncoder::new_with_quality(&mut out, 90);
-            if let Some(icc) = icc {
-                let _ = enc.set_icc_profile(icc);
-            }
+            let enc = JpegEncoder::new_with_quality(&mut out, 90);
             // JPEGは透過を持てないので、色だけにする
             let img = if img.color().has_color() {
                 DynamicImage::ImageRgb8(img.to_rgb8())
@@ -145,21 +141,15 @@ pub fn process(input: &[u8], max_pixels: u64) -> Result<Processed, Rejected> {
             img.write_with_encoder(enc)
         }
         Format::Png => {
-            let mut enc = PngEncoder::new_with_quality(
+            let enc = PngEncoder::new_with_quality(
                 &mut out,
                 CompressionType::Default,
                 FilterType::Adaptive,
             );
-            if let Some(icc) = icc {
-                let _ = enc.set_icc_profile(icc);
-            }
             img.write_with_encoder(enc)
         }
         Format::Webp => {
-            let mut enc = WebPEncoder::new_lossless(&mut out);
-            if let Some(icc) = icc {
-                let _ = enc.set_icc_profile(icc);
-            }
+            let enc = WebPEncoder::new_lossless(&mut out);
             let img = if img.color().has_alpha() {
                 DynamicImage::ImageRgba8(img.to_rgba8())
             } else {
@@ -222,7 +212,7 @@ fn gif(input: &[u8], max_pixels: u64) -> Result<Processed, Rejected> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{Rgb, RgbImage, Rgba, RgbaImage};
+    use image::{ImageEncoder as _, Rgb, RgbImage, Rgba, RgbaImage};
 
     fn encode(img: DynamicImage, format: ImageFormat) -> Vec<u8> {
         let mut out = Cursor::new(Vec::new());
@@ -345,5 +335,37 @@ mod tests {
         let out = process(&input, 1_000).unwrap();
         assert!(!out.bytes.windows(10).any(|w| w == b"GPS-MARKER"));
         assert!(!out.bytes.windows(4).any(|w| w == b"eXIf"));
+    }
+
+    #[test]
+    fn color_profiles_are_removed() {
+        // 任意のバイト列を色の情報として入れた画像
+        let marker = b"ICC-PROFILE-MARKER-0123456789".repeat(8);
+        let pixels = RgbImage::from_pixel(4, 4, Rgb([1, 2, 3]));
+        let mut input = Vec::new();
+        let mut enc = PngEncoder::new(&mut input);
+        enc.set_icc_profile(marker.clone()).unwrap();
+        DynamicImage::ImageRgb8(pixels)
+            .write_with_encoder(enc)
+            .unwrap();
+        let mut decoder = ImageReader::new(Cursor::new(&input))
+            .with_guessed_format()
+            .unwrap()
+            .into_decoder()
+            .unwrap();
+        assert_eq!(
+            decoder.icc_profile().unwrap().as_deref(),
+            Some(&marker[..]),
+            "control"
+        );
+
+        let out = process(&input, 1_000).unwrap();
+        let mut decoder = ImageReader::new(Cursor::new(&out.bytes))
+            .with_guessed_format()
+            .unwrap()
+            .into_decoder()
+            .unwrap();
+        assert_eq!(decoder.icc_profile().unwrap(), None);
+        assert!(!out.bytes.windows(4).any(|w| w == b"iCCP"));
     }
 }
