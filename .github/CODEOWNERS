@@ -12,6 +12,11 @@
 # 依存の追加には承認が必要（Q99）
 **/Cargo.toml           @izanagi389
 **/package.json         @izanagi389
+**/Cargo.lock           @izanagi389
+**/package-lock.json    @izanagi389
+
+# イメージのベースと、公式の Docker Compose の公開ポート
+/deploy/                @izanagi389
 
 # 依存のライセンス・取得元の方針（cargo-deny。13-security.md「依存ライブラリと配布物」）
 /deny.toml              @izanagi389
