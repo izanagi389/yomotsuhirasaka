@@ -615,6 +615,7 @@
       },
       "audit_export": {
         "stopped": "Audit log export stopped",
+        "removed": "Audit log destination removed from the config",
         "resumed": "Audit log export resumed"
       },
       "alert": {
