@@ -91,9 +91,9 @@ function onOpenChange(v: boolean) {
         <FormError :error="error" />
         <!-- SSOのセッション: パスキーか、IdPでのログインのし直し（Q108, Q131） -->
         <div v-if="!usesSecret" class="grid gap-2">
-          <p class="text-sm text-muted-foreground">{{ me.idpReauthAllowed ? t("reauth.ssoDescription") : t("reauth.ssoAdminDescription") }}</p>
+          <p class="text-sm text-muted-foreground">{{ me?.idpReauthAllowed ? t("reauth.ssoDescription") : t("reauth.ssoAdminDescription") }}</p>
           <Button type="button" :disabled="busy" @click="withPasskey">{{ t("auth.usePasskey") }}</Button>
-          <Button v-if="me.idpReauthAllowed" type="button" variant="outline" :disabled="busy" @click="withIdp">{{ t("reauth.withIdp") }}</Button>
+          <Button v-if="me?.idpReauthAllowed" type="button" variant="outline" :disabled="busy" @click="withIdp">{{ t("reauth.withIdp") }}</Button>
         </div>
         <div v-else class="grid gap-2">
           <Label for="reauth-secret">

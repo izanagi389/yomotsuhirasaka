@@ -264,10 +264,10 @@ pub async fn create(
     let draft = entries::draft(&mut tx, manifest, id)
         .await?
         .ok_or_else(ApiError::internal)?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
     if access.server_admin {
-        audit::record(
-            &state.pool,
+        workspace_db::audit(
+            &mut tx,
+            &db,
             Some(ws),
             Some(current.user_id),
             audit::action::ENTRY_CREATED,
@@ -275,6 +275,7 @@ pub async fn create(
         )
         .await?;
     }
+    tx.commit().await.map_err(anyhow::Error::from)?;
     schedule_after_save(&state, ct, ws, id, &locale).await;
     Ok((
         StatusCode::CREATED,
@@ -359,10 +360,10 @@ pub async fn save_draft(
     let draft = entries::draft(&mut tx, manifest, id)
         .await?
         .ok_or_else(ApiError::internal)?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
     if access.server_admin {
-        audit::record(
-            &state.pool,
+        workspace_db::audit(
+            &mut tx,
+            &db,
             Some(ws),
             Some(current.user_id),
             audit::action::ENTRY_DRAFT_SAVED,
@@ -370,6 +371,7 @@ pub async fn save_draft(
         )
         .await?;
     }
+    tx.commit().await.map_err(anyhow::Error::from)?;
     schedule_after_save(&state, ct, ws, id, &before.locale).await;
     Ok(Json(SavedDraft {
         draft,

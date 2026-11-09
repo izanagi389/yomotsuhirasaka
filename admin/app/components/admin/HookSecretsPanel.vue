@@ -38,7 +38,7 @@ async function save() {
 async function remove(secret: HookSecret) {
   actionError.value = null;
   try {
-    await api.delete(`${base.value}/${encodeURIComponent(secret.name)}`);
+    await api.del(`${base.value}/${encodeURIComponent(secret.name)}`);
     await refresh();
   } catch (e) {
     actionError.value = e;

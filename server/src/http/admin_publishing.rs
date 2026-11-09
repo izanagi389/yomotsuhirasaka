@@ -574,21 +574,22 @@ pub async fn erase(
         }
     };
     let entry = webhooks::entry_ref(&mut tx, id).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    notify_webhooks(&state, ws, &[EntryEvent::VersionErased], entry).await;
-    for file in &erased.deleted_files {
-        crate::media::store::remove_file(&state.config.media.root, ws, file).await?;
-    }
     let mut targets = vec![id, vid];
     targets.extend(&erased.deleted_media_ids);
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         action::VERSION_ERASED,
         &targets,
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    notify_webhooks(&state, ws, &[EntryEvent::VersionErased], entry).await;
+    for file in &erased.deleted_files {
+        crate::media::store::remove_file(&state.config.media.root, ws, file).await?;
+    }
     Ok(Json(erased))
 }
 

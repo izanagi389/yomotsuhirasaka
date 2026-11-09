@@ -61,10 +61,10 @@ pub async fn put_settings(
             ));
         }
     };
-    tx.commit().await.map_err(anyhow::Error::from)?;
     if change.enabled.is_some() || change.retention_days.is_some() {
-        audit::record_full(
-            &state.pool,
+        workspace_db::audit_full(
+            &mut tx,
+            &db,
             Some(ws),
             Some(current.user_id),
             action::QUESTION_LOG_SETTINGS_CHANGED,
@@ -76,6 +76,7 @@ pub async fn put_settings(
         )
         .await?;
     }
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(out))
 }
 
@@ -92,15 +93,16 @@ pub async fn view(
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     let out = log::view(&mut tx).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         action::QUESTION_LOG_VIEWED,
         &[],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(out))
 }
 

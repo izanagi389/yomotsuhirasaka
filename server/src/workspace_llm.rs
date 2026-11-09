@@ -480,15 +480,22 @@ pub async fn save(
         None => None,
     };
     let mut tx = pool.begin().await?;
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM yomi.workspace_llm WHERE workspace_id = $1)",
+    let current: Option<String> = sqlx::query_scalar(
+        "SELECT endpoint FROM yomi.workspace_llm WHERE workspace_id = $1 FOR UPDATE",
     )
     .bind(workspace)
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+    let exists = current.is_some();
     if !exists && sealed.is_none() {
         return Ok(Err(Rejected::Invalid(
             "`apiKey` is required the first time".to_owned(),
+        )));
+    }
+    // 保存済みのキーを、入れ直しなしで別の接続先へ送らない
+    if sealed.is_none() && current.is_some_and(|e| e != change.endpoint) {
+        return Ok(Err(Rejected::Invalid(
+            "`apiKey` is required when the endpoint changes".to_owned(),
         )));
     }
     // 新しい行には、キーが必ずある（上で確かめた）。既にある行は、キーを送らなければ保存してあるキーを使い続ける
@@ -525,6 +532,16 @@ pub async fn save(
         .bind(embedding_dimensions)
         .execute(&mut *tx)
         .await?;
+    crate::audit::record_full(
+        &mut *tx,
+        Some(workspace),
+        Some(user),
+        crate::audit::action::LLM_OVERRIDE_CHANGED,
+        &[],
+        false,
+        Some(&serde_json::json!({ "fields": change.fields() })),
+    )
+    .await?;
     tx.commit().await?;
     Ok(Ok(()))
 }

@@ -953,6 +953,7 @@ async fn prepare_database(config: &Config) -> Result<(sqlx::PgPool, sqlx::PgPool
         tracing::info!("applied migrations: {applied:?}");
     }
     migrate::apply_grants(&migration_pool, &app_role).await?;
+    migrate::set_audit_retention(&migration_pool, config.audit.retention_days).await?;
     yomi_server::workspace_db::upgrade_all(&migration_pool).await?;
     yomi_server::search::ensure_keyword_indexes(&migration_pool).await?;
     yomi_server::search::ensure_vector_indexes(&migration_pool, config).await?;

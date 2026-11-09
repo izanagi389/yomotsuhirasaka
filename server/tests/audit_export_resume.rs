@@ -139,7 +139,7 @@ async fn count_action(pool: &PgPool, action: &str) -> (i64, i64) {
 }
 
 async fn purge(pool: &PgPool) -> i64 {
-    sqlx::query_scalar("SELECT yomi.purge_audit_log(365)")
+    sqlx::query_scalar("SELECT yomi.purge_audit_log()")
         .fetch_one(pool)
         .await
         .unwrap()
