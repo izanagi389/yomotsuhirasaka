@@ -251,6 +251,21 @@ impl Grounds {
         numbers.iter().filter_map(|&n| self.source(n)).collect()
     }
 
+    /// LLMに渡した断片の記事（キャッシュの照合に使う）。
+    fn cache_grounds(&self) -> Vec<cache::Ground> {
+        self.fragments
+            .iter()
+            .filter_map(|f| {
+                let (_, version_id, _, _) = self.entries.get(&f.entry_id)?;
+                Some(cache::Ground {
+                    entry_id: f.entry_id,
+                    version_id: *version_id,
+                    locale: f.locale.clone(),
+                })
+            })
+            .collect()
+    }
+
     fn no_information(&self) -> Answer {
         Answer {
             status: Status::NoInformation,
@@ -516,7 +531,8 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
             if req.test.is_none()
                 && !violation
                 && (completed || checker.truncated())
-                && let Err(e) = remember(app, req, &cache_key, &answer).await
+                && let Err(e) =
+                    remember(app, req, &cache_key, &answer, &grounds.cache_grounds()).await
             {
                 tracing::warn!(workspace = %ws, "answer cache store failed: {e:#}");
             }
@@ -632,7 +648,13 @@ async fn cached(app: &AppState, req: &Request, key: &[u8]) -> Result<Option<cach
 }
 
 /// 回答を回答キャッシュに保存する。
-async fn remember(app: &AppState, req: &Request, key: &[u8], answer: &Answer) -> Result<()> {
+async fn remember(
+    app: &AppState,
+    req: &Request,
+    key: &[u8],
+    answer: &Answer,
+    grounds: &[cache::Ground],
+) -> Result<()> {
     let mut tx = workspace_db::begin_owned(&app.pool, &req.db).await?;
     cache::store(
         &mut tx,
@@ -640,6 +662,7 @@ async fn remember(app: &AppState, req: &Request, key: &[u8], answer: &Answer) ->
         &answer.text,
         answer.truncated,
         &answer.sources,
+        grounds,
     )
     .await?;
     tx.commit().await?;

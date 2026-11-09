@@ -6,11 +6,13 @@
 //!   試して当てられないよう、鍵付きにする。
 //! - 保存するのは、引用の照合を通った「回答できた」最終判定だけ（違反を検知したもの・「情報なし」・エラーは保存しない）。
 //! - 出典は、記事・版・ロケール・アンカー・パンくずだけを保存する。URLと鮮度は保存せず、返すときに今の状態から引く（Q39, Q45）。
-//! - 返す前に、出典ごとに今の状態と照合する（原則3）。1つでも合わなければ、消して作り直す（INV-QA-06, 07）。
+//! - LLMに渡したが引用しなかった断片の記事も、根拠として同じ行に保存する（`citation` が 0。応答には出さない）。
+//!   引用しなくても回答の内容に影響するので、非公開や訂正の照合の対象にする（原則3）。
+//! - 返す前に、出典と根拠のすべてを今の状態と照合する（原則3）。1つでも合わなければ、消して作り直す（INV-QA-06, 07）。
 //!   - 記事が削除されておらず、公開中の版がキャッシュの版と同じで、本文が抹消されておらず、チャットボットのスイッチが ON
 //!   - 既定のロケールへのフォールバックで使った出典なら、質問のロケールの見せてよい翻訳が今もない
 //!   - 確認期限が、キャッシュを作った時刻から今までの間に来ていない（期限をまたいだキャッシュは捨てる。INV-QA-09）
-//! - 版の本文を抹消したら、その版を引用したキャッシュを消す（[`forget_version`]、Q134）。
+//! - 版の本文を抹消したら、その版を引用した、または根拠にしたキャッシュを消す（[`forget_version`]、Q134）。
 //! - 寿命は [`TTL_HOURS`]。ワークスペースごとに [`MAX_ROWS`] 件まで（超えたら古いものから消す）。
 
 use anyhow::Result;
@@ -34,7 +36,10 @@ pub const MAX_ROWS: i64 = 10_000;
 pub const KEY_PURPOSE: &str = "answer-cache";
 /// プロンプトの組み立て方の版。プロンプトや検査を変えて、同じ質問でも回答が変わるときに上げる（設定のハッシュに入る）。
 /// 2: 出典に引用の番号（`citation`）を保存するようにした（それより前のキャッシュには番号がないので使わない）。
-const PROMPT_VERSION: &str = "answer-prompt-2";
+/// 3: 引用しなかった根拠も保存するようにした（それより前のキャッシュには根拠がないので使わない）。
+const PROMPT_VERSION: &str = "answer-prompt-3";
+/// 引用せずに根拠にしただけの記事の `citation`（引用の番号は1から）。
+const UNCITED: usize = 0;
 
 /// 質問文の正規化（空白をまとめて前後を切り、全角の英数字・記号・空白を半角にして、小文字にする）。
 /// 正規化は狭くとどめる（意味の違う質問が同じキャッシュに当たらないように）。
@@ -113,6 +118,14 @@ struct Cited {
     breadcrumb: Vec<String>,
 }
 
+/// LLMに渡した断片の記事（回答で引用したかどうかによらない）。
+#[derive(Debug, Clone)]
+pub struct Ground {
+    pub entry_id: Uuid,
+    pub version_id: Uuid,
+    pub locale: String,
+}
+
 /// キャッシュから返す回答（出典は今の状態で引いたもの）。
 pub struct Hit {
     pub text: String,
@@ -140,6 +153,7 @@ pub async fn lookup(
     let mut sources = Vec::with_capacity(cited.len());
     for c in cited {
         match current(conn, manifest, key, question_locale, c).await? {
+            Some(s) if s.citation == UNCITED => {}
             Some(s) => sources.push(s),
             None => {
                 sqlx::query("DELETE FROM answer_cache WHERE key = $1")
@@ -229,8 +243,9 @@ pub async fn store(
     text: &str,
     truncated: bool,
     sources: &[Source],
+    grounds: &[Ground],
 ) -> Result<()> {
-    let cited: Vec<Cited> = sources
+    let mut cited: Vec<Cited> = sources
         .iter()
         .map(|s| Cited {
             citation: s.citation,
@@ -241,6 +256,21 @@ pub async fn store(
             breadcrumb: s.breadcrumb.clone(),
         })
         .collect();
+    for g in grounds {
+        let known = cited
+            .iter()
+            .any(|c| c.entry_id == g.entry_id && c.locale == g.locale);
+        if !known {
+            cited.push(Cited {
+                citation: UNCITED,
+                entry_id: g.entry_id,
+                version_id: g.version_id,
+                locale: g.locale.clone(),
+                anchor: None,
+                breadcrumb: Vec::new(),
+            });
+        }
+    }
     sqlx::query(
         "INSERT INTO answer_cache (key, text, truncated, sources, expires_at)
          VALUES ($1, $2, $3, $4::jsonb, now() + make_interval(hours => $5))
@@ -264,7 +294,7 @@ pub async fn store(
     Ok(())
 }
 
-/// 版を引用したキャッシュを消す（版の本文を抹消したとき。Q134）。
+/// 版を引用した、または根拠にしたキャッシュを消す（版の本文を抹消したとき。Q134）。
 pub async fn forget_version(conn: &mut PgConnection, version_id: Uuid) -> Result<()> {
     sqlx::query(
         "DELETE FROM answer_cache WHERE sources @> jsonb_build_array(jsonb_build_object('versionId', $1::text))",
