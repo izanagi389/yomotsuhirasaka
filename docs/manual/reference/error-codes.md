@@ -64,6 +64,8 @@
 | `persisted_query_not_found` | 400 | その ID のクエリは登録されていません |
 | `batch_not_supported` | 400 | 1回のリクエストで送れるクエリは1つです |
 | `invalid_query` | 422 | クエリが正しくないか、深さや複雑さの上限を超えています |
+| `query_limit_reached` | 409 | 登録クエリの数の上限です |
+| `query_registration_rate_limited` | 429 | クエリの新規登録が多すぎます。少し待つと続きを登録できます |
 | `response_too_large` | 422 | 応答が大きさの上限を超えました |
 | `invalid_preview_token` | 401 | プレビュー用トークンが無効か、期限切れです |
 | `rate_limited` | 429 | 回数の制限です。`Retry-After` の秒数の後に送ります |
@@ -94,6 +96,8 @@
 |---|---|---|
 | `invalid_request` | 400 | リクエストが正しくありません |
 | `invalid_entry` | 422 | 記事の内容に受け付けられない部分があります |
+| `admin_rate_limited` | 429 | 管理 API へのリクエストが多すぎます。少し待ってやり直します |
+| `entry_limit_reached` | 409 | ワークスペースの記事の数の上限です |
 | `revision_conflict` | 409 | 他の人が先に保存しました。読み直してからやり直します |
 | `entry_locked` | 423 | 他の人が編集中です。引き継いでから保存します |
 | `lock_lost` | 409 | 編集が引き継がれたか、期限が切れました |

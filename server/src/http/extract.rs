@@ -7,10 +7,13 @@ use axum::extract::{ConnectInfo, FromRequest, FromRequestParts, Request};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, Method, header};
 use serde::de::DeserializeOwned;
+use uuid::Uuid;
 
 use super::AppState;
 use super::error::ApiError;
+use crate::access;
 use crate::auth::{personal_tokens, session};
+use crate::delivery::limiter::Subject;
 
 /// セッションのCookieの名前。`__Host-` の接頭辞により、Secure・Path=/・Domainなしでしか設定できない（Q91）。
 pub const SESSION_COOKIE: &str = "__Host-yomi_session";
@@ -53,7 +56,59 @@ pub struct AuthSession(pub session::Current);
 /// 多要素認証の設定に必要な操作（本人の情報の確認、多要素認証の設定、再認証、ログアウト）にだけ使う（INV-AUTH-25）。
 pub struct AuthSessionForMfaSetup(pub session::Current);
 
+/// パスの中のワークスペースのID（`workspaces/{ws}/...` のとき）。
+fn workspace_in_path(path: &str) -> Option<Uuid> {
+    let mut segments = path.split('/').skip_while(|s| *s != "workspaces");
+    segments.next()?;
+    Uuid::try_parse(segments.next()?).ok()
+}
+
+fn rate_limited(retry: u64) -> ApiError {
+    ApiError::too_many(
+        "admin_rate_limited",
+        "Too many requests. Try again later.",
+        retry,
+    )
+}
+
+/// 管理APIの回数を数える（13-security.md「ワークスペースごとの上限」）。認証を通った後に数えるので、他人の枠は使えない。
+/// ワークスペースの回数は、所属する人のリクエストだけを数える（所属しない人が、よそのワークスペースの枠を使い切れないように）。
+async fn check_admin_rate(
+    parts: &Parts,
+    state: &AppState,
+    current: &session::Current,
+) -> Result<(), ApiError> {
+    let limits = &state.config.limits;
+    state
+        .delivery_limiter
+        .check(
+            Subject::AdminUser(current.user_id),
+            limits.admin_requests_per_user_per_minute,
+        )
+        .map_err(rate_limited)?;
+    if let Some(ws) = workspace_in_path(parts.uri.path())
+        && access::role_in(&state.pool, ws, current.user_id)
+            .await?
+            .is_some()
+    {
+        state
+            .delivery_limiter
+            .check(
+                Subject::AdminWorkspace(ws),
+                limits.admin_requests_per_workspace_per_minute,
+            )
+            .map_err(rate_limited)?;
+    }
+    Ok(())
+}
+
 async fn authenticate(parts: &mut Parts, state: &AppState) -> Result<session::Current, ApiError> {
+    let current = identify(parts, state).await?;
+    check_admin_rate(parts, state, &current).await?;
+    Ok(current)
+}
+
+async fn identify(parts: &mut Parts, state: &AppState) -> Result<session::Current, ApiError> {
     // Bearerトークンの経路ではCookieを読まない。Cookieの経路では必ずCSRFトークンを求める（Q110）
     if let Some(value) = parts.headers.get(header::AUTHORIZATION) {
         let presented = value
@@ -268,5 +323,21 @@ mod tests {
         assert!(check_origin(&headers(&[("origin", o)]), o).is_ok());
         assert!(check_origin(&headers(&[("origin", "https://evil.example")]), o).is_err());
         assert!(check_origin(&headers(&[("origin", "null")]), o).is_err());
+    }
+}
+
+#[cfg(test)]
+mod workspace_path_tests {
+    use super::*;
+
+    #[test]
+    fn finds_the_workspace_in_a_path() {
+        let id = Uuid::new_v4();
+        let found = |p: String| workspace_in_path(&p);
+        assert_eq!(found(format!("/workspaces/{id}/entries")), Some(id));
+        assert_eq!(found(format!("/api/admin/workspaces/{id}")), Some(id));
+        assert_eq!(found("/workspaces".to_owned()), None);
+        assert_eq!(found("/workspaces/x/entries".to_owned()), None);
+        assert_eq!(found("/me".to_owned()), None);
     }
 }

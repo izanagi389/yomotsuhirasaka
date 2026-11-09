@@ -42,6 +42,12 @@ pub enum Subject {
         workspace: Uuid,
         user: Uuid,
     },
+    /// 管理APIの利用者ごとの回数（1分あたり）。
+    AdminUser(Uuid),
+    /// 管理APIのワークスペースごとの回数（1分あたり）。
+    AdminWorkspace(Uuid),
+    /// クエリの新規登録の回数（1分あたり）。
+    QueryRegistration(Uuid),
     /// 訪問者ごとの回答の回数（`day` なら1日あたり、でなければ1分あたり）。`visitor` は識別子のハッシュ。
     Visitor {
         workspace: Uuid,
