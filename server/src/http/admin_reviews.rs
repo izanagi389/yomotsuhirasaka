@@ -32,7 +32,7 @@ use super::admin_publishing::publisher;
 use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::access::{Access, Role};
-use crate::audit::{self, action};
+use crate::audit::action;
 use crate::auth::session::Current;
 use crate::content::entries::{self, Summary};
 use crate::content::reviews::{self, Refused, Request, State as ReviewState};
@@ -313,15 +313,16 @@ pub async fn create_review(
             ));
         }
     };
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         action::REVIEW_REQUESTED,
         &[id, created.id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok((
         StatusCode::CREATED,
         Json(entry_review(&state, ws, &current, id).await?),
@@ -368,15 +369,16 @@ pub async fn change_reviewer(
     let changed = reviews::set_reviewer(&mut tx, id, req.reviewer_id)
         .await?
         .ok_or_else(no_open_review)?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         action::REVIEW_REVIEWER_CHANGED,
         &[id, changed.id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(entry_review(&state, ws, &current, id).await?))
 }
 
@@ -449,15 +451,16 @@ async fn close(
     let closed = reviews::close(&mut tx, id, to, current.user_id, comment)
         .await?
         .ok_or_else(no_open_review)?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         act,
         &[id, closed.id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(entry_review(state, ws, current, id).await?))
 }
 

@@ -525,6 +525,16 @@ pub async fn save(
         .bind(embedding_dimensions)
         .execute(&mut *tx)
         .await?;
+    crate::audit::record_full(
+        &mut *tx,
+        Some(workspace),
+        Some(user),
+        crate::audit::action::LLM_OVERRIDE_CHANGED,
+        &[],
+        false,
+        Some(&serde_json::json!({ "fields": change.fields() })),
+    )
+    .await?;
     tx.commit().await?;
     Ok(Ok(()))
 }

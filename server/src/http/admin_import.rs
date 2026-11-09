@@ -20,7 +20,7 @@ use super::admin_entries::{db, invalid, parse, reader, writable};
 use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Role};
-use crate::audit::{self, action};
+use crate::audit::action;
 use crate::content::import::{self, Failed, Imported, Item};
 use crate::content::publishing::{Refused, Scripts};
 use crate::script::Host;
@@ -127,17 +127,18 @@ pub async fn import(
     for i in &imported {
         refs.push(webhooks::entry_ref(&mut tx, i.id).await?);
     }
-    tx.commit().await.map_err(anyhow::Error::from)?;
-
     let ids: Vec<uuid::Uuid> = imported.iter().map(|i| i.id).collect();
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         action::ENTRIES_IMPORTED,
         &ids,
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+
     for entry in refs.into_iter().flatten() {
         if let Err(e) = webhooks::emit(
             &state.pool,

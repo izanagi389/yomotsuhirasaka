@@ -61,10 +61,10 @@ pub async fn put_settings(
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     let before = settings::get(&mut tx).await?;
     settings::set(&mut tx, req).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
     if before != req {
-        audit::record_full(
-            &state.pool,
+        workspace_db::audit_full(
+            &mut tx,
+            &db,
             Some(ws),
             Some(current.user_id),
             action::ASSIST_SETTINGS_CHANGED,
@@ -74,6 +74,7 @@ pub async fn put_settings(
         )
         .await?;
     }
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(req))
 }
 

@@ -24,7 +24,7 @@ use super::error::ApiError;
 use super::extract::AuthSession;
 use super::realtime::{self, Event};
 use crate::access::{self, Permission};
-use crate::audit::{self, action};
+use crate::audit::action;
 use crate::auth::session::Current;
 use crate::content::locks::{self, Lock, Refused};
 use crate::workspace_db;
@@ -186,10 +186,10 @@ pub async fn take_over(
     let (lock, previous) = locks::take_over(&mut tx, id, current.user_id, current.id)
         .await?
         .ok_or_else(ApiError::not_found)?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
     if let Some(previous) = previous.filter(|p| p.user_id != current.user_id) {
-        audit::record(
-            &state.pool,
+        workspace_db::audit(
+            &mut tx,
+            &db,
             Some(ws),
             Some(current.user_id),
             action::EDIT_TAKEN_OVER,
@@ -197,6 +197,7 @@ pub async fn take_over(
         )
         .await?;
     }
+    tx.commit().await.map_err(anyhow::Error::from)?;
     changed(&state, ws, id).await;
     Ok(Json(acquired(&lock)))
 }

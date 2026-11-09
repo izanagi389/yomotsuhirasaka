@@ -218,19 +218,20 @@ pub async fn put(
         .collect::<Vec<_>>()
         != before;
     let entry = webhooks::entry_ref(&mut tx, id).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    if changed && let Some(entry) = entry {
-        webhooks::emit_related_changed(&state.pool, &state.keys, ws, &[entry]).await?;
-    }
     if access.server_admin {
-        audit::record(
-            &state.pool,
+        workspace_db::audit(
+            &mut tx,
+            &db,
             Some(ws),
             Some(current.user_id),
             action::ENTRY_RELATED_CHANGED,
             &[id],
         )
         .await?;
+    }
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    if changed && let Some(entry) = entry {
+        webhooks::emit_related_changed(&state.pool, &state.keys, ws, &[entry]).await?;
     }
     Ok(Json(settings))
 }

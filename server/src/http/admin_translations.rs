@@ -157,15 +157,16 @@ pub async fn mark_reflected(
         Err(ReflectRefused::NotFound) => return Err(ApiError::not_found()),
         Err(ReflectRefused::NoSource) => return Err(no_source()),
     }
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         audit::action::TRANSLATION_SOURCE_REFLECTED,
         &[id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -195,14 +196,15 @@ pub async fn set_source(
             ]));
         }
     }
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         audit::action::TRANSLATION_SOURCE_CHANGED,
         &[id, req.source_entry_id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }

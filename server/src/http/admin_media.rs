@@ -305,11 +305,10 @@ pub async fn delete(
     let file = store::mark_deleted(&mut tx, id)
         .await?
         .ok_or_else(ApiError::not_found)?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    store::remove_file(&state.config.media.root, ws, &file).await?;
     if access.server_admin {
-        audit::record(
-            &state.pool,
+        workspace_db::audit(
+            &mut tx,
+            &db,
             Some(ws),
             Some(current.user_id),
             action::MEDIA_DELETED,
@@ -317,6 +316,8 @@ pub async fn delete(
         )
         .await?;
     }
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    store::remove_file(&state.config.media.root, ws, &file).await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 

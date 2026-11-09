@@ -138,16 +138,6 @@ pub async fn put(
             ));
         }
     }
-    audit::record_full(
-        &state.pool,
-        Some(ws),
-        Some(current.user_id),
-        action::LLM_OVERRIDE_CHANGED,
-        &[],
-        false,
-        Some(&serde_json::json!({ "fields": change.fields() })),
-    )
-    .await?;
     Ok(Json(llm_view(&state, ws).await?))
 }
 
