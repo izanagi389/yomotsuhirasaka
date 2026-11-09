@@ -264,7 +264,7 @@ pub async fn run(
     if script.permissions.contains(&Permission::HttpFetch)
         && let Some(egress) = egress
     {
-        host = host.with_fetch(egress.clone(), &script.allowed_hosts);
+        host = host.with_fetch(egress.for_workspace_destinations(), &script.allowed_hosts);
     }
     let input = json!({ "event": job.event, "entry": entry });
     Ok(match engine.after(script, host, &input).await {
