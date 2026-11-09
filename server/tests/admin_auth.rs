@@ -594,3 +594,89 @@ async fn me_reports_remaining_reauth_time() {
     })
     .await;
 }
+
+/// 他の場所からの失敗が続いても、前にログインした端末からは入れる。その端末の失敗は端末ごとに数える（R9）。
+#[tokio::test]
+async fn known_devices_are_not_locked_out_by_failures_elsewhere() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        create_user(&server.pool, "bob@example.test", false).await;
+        let attempt = |password: &'static str, ip: &'static str, cookie: Option<String>| {
+            let server = &server;
+            async move {
+                let body = serde_json::json!({"email": "bob@example.test", "password": password})
+                    .to_string();
+                let cookie_header = cookie.map(|c| format!("__Host-yomi_device={c}"));
+                let mut headers = vec![("X-Forwarded-For", ip)];
+                if let Some(c) = cookie_header.as_deref() {
+                    headers.push(("Cookie", c));
+                }
+                request(server, "POST", "/api/admin/session", &headers, Some(&body)).await
+            }
+        };
+        const WRONG: &str = "wrong-password-for-the-test";
+        // 端末のCookieを受け取る
+        let first = attempt(PASSWORD, "198.18.3.1", None).await;
+        assert_eq!(first.status, 200, "{}", first.body);
+        let device = first
+            .set_cookies()
+            .iter()
+            .find_map(|c| c.strip_prefix("__Host-yomi_device="))
+            .and_then(|c| c.split(';').next())
+            .unwrap()
+            .to_owned();
+
+        // 他の場所からの失敗で、アカウントは待ち時間に入る
+        for _ in 0..6 {
+            assert_eq!(attempt(WRONG, "198.18.3.2", None).await.status, 401);
+        }
+        assert_eq!(
+            attempt(PASSWORD, "198.18.3.3", None).await.status,
+            401,
+            "new devices stay blocked"
+        );
+        // 形だけ正しい別の値では、知っている端末にならない
+        assert_eq!(
+            attempt(PASSWORD, "198.18.3.3", Some("a".repeat(43)))
+                .await
+                .status,
+            401
+        );
+        // 知っている端末は入れる
+        assert_eq!(
+            attempt(PASSWORD, "198.18.3.4", Some(device.clone()))
+                .await
+                .status,
+            200
+        );
+        // 知っている端末からのログインでは、アカウントの待ち時間は消えない
+        assert_eq!(attempt(PASSWORD, "198.18.3.3", None).await.status, 401);
+
+        // 端末のCookieを盗まれても、その端末の失敗で止まる（総当たりに使えない）
+        for _ in 0..6 {
+            assert_eq!(
+                attempt(WRONG, "198.18.3.5", Some(device.clone()))
+                    .await
+                    .status,
+                401
+            );
+        }
+        assert_eq!(
+            attempt(PASSWORD, "198.18.3.5", Some(device.clone()))
+                .await
+                .status,
+            401
+        );
+        let account_failures: i32 = sqlx::query_scalar(
+            "SELECT failed_login_count FROM yomi.users WHERE email = 'bob@example.test'",
+        )
+        .fetch_one(&server.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            account_failures, 5,
+            "failures from a known device are not counted on the account"
+        );
+    })
+    .await;
+}
