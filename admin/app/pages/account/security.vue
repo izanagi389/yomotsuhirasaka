@@ -104,6 +104,16 @@ async function linkIdentity() {
   }
 }
 
+async function unlinkIdentity(id: string) {
+  error.value = null;
+  try {
+    await api.del(`/me/identities/${encodeURIComponent(id)}`);
+    await loadIdentities();
+  } catch (e) {
+    error.value = e;
+  }
+}
+
 // --- 復旧コード ---
 async function regenerateCodes() {
   error.value = null;
@@ -215,6 +225,7 @@ onMounted(() => {
           <li v-for="i in identities" :key="i.id" class="flex flex-wrap justify-between gap-2">
             <span class="break-all">{{ i.issuer }}</span>
             <span class="text-muted-foreground">{{ t("security.identityLinkedAt", { at: formatDateTime(i.linkedAt, locale) }) }}</span>
+            <Button variant="outline" size="sm" @click="unlinkIdentity(i.id)">{{ t("security.identityUnlink") }}</Button>
           </li>
         </ul>
         <Button v-else variant="outline" class="justify-self-start" @click="linkIdentity">

@@ -57,8 +57,18 @@ docker compose exec yomi yomi-server reset-password --config /data/config.toml -
 docker compose exec yomi yomi-server reset-mfa --config /data/config.toml --email you@example.com
 ```
 
+どちらのコマンドも、その人のセッションと個人トークンをすべて失効させ、外部のアカウントのひも付けも消します（乗っ取られたときに、攻撃者が作ったものを残さないためです。SSO を使う人は、ログインし直してひも付け直してください）。
+
+1人だけログインできないようにする（退職者や、乗っ取られた疑いのある人。セッションと個人トークンもすべて失効します）:
+
+```bash
+docker compose exec yomi yomi-server disable-user --config /data/config.toml --email someone@example.com
+```
+
+元に戻すときは `enable-user` です。
+
 サーバー管理者は2人以上置くことを勧めます。追加も `create-server-admin` で行います。
 
 ## 全員への多要素認証の必須
 
-既定で有効です（`[auth] mfa_required_for_everyone`）。無効にすると、管理者以外のロールは任意になり、ワークスペースの管理者が「このワークスペースでは全員に必須」を選べます。**有効のままにすることを勧めます。** よく使われるパスワードの一覧は同梱していないので、漏えいしたパスワードへの備えは、これと [漏えいしたパスワードの照会](config.md#漏えいしたパスワードの照会authbreached_passwords) が担います。
+既定で有効です（`[auth] mfa_required_for_everyone`）。無効にすると、管理者以外のロールは任意になります。**有効のままにすることを勧めます。** よく使われるパスワードの一覧は同梱していないので、漏えいしたパスワードへの備えは、これと [漏えいしたパスワードの照会](config.md#漏えいしたパスワードの照会authbreached_passwords) が担います。

@@ -243,7 +243,7 @@ pub fn acts_as_server_admin(current: &Current) -> bool {
     current.is_server_admin && !current.via_token()
 }
 
-/// 所属者（どのロールでも）かサーバー管理者なら通す。
+/// 所属者（どのロールでも）かサーバー管理者なら通す。管理者とサーバー管理者には多要素認証も求める。
 pub async fn member(
     pool: &PgPool,
     current: &Current,
@@ -262,6 +262,12 @@ pub async fn member(
     let role = found.map(|(r, _)| r);
     if role.is_none() && !acts_as_server_admin(current) {
         return Ok(Err(Denied::NotFound));
+    }
+    // 管理者とサーバー管理者は、多要素認証を満たさなければワークスペースの何も操作できない（INV-AUTH-05）
+    if (role == Some(Role::Admin) || acts_as_server_admin(current))
+        && !current.admin_mfa_satisfied()
+    {
+        return Ok(Err(Denied::MfaRequired));
     }
     Ok(Ok(Access {
         workspace_id,

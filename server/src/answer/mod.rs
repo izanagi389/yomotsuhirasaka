@@ -660,7 +660,7 @@ async fn grounds(app: &AppState, req: &Request, masked: &str) -> Result<Grounds>
     let setup =
         crate::workspace_llm::embedding(&app.pool, &app.keys, &app.config, req.workspace_id)
             .await?;
-    let mut tx = workspace_db::begin_owned(&app.pool, &req.db).await?;
+    let tx = workspace_db::begin_owned(&app.pool, &req.db).await?;
     let services = search::Services {
         pool: &app.pool,
         config: &app.config,
@@ -668,15 +668,17 @@ async fn grounds(app: &AppState, req: &Request, masked: &str) -> Result<Grounds>
         egress: app.egress.as_ref(),
         cache: &app.search_cache,
     };
+    let (mut tx, vector) =
+        search::query_embedding(&services, &req.db, tx, req.workspace_id, masked).await?;
     let fragments = search::fragments(
         &services,
         &mut tx,
-        req.workspace_id,
         &req.manifest,
         masked,
         &req.locale,
         FRAGMENTS,
         MIN_SIMILARITY,
+        vector?,
     )
     .await?;
     let mut entries = HashMap::new();

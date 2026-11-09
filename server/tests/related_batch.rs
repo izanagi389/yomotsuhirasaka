@@ -167,6 +167,7 @@ async fn admins_can_start_a_recomputation_now() {
             add_member(&server, ws, email, role).await;
         }
         let admin = login(&server, "admin@example.test", PASSWORD).await;
+        enroll(&server, &admin).await;
         let editor = login(&server, "editor@example.test", PASSWORD).await;
         let path = format!("/api/admin/workspaces/{ws}/related/recompute");
         let audits = || async {

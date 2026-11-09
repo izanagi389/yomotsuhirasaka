@@ -2,6 +2,9 @@
 //!
 //! - アカウント単位: 失敗が続くと、次に試せるまでの待ち時間を段階的に延ばす（上限15分。完全なロックにはしない）。
 //!   状態はDB（`yomi.users`）に持つ。待ち時間中は、正しいパスワードでもログインできない。
+//! - 本人確認の2段目（多要素認証のコードと再認証）の失敗は、パスワードの失敗とは別に数える。
+//!   パスワードの成功で消えると、パスワードを知っている人がコードを総当たりできるため。
+//!   また、パスワードを知らない人の失敗で、ログイン中の人の再認証が止まらないようにするため。
 //! - IPアドレス単位: 1分あたりの試行の回数を制限する。状態はプロセスのメモリに持つ。
 
 use std::collections::HashMap;
@@ -54,6 +57,39 @@ pub async fn record_success(pool: &PgPool, user_id: Uuid) -> Result<()> {
     Ok(())
 }
 
+/// 2段目の失敗を記録し、必要なら待ち時間を設定する（数え方はパスワードと同じ）。
+pub async fn record_second_factor_failure(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE yomi.users SET
+            second_factor_failed_count = second_factor_failed_count + 1,
+            second_factor_blocked_until = CASE
+                WHEN second_factor_failed_count + 1 >= $2
+                THEN now() + make_interval(secs => LEAST($4, $3 * power(2::float8, LEAST(second_factor_failed_count + 1 - $2, 30)::float8)))
+                ELSE second_factor_blocked_until
+            END
+         WHERE id = $1",
+    )
+    .bind(user_id)
+    .bind(FREE_FAILURES)
+    .bind(BASE_DELAY_SECONDS)
+    .bind(MAX_DELAY_SECONDS)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// 2段目に成功したら、2段目の失敗の記録を消す。
+pub async fn record_second_factor_success(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE yomi.users SET second_factor_failed_count = 0, second_factor_blocked_until = NULL
+         WHERE id = $1 AND (second_factor_failed_count <> 0 OR second_factor_blocked_until IS NOT NULL)",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// IPアドレスごとの、1分あたりの回数の制限。
 pub struct IpLimiter {
     per_window: u32,
@@ -71,6 +107,15 @@ impl IpLimiter {
             window: Duration::from_secs(60),
             state: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// すでに上限に達しているか（数えない）。
+    pub fn exceeded(&self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.get(&limit_key(ip)).is_some_and(|(start, count)| {
+            now.duration_since(*start) < self.window && *count >= self.per_window
+        })
     }
 
     /// 1回の試行を数える。上限を超えていれば、次に試せるまでの秒数を返す。

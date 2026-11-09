@@ -51,6 +51,13 @@
 
 ## 回数の制限（`[limits]`）
 
+| 項目 | 既定 | 意味 |
+|---|---|---|
+| `invalid_api_keys_per_ip_per_minute` | 600 | 接続元ごとの、無効な配信 API のキーの上限 |
+| `request_timeout_seconds` | 120 | リクエストの処理時間（本文の読み込みを含みます。デプロイと取り込みは除きます）。超えると `request_timeout`（503） |
+| `max_concurrent_requests` | 2048 | 同時に処理するリクエストの数。超えると `server_busy`（503） |
+
+
 | 項目 | 既定 | 内容 |
 |---|---|---|
 | `login_attempts_per_ip_per_minute` | 30 | IP アドレス（IPv6 は /64）ごとの、1分あたりのログインの試行 |
@@ -138,6 +145,15 @@ SMTP を設定しないと、次のようになります。
 下書きや非公開の記事で使っているメディアも、URL を知っていれば取得できます。名前はランダムで推測できません。メディアを削除するとファイルも消えます。
 
 ## 配信API（`[delivery]`）
+
+クエリの実行には次の上限があります。超えると、`query_timeout`（503）、`query_too_large`（422）、`delivery_busy`（503）を返します。
+
+| 項目 | 既定 | 意味 |
+|---|---|---|
+| `max_query_seconds` | 15 | 1回のクエリの実行時間 |
+| `max_resolved_entries` | 10000 | 1回のクエリで解決する記事の数 |
+| `max_concurrent_queries_per_workspace` | 6 | ワークスペースごとの同時に実行するクエリの数 |
+| `max_concurrent_queries` | 12 | インスタンス全体の同時に実行するクエリの数（DB の接続は全体で16本です） |
 
 | 項目 | 既定 | 内容 |
 |---|---|---|

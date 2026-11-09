@@ -26,7 +26,13 @@
 //! | GET | /ws/{ws}/preview | プレビュー用トークンの確認（`read` の範囲のキーとトークン）。対象の記事・下書きのURL・有効期限 |
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
+
+use tokio::sync::OwnedSemaphorePermit;
+
+use super::extract::ClientIp;
 
 use async_graphql::dynamic::Schema;
 use axum::Json;
@@ -120,14 +126,25 @@ fn denied(d: Denied) -> ApiError {
 /// キーを照合し、回数制限を数える。`scopes` のどれかを持つキーだけを通す（呼ぶ側が、操作に要るものを確かめる）。
 async fn authenticate(
     state: &AppState,
+    ip: IpAddr,
     headers: &HeaderMap,
     ws: &str,
     scopes: &[&str],
 ) -> Result<(Uuid, Grant), ApiError> {
     let ws = Uuid::parse_str(ws).map_err(|_| ApiError::not_found())?;
-    let grant = api_keys::authenticate_any(&state.pool, bearer(headers), ws, scopes)
-        .await?
-        .map_err(denied)?;
+    // 無効なキーを送り続ける接続元は、DBに問い合わせる前に断る
+    if state.invalid_key_limiter.exceeded(ip) {
+        return Err(ApiError::rate_limited(60));
+    }
+    let grant = match api_keys::authenticate_any(&state.pool, bearer(headers), ws, scopes).await? {
+        Ok(grant) => grant,
+        Err(d) => {
+            if matches!(d, Denied::Invalid) {
+                let _ = state.invalid_key_limiter.check(ip);
+            }
+            return Err(denied(d));
+        }
+    };
     // 回数制限（INV-GQL-03）。用途で、キーの上限の既定値を分ける（Q153）
     let c = &state.config.delivery;
     let key_limit = if grant.purpose == "server" {
@@ -147,6 +164,35 @@ fn shared_cacheable(state: &AppState, grant: &Grant) -> bool {
     state.config.delivery.shared_cache
         && grant.has_scope("read")
         && grant.scopes.iter().all(|s| s == "read")
+}
+
+/// クエリの実行枠を取る。少しの間だけ待ち、空かなければ断る。
+async fn query_slots(
+    state: &AppState,
+    ws: Uuid,
+) -> Result<(OwnedSemaphorePermit, OwnedSemaphorePermit), ApiError> {
+    let per_workspace = state.query_slots.for_workspace(
+        ws,
+        state.config.delivery.max_concurrent_queries_per_workspace,
+    );
+    let total = state.query_slots.total.clone();
+    let busy = || {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "delivery_busy",
+            "Too many queries are running. Try again shortly.",
+        )
+    };
+    let wait = Duration::from_secs(QUERY_SLOT_WAIT_SECONDS);
+    let acquire = async {
+        let a = per_workspace.acquire_owned().await?;
+        let b = total.acquire_owned().await?;
+        Ok::<_, tokio::sync::AcquireError>((a, b))
+    };
+    tokio::time::timeout(wait, acquire)
+        .await
+        .map_err(|_| busy())?
+        .map_err(|_| busy())
 }
 
 /// ワークスペースに適用済みのスキーマ。
@@ -192,11 +238,12 @@ pub struct Registered {
 
 pub async fn register(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Path(ws): Path<String>,
     headers: HeaderMap,
     body: Result<Json<Register>, axum::extract::rejection::JsonRejection>,
 ) -> Result<(StatusCode, Json<Registered>), ApiError> {
-    let (ws, grant) = authenticate(&state, &headers, &ws, &["register"]).await?;
+    let (ws, grant) = authenticate(&state, ip, &headers, &ws, &["register"]).await?;
     let Json(req) =
         body.map_err(|_| ApiError::bad_request("Send `{\"query\": \"...\"}` as JSON."))?;
     let db = workspace_db::lookup(&state.pool, ws)
@@ -241,6 +288,9 @@ pub async fn register(
     Ok((StatusCode::CREATED, Json(Registered { id })))
 }
 
+/// クエリの実行枠が空くのを待つ時間（秒）。
+const QUERY_SLOT_WAIT_SECONDS: u64 = 5;
+
 /// 実行するもの。
 struct Execute {
     id: Option<String>,
@@ -260,6 +310,7 @@ fn batch_refused() -> ApiError {
 
 pub async fn get(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Path(ws): Path<String>,
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
@@ -273,6 +324,7 @@ pub async fn get(
     };
     execute(
         &state,
+        ip,
         &ws,
         &headers,
         Execute {
@@ -287,6 +339,7 @@ pub async fn get(
 
 pub async fn post(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Path(ws): Path<String>,
     headers: HeaderMap,
     body: Result<Json<Value>, axum::extract::rejection::JsonRejection>,
@@ -303,6 +356,7 @@ pub async fn post(
     };
     execute(
         &state,
+        ip,
         &ws,
         &headers,
         Execute {
@@ -317,11 +371,12 @@ pub async fn post(
 
 async fn execute(
     state: &AppState,
+    ip: IpAddr,
     ws: &str,
     headers: &HeaderMap,
     req: Execute,
 ) -> Result<Response, ApiError> {
-    let (ws, grant) = authenticate(state, headers, ws, &["read", "answer"]).await?;
+    let (ws, grant) = authenticate(state, ip, headers, ws, &["read", "answer"]).await?;
     let db = workspace_db::lookup(&state.pool, ws)
         .await?
         .ok_or_else(ApiError::not_found)?;
@@ -404,6 +459,12 @@ async fn execute(
         None => None,
     };
     let previewing = preview.is_some();
+    // 同時に実行するクエリの数を抑える（接続のプールは全体で共有。1つのワークスペースや配信だけで使い切らせない）
+    let _slots = if reading {
+        Some(query_slots(state, ws).await?)
+    } else {
+        None
+    };
     // 回答だけの文では、リクエストのトランザクションを開かない（回答は自分の短いトランザクションで読む。LLMを待つ間、
     // DBの接続を持ち続けないため）
     let tx = if reading {
@@ -417,13 +478,31 @@ async fn execute(
         media_base: super::admin_media::media_base(state),
         preview,
         app: Some(state.clone()),
+        db: Some(db.clone()),
+        resolved: Default::default(),
+        max_resolved: state.config.delivery.max_resolved_entries,
     });
     let request = async_graphql::Request::new(query)
         .variables(async_graphql::Variables::from_json(variables))
         .data(data.clone());
-    let response = schema.execute(request).await;
+    // 全体の時間の上限。切れたらトランザクションは捨てる（接続は戻る）
+    let limit = Duration::from_secs(state.config.delivery.max_query_seconds);
+    let Ok(response) = tokio::time::timeout(limit, schema.execute(request)).await else {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "query_timeout",
+            "The query took too long.",
+        ));
+    };
     if let Some(tx) = data.tx.lock().await.take() {
         tx.rollback().await.map_err(anyhow::Error::from)?;
+    }
+    if data.over_limit() {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "query_too_large",
+            "The query resolves too many entries. Lower the list limits or the depth of references.",
+        ));
     }
     let body = serde_json::to_vec(&response).map_err(anyhow::Error::from)?;
     // 応答の大きさの上限。途中まで返すことはしない
@@ -516,6 +595,9 @@ fn answer_stream(
         media_base: super::admin_media::media_base(state),
         preview: None,
         app: Some(state.clone()),
+        db: None,
+        resolved: Default::default(),
+        max_resolved: usize::MAX,
     });
     let request = async_graphql::Request::new(query)
         .variables(async_graphql::Variables::from_json(variables))
@@ -562,10 +644,11 @@ pub struct PreviewInfo {
 /// プレビュー用トークンの確認（サイトのプレビュー用ルートが、クッキーに替える前に呼ぶ）。
 pub async fn preview_info(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Path(ws): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let (ws, _) = authenticate(&state, &headers, &ws, &["read"]).await?;
+    let (ws, _) = authenticate(&state, ip, &headers, &ws, &["read"]).await?;
     let db = workspace_db::lookup(&state.pool, ws)
         .await?
         .ok_or_else(ApiError::not_found)?;

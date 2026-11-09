@@ -210,6 +210,7 @@ async fn publish_settings_are_saved_and_announced() {
             add_member(&server, ws, email, role).await;
         }
         let admin = login(&server, "admin@example.test", PASSWORD).await;
+        enroll(&server, &admin).await;
         let editor = login(&server, "editor@example.test", PASSWORD).await;
         let author = login(&server, "author@example.test", PASSWORD).await;
         let (port, seen) = receiver().await;
