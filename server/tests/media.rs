@@ -93,6 +93,8 @@ async fn uploading_serving_and_deleting_media() {
         assert_eq!(res.header("x-content-type-options"), Some("nosniff"));
         assert!(res.header("content-security-policy").unwrap().contains("sandbox"));
         assert_eq!(image::guess_format(&res.body).unwrap(), ImageFormat::Png);
+        // 少しずつ送っても、大きさは先に伝える
+        assert_eq!(res.header("content-length"), Some(res.body.len().to_string().as_str()));
         // 決まった形でないパスは見つからない
         let file = url.rsplit('/').next().unwrap().to_owned();
         for bad in [
@@ -174,6 +176,26 @@ async fn uploading_serving_and_deleting_media() {
         // 拒否されたアップロードのファイルは残らない
         let files = std::fs::read_dir(server.state.config.media.root.join(ws.simple().to_string())).unwrap().count();
         assert_eq!(files, 3);
+    })
+    .await;
+}
+
+/// 同時配信の枠が空いていなければ、ファイルを開かずに 503 を返す。
+#[tokio::test]
+async fn serving_is_refused_when_no_slot_is_free() {
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.media.max_concurrent_serves = 0;
+        let server = start(cfg).await;
+        let path = format!(
+            "/media/{}/{}.png",
+            uuid::Uuid::new_v4().simple(),
+            "a".repeat(32)
+        );
+        assert_eq!(
+            request_bytes(&server, "GET", &path, &[], None).await.status,
+            503
+        );
     })
     .await;
 }

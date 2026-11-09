@@ -59,6 +59,8 @@ pub(super) struct Me {
     sso: bool,
     /// 管理操作の前に、CMS側のパスキーの登録が必要か（SSOでログインした管理者で、パスキーがない。Q131）。
     passkey_required: bool,
+    /// SSOのセッションで、パスキーを登録するためにTOTPか復旧コードで再認証する人か。
+    second_factor_reauth: bool,
     /// IdPでの再ログインで再認証できるか（SSOでログインした、管理者でない人。管理者はパスキーだけ）。
     idp_reauth_allowed: bool,
     /// 他の操作の前に、多要素認証の設定が必要か（全員への必須が有効で、まだ設定していない。Q197）。
@@ -84,6 +86,7 @@ impl Me {
             mfa_enabled: c.mfa_enabled,
             sso: c.sso,
             passkey_required: c.sso && c.admin_anywhere && !c.has_passkey,
+            second_factor_reauth: c.sso && c.mfa_enabled && !c.has_passkey,
             idp_reauth_allowed: c.sso && !c.admin_anywhere,
             mfa_setup_required: mfa_setup_pending(state, c),
             locale: c.locale,
@@ -604,7 +607,10 @@ pub async fn reauth(
         ));
     }
     // SSOでログインしたセッションは、IdPでの再ログインかパスキーで再認証する（Q108, Q131）
-    if current.sso && req.passkey.is_none() {
+    // ただし、パスキーがなくTOTPを設定した人は、パスキーを登録するためにTOTPか復旧コードで確かめる
+    let second_factor_for_passkey =
+        current.mfa_enabled && !current.has_passkey && req.password.is_none();
+    if current.sso && req.passkey.is_none() && !second_factor_for_passkey {
         return Err(ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "reauth_method_not_allowed",
@@ -691,6 +697,14 @@ pub async fn change_password(
     users::set_password(&mut *tx, current.user_id, &hash).await?;
     session::revoke_others(&mut *tx, current.user_id, current.id).await?;
     notify(&state, &mut *tx, &current, Event::PasswordChanged).await?;
+    audit::record(
+        &mut *tx,
+        None,
+        Some(current.user_id),
+        audit::action::PASSWORD_CHANGED,
+        &[current.user_id],
+    )
+    .await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }

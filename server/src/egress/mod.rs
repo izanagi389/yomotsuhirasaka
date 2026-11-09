@@ -199,10 +199,15 @@ pub struct Destination {
 #[derive(Clone)]
 pub struct Egress {
     inner: Arc<Inner>,
+    /// ワークスペースの管理者が決めた宛先へ送るか（どの内部の宛先を例外にするかが変わる）。
+    workspace_set: bool,
 }
 
 struct Inner {
+    /// サーバー管理者が設定した宛先（LLM、OIDC、インスタンスの監査ログの書き出し先）の例外。
     exceptions: Exceptions,
+    /// ワークスペースの管理者が決める宛先（Webhook、フックの送信、ワークスペースの監査ログの書き出し先）の例外。
+    workspace_exceptions: Exceptions,
     tls: tokio_rustls::TlsConnector,
     connect_timeout: Duration,
     request_timeout: Duration,
@@ -215,41 +220,96 @@ struct Proxy {
     connect_by: ProxyConnectBy,
 }
 
+/// 例外の1項目の相手。
+#[derive(Debug, PartialEq, Eq)]
+enum ExceptionHost {
+    Name(String),
+    Ip(IpAddr),
+}
+
+/// 例外の1項目（`host`、`host:port`、IPアドレス、`IPv4:port`、`[IPv6]:port`）。ポートを書かなければ、すべてのポート。
+#[derive(Debug, PartialEq, Eq)]
+struct Exception {
+    host: ExceptionHost,
+    port: Option<u16>,
+}
+
+impl Exception {
+    fn parse(entry: &str) -> Self {
+        let e = entry.trim();
+        if let Ok(ip) = e.parse::<IpAddr>() {
+            return Self {
+                host: ExceptionHost::Ip(canonical_ip(ip)),
+                port: None,
+            };
+        }
+        let (host, port) = split_exception(e);
+        let bare = host.trim_start_matches('[').trim_end_matches(']');
+        Self {
+            host: match bare.parse::<IpAddr>() {
+                Ok(ip) => ExceptionHost::Ip(canonical_ip(ip)),
+                Err(_) => ExceptionHost::Name(host.trim_end_matches('.').to_ascii_lowercase()),
+            },
+            port,
+        }
+    }
+
+    fn allows_port(&self, port: u16) -> bool {
+        self.port.is_none_or(|p| p == port)
+    }
+}
+
+/// 例外の項目を、ホストとポートに分ける。
+fn split_exception(entry: &str) -> (&str, Option<u16>) {
+    match entry.rsplit_once(':') {
+        Some((host, port)) if !host.contains(':') || host.ends_with(']') => {
+            match port.parse::<u16>() {
+                Ok(p) => (host, Some(p)),
+                Err(_) => (entry, None),
+            }
+        }
+        _ => (entry, None),
+    }
+}
+
+/// 例外の項目のホストの部分（起動時の設定の検査で、接続先のホストと比べるのに使う）。
+pub fn exception_host(entry: &str) -> &str {
+    let e = entry.trim();
+    if e.parse::<IpAddr>().is_ok() {
+        return e;
+    }
+    split_exception(e)
+        .0
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+}
+
 /// 例外として許す内部の宛先。
 #[derive(Debug, Default)]
-struct Exceptions {
-    hosts: Vec<String>,
-    ips: Vec<IpAddr>,
-}
+struct Exceptions(Vec<Exception>);
 
 impl Exceptions {
     fn new(entries: &[String]) -> Self {
-        let mut out = Self::default();
-        for e in entries {
-            let e = e.trim();
-            let bare = e.trim_start_matches('[').trim_end_matches(']');
-            match bare.parse::<IpAddr>() {
-                Ok(ip) => out.ips.push(canonical_ip(ip)),
-                Err(_) => out.hosts.push(e.trim_end_matches('.').to_ascii_lowercase()),
-            }
-        }
-        out
+        Self(entries.iter().map(|e| Exception::parse(e)).collect())
     }
 
-    /// 宛先が例外か。ホスト名が例外にあるか、名前解決したアドレスがすべて例外にあるとき。
-    fn covers(&self, host: &Host<String>, addrs: &[SocketAddr]) -> bool {
-        if let Host::Domain(d) = host
-            && self
-                .hosts
+    /// 宛先が例外か。ホスト名が例外にあるか、名前解決したアドレスがすべて例外にあるとき。どちらもポートまで見る。
+    fn covers(&self, host: &Host<String>, addrs: &[SocketAddr], port: u16) -> bool {
+        if let Host::Domain(d) = host {
+            let name = d.trim_end_matches('.').to_ascii_lowercase();
+            if self
+                .0
                 .iter()
-                .any(|h| h == &d.trim_end_matches('.').to_ascii_lowercase())
-        {
-            return true;
+                .any(|e| e.allows_port(port) && e.host == ExceptionHost::Name(name.clone()))
+            {
+                return true;
+            }
         }
         !addrs.is_empty()
-            && addrs
-                .iter()
-                .all(|a| self.ips.contains(&canonical_ip(a.ip())))
+            && addrs.iter().all(|a| {
+                let ip = ExceptionHost::Ip(canonical_ip(a.ip()));
+                self.0.iter().any(|e| e.allows_port(port) && e.host == ip)
+            })
     }
 }
 
@@ -369,12 +429,25 @@ impl Egress {
         Ok(Self {
             inner: Arc::new(Inner {
                 exceptions: Exceptions::new(&config.internal_destination_exceptions),
+                workspace_exceptions: Exceptions::new(
+                    &config.workspace_internal_destination_exceptions,
+                ),
                 tls: tls_connector(&config.extra_ca_files)?,
                 connect_timeout: Duration::from_secs(config.connect_timeout_seconds.max(1).into()),
                 request_timeout: Duration::from_secs(config.request_timeout_seconds.max(1).into()),
                 proxy,
             }),
+            workspace_set: false,
         })
+    }
+
+    /// ワークスペースの管理者が決めた宛先へ送るときに使う。サーバー管理者がLLMなどのために開けた例外は、効かない
+    /// （ワークスペースの管理者が、その宛先の内部のポートを調べられないように）。
+    pub fn for_workspace_destinations(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            workspace_set: true,
+        }
     }
 
     /// 送信先を名前解決して検査する（登録時の確認にも使う）。送信のたびにやり直す。
@@ -409,7 +482,12 @@ impl Egress {
         if addrs.is_empty() {
             return Err(EgressError::DnsFailed);
         }
-        let excepted = self.inner.exceptions.covers(&host, &addrs);
+        let exceptions = if self.workspace_set {
+            &self.inner.workspace_exceptions
+        } else {
+            &self.inner.exceptions
+        };
+        let excepted = exceptions.covers(&host, &addrs, port);
         if !excepted {
             if !https {
                 return Err(EgressError::SchemeNotAllowed);
@@ -696,6 +774,59 @@ mod tests {
             assert_eq!(e.check(url).await.unwrap_err(), err, "{url}");
         }
         assert!(e.check("https://8.8.8.8/").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn exceptions_can_be_limited_to_a_port() {
+        let e = egress(&["127.0.0.2:8080", "localhost:9000", "[::1]:7000"]);
+        assert!(e.check("http://127.0.0.2:8080/").await.is_ok());
+        assert!(e.check("http://localhost:9000/").await.is_ok());
+        assert!(e.check("http://[::1]:7000/").await.is_ok());
+        for url in [
+            "https://127.0.0.2:22/",
+            "https://localhost:22/",
+            "https://[::1]:22/",
+        ] {
+            assert_eq!(
+                e.check(url).await.unwrap_err(),
+                EgressError::InternalDestination,
+                "{url}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn operator_exceptions_do_not_cover_workspace_destinations() {
+        let e = Egress::from_config(&EgressConfig {
+            internal_destination_exceptions: vec!["127.0.0.2".to_owned()],
+            workspace_internal_destination_exceptions: vec!["127.0.0.3:8443".to_owned()],
+            ..Default::default()
+        })
+        .unwrap();
+        let w = e.for_workspace_destinations();
+        assert!(e.check("http://127.0.0.2:8080/").await.is_ok());
+        assert_eq!(
+            w.check("https://127.0.0.2:8080/").await.unwrap_err(),
+            EgressError::InternalDestination
+        );
+        assert!(w.check("https://127.0.0.3:8443/").await.is_ok());
+        assert_eq!(
+            w.check("https://127.0.0.3:22/").await.unwrap_err(),
+            EgressError::InternalDestination
+        );
+        assert_eq!(
+            e.check("https://127.0.0.3:8443/").await.unwrap_err(),
+            EgressError::InternalDestination
+        );
+    }
+
+    #[test]
+    fn exception_hosts() {
+        assert_eq!(exception_host("ollama.internal:11434"), "ollama.internal");
+        assert_eq!(exception_host("ollama.internal"), "ollama.internal");
+        assert_eq!(exception_host("10.0.0.1:80"), "10.0.0.1");
+        assert_eq!(exception_host("[::1]:80"), "::1");
+        assert_eq!(exception_host("::1"), "::1");
     }
 
     #[tokio::test]

@@ -42,6 +42,25 @@ pub async fn register(conn: &mut PgConnection, query: &str, key_id: Uuid) -> Res
     Ok(id)
 }
 
+/// このIDのクエリは登録済みか。
+pub async fn exists(conn: &mut PgConnection, id: &str) -> Result<bool> {
+    Ok(
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM queries WHERE id = $1)")
+            .bind(id)
+            .fetch_one(conn)
+            .await?,
+    )
+}
+
+/// 登録済みのクエリが上限に達しているか。
+pub async fn at_limit(conn: &mut PgConnection, limit: u32) -> Result<bool> {
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM queries LIMIT $1) t")
+        .bind(i64::from(limit))
+        .fetch_one(conn)
+        .await?;
+    Ok(count >= i64::from(limit))
+}
+
 /// 登録済みのクエリの文（なければ None）。使った日時を記録する。
 pub async fn lookup(conn: &mut PgConnection, id: &str) -> Result<Option<String>> {
     if !valid_id(id) {

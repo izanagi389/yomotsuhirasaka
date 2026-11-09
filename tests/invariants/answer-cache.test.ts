@@ -10,7 +10,7 @@ import { afterAll, afterEach, expect } from "vitest";
 import { inv } from "./support/inv.js";
 import { driver, type AnswerEvent, type AnswerResult } from "./support/driver.js";
 import { doc, paragraph } from "./support/body.js";
-import { chatRequests, mockLlm } from "./support/mock-llm.js";
+import { chatRequests, citation, fixedAnswer, mockLlm } from "./support/mock-llm.js";
 import { createAnswerWorld, marker, sleep, type AnswerWorkspace, type AnswerWorld } from "./support/world.js";
 
 let worldPromise: Promise<AnswerWorld> | null = null;
@@ -124,6 +124,38 @@ inv(
     for (const r of [await ask(ws, question), (await askStream(ws, question)).final]) {
       expect(r.sources.map((s) => s.entryId), "非公開になった記事を引用した回答（キャッシュを含む）が返った").not.toContain(v1.id);
     }
+
+    // 3. LLMに根拠として渡したが引用しなかった記事が非公開になった: その内容が回答に影響しうるので、キャッシュは返されない
+    const { llmKey } = await world();
+    const ws2 = await (await world()).workspace("qa06-grounds", { cached: true });
+    const shared = wordMarker("qasixshared");
+    const firstWord = wordMarker("qasixfirst");
+    const secondWord = wordMarker("qasixsecond");
+    const groundQuestion = `${shared} とは何ですか`;
+    const first = await publishAnswerable(ws2, groundQuestion, `${shared} ${firstWord} は、根拠を確かめるための記事です。`);
+    const { id: secondId } = await yomi.createEntry(ws2.editorSession, ws2.id, { title: marker("qa-title"), body: doc(paragraph(`${shared} ${secondWord} は、根拠を確かめるための記事です。`)) });
+    await yomi.publishEntry(ws2.editorSession, ws2.id, secondId);
+    const second = { id: secondId };
+    // 断片1だけを引用する。埋め込みができて両方の記事が根拠としてLLMに渡るまで、まだキャッシュのない質問で試す
+    await mockLlm.setStrategy(llmKey, { kind: "fixed", content: fixedAnswer([1], `${citation(1)} 一方だけを引用した回答です。`) });
+    const deadline = Date.now() + 120_000;
+    let cachedQuestion = "";
+    let answered: AnswerResult | null = null;
+    while (!answered) {
+      cachedQuestion = `${shared} ${wordMarker("qasixtry")} について教えてください`;
+      await mockLlm.clearRequests(llmKey);
+      const r = await ask(ws2, cachedQuestion);
+      const sent = JSON.stringify(chatRequests(await mockLlm.requests(llmKey)));
+      if (r.status === "answered" && sent.includes(firstWord) && sent.includes(secondWord)) answered = r;
+      else if (Date.now() > deadline) throw new Error("対照: 両方の記事が根拠としてLLMに渡らない");
+      else await sleep(1);
+    }
+    expect(answered.sources.length, "対照: 引用が1つでない").toBe(1);
+    await expectCached(ws2, cachedQuestion, "引用しなかった根拠の非公開の前");
+    const uncited = answered.sources[0]!.entryId === first.id ? second : first;
+    await yomi.unpublishEntry(ws2.editorSession, ws2.id, uncited.id);
+    const after = await ask(ws2, cachedQuestion);
+    expect(after.cached, "引用しなかった根拠が非公開になった回答キャッシュが返った").not.toBe(true);
   },
   300_000,
 );

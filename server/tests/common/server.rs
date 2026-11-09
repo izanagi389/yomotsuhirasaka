@@ -87,9 +87,11 @@ pub async fn start(config: Config) -> Server {
     let state = http::AppState::new(pool.clone(), migration, app_role, config, ring);
     let app = http::router(state.clone());
     tokio::spawn(async move {
-        axum::serve(
+        http::serve::run(
             listener,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
+            app,
+            std::future::pending(),
+            http::serve::HEADER_READ_TIMEOUT,
         )
         .await
         .unwrap();
