@@ -646,6 +646,8 @@ export interface YomiClient {
    */
   nextTotpCode(secret: string): Promise<string>;
   meRaw(auth: Auth, extras?: RequestExtras): Promise<HttpResponse>;
+  /** パスキーの登録を始める（再認証などの前の状態を確かめるため。登録は `enrollPasskey`）。 */
+  beginPasskeyRaw(s: Session): Promise<HttpResponse>;
   me(session: Session): Promise<{ userId: string; email: string }>;
   changePassword(session: Session, creds: Credentials, newPassword: string): Promise<void>;
   changePasswordRaw(session: Session, currentPassword: string, newPassword: string): Promise<HttpResponse>;

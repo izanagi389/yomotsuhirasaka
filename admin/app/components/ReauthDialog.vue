@@ -25,6 +25,8 @@ async function withIdp() {
   }
 }
 
+// コードかパスワードで再認証するか（SSOのセッションは、パスキーの登録の前にTOTPを確かめるときだけ）
+const usesSecret = computed(() => !me.value?.sso || !!me.value?.secondFactorReauth);
 const secret = ref("");
 const useRecovery = ref(false);
 const error = ref<unknown>(null);
@@ -88,7 +90,7 @@ function onOpenChange(v: boolean) {
         </DialogHeader>
         <FormError :error="error" />
         <!-- SSOのセッション: パスキーか、IdPでのログインのし直し（Q108, Q131） -->
-        <div v-if="me?.sso" class="grid gap-2">
+        <div v-if="!usesSecret" class="grid gap-2">
           <p class="text-sm text-muted-foreground">{{ me.idpReauthAllowed ? t("reauth.ssoDescription") : t("reauth.ssoAdminDescription") }}</p>
           <Button type="button" :disabled="busy" @click="withPasskey">{{ t("auth.usePasskey") }}</Button>
           <Button v-if="me.idpReauthAllowed" type="button" variant="outline" :disabled="busy" @click="withIdp">{{ t("reauth.withIdp") }}</Button>
@@ -106,15 +108,15 @@ function onOpenChange(v: boolean) {
             required
           />
         </div>
-        <div v-if="!me?.sso && me?.mfaEnabled" class="flex flex-wrap gap-2 text-sm">
+        <div v-if="usesSecret && me?.mfaEnabled" class="flex flex-wrap gap-2 text-sm">
           <Button type="button" variant="link" class="h-auto p-0" @click="useRecovery = !useRecovery">
             {{ useRecovery ? t("auth.useTotp") : t("auth.useRecoveryCode") }}
           </Button>
-          <Button type="button" variant="link" class="h-auto p-0" :disabled="busy" @click="withPasskey">{{ t("auth.usePasskey") }}</Button>
+          <Button v-if="!me?.sso" type="button" variant="link" class="h-auto p-0" :disabled="busy" @click="withPasskey">{{ t("auth.usePasskey") }}</Button>
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" @click="finish(false)">{{ t("common.cancel") }}</Button>
-          <Button v-if="!me?.sso" type="submit" :disabled="busy">{{ t("reauth.confirm") }}</Button>
+          <Button v-if="usesSecret" type="submit" :disabled="busy">{{ t("reauth.confirm") }}</Button>
         </DialogFooter>
       </form>
     </DialogContent>

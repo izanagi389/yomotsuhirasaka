@@ -14,6 +14,8 @@ export interface Me {
   sso: boolean;
   /** 管理操作の前に、CMS側のパスキーの登録が要るか（SSOの管理者。Q131）。 */
   passkeyRequired: boolean;
+  /** SSOのセッションで、パスキーを登録するためにTOTPか復旧コードで再認証する人か。 */
+  secondFactorReauth: boolean;
   /** IdPでの再ログインで再認証できるか（SSOの、管理者でない人）。 */
   idpReauthAllowed: boolean;
   /** 本人が決めた表示名（未設定なら null。決めるまで、プロフィールの画面で入力を求める）。 */
