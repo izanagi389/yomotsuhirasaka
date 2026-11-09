@@ -220,6 +220,15 @@ pub async fn put_schedule(
         delay.max(0.0),
     )
     .await?;
+    workspace_db::audit(
+        &mut tx,
+        &db,
+        Some(ws),
+        Some(current.user_id),
+        action::ENTRY_SCHEDULED,
+        &[id, schedule_id],
+    )
+    .await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     if let Some(entry) = entry {
         let event = ScheduleEvent::Scheduled {
@@ -229,14 +238,6 @@ pub async fn put_schedule(
             tracing::error!(workspace_id = %ws, entry_id = %id, "cannot queue webhooks: {e:#}");
         }
     }
-    audit::record(
-        &state.pool,
-        Some(ws),
-        Some(current.user_id),
-        action::ENTRY_SCHEDULED,
-        &[id, schedule_id],
-    )
-    .await?;
     Ok(Json(entry_schedule(&state, ws, id).await?))
 }
 
@@ -404,20 +405,23 @@ pub async fn run(state: &AppState, payload: &[u8], attempts: i32) -> anyhow::Res
     if elapsed >= scheduling::GIVE_UP_AFTER_SECONDS {
         let failed = scheduling::mark_failed(&mut tx, job.schedule_id, failure).await?;
         let entry = webhooks::entry_ref(&mut tx, entry_id).await?;
-        tx.commit().await?;
         if failed.is_some() {
-            if let Some(entry) = entry {
-                let event = ScheduleEvent::Cancelled { reason: "failed" };
-                webhooks::emit_schedule(&state.pool, &state.keys, ws, &entry, event).await?;
-            }
-            audit::record(
-                &state.pool,
+            workspace_db::audit(
+                &mut tx,
+                &db,
                 Some(ws),
                 None,
                 action::SCHEDULE_FAILED,
                 &[entry_id, job.schedule_id],
             )
             .await?;
+        }
+        tx.commit().await?;
+        if failed.is_some()
+            && let Some(entry) = entry
+        {
+            let event = ScheduleEvent::Cancelled { reason: "failed" };
+            webhooks::emit_schedule(&state.pool, &state.keys, ws, &entry, event).await?;
         }
         return Ok(Outcome::Done);
     }

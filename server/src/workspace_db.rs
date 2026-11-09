@@ -280,6 +280,83 @@ pub async fn begin_owned(app: &PgPool, db: &WorkspaceDb) -> Result<Transaction<'
     Ok(tx)
 }
 
+/// ワークスペースのロールのトランザクションの中で、監査ログを書く。監査ログは共通のスキーマにあり、ワークスペースのロールは
+/// 書けないので、普段用のロールに戻して書き、ワークスペースのロールに戻す。操作と同じトランザクションなので、操作が確定した
+/// のに記録がない、ということが起きない（第三者の確認の R34）。
+#[allow(clippy::too_many_arguments)]
+pub async fn audit_full(
+    tx: &mut Transaction<'_, Postgres>,
+    db: &WorkspaceDb,
+    workspace_id: Option<Uuid>,
+    actor_user_id: Option<Uuid>,
+    action: &str,
+    target_ids: &[Uuid],
+    notify: bool,
+    details: Option<&serde_json::Value>,
+) -> Result<()> {
+    sqlx::query("RESET ROLE").execute(&mut **tx).await?;
+    crate::audit::record_full(
+        &mut **tx,
+        workspace_id,
+        actor_user_id,
+        action,
+        target_ids,
+        notify,
+        details,
+    )
+    .await?;
+    let role = &db.role;
+    sqlx::query(crate::sql!("SET LOCAL ROLE {role}"))
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// [`audit_full`] の、詳細がない形。
+pub async fn audit_notify(
+    tx: &mut Transaction<'_, Postgres>,
+    db: &WorkspaceDb,
+    workspace_id: Option<Uuid>,
+    actor_user_id: Option<Uuid>,
+    action: &str,
+    target_ids: &[Uuid],
+    notify: bool,
+) -> Result<()> {
+    audit_full(
+        tx,
+        db,
+        workspace_id,
+        actor_user_id,
+        action,
+        target_ids,
+        notify,
+        None,
+    )
+    .await
+}
+
+/// [`audit_full`] の、通知も詳細もない形。
+pub async fn audit(
+    tx: &mut Transaction<'_, Postgres>,
+    db: &WorkspaceDb,
+    workspace_id: Option<Uuid>,
+    actor_user_id: Option<Uuid>,
+    action: &str,
+    target_ids: &[Uuid],
+) -> Result<()> {
+    audit_full(
+        tx,
+        db,
+        workspace_id,
+        actor_user_id,
+        action,
+        target_ids,
+        false,
+        None,
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -313,3 +313,64 @@ async fn audit_log_is_purged_only_through_the_dedicated_function() {
         std::panic::resume_unwind(e.into_panic());
     }
 }
+
+/// 監査ログは操作と同じトランザクションで書く。書いた後もワークスペースのロールに戻り、確定しなければ記録も残らない（R34）。
+#[tokio::test]
+async fn audit_records_share_the_transaction_of_the_operation() {
+    common::with_scratch(|app, migration| async move {
+        let server = common::server::start(common::server::config(&app, &migration)).await;
+        let root = {
+            common::server::create_user(&server.pool, "root@example.test", true).await;
+            let s =
+                common::server::login(&server, "root@example.test", common::server::PASSWORD).await;
+            common::server::enroll(&server, &s).await;
+            s
+        };
+        let res = common::server::send(
+            &server,
+            "POST",
+            "/api/admin/workspaces",
+            &root,
+            Some("{\"name\":\"A\"}"),
+        )
+        .await;
+        assert_eq!(res.status, 201, "{}", res.body);
+        let ws: uuid::Uuid = res.json_str("id").unwrap().parse().unwrap();
+        let db = yomi_server::workspace_db::lookup(&server.pool, ws)
+            .await
+            .unwrap()
+            .unwrap();
+        let count = || async {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM yomi.audit_log WHERE action = 'test.audit_tx'",
+            )
+            .fetch_one(&server.pool)
+            .await
+            .unwrap()
+        };
+
+        let mut tx = yomi_server::workspace_db::begin(&server.pool, &db)
+            .await
+            .unwrap();
+        yomi_server::workspace_db::audit(&mut tx, &db, Some(ws), None, "test.audit_tx", &[])
+            .await
+            .unwrap();
+        let role: String = sqlx::query_scalar("SELECT current_user::text")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(role, db.role.as_str());
+        tx.rollback().await.unwrap();
+        assert_eq!(count().await, 0);
+
+        let mut tx = yomi_server::workspace_db::begin(&server.pool, &db)
+            .await
+            .unwrap();
+        yomi_server::workspace_db::audit(&mut tx, &db, Some(ws), None, "test.audit_tx", &[])
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(count().await, 1);
+    })
+    .await;
+}

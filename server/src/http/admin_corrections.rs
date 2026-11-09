@@ -30,7 +30,7 @@ use super::admin_publishing::{holder, publisher};
 use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Permission};
-use crate::audit::{self, action};
+use crate::audit::action;
 use crate::content::corrections::{self, NoteEdit, Template, Unwritten};
 use crate::content::freshness::{self, Expired, FreshnessDetail, ReviewOverride};
 use crate::workspace_db;
@@ -62,15 +62,16 @@ pub async fn put_note(
     if !corrections::save_note(&mut tx, id, vid, text, Some(current.user_id)).await? {
         return Err(ApiError::not_found());
     }
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         action::CORRECTION_NOTE_EDITED,
         &[id, vid],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -119,15 +120,16 @@ pub async fn put_templates(
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     corrections::replace_templates(&mut tx, &req).await?;
     let out = corrections::templates(&mut tx).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         action::CORRECTION_TEMPLATES_CHANGED,
         &[],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(out))
 }
 
@@ -196,15 +198,16 @@ pub async fn verify(
             "Only entries that have been published can be marked as verified.",
         ));
     }
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         action::ENTRY_VERIFIED,
         &[id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

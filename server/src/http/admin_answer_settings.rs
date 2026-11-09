@@ -21,7 +21,7 @@ use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::access::Permission;
 use crate::answer::settings::{self, Change, View};
-use crate::audit::{self, action};
+use crate::audit::action;
 use crate::workspace_db;
 
 pub async fn get(
@@ -52,6 +52,7 @@ pub async fn put(
     }
     let applied = readable(&state, ws).await?;
     let db = db(&state, ws).await?;
+    let fields = change.fields();
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     if let Err(problems) = settings::apply(&mut tx, &applied.manifest, &change).await? {
         return Err(ApiError::new(
@@ -61,11 +62,10 @@ pub async fn put(
         ));
     }
     let out = settings::view(&mut tx, &applied.manifest).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    let fields = change.fields();
     if !fields.is_empty() {
-        audit::record_full(
-            &state.pool,
+        workspace_db::audit_full(
+            &mut tx,
+            &db,
             Some(ws),
             Some(current.user_id),
             action::ANSWER_SETTINGS_CHANGED,
@@ -76,5 +76,6 @@ pub async fn put(
         )
         .await?;
     }
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(out))
 }
