@@ -5,7 +5,8 @@
 //! - 根拠にした記事の公開URLと、オリジンが同じURL
 //!
 //! 見るのは、リンク `[文](URL)`、画像 `![代替](URL)`、リンクの参照の定義 `[名]: URL`、自動リンク `<URL>`、
-//! そのままのURL（`http://`・`https://`・`www.` で始まる語。GFM の自動リンクになるもの）。
+//! そのままのURL（`http://`・`https://`・`www.` で始まる語。GFM の自動リンクになるもの。ほかのスキームの `scheme://` と、
+//! スキームなしの `//host` も、URLとして扱う）。
 //! - 許さないリンクは、文だけを残す。許さない画像は、代替の文ごと取り除く。
 //! - 許さない定義・自動リンク・そのままのURLは、取り除く。
 //! - 生の HTML はエスケープして表示する仕様（公式のSDK）なので、タグとしては扱わない。中の http(s) のURLは、そのままの
@@ -240,6 +241,13 @@ fn scan(s: &str, end: bool, st: &mut State, policy: &mut Policy<'_>, out: &mut S
             'w' | 'W' if !st.prev.is_some_and(|p| p.is_ascii_alphanumeric()) => {
                 bare(rest, end, policy)
             }
+            c if (c.is_ascii_alphabetic() || c == '/')
+                && !st
+                    .prev
+                    .is_some_and(|p| p.is_ascii_alphanumeric() || p == ':' || p == '/') =>
+            {
+                bare(rest, end, policy)
+            }
             _ => Parsed::No,
         };
         // 待てる長さを超える形は、届き方によらず同じに扱うため、長すぎるものとして扱う
@@ -405,7 +413,8 @@ fn link(rest: &str, image: bool, line_start: bool, end: bool, policy: &mut Polic
                 ds
             }..after];
             let out = match (policy(dest, false), image) {
-                (true, true) => format!("![{text}]({written})"),
+                // 代替テキストの中のリンクも、公式の変換器やSDKはリンクとして扱う
+                (true, true) => format!("![{}]({written})", filter_all(text, policy)),
                 (true, false) => format!("[{}]({written})", filter_all(text, policy)),
                 (false, true) => String::new(),
                 (false, false) => filter_all(text, policy),
@@ -518,8 +527,65 @@ fn bare(rest: &str, end: bool, policy: &mut Policy<'_>) -> Parsed {
         }
     }
     let Some(www) = matched else {
-        return if partial { need(end) } else { Parsed::No };
+        return if partial {
+            need(end)
+        } else {
+            match other_scheme(b) {
+                Scheme::Yes => bare_rest(rest, end, policy, false),
+                Scheme::Maybe => need(end),
+                Scheme::No => Parsed::No,
+            }
+        };
     };
+    bare_rest(rest, end, policy, www)
+}
+
+/// `scheme://` か `//host` で始まるか。
+enum Scheme {
+    Yes,
+    /// 続きを見ないと決まらない。
+    Maybe,
+    No,
+}
+
+fn other_scheme(b: &[u8]) -> Scheme {
+    const MAX_SCHEME: usize = 32;
+    if b[0] == b'/' {
+        return match b.get(1) {
+            None => Scheme::Maybe,
+            Some(b'/') => match b.get(2) {
+                None => Scheme::Maybe,
+                Some(c) if c.is_ascii_alphanumeric() => Scheme::Yes,
+                Some(_) => Scheme::No,
+            },
+            Some(_) => Scheme::No,
+        };
+    }
+    let mut j = 0;
+    while j < b.len() && (b[j].is_ascii_alphanumeric() || matches!(b[j], b'+' | b'.' | b'-')) {
+        j += 1;
+        if j > MAX_SCHEME {
+            return Scheme::No;
+        }
+    }
+    let tail = &b[j..];
+    let mark = b"://";
+    if tail.len() >= mark.len() {
+        if tail.starts_with(mark) && j >= 2 {
+            Scheme::Yes
+        } else {
+            Scheme::No
+        }
+    } else if mark.starts_with(tail) {
+        Scheme::Maybe
+    } else {
+        Scheme::No
+    }
+}
+
+/// 語の終わりまでをURLとして絞り込む。
+fn bare_rest(rest: &str, end: bool, policy: &mut Policy<'_>, www: bool) -> Parsed {
+    let b = rest.as_bytes();
     let mut m = 0;
     while m < b.len() && !b[m].is_ascii_whitespace() && b[m] != b'<' {
         m += 1;
@@ -591,6 +657,42 @@ mod tests {
                 "www.x.test/5"
             ]
         );
+    }
+
+    #[test]
+    fn other_schemes_and_scheme_relative_urls_are_filtered() {
+        for text in [
+            "資料は ftp://evil.example.net/a にあります",
+            "資料は gopher://evil.example.net にあります",
+            "資料は //evil.example.net/a にあります",
+            "<img src=//evil.example.net/i.png>",
+        ] {
+            let out = filtered(text);
+            assert!(!out.contains("evil.example.net"), "{out}");
+        }
+        // URLでない語はそのまま
+        for text in [
+            "a/b と and/or と c://",
+            "時刻は 10:20 です。path/to/file",
+            "// コメント",
+            "https: の話",
+        ] {
+            assert_eq!(filtered(text), text);
+        }
+    }
+
+    #[test]
+    fn links_inside_alt_text_are_filtered() {
+        // 外側の画像は許可した宛先でも、代替テキストの中のリンクは別に検査する（改行があっても）
+        let out = filtered(&format!(
+            "![x\n[y](https://evil.example.net/p)]({SITE}/a.png)"
+        ));
+        assert!(!out.contains("evil.example.net"), "{out}");
+        assert!(out.contains(&format!("({SITE}/a.png)")), "{out}");
+        let out = filtered(&format!("![![z](//evil.example.net/i.png)]({SITE}/a.png)"));
+        assert!(!out.contains("evil.example.net"), "{out}");
+        let kept = format!("![[ok]({SITE}/b)]({SITE}/a.png)");
+        assert_eq!(filtered(&kept), kept);
     }
 
     #[test]

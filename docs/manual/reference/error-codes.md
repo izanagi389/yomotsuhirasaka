@@ -69,6 +69,8 @@
 | `delivery_busy` | 503 | 同時に実行するクエリが上限に達しています。少し待って送り直してください |
 | `batch_not_supported` | 400 | 1回のリクエストで送れるクエリは1つです |
 | `invalid_query` | 422 | クエリが正しくないか、深さや複雑さの上限を超えています |
+| `query_limit_reached` | 409 | 登録クエリの数の上限です |
+| `query_registration_rate_limited` | 429 | クエリの新規登録が多すぎます。少し待つと続きを登録できます |
 | `response_too_large` | 422 | 応答が大きさの上限を超えました |
 | `invalid_preview_token` | 401 | プレビュー用トークンが無効か、期限切れです |
 | `rate_limited` | 429 | 回数の制限です。`Retry-After` の秒数の後に送ります |
@@ -99,6 +101,8 @@
 |---|---|---|
 | `invalid_request` | 400 | リクエストが正しくありません |
 | `invalid_entry` | 422 | 記事の内容に受け付けられない部分があります |
+| `admin_rate_limited` | 429 | 管理 API へのリクエストが多すぎます。少し待ってやり直します |
+| `entry_limit_reached` | 409 | ワークスペースの記事の数の上限です |
 | `revision_conflict` | 409 | 他の人が先に保存しました。読み直してからやり直します |
 | `entry_locked` | 423 | 他の人が編集中です。引き継いでから保存します |
 | `lock_lost` | 409 | 編集が引き継がれたか、期限が切れました |
@@ -130,6 +134,7 @@
 | `invalid_image` | 422 | 画像として読めません |
 | `image_too_large` | 422 | 画素数が上限を超えています |
 | `image_processing_timeout` | 422 | 画像の処理に時間がかかりすぎました |
+| `media_processing_busy` | 503 | 処理中の画像が多いため、受け付けられません。少し待ってやり直してください |
 | `file_too_large` | 413 | ファイルが上限を超えています |
 | `media_quota_exceeded` | 413 | ワークスペースの容量の上限を超えます |
 | `media_in_use` | 409 | 記事で使われているメディアです |
@@ -140,6 +145,7 @@
 |---|---|---|
 | `destination_not_allowed` | 422 | この送信先には送れません（https で、公開のアドレスに解決される URL だけです） |
 | `too_many_webhooks` | 409 | Webhook の数の上限です |
+| `webhook_test_rate_limited` | 429 | テスト送信が多すぎます。Webhook ごとに1分10回までです |
 | `too_many_audit_sinks` | 409 | 書き出し先の数の上限です |
 
 ### LLMと予算

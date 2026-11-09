@@ -38,6 +38,7 @@ pub mod delivery;
 pub mod error;
 pub mod extract;
 pub mod realtime;
+pub mod serve;
 
 use std::ops::Deref;
 use std::sync::Arc;
@@ -164,8 +165,13 @@ pub struct Inner {
     pub oidc: Option<Arc<crate::auth::oidc::Oidc>>,
     /// 管理画面への即時の知らせ（WebSocket、計画の10番）。
     pub events: realtime::Events,
+<<<<<<< HEAD
     /// トランザクションを持ったままフックを動かす処理の枠（[`AppState::hook_slot`]）。
     pub hook_slots: tokio::sync::Semaphore,
+=======
+    /// メディアの同時配信の枠。
+    pub media_serves: Arc<tokio::sync::Semaphore>,
+>>>>>>> origin/main
 }
 
 impl Deref for AppState {
@@ -208,6 +214,9 @@ impl AppState {
             .map_or(public_origin.as_str(), |(_, host)| host)
             .to_owned();
         let login_limiter = IpLimiter::per_minute(config.limits.login_attempts_per_ip_per_minute);
+        let media_serves = Arc::new(tokio::sync::Semaphore::new(
+            config.media.max_concurrent_serves as usize,
+        ));
         let invalid_key_limiter =
             IpLimiter::per_minute(config.limits.invalid_api_keys_per_ip_per_minute);
         let query_slots = QuerySlots::new(config.delivery.max_concurrent_queries);
@@ -240,7 +249,11 @@ impl AppState {
         let scripts = crate::script::Engine::new(config.scripts.limits());
         Self(Arc::new(Inner {
             events: realtime::Events::default(),
+<<<<<<< HEAD
             hook_slots: tokio::sync::Semaphore::new(HOOK_SLOTS),
+=======
+            media_serves,
+>>>>>>> origin/main
             scripts,
             oidc,
             admin_ui,

@@ -57,7 +57,7 @@ async fn cached_answers_are_checked_against_the_current_entries() {
         let entry = uuid::Uuid::parse_str(&id).unwrap();
         let store = || async move {
             let mut tx = workspace_db::begin(pool, db).await.unwrap();
-            cache::store(&mut tx, key, "答え [1]", false, std::slice::from_ref(source)).await.unwrap();
+            cache::store(&mut tx, key, "答え [1]", false, std::slice::from_ref(source), &[]).await.unwrap();
             tx.commit().await.unwrap();
         };
         let lookup = |locale: &'static str| async move {

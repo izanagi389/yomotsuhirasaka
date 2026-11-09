@@ -447,3 +447,28 @@ async fn mfa_required_for_everyone_limits_users_without_mfa() {
     })
     .await;
 }
+
+/// パスワードと多要素認証の変更は監査ログに残る（R30）。
+#[tokio::test]
+async fn credential_changes_are_audited() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        create_user(&server.pool, "a@example.test", false).await;
+        let s = login(&server, "a@example.test", PASSWORD).await;
+        enroll(&server, &s).await;
+        let res = send(&server, "POST", "/api/admin/me/mfa/recovery-codes", &s, None).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        let body = serde_json::json!({"currentPassword": PASSWORD, "newPassword": "a-brand-new-long-passphrase-1"}).to_string();
+        let res = send(&server, "POST", "/api/admin/me/password", &s, Some(&body)).await;
+        assert!(res.status < 300, "{}", res.body);
+        for action in ["auth.totp_enabled", "auth.recovery_codes_regenerated", "auth.password_changed"] {
+            let n: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE action = $1")
+                .bind(action)
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+            assert_eq!(n, 1, "{action}");
+        }
+    })
+    .await;
+}

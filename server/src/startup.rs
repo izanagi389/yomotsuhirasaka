@@ -307,7 +307,7 @@ fn check_audit_export(
             Ok(u) if u.scheme() == "https" => {}
             Ok(u)
                 if u.host_str()
-                    .is_some_and(|h| exceptions.iter().any(|e| e.eq_ignore_ascii_case(h))) => {}
+                    .is_some_and(|h| is_excepted_host(exceptions, h)) => {}
             Ok(u) if u.scheme() == "http" => problems.push(Problem::config(format!(
                 "`{name}.url` is not https; audit records would be sent unencrypted"
             ))),
@@ -440,6 +440,14 @@ fn check_endpoint(
 }
 
 /// LLMの接続先の URL の検査（本番では https。http は外部への送信の例外に入れたホストだけ）。
+/// ホストが例外の一覧にあるか（ポートまで指定した項目も、ホストで比べる）。
+fn is_excepted_host(exceptions: &[String], host: &str) -> bool {
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    exceptions
+        .iter()
+        .any(|e| crate::egress::exception_host(e).eq_ignore_ascii_case(host))
+}
+
 fn check_base_url(prefix: &str, base_url: &str, exceptions: &[String]) -> Vec<Problem> {
     let mut problems = Vec::new();
     match url::Url::parse(base_url) {
@@ -450,7 +458,7 @@ fn check_base_url(prefix: &str, base_url: &str, exceptions: &[String]) -> Vec<Pr
         Ok(u)
             if u.scheme() == "http"
                 && u.host_str()
-                    .is_some_and(|h| exceptions.iter().any(|e| e.eq_ignore_ascii_case(h))) => {}
+                    .is_some_and(|h| is_excepted_host(exceptions, h)) => {}
         Ok(u) if u.scheme() == "http" => problems.push(Problem::config(format!(
             "`{prefix}.base_url` is not https; article text would be sent unencrypted \
              (http is allowed only for hosts in `egress.internal_destination_exceptions`)"

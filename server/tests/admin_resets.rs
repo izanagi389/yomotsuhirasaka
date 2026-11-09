@@ -455,3 +455,39 @@ async fn server_admins_recover_with_the_cli() {
     })
     .await;
 }
+
+/// 本人の要求を重ねても、先に届いたリンクは無効にならない。どれかを使えば残りは使えない（R28）。
+#[tokio::test]
+async fn later_requests_do_not_cancel_a_link_already_sent() {
+    with_scratch(|app, migration| async move {
+        let (port, smtp) = fake_smtp().await;
+        let mut cfg = config(&app, &migration);
+        cfg.smtp = Some(smtp_config(port));
+        let server = start(cfg).await;
+        user(&server, "forgot@example.test", false, false).await;
+        while worker::run_once(&server.state).await.unwrap() {}
+        let mut tokens = Vec::new();
+        for _ in 0..2 {
+            assert_eq!(
+                request_reset(&server, "forgot@example.test").await.status,
+                202
+            );
+            while worker::run_once(&server.state).await.unwrap() {}
+            let mail = smtp.lock().unwrap().received.last().unwrap().clone();
+            tokens.push(token_from(&decoded_body(&mail)));
+            // 1分に1通の制限を越えて、次の要求を通す
+            sqlx::query(
+                "UPDATE yomi.reset_tokens SET created_at = created_at - interval '2 minutes'",
+            )
+            .execute(&server.pool)
+            .await
+            .unwrap();
+        }
+        assert_ne!(tokens[0], tokens[1]);
+        let res = complete_password(&server, &tokens[0], "a-brand-new-long-passphrase-1").await;
+        assert!(res.status < 300, "{}", res.body);
+        let res = complete_password(&server, &tokens[1], "a-brand-new-long-passphrase-2").await;
+        assert!(res.status >= 400, "{}", res.body);
+    })
+    .await;
+}

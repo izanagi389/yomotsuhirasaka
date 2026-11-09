@@ -2,14 +2,26 @@
 // CMS の判定先行のストリーミングを、SSE のままブラウザに渡す（イベントの形は ../answer.ts の YomiAnswerEvent）。
 // 中身は answer-core.ts（cached は渡さない。エラーはコードだけ）。
 
-import { defineEventHandler, getRequestHeaders, getRequestIP, readBody, sendStream, setResponseHeader, setResponseStatus } from "h3";
+import { defineEventHandler, getRequestHeaders, getRequestIP, getRequestWebStream, sendStream, setResponseHeader, setResponseStatus } from "h3";
 import { useRuntimeConfig } from "nitropack/runtime";
 // ビルドのときに作る、クエリの名前 → 登録したID の対応（モジュールが Nitro の仮想モジュールとして渡す）
 import queries from "#yomi/queries";
 
 import { AnswerRelayError, openAnswer, parseAnswerInput, toSse, visitorIdOf } from "./answer-core.ts";
 import { ANSWER_QUERY } from "./names.ts";
+import { readLimitedText } from "./read-body.ts";
 import { clientIp } from "./search-core.ts";
+
+/** 回答のルートの本文の大きさの上限（質問文の長さの上限より十分に大きく）。 */
+const MAX_ANSWER_BODY_BYTES = 64 * 1024;
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig(event) as unknown as {
@@ -29,7 +41,9 @@ export default defineEventHandler(async (event) => {
   event.node.res.on("close", () => abort.abort());
   let events: AsyncGenerator<import("../answer.ts").YomiAnswerEvent>;
   try {
-    const input = parseAnswerInput(await readBody(event));
+    const text = await readLimitedText(getRequestWebStream(event), MAX_ANSWER_BODY_BYTES);
+    if (text === null) throw new AnswerRelayError(413, "QUESTION_TOO_LONG");
+    const input = parseAnswerInput(parseJson(text));
     const ip = clientIp(getRequestHeaders(event), getRequestIP(event), config.yomi.answer.ipHeader);
     events = await openAnswer(config.yomi, id, { ...input, visitorId: visitorIdOf(ip, config.yomi.answerKey) }, abort.signal);
   } catch (e) {

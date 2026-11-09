@@ -669,6 +669,7 @@ fn search_field(manifest: Arc<Manifest>) -> Field {
                 embedding: setup.as_ref().map(|s| &s.llm),
                 egress: app.egress.as_ref(),
                 cache: &app.search_cache,
+                query_budget: crate::budget::Kind::VisitorEmbedding,
             };
             let mut tx = crate::workspace_db::begin_owned(&app.pool, db).await.map_err(internal)?;
             let mut vector = Ok(None);

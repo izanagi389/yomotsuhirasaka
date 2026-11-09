@@ -14,6 +14,18 @@ pub mod action {
     pub const IDENTITY_LINKED: &str = "auth.identity_linked";
     /// 外部のIdPのアカウントのひも付けを、本人が解除した。
     pub const IDENTITY_UNLINKED: &str = "auth.identity_unlinked";
+    /// 本人がパスワードを変えた。
+    pub const PASSWORD_CHANGED: &str = "auth.password_changed";
+    /// 本人がTOTPを設定した。
+    pub const TOTP_ENABLED: &str = "auth.totp_enabled";
+    /// 本人がTOTPを外した。
+    pub const TOTP_REMOVED: &str = "auth.totp_removed";
+    /// 本人がパスキーを登録した。
+    pub const PASSKEY_ADDED: &str = "auth.passkey_added";
+    /// 本人がパスキーを外した。
+    pub const PASSKEY_REMOVED: &str = "auth.passkey_removed";
+    /// 本人が復旧コードを作り直した。
+    pub const RECOVERY_CODES_REGENERATED: &str = "auth.recovery_codes_regenerated";
     /// サーバー上のコマンドで利用者を止めた。
     pub const USER_DISABLED: &str = "auth.user_disabled";
     /// サーバー上のコマンドで利用者を再開した。

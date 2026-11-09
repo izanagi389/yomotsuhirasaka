@@ -28,6 +28,7 @@ use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Grants, Permission, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
+use crate::invitations;
 use crate::workspace_db;
 
 const MAX_NAME_CHARS: usize = 100;
@@ -425,6 +426,10 @@ pub async fn change_member_role(
     .execute(&mut *tx)
     .await
     .map_err(anyhow::Error::from)?;
+    // 管理者でなくなったら、その人が出した招待も使えなくする
+    if role.is_some_and(|r| r != Role::Admin) {
+        invitations::revoke_issued_by(&mut *tx, ws, user).await?;
+    }
     // 管理者への通知（計画の15番）: 管理者のロールへの変更と、重い権限の付与
     let granted_heavy = Permission::ALL
         .into_iter()
@@ -479,6 +484,7 @@ pub async fn remove_member(
     if done.rows_affected() != 1 {
         return Err(ApiError::not_found());
     }
+    invitations::revoke_involving(&mut *tx, ws, user).await?;
     audit::record(
         &mut *tx,
         Some(ws),
