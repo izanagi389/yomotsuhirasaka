@@ -326,3 +326,45 @@ async fn member_list_viewing_can_be_granted() {
     })
     .await;
 }
+
+/// 外された人が出した招待と、その人宛の招待は使えなくなる。管理者でなくなった人が出した招待も同じ（R29）。
+#[tokio::test]
+async fn invitations_do_not_outlive_their_admin() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        let (_, root) = user(&server, "root@example.test", true, true).await;
+        let ws = create_ws(&server, &root).await;
+        let (admin_id, _admin) = user(&server, "admin@example.test", false, true).await;
+        add_member(&server.pool, ws, admin_id, "admin").await;
+        let (demoted_id, _) = user(&server, "demoted@example.test", false, true).await;
+        add_member(&server.pool, ws, demoted_id, "admin").await;
+        let (other_admin, _) = user(&server, "other-admin@example.test", false, true).await;
+        add_member(&server.pool, ws, other_admin, "admin").await;
+        for (email, by) in [("a@example.test", admin_id), ("b@example.test", demoted_id)] {
+            let res = invite(&server, &root, ws, email, "editor").await;
+            assert_eq!(res.status, 201, "{}", res.body);
+            sqlx::query("UPDATE yomi.invitations SET invited_by = $1 WHERE email = $2").bind(by).bind(email).execute(&server.pool).await.unwrap();
+        }
+        let to_removed = invite(&server, &root, ws, "admin@example.test", "editor").await;
+        assert!(to_removed.status == 201 || to_removed.status == 409, "{}", to_removed.body);
+        let live = |email: &'static str| {
+            let pool = server.pool.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>("SELECT count(*) FROM yomi.invitations WHERE email = $1 AND revoked_at IS NULL AND accepted_at IS NULL")
+                    .bind(email)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap()
+            }
+        };
+        assert_eq!((live("a@example.test").await, live("b@example.test").await), (1, 1));
+
+        let res = send(&server, "PATCH", &format!("/api/admin/workspaces/{ws}/members/{demoted_id}"), &root, Some(r#"{"role":"editor"}"#)).await;
+        assert!(res.status < 300, "{}", res.body);
+        assert_eq!((live("a@example.test").await, live("b@example.test").await), (1, 0));
+        let res = send(&server, "DELETE", &format!("/api/admin/workspaces/{ws}/members/{admin_id}"), &root, None).await;
+        assert_eq!(res.status, 204, "{}", res.body);
+        assert_eq!(live("a@example.test").await, 0);
+    })
+    .await;
+}

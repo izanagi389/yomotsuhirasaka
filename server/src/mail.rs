@@ -158,11 +158,20 @@ pub mod notify {
         TotpRemoved,
         IdentityLinked,
         IdentityUnlinked,
+        RecoveryCodesRegenerated,
     }
 
     /// (件名, 起きたこと)
     fn texts(event: Event, locale: Locale) -> (&'static str, &'static str) {
         match (event, locale) {
+            (Event::RecoveryCodesRegenerated, Locale::En) => (
+                "Your recovery codes were replaced",
+                "New recovery codes were created for your account. The old codes no longer work.",
+            ),
+            (Event::RecoveryCodesRegenerated, Locale::Ja) => (
+                "復旧コードが作り直されました",
+                "あなたのアカウントの復旧コードが作り直されました。前のコードはもう使えません。",
+            ),
             (Event::IdentityLinked, Locale::En) => (
                 "An external account was linked",
                 "An external sign-in account was linked to your account.",
