@@ -130,6 +130,7 @@
 | `invalid_image` | 422 | 画像として読めません |
 | `image_too_large` | 422 | 画素数が上限を超えています |
 | `image_processing_timeout` | 422 | 画像の処理に時間がかかりすぎました |
+| `media_processing_busy` | 503 | 処理中の画像が多いため、受け付けられません。少し待ってやり直してください |
 | `file_too_large` | 413 | ファイルが上限を超えています |
 | `media_quota_exceeded` | 413 | ワークスペースの容量の上限を超えます |
 | `media_in_use` | 409 | 記事で使われているメディアです |

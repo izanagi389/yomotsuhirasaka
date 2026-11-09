@@ -164,6 +164,8 @@ pub struct Inner {
     pub oidc: Option<Arc<crate::auth::oidc::Oidc>>,
     /// 管理画面への即時の知らせ（WebSocket、計画の10番）。
     pub events: realtime::Events,
+    /// メディアの同時配信の枠。
+    pub media_serves: Arc<tokio::sync::Semaphore>,
 }
 
 impl Deref for AppState {
@@ -187,6 +189,9 @@ impl AppState {
             .map_or(public_origin.as_str(), |(_, host)| host)
             .to_owned();
         let login_limiter = IpLimiter::per_minute(config.limits.login_attempts_per_ip_per_minute);
+        let media_serves = Arc::new(tokio::sync::Semaphore::new(
+            config.media.max_concurrent_serves as usize,
+        ));
         let invalid_key_limiter =
             IpLimiter::per_minute(config.limits.invalid_api_keys_per_ip_per_minute);
         let query_slots = QuerySlots::new(config.delivery.max_concurrent_queries);
@@ -219,6 +224,7 @@ impl AppState {
         let scripts = crate::script::Engine::new(config.scripts.limits());
         Self(Arc::new(Inner {
             events: realtime::Events::default(),
+            media_serves,
             scripts,
             oidc,
             admin_ui,
