@@ -114,6 +114,9 @@ inv(
       expectRejected(await yomi.inviteRaw(sso.session, w.a.id, uniqueEmail("auth05sso"), "editor"), "パスキーのないSSOの管理者による招待");
       expectRejected(await yomi.getEntryRaw(asSession(sso.session), w.a.id, w.a.entryId), "パスキーのないSSOの管理者による記事の取得");
 
+      // TOTPを設定した管理者は、SSOのログインの直後でも、TOTPを確かめるまでパスキーを登録できない
+      expect((await yomi.beginPasskeyRaw(sso.session)).status, "TOTPを確かめずにパスキーの登録を始められた").toBe(403);
+
       // 対照: パスキーを設定し、パスキーで再認証すれば実行できる
       const passkey = await yomi.enrollPasskey(sso.session, ssoAdmin);
       await yomi.reauthenticateWithPasskey(sso.session, passkey);
