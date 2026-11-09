@@ -188,6 +188,15 @@ async fn webhooks_are_signed_and_carry_no_content() {
         assert_eq!(res.status, 204, "{}", res.body);
         while worker::run_once(&server.state).await.unwrap() {}
         assert_eq!(seen.lock().unwrap().len(), 3);
+        // テスト送信は Webhook ごとに1分10回まで
+        let res = send(&server, "POST", &hooks, &root, Some(&body(&url))).await;
+        assert_eq!(res.status, 201, "{}", res.body);
+        let second = res.json_str("id").unwrap();
+        for _ in 0..10 {
+            assert_eq!(send(&server, "POST", &format!("{hooks}/{second}/test"), &root, None).await.status, 202);
+        }
+        let res = send(&server, "POST", &format!("{hooks}/{second}/test"), &root, None).await;
+        assert_eq!((res.status, res.json_str("error").as_deref()), (429, Some("webhook_test_rate_limited")));
     })
     .await;
 }

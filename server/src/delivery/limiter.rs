@@ -42,6 +42,11 @@ pub enum Subject {
         workspace: Uuid,
         user: Uuid,
     },
+    /// Webhookのテスト送信の回数（1分あたり）。
+    WebhookTest {
+        workspace: Uuid,
+        webhook: Uuid,
+    },
     /// 訪問者ごとの回答の回数（`day` なら1日あたり、でなければ1分あたり）。`visitor` は識別子のハッシュ。
     Visitor {
         workspace: Uuid,
