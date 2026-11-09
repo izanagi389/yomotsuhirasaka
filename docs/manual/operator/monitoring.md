@@ -72,6 +72,8 @@ secret_file = "/data/audit-webhook.secret"   # 署名の秘密のファイル
   ```bash
   docker compose exec yomi yomi-server resume-audit-export --config /data/config.toml
   ```
+- 設定ファイルから外した書き出し先は、次の起動で止まり、サーバー管理者に通知が出ます。止まった書き出し先には、保存期間を過ぎた記録の削除を待たせません。同じ書き出し先を設定に戻すと、次の起動で続きから送ります。
+- サーバーを複数動かすときは、`[audit_export]` を同じにしてください。設定が違うサーバーが起動すると、ほかのサーバーが使っている書き出し先も止まります。
 - Webhook の署名は [記事の Webhook と同じ書式](../developer/webhooks.md#監査ログの書き出し先) です。
 
 ワークスペースの管理者も、自分のワークスペースの記録の書き出し先を「管理」→「監査ログ」で作れます。
