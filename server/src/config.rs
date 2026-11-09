@@ -339,8 +339,14 @@ pub struct MediaConfig {
     /// 画像の処理（デコードとエンコードし直し）にかける時間の上限（秒。既定は20秒）。
     #[serde(default = "default_processing_timeout_seconds")]
     pub processing_timeout_seconds: u32,
+    /// 同時に配信するファイルの数の上限（既定は512）。超えた分は 503 を返す。
+    #[serde(default = "default_max_concurrent_serves")]
+    pub max_concurrent_serves: u32,
 }
 
+fn default_max_concurrent_serves() -> u32 {
+    512
+}
 fn default_max_pixels() -> u64 {
     50_000_000
 }
@@ -364,6 +370,7 @@ impl MediaConfig {
             max_file_bytes: default_max_file_bytes(),
             default_workspace_quota_bytes: default_workspace_quota_bytes(),
             processing_timeout_seconds: default_processing_timeout_seconds(),
+            max_concurrent_serves: default_max_concurrent_serves(),
         }
     }
 }

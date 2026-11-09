@@ -93,6 +93,8 @@ pub struct Inner {
     pub oidc: Option<Arc<crate::auth::oidc::Oidc>>,
     /// 管理画面への即時の知らせ（WebSocket、計画の10番）。
     pub events: realtime::Events,
+    /// メディアの同時配信の枠。
+    pub media_serves: Arc<tokio::sync::Semaphore>,
 }
 
 impl Deref for AppState {
@@ -116,6 +118,9 @@ impl AppState {
             .map_or(public_origin.as_str(), |(_, host)| host)
             .to_owned();
         let login_limiter = IpLimiter::per_minute(config.limits.login_attempts_per_ip_per_minute);
+        let media_serves = Arc::new(tokio::sync::Semaphore::new(
+            config.media.max_concurrent_serves as usize,
+        ));
         // 起動時の設定の検査で、読み込めることは確かめてある。ここで失敗したら国を調べずに続ける
         let geoip = config
             .login_history
@@ -145,6 +150,7 @@ impl AppState {
         let scripts = crate::script::Engine::new(config.scripts.limits());
         Self(Arc::new(Inner {
             events: realtime::Events::default(),
+            media_serves,
             scripts,
             oidc,
             admin_ui,
