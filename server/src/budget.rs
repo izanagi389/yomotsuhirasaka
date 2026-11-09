@@ -21,7 +21,11 @@ use crate::llm::{Embeddings, Llm, LlmError, estimate_tokens};
 /// 予算の種類。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
+    /// 記事の埋め込みの作成（公開と更新、モデルや変換器の変更）。
     Embedding,
+    /// 訪問者の検索語と質問文の埋め込み。上限は [`Kind::Embedding`] と同じ値で、別に数える
+    /// （訪問者が使い切っても、記事の埋め込みを止めない）。
+    VisitorEmbedding,
     /// 訪問者向けの回答（回答の生成。M4）。
     VisitorAnswers,
     /// 編集者向けの支援（矛盾の検知など。M4）。尽きても公開は妨げない（INV-BUD-02）。
@@ -32,8 +36,17 @@ impl Kind {
     pub fn as_str(self) -> &'static str {
         match self {
             Kind::Embedding => "embedding",
+            Kind::VisitorEmbedding => "visitor_embedding",
             Kind::VisitorAnswers => "visitor_answers",
             Kind::EditorAssist => "editor_assist",
+        }
+    }
+
+    /// 上限の設定を読む先。
+    fn limit_kind(self) -> Self {
+        match self {
+            Kind::VisitorEmbedding => Kind::Embedding,
+            other => other,
         }
     }
 }
@@ -100,8 +113,8 @@ pub async fn ceiling(
 ) -> Result<Pair> {
     use crate::config::LlmConfig as L;
     type Default = fn(&L) -> (Option<u64>, Option<u64>);
-    let (sql, defaults): (&str, Default) = match (kind, direction) {
-        (Kind::Embedding, Direction::Input) => (
+    let (sql, defaults): (&str, Default) = match (kind.limit_kind(), direction) {
+        (Kind::Embedding | Kind::VisitorEmbedding, Direction::Input) => (
             "SELECT embedding_tokens_per_month, embedding_tokens_per_day FROM yomi.workspace_limits WHERE workspace_id = $1",
             |l| {
                 (
@@ -146,7 +159,9 @@ pub async fn ceiling(
                 )
             },
         ),
-        (Kind::Embedding, Direction::Output) => return Ok(Pair::default()),
+        (Kind::Embedding | Kind::VisitorEmbedding, Direction::Output) => {
+            return Ok(Pair::default());
+        }
     };
     let set: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(sql)
         .bind(workspace_id)
@@ -174,7 +189,7 @@ pub async fn limits(
          WHERE workspace_id = $1 AND kind = $2 AND direction = $3",
     )
     .bind(workspace_id)
-    .bind(kind.as_str())
+    .bind(kind.limit_kind().as_str())
     .bind(direction.as_str())
     .fetch_optional(pool)
     .await?;
@@ -217,7 +232,8 @@ pub async fn set_limits(
 pub async fn resumed(pool: &PgPool, workspace_id: Uuid, kind: Kind) -> Result<()> {
     sqlx::query(
         "UPDATE yomi.budget_usage SET exhausted_at = NULL
-         WHERE workspace_id = $1 AND kind = $2 AND exhausted_at IS NOT NULL
+         WHERE workspace_id = $1 AND exhausted_at IS NOT NULL
+           AND (kind = $2 OR ($2 = 'embedding' AND kind = 'visitor_embedding'))
            AND ((period = 'month' AND period_start = date_trunc('month', now() AT TIME ZONE 'UTC')::date)
              OR (period = 'day' AND period_start = (now() AT TIME ZONE 'UTC')::date))",
     )
@@ -462,16 +478,21 @@ pub async fn embed(
     workspace_id: Uuid,
     inputs: &[String],
 ) -> Result<Embedded> {
+    embed_from(pool, config, llm, workspace_id, inputs, Kind::Embedding).await
+}
+
+/// `kind` の予算の範囲で埋め込みを作る。記事の埋め込み以外（検索語や質問文、矛盾の検知の探索）に使う。
+pub async fn embed_from(
+    pool: &PgPool,
+    config: &Config,
+    llm: &Llm,
+    workspace_id: Uuid,
+    inputs: &[String],
+    kind: Kind,
+) -> Result<Embedded> {
     let estimate = i64::try_from(estimate_tokens(inputs)).unwrap_or(i64::MAX);
-    let reservation = match reserve(
-        pool,
-        config,
-        workspace_id,
-        Kind::Embedding,
-        Direction::Input,
-        estimate,
-    )
-    .await?
+    let reservation = match reserve(pool, config, workspace_id, kind, Direction::Input, estimate)
+        .await?
     {
         Reserved::Ok(r) => r,
         Reserved::Exhausted { first, .. } => {
@@ -480,7 +501,11 @@ pub async fn embed(
                     pool,
                     Some(workspace_id),
                     None,
-                    audit::action::BUDGET_EXHAUSTED,
+                    match kind {
+                        Kind::Embedding | Kind::VisitorEmbedding => audit::action::BUDGET_EXHAUSTED,
+                        Kind::VisitorAnswers => audit::action::ANSWER_BUDGET_EXHAUSTED,
+                        Kind::EditorAssist => audit::action::ASSIST_BUDGET_EXHAUSTED,
+                    },
                     &[workspace_id],
                 )
                 .await?;

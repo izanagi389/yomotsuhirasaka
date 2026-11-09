@@ -981,6 +981,7 @@
     "topUsers": "Most targeted accounts"
   },
   "budget": {
+    "visitorUsage": "Embeddings of visitors' search terms and questions are counted separately under the same limits. When they run out, only keyword search works. This month: {month} tokens. Today: {day} tokens.",
     "embeddingTitle": "Embedding budget",
     "help": "The budget for creating embeddings from published entries, used for search and related entries. It is counted in tokens, and the LLM is called only within the budget. When it runs out, creation stops and the existing embeddings keep working.",
     "egressNote": "The contents of searchable fields are sent to the LLM endpoint configured on the server to create embeddings.",
