@@ -165,13 +165,10 @@ pub struct Inner {
     pub oidc: Option<Arc<crate::auth::oidc::Oidc>>,
     /// 管理画面への即時の知らせ（WebSocket、計画の10番）。
     pub events: realtime::Events,
-<<<<<<< HEAD
     /// トランザクションを持ったままフックを動かす処理の枠（[`AppState::hook_slot`]）。
     pub hook_slots: tokio::sync::Semaphore,
-=======
     /// メディアの同時配信の枠。
     pub media_serves: Arc<tokio::sync::Semaphore>,
->>>>>>> origin/main
 }
 
 impl Deref for AppState {
@@ -249,11 +246,8 @@ impl AppState {
         let scripts = crate::script::Engine::new(config.scripts.limits());
         Self(Arc::new(Inner {
             events: realtime::Events::default(),
-<<<<<<< HEAD
             hook_slots: tokio::sync::Semaphore::new(HOOK_SLOTS),
-=======
             media_serves,
->>>>>>> origin/main
             scripts,
             oidc,
             admin_ui,
