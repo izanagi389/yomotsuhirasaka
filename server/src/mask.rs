@@ -4,8 +4,9 @@
 //! チャットボットの質問文・質問ログ（M4）で同じものを使う。
 //! - メールアドレス → `[email]`
 //! - IPアドレス（IPv4・ポート付きのIPv4・IPv6。全角の数字・`．`・`：` も）→ `[ip]`（2026-10-30に追加）
-//! - 10桁以上の数字の並び（電話番号・カード番号・口座番号など。空白・ハイフン・括弧・`+`・`.` で区切られていてもよい）→ `[number]`
-//! - 全角の数字と `＠` も同じように扱う。
+//! - 10桁以上の数字の並び（電話番号・カード番号・口座番号など。空白・各種のダッシュ・括弧・`+`・`.`・`/`・`・` で区切られていてもよい）→ `[number]`
+//! - 全角の英数字・記号と `＠` も同じように扱う。メールアドレスのローカル部は日本語などでもよい（`山田@example.com`）。
+//!   ローカル部は空白や記号までを伏せるので、前の語が一緒に伏せられることがある（伏せ残すより安全なほうを選ぶ）。
 //!
 //! 氏名や住所のような自由な書き方は伏せられない（マスクの限界。管理画面で知らせる）。
 
@@ -23,19 +24,32 @@ fn is_at(c: char) -> bool {
     c == '@' || c == '＠'
 }
 
+/// 全角の英数字と記号を半角にする（それ以外はそのまま）。
+fn halfwidth(c: char) -> char {
+    match c {
+        '！'..='～' => char::from_u32(c as u32 - 0xFEE0).unwrap_or(c),
+        _ => c,
+    }
+}
+
 fn is_local(c: char) -> bool {
-    c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '%' | '+' | '-')
+    let c = halfwidth(c);
+    c.is_alphanumeric() || matches!(c, '.' | '_' | '%' | '+' | '-')
 }
 
 fn is_domain(c: char) -> bool {
+    let c = halfwidth(c);
     c.is_ascii_alphanumeric() || matches!(c, '.' | '-')
 }
 
-/// 数字の並びの区切りとして許す文字。
-fn is_number_separator(c: char) -> bool {
+/// 数字の並びの区切りとして許す文字（カード番号の検査 `answer::refuse` でも使う）。
+pub(crate) fn is_number_separator(c: char) -> bool {
     matches!(
         c,
-        ' ' | '-' | '(' | ')' | '+' | '.' | '－' | '　' | '（' | '）' | '＋' | '‐' | 'ー'
+        ' ' | '-' | '(' | ')' | '+' | '.' | '/' | '　' | '（' | '）' | '＋' | '．' | '／'
+            | '－' | 'ー' | 'ｰ' | '・' | '･'
+            // ハイフンやダッシュ、マイナスの仲間
+            | '\u{2010}'..='\u{2015}' | '\u{2212}' | '\u{2043}' | '\u{FE58}' | '\u{FE63}'
     )
 }
 
@@ -50,10 +64,10 @@ fn email_at(chars: &[char], at: usize) -> Option<(usize, usize)> {
         end += 1;
     }
     // 末尾の . や - は含めない
-    while end > at + 1 && matches!(chars[end - 1], '.' | '-') {
+    while end > at + 1 && matches!(halfwidth(chars[end - 1]), '.' | '-') {
         end -= 1;
     }
-    let domain: String = chars[at + 1..end].iter().collect();
+    let domain: String = chars[at + 1..end].iter().map(|c| halfwidth(*c)).collect();
     let tld = domain.rsplit('.').next().unwrap_or("");
     let valid = start < at
         && domain.contains('.')
@@ -228,10 +242,16 @@ mod tests {
             mask("連絡は taro.yamada+yomi@example.co.jp まで"),
             "連絡は [email] まで"
         );
+        assert_eq!(mask("ｔ＠example.com"), "[email]", "全角の英字");
         assert_eq!(
-            mask("ｔ＠example.com"),
-            "ｔ＠example.com",
-            "全角の英字はアドレスにしない"
+            mask("宛先 ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ です"),
+            "宛先 [email] です"
+        );
+        assert_eq!(mask("山田@example.com に"), "[email] に");
+        assert_eq!(
+            mask("a@example.comです"),
+            "[email]です",
+            "後ろの日本語はドメインにしない"
         );
         assert_eq!(mask("abc＠example.com です"), "[email] です");
         assert_eq!(
@@ -249,7 +269,16 @@ mod tests {
         assert_eq!(mask("+81 (3) 1234-5678"), "[number]");
         assert_eq!(mask("０３－１２３４－５６７８に"), "[number]に");
         assert_eq!(mask("カード 4111 1111 1111 1111"), "カード [number]");
+        for sep in ["−", "–", "—", "―", "/", "／", "・", "ｰ", "‐"] {
+            let n = ["090", "1234", "5678"].join(sep);
+            assert_eq!(
+                mask(&format!("電話 {n} まで")),
+                "電話 [number] まで",
+                "{sep}"
+            );
+        }
         // 短い数字はそのまま（年月日、件数など）
+        assert_eq!(mask("2026/10/28 に"), "2026/10/28 に");
         assert_eq!(mask("2026-10-28 に 3 件"), "2026-10-28 に 3 件");
         assert_eq!(mask("123456789"), "123456789");
         // 区切りで終わる数字の並びは、区切りを残す

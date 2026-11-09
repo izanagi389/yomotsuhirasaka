@@ -48,6 +48,11 @@ pub enum Subject {
     AdminWorkspace(Uuid),
     /// クエリの新規登録の回数（1分あたり）。
     QueryRegistration(Uuid),
+    /// Webhookのテスト送信の回数（1分あたり）。
+    WebhookTest {
+        workspace: Uuid,
+        webhook: Uuid,
+    },
     /// 訪問者ごとの回答の回数（`day` なら1日あたり、でなければ1分あたり）。`visitor` は識別子のハッシュ。
     Visitor {
         workspace: Uuid,
