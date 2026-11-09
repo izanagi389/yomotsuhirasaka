@@ -5,6 +5,7 @@
 //! - `yomi-server create-server-admin`: サーバー管理者を作る（サーバー上でだけ行える。Q100）
 //! - `yomi-server reset-password` / `reset-mfa`: 利用者のパスワードを決め直す・多要素認証を解除する。
 //!   サーバー管理者の回復は、ネットワーク越しではなくこれで行う（INV-AUTH-10）
+//! - `yomi-server resume-audit-export`: 止まった設定ファイルの監査ログの書き出し先を再開する
 //! - `yomi-server llm-check`: LLMの接続先（`[llm]`）に埋め込みを1回頼み、届くかを確かめる
 
 use uuid::Uuid;
@@ -139,6 +140,13 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// Resume the audit log destinations in the config file that stopped after failing for 7 days.
+    ///
+    /// Sending continues from where it stopped. Fix the destination first.
+    ResumeAuditExport {
+        #[arg(long)]
+        config: PathBuf,
+    },
     /// Check the LLM connection (`[llm]`): request one embedding and print whether it worked.
     ///
     /// Prints only the outcome and the status code, never the response body.
@@ -253,6 +261,7 @@ fn main() -> ExitCode {
             password_stdin,
         } => reset_password_main(&config, &email, password_stdin),
         Command::ResetMfa { config, email } => reset_mfa_main(&config, &email),
+        Command::ResumeAuditExport { config } => resume_audit_export_main(&config),
         Command::RevokeAllSessions { config, yes } => revoke_all_sessions_main(&config, yes),
         Command::RotateApiKeys {
             config,
@@ -717,6 +726,27 @@ fn revoke_all_sessions_main(config_path: &Path, yes: bool) -> ExitCode {
         );
         Ok(())
     })
+}
+
+fn resume_audit_export_main(config_path: &Path) -> ExitCode {
+    with_checked_config(
+        config_path,
+        "cannot resume the audit log export",
+        |config| async move {
+            let (pool, migration, _) = prepare_database(&config).await?;
+            migration.close().await;
+            let resumed =
+                yomi_server::audit_export::resume_instance_sinks(&pool, &config.audit_export)
+                    .await?;
+            if resumed.is_empty() {
+                println!("No stopped audit log destinations in the config file.");
+            }
+            for sink in resumed {
+                println!("Resumed {sink}. Restart is not needed.");
+            }
+            Ok(())
+        },
+    )
 }
 
 fn rotate_api_keys_main(config_path: &Path, workspace: Option<Uuid>, yes: bool) -> ExitCode {

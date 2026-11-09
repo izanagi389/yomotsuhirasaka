@@ -613,6 +613,10 @@
       "user": {
         "display_name_changed": "Display name changed"
       },
+      "audit_export": {
+        "stopped": "Audit log export stopped",
+        "resumed": "Audit log export resumed"
+      },
       "alert": {
         "login_failures": "Spike in failed sign-ins",
         "rate_limited": "Spike in rate-limited requests"

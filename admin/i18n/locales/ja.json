@@ -613,6 +613,10 @@
       "user": {
         "display_name_changed": "表示名の変更"
       },
+      "audit_export": {
+        "stopped": "監査ログの書き出しの停止",
+        "resumed": "監査ログの書き出しの再開"
+      },
       "alert": {
         "login_failures": "ログイン失敗の急増",
         "rate_limited": "回数制限への到達の急増"
