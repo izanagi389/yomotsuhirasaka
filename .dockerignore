@@ -11,3 +11,4 @@ packages/nuxt/dist/
 packages/nuxt/playground/.nuxt/
 packages/nuxt/playground/.output/
 tools/mock-llm/dist/
+deploy/pentest/data/
