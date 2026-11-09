@@ -23,7 +23,11 @@ use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::access;
 use crate::audit::{self, action};
+use crate::delivery::limiter::Subject;
 use crate::webhooks;
+
+/// Webhookごとの、1分あたりのテスト送信の上限。
+const TESTS_PER_MINUTE: u32 = 10;
 
 const MAX_URL_CHARS: usize = 2048;
 /// 1つのワークスペースに登録できる送信先の数。
@@ -122,7 +126,11 @@ pub async fn create(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("outbound HTTP is not available"))?;
     // 登録の時点でも検査する（送るたびにも検査し直す）
-    egress.check(&url).await.map_err(destination_refused)?;
+    egress
+        .for_workspace_destinations()
+        .check(&url)
+        .await
+        .map_err(destination_refused)?;
 
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     // 数の上限は、同じワークスペースの登録を順に処理して数える（ワークスペースごとのアドバイザリーロック）
@@ -227,6 +235,23 @@ pub async fn test(
     if !exists(&state, ws, id).await? {
         return Err(ApiError::not_found());
     }
+    // 送信は取り出し手を使うので、回数を制限する（Webhookごとに1分あたり）
+    state
+        .delivery_limiter
+        .check(
+            Subject::WebhookTest {
+                workspace: ws,
+                webhook: id,
+            },
+            TESTS_PER_MINUTE,
+        )
+        .map_err(|retry| {
+            ApiError::too_many(
+                "webhook_test_rate_limited",
+                "Too many test sends for this webhook. Try again later.",
+                retry,
+            )
+        })?;
     // 送信はジョブで行う（同期の処理で外部と通信しない。原則5）。結果は送信の記録で状態コードだけを見る
     let delivery_id = webhooks::enqueue_test(&state.pool, &state.keys, ws, id).await?;
     Ok((StatusCode::ACCEPTED, Json(TestQueued { delivery_id })))
