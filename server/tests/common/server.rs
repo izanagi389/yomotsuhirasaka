@@ -26,6 +26,7 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
         session: SessionConfig::default(),
         limits: LimitsConfig {
             login_attempts_per_ip_per_minute: 1000,
+            ..Default::default()
         },
         // 多くのテストは多要素認証のない利用者で操作するので、全員への必須は無効にする（有効な場合は admin_mfa.rs で確かめる）
         default_locale: yomi_server::locale::Locale::En,

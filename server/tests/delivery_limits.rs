@@ -144,3 +144,114 @@ async fn response_size_and_shared_cache() {
     })
     .await;
 }
+
+const KEYWORD_SEARCH: &str =
+    "{ search(text: \"x\", locale: \"ja\", first: 5, mode: KEYWORD) { keywordSearch } }";
+
+/// 接続のプール（16本）より多い同時の検索でも、詰まらない（検索語の準備の間は接続を持たない）。
+#[tokio::test]
+async fn concurrent_searches_do_not_exhaust_the_pool() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        assert_eq!(
+            deploy(&server, &token, "blog", &blog_manifest(), "")
+                .await
+                .status,
+            200
+        );
+        let ws = workspace_with_template(&server, &root, "A", "blog").await;
+        let key = api_key(&server, &root, ws, &["read", "register"], "server").await;
+        let id = register(&server, ws, &key, KEYWORD_SEARCH).await;
+        let started = std::time::Instant::now();
+        let all = (0..32).map(|_| run(&server, ws, &key, &id));
+        for res in async_graphql::futures_util::future::join_all(all).await {
+            assert_eq!(res.status, 200, "{}", res.body);
+            assert!(!res.body.contains("errors"), "{}", res.body);
+        }
+        // 詰まると、接続の取得待ち（10秒）まで止まる
+        assert!(started.elapsed().as_secs() < 8, "{:?}", started.elapsed());
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn queries_have_time_and_size_limits() {
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.delivery.max_resolved_entries = 0;
+        let server = start(cfg).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        assert_eq!(deploy(&server, &token, "blog", &blog_manifest(), "").await.status, 200);
+        let ws = workspace_with_template(&server, &root, "A", "blog").await;
+        let body = json!({"contentType": "post", "fields": {"title": "t", "slug": "s", "body": {"type": "doc", "content": []}}});
+        let res = send(&server, "POST", &format!("/api/admin/workspaces/{ws}/entries"), &root, Some(&body.to_string())).await;
+        assert_eq!(res.status, 201, "{}", res.body);
+        let entry = res.json_str("id").unwrap();
+        let res = send(&server, "POST", &format!("/api/admin/workspaces/{ws}/entries/{entry}/publish"), &root, Some("{\"revision\":1}")).await;
+        assert!(res.status < 300, "{}", res.body);
+        let key = api_key(&server, &root, ws, &["read", "register"], "server").await;
+        let id = register(&server, ws, &key, LIST).await;
+        let res = run(&server, ws, &key, &id).await;
+        assert_eq!((res.status, res.json_str("error").as_deref()), (422, Some("query_too_large")), "{}", res.body);
+    })
+    .await;
+
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.delivery.max_query_seconds = 0;
+        let server = start(cfg).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        assert_eq!(
+            deploy(&server, &token, "blog", &blog_manifest(), "")
+                .await
+                .status,
+            200
+        );
+        let ws = workspace_with_template(&server, &root, "A", "blog").await;
+        let key = api_key(&server, &root, ws, &["read", "register"], "server").await;
+        let id = register(&server, ws, &key, LIST).await;
+        let res = run(&server, ws, &key, &id).await;
+        assert_eq!(
+            (res.status, res.json_str("error").as_deref()),
+            (503, Some("query_timeout")),
+            "{}",
+            res.body
+        );
+    })
+    .await;
+}
+
+/// 無効なキーを送り続ける接続元は断る（ほかの接続元には影響しない）。
+#[tokio::test]
+async fn invalid_keys_are_limited_per_address() {
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.limits.invalid_api_keys_per_ip_per_minute = 2;
+        cfg.trusted_proxies = vec!["127.0.0.1".parse().unwrap()];
+        let server = start(cfg).await;
+        let ws = Uuid::new_v4();
+        let from = |ip: &'static str| {
+            let server = &server;
+            async move {
+                request(
+                    server,
+                    "GET",
+                    &format!("/ws/{ws}/graphql?id=x"),
+                    &[
+                        ("Authorization", "Bearer yomi_key_invalid"),
+                        ("X-Forwarded-For", ip),
+                    ],
+                    None,
+                )
+                .await
+                .status
+            }
+        };
+        assert_eq!(from("198.18.90.1").await, 401);
+        assert_eq!(from("198.18.90.1").await, 401);
+        assert_eq!(from("198.18.90.1").await, 429);
+        assert_eq!(from("198.18.90.2").await, 401);
+    })
+    .await;
+}
