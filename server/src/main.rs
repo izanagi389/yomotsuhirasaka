@@ -593,10 +593,15 @@ fn create_server_admin_main(config_path: &Path, email: &str, password_stdin: boo
 }
 
 fn init_logging(level: &str) {
+    use tracing_subscriber::field::MakeExt as _;
     let filter = tracing_subscriber::EnvFilter::try_new(format!("yomi_server={level},warn"))
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let ansi = std::io::IsTerminal::is_terminal(&std::io::stderr());
     tracing_subscriber::fmt()
+        .fmt_fields(
+            tracing_subscriber::fmt::format::debug_fn(yomi_server::log_redact::write_field)
+                .delimited(" "),
+        )
         .with_env_filter(filter)
         .with_ansi(ansi)
         .with_writer(std::io::stderr)
