@@ -19,6 +19,8 @@ pub const PREFIX: &str = "yomi_pat_";
 pub const API_KEY_PREFIX: &str = "yomi_key_";
 /// 有効期限の上限（日）。
 pub const MAX_LIFETIME_DAYS: i32 = 365;
+/// デプロイの範囲のトークンの有効期限の上限（日）。デプロイはサーバーの上でコードを動かす権限と同じなので短くする。
+pub const MAX_DEPLOY_LIFETIME_DAYS: i32 = 30;
 /// 使った時刻の記録の間隔（秒）。毎回は書き込まない。
 const TOUCH_INTERVAL_SECONDS: f64 = 60.0;
 
@@ -44,6 +46,20 @@ pub enum ExpiryError {
 }
 
 /// 有効期限を確かめる（時刻の解釈と比較はPostgreSQLで行う）。`expires_at` は RFC 3339 の時刻。
+/// デプロイの範囲のトークンの有効期限の上限の内か（`check_expiry` を通った値に使う）。
+pub async fn within_deploy_lifetime<'e>(
+    executor: impl PgExecutor<'e>,
+    expires_at: &str,
+) -> Result<bool> {
+    Ok(
+        sqlx::query_scalar("SELECT $1::timestamptz <= now() + make_interval(days => $2)")
+            .bind(expires_at)
+            .bind(MAX_DEPLOY_LIFETIME_DAYS)
+            .fetch_one(executor)
+            .await?,
+    )
+}
+
 pub async fn check_expiry<'e>(
     executor: impl PgExecutor<'e>,
     expires_at: &str,
@@ -183,6 +199,17 @@ pub async fn revoke(pool: &PgPool, user_id: Uuid, id: Uuid) -> Result<bool> {
     .execute(pool)
     .await?;
     Ok(done.rows_affected() == 1)
+}
+
+/// 利用者のトークンをすべて失効させる（リセットの完了、サーバー上の復旧のコマンド、利用者を止めるとき）。
+pub async fn revoke_all<'e>(executor: impl sqlx::PgExecutor<'e>, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE yomi.personal_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(executor)
+    .await?;
+    Ok(())
 }
 
 type ResolvedRow = (
