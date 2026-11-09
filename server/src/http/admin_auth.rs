@@ -673,6 +673,14 @@ pub async fn change_password(
     users::set_password(&mut *tx, current.user_id, &hash).await?;
     session::revoke_others(&mut *tx, current.user_id, current.id).await?;
     notify(&state, &mut *tx, &current, Event::PasswordChanged).await?;
+    audit::record(
+        &mut *tx,
+        None,
+        Some(current.user_id),
+        audit::action::PASSWORD_CHANGED,
+        &[current.user_id],
+    )
+    .await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }

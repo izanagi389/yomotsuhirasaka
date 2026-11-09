@@ -521,6 +521,12 @@
         "login": "Signed in",
         "identity_linked": "External account linked",
         "identity_unlinked": "External account unlinked",
+        "password_changed": "Password changed",
+        "totp_enabled": "Authenticator app enabled",
+        "totp_removed": "Authenticator app removed",
+        "passkey_added": "Passkey added",
+        "passkey_removed": "Passkey removed",
+        "recovery_codes_regenerated": "Recovery codes replaced",
         "user_disabled": "User stopped",
         "user_enabled": "User allowed to sign in again",
         "user_provisioned": "User created by SSO"

@@ -26,6 +26,7 @@ use super::AppState;
 use super::admin_auth::notify;
 use super::error::ApiError;
 use super::extract::{AuthSession, AuthSessionForMfaSetup, JsonBody, require_cookie_session};
+use crate::audit::{self, action};
 use crate::auth::{mfa, passkeys, session};
 use crate::mail::notify::Event;
 
@@ -116,6 +117,14 @@ pub async fn confirm_totp(
     };
     session::revoke_others(&state.pool, current.user_id, current.id).await?;
     notify(&state, &state.pool, &current, Event::MfaEnabled).await?;
+    audit::record(
+        &state.pool,
+        None,
+        Some(current.user_id),
+        action::TOTP_ENABLED,
+        &[current.user_id],
+    )
+    .await?;
     // 今コードを確かめたので、このセッションは本人確認を済ませたものとする
     session::mark_reauthenticated(&state.pool, current.id, session::Method::Totp).await?;
     Ok(Json(RecoveryCodes {
@@ -144,6 +153,14 @@ pub async fn disable_totp(
         Event::MfaDisabled
     };
     notify(&state, &mut *tx, &current, event).await?;
+    audit::record(
+        &mut *tx,
+        None,
+        Some(current.user_id),
+        action::TOTP_REMOVED,
+        &[current.user_id],
+    )
+    .await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -161,6 +178,15 @@ pub async fn regenerate_recovery_codes(
     }
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     let codes = mfa::replace_recovery_codes(&mut tx, current.user_id).await?;
+    notify(&state, &mut *tx, &current, Event::RecoveryCodesRegenerated).await?;
+    audit::record(
+        &mut *tx,
+        None,
+        Some(current.user_id),
+        action::RECOVERY_CODES_REGENERATED,
+        &[current.user_id],
+    )
+    .await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(RecoveryCodes {
         recovery_codes: codes,
@@ -292,6 +318,14 @@ pub async fn confirm_passkey(
     };
     session::revoke_others(&state.pool, current.user_id, current.id).await?;
     notify(&state, &state.pool, &current, Event::PasskeyAdded).await?;
+    audit::record(
+        &state.pool,
+        None,
+        Some(current.user_id),
+        action::PASSKEY_ADDED,
+        &[current.user_id],
+    )
+    .await?;
     // 今パスキーで本人を確かめたので、このセッションは本人確認を済ませたものとする
     session::mark_reauthenticated(&state.pool, current.id, session::Method::Passkey).await?;
     Ok((
@@ -326,6 +360,14 @@ pub async fn remove_passkey(
         Event::MfaDisabled
     };
     notify(&state, &mut *tx, &current, event).await?;
+    audit::record(
+        &mut *tx,
+        None,
+        Some(current.user_id),
+        action::PASSKEY_REMOVED,
+        &[current.user_id],
+    )
+    .await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
