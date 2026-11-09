@@ -11,6 +11,8 @@
 //!   形式の署名を付ける（署名のIDは、まとめて送る最初の記録のID。やり直しても変わらない）。
 //! - 止まったら、ログと監査ログ（管理者への通知）に残す。設定ファイルの書き出し先は `yomi-server resume-audit-export` で再開する。
 //! - 7日間続けて送れなければ「停止」にする。停止した書き出し先は飛ばし、管理者が再開するまで送らない。
+//! - 設定ファイルから外した書き出し先は、起動のときに止める（保存期間を過ぎた記録の削除を待たせない）。進み具合は残すので、
+//!   同じ書き出し先を戻すと、次の起動で続きから送る。複数のサーバーは同じ設定で動かす前提。
 //! - Webhook の送信は、外部への送信の共通の仕組み（egress）だけを通す。
 
 use std::time::Duration;
@@ -36,6 +38,9 @@ const RETRY_SECONDS: f64 = 60.0;
 const STOP_AFTER_SECONDS: f64 = 7.0 * 24.0 * 60.0 * 60.0;
 /// 1回の見回りで、1つの書き出し先に送るまとまりの数の上限（ほかの書き出し先を待たせないため）。
 const MAX_BATCHES_PER_TICK: usize = 10;
+
+/// 設定ファイルから外して止めた印（`last_error` に入れる）。送れずに止まったものと区別する。
+const REMOVED_FROM_CONFIG: &str = "removed_from_config";
 
 /// 秘密の暗号化のAAD（書き出し先ごと）。
 pub fn secret_aad(sink_id: Uuid) -> Vec<u8> {
@@ -361,16 +366,67 @@ fn instance_sinks(config: &AuditExportConfig) -> Vec<String> {
     out
 }
 
-/// インスタンス全体の書き出し先の進み具合の行を作る（初めて設定したときは、その時点から送る）。
+/// インスタンス全体の書き出し先の進み具合の行を、今の設定に合わせる（サーバーの起動のときに呼ぶ）。
+/// - 初めて設定したものは、その時点から送る
+/// - 設定から外したものは止める（`purge_audit_log` は止まった書き出し先を待たない）
+/// - 外して止めたものが設定に戻ったら、続きから送る。送れずに止まったものは、戻しても止まったまま（コマンドで再開する）
 pub async fn register_instance_sinks(pool: &PgPool, config: &AuditExportConfig) -> Result<()> {
-    for key in instance_sinks(config) {
+    let keys = instance_sinks(config);
+    let mut tx = pool.begin().await?;
+    let removed = sqlx::query(
+        "UPDATE yomi.audit_export_cursors
+         SET stopped_at = now(), failing_since = NULL, last_error = $2
+         WHERE sink_key <> ALL($1) AND stopped_at IS NULL",
+    )
+    .bind(&keys)
+    .bind(REMOVED_FROM_CONFIG)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    let restored = sqlx::query(
+        "UPDATE yomi.audit_export_cursors
+         SET stopped_at = NULL, last_error = NULL
+         WHERE sink_key = ANY($1) AND last_error = $2",
+    )
+    .bind(&keys)
+    .bind(REMOVED_FROM_CONFIG)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    for key in &keys {
         sqlx::query(
             "INSERT INTO yomi.audit_export_cursors (sink_key) VALUES ($1) ON CONFLICT DO NOTHING",
         )
-        .bind(&key)
-        .execute(pool)
+        .bind(key)
+        .execute(&mut *tx)
         .await?;
     }
+    // 書き出し先の名前は URL を含むので、ログと監査ログには出さない
+    if removed > 0 {
+        tracing::warn!(
+            count = removed,
+            "audit export: destinations removed from the config were stopped"
+        );
+        audit::record(
+            &mut *tx,
+            None,
+            None,
+            audit::action::AUDIT_EXPORT_REMOVED,
+            &[],
+        )
+        .await?;
+    }
+    if restored > 0 {
+        audit::record(
+            &mut *tx,
+            None,
+            None,
+            audit::action::AUDIT_EXPORT_RESUMED,
+            &[],
+        )
+        .await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 
