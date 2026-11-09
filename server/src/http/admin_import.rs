@@ -67,6 +67,7 @@ pub async fn import(
     let plan = import::plan(manifest, ct, &req.entries).map_err(invalid)?;
 
     let db = db(&state, ws).await?;
+    let _hook_slot = state.hook_slot().await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     let scripts = Scripts {
         engine: &state.scripts,

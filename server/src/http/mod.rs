@@ -164,6 +164,8 @@ pub struct Inner {
     pub oidc: Option<Arc<crate::auth::oidc::Oidc>>,
     /// 管理画面への即時の知らせ（WebSocket、計画の10番）。
     pub events: realtime::Events,
+    /// トランザクションを持ったままフックを動かす処理の枠（[`AppState::hook_slot`]）。
+    pub hook_slots: tokio::sync::Semaphore,
 }
 
 impl Deref for AppState {
@@ -173,7 +175,26 @@ impl Deref for AppState {
     }
 }
 
+/// トランザクションを持ったままフックを動かす処理の枠の数。フックの `yomi.content.get` は2本目の接続を使うので、
+/// 接続のプールを埋め尽くして互いに待ち続けないよう、接続を取る前に数を絞る（プールは16本）。
+const HOOK_SLOTS: usize = 4;
+/// 枠を待つ時間の上限。
+const HOOK_SLOT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
 impl AppState {
+    /// フックを動かす処理の枠を取る（トランザクションを始める前に呼ぶ）。空かなければ `server_busy` にする。
+    pub async fn hook_slot(&self) -> Result<tokio::sync::SemaphorePermit<'_>, error::ApiError> {
+        match tokio::time::timeout(HOOK_SLOT_WAIT, self.hook_slots.acquire()).await {
+            Ok(Ok(permit)) => Ok(permit),
+            Ok(Err(_)) => Err(error::ApiError::internal()),
+            Err(_) => Err(error::ApiError::new(
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "server_busy",
+                "The server is handling too many requests.",
+            )),
+        }
+    }
+
     pub fn new(
         pool: PgPool,
         migration: PgPool,
@@ -219,6 +240,7 @@ impl AppState {
         let scripts = crate::script::Engine::new(config.scripts.limits());
         Self(Arc::new(Inner {
             events: realtime::Events::default(),
+            hook_slots: tokio::sync::Semaphore::new(HOOK_SLOTS),
             scripts,
             oidc,
             admin_ui,
