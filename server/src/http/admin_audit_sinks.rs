@@ -146,7 +146,11 @@ pub async fn create(
         .egress
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("outbound HTTP is not available"))?;
-    egress.check(&url).await.map_err(destination_refused)?;
+    egress
+        .for_workspace_destinations()
+        .check(&url)
+        .await
+        .map_err(destination_refused)?;
 
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     sqlx::query(

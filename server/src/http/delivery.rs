@@ -51,7 +51,7 @@ use crate::content::applied_schema;
 use crate::content::previews;
 use crate::content::publishing::Scripts;
 use crate::delivery::data;
-use crate::delivery::limiter::AnswerLimited;
+use crate::delivery::limiter::{AnswerLimited, Subject};
 use crate::delivery::names::{ANSWER_FIELD, ANSWER_STREAM_FIELD};
 use crate::delivery::queries;
 use crate::delivery::schema::{QueryLimits, RequestData};
@@ -246,15 +246,43 @@ pub async fn register(
     let (ws, grant) = authenticate(&state, ip, &headers, &ws, &["register"]).await?;
     let Json(req) =
         body.map_err(|_| ApiError::bad_request("Send `{\"query\": \"...\"}` as JSON."))?;
+    let db = workspace_db::lookup(&state.pool, ws)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    // 新しい文だけを数える（サイトのビルドは毎回すべてを登録し直すので、登録済みの文は回数に入れない）。
+    // 文の検証より先に数えるので、不正な文を送り続けても上限で止まる
+    let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let known = queries::exists(&mut tx, &queries::id_of(&req.query)).await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    let limits = &state.config.limits;
+    if !known {
+        state
+            .delivery_limiter
+            .check(
+                Subject::QueryRegistration(ws),
+                limits.query_registrations_per_workspace_per_minute,
+            )
+            .map_err(|retry| {
+                ApiError::too_many(
+                    "query_registration_rate_limited",
+                    "Too many new queries. Try again later.",
+                    retry,
+                )
+            })?;
+    }
     // 1つの問い合わせだけか、スキーマに合うか、深さ・複雑さの上限。データは読まない
     let schema = schema_for(&state, ws).await?;
     crate::delivery::validate::check(&schema, &req.query)
         .await
         .map_err(invalid_query)?;
-    let db = workspace_db::lookup(&state.pool, ws)
-        .await?
-        .ok_or_else(ApiError::not_found)?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    if !known && queries::at_limit(&mut tx, limits.max_queries_per_workspace).await? {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "query_limit_reached",
+            "This workspace has reached its limit of registered queries.",
+        ));
+    }
     let id = queries::register(&mut tx, &req.query, grant.key_id).await?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok((StatusCode::CREATED, Json(Registered { id })))

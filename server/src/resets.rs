@@ -43,7 +43,7 @@ pub struct Issued {
     pub expires_at: String,
 }
 
-/// トークンを作る（同じ利用者・同じ種類の前のトークンは失効させる）。
+/// トークンを作る（同じ利用者・同じ種類の前のトークンは失効させる）。管理者の発行に使う。
 pub async fn issue(
     tx: &mut Transaction<'_, Postgres>,
     user_id: Uuid,
@@ -59,6 +59,18 @@ pub async fn issue(
     .bind(kind.as_str())
     .execute(&mut **tx)
     .await?;
+    issue_alongside(tx, user_id, kind, issued_by, lifetime_seconds).await
+}
+
+/// 前のトークンを残したまま作る。本人の要求に使う（他の人が要求を送り続けても、届いたリンクを無効にできないように）。
+/// どれかを使えば、残りは失効する（[`mark_used`]）。
+pub async fn issue_alongside(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: Uuid,
+    kind: Kind,
+    issued_by: Option<Uuid>,
+    lifetime_seconds: u32,
+) -> Result<Issued> {
     let id = Uuid::new_v4();
     let token = token::generate();
     let expires_at: String = sqlx::query_scalar(crate::sql!(
@@ -142,6 +154,16 @@ pub async fn mark_used(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<(
         .bind(id)
         .execute(&mut **tx)
         .await?;
+    // 同じ利用者・同じ種類の残りのトークンも、もう使えない
+    sqlx::query(
+        "UPDATE yomi.reset_tokens o SET revoked_at = now()
+         FROM yomi.reset_tokens t
+         WHERE t.id = $1 AND o.user_id = t.user_id AND o.kind = t.kind
+           AND o.used_at IS NULL AND o.revoked_at IS NULL",
+    )
+    .bind(id)
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 

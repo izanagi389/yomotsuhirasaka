@@ -208,8 +208,12 @@ pub struct AdminConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct EgressConfig {
-    /// 例外として送信を許す内部の宛先（ホスト名かIPアドレス）。例外の宛先には、HTTP（HTTPSでない）での送信も許す（Q139）。
+    /// サーバー管理者が設定した宛先（LLM、OIDC、インスタンスの監査ログの書き出し先）で、例外として送信を許す内部の宛先。
+    /// ホスト名かIPアドレスで、`:ポート` を付けるとそのポートだけになる。例外の宛先には、HTTP（HTTPSでない）での送信も許す（Q139）。
     pub internal_destination_exceptions: Vec<String>,
+    /// ワークスペースの管理者が決める宛先（Webhook、フックの送信、ワークスペースの監査ログの書き出し先）で、
+    /// 例外として送信を許す内部の宛先（書き方は同じ）。自前のビルドサーバーなど。どのワークスペースからも送れるようになる。
+    pub workspace_internal_destination_exceptions: Vec<String>,
     /// 標準の一覧（Mozilla）に加えて信頼する、CAの証明書（PEM）のファイル。社内のCAなど。
     pub extra_ca_files: Vec<PathBuf>,
     /// 接続（名前解決したアドレスへのTCPの接続とTLSの確立）の上限の時間（秒）。
@@ -224,6 +228,7 @@ impl Default for EgressConfig {
     fn default() -> Self {
         Self {
             internal_destination_exceptions: Vec::new(),
+            workspace_internal_destination_exceptions: Vec::new(),
             extra_ca_files: Vec::new(),
             connect_timeout_seconds: 10,
             request_timeout_seconds: 30,
@@ -351,8 +356,14 @@ pub struct MediaConfig {
     /// 画像の処理（デコードとエンコードし直し）にかける時間の上限（秒。既定は20秒）。
     #[serde(default = "default_processing_timeout_seconds")]
     pub processing_timeout_seconds: u32,
+    /// 同時に配信するファイルの数の上限（既定は512）。超えた分は 503 を返す。
+    #[serde(default = "default_max_concurrent_serves")]
+    pub max_concurrent_serves: u32,
 }
 
+fn default_max_concurrent_serves() -> u32 {
+    512
+}
 fn default_max_pixels() -> u64 {
     50_000_000
 }
@@ -376,6 +387,7 @@ impl MediaConfig {
             max_file_bytes: default_max_file_bytes(),
             default_workspace_quota_bytes: default_workspace_quota_bytes(),
             processing_timeout_seconds: default_processing_timeout_seconds(),
+            max_concurrent_serves: default_max_concurrent_serves(),
         }
     }
 }
@@ -760,6 +772,16 @@ impl Default for SessionConfig {
 pub struct LimitsConfig {
     /// 接続元のIPアドレス（IPv6は /64）ごとの、1分あたりのログインの試行の上限（成功・失敗を問わない）。
     pub login_attempts_per_ip_per_minute: u32,
+    /// 利用者ごとの、1分あたりの管理APIのリクエストの上限（Cookieのセッションと個人トークンを合わせて数える）。
+    pub admin_requests_per_user_per_minute: u32,
+    /// ワークスペースごとの、1分あたりの管理APIのリクエストの上限（所属する人のリクエストだけを数える）。
+    pub admin_requests_per_workspace_per_minute: u32,
+    /// ワークスペースごとの記事の数の上限（翻訳は別の記事として数える。削除して物理削除を待つ記事も含む）。
+    pub max_entries_per_workspace: u32,
+    /// ワークスペースごとの登録クエリの数の上限。
+    pub max_queries_per_workspace: u32,
+    /// ワークスペースごとの、1分あたりのクエリの新規登録の上限（登録済みの文を登録し直すときは数えない）。
+    pub query_registrations_per_workspace_per_minute: u32,
     /// 接続元のIPアドレス（IPv6は /64）ごとの、1分あたりの無効な配信APIのキーの上限。
     pub invalid_api_keys_per_ip_per_minute: u32,
     /// リクエストの処理時間の上限（秒。本文の読み込みを含む。ストリームの本文は含まない。デプロイと取り込みは除く）。
@@ -772,6 +794,11 @@ impl Default for LimitsConfig {
     fn default() -> Self {
         Self {
             login_attempts_per_ip_per_minute: 30,
+            admin_requests_per_user_per_minute: 600,
+            admin_requests_per_workspace_per_minute: 3000,
+            max_entries_per_workspace: 100_000,
+            max_queries_per_workspace: 1000,
+            query_registrations_per_workspace_per_minute: 60,
             invalid_api_keys_per_ip_per_minute: 600,
             request_timeout_seconds: 120,
             max_concurrent_requests: 2048,

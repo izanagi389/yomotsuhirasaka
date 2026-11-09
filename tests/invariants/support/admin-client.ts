@@ -1423,6 +1423,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
       return { id, secret };
     },
     testWebhookRaw: (s: Session, workspaceId: string, webhookId: string) => testWebhookRaw(session(s), workspaceId, webhookId),
+    beginPasskeyRaw: (s: Session): Promise<HttpResponse> => request("POST", `${ADMIN}/me/mfa/passkeys`, { auth: session(s), body: { name: "inv test key" } }),
     async enrollPasskey(s: Session, creds: Credentials): Promise<PasskeyHandle> {
       const begin = () => request("POST", `${ADMIN}/me/mfa/passkeys`, { auth: session(s), body: { name: "inv test key" } });
       let started = await begin();

@@ -60,6 +60,9 @@ pub struct BudgetView {
     llm_configured: bool,
     #[serde(flatten)]
     part: PartView,
+    /// 訪問者の検索語と質問文の埋め込みの使用量（上限は同じ値で、別に数える）。
+    visitor_used_this_month: i64,
+    visitor_used_today: i64,
 }
 
 #[derive(Serialize)]
@@ -102,9 +105,12 @@ async fn view(state: &AppState, ws: Uuid) -> Result<BudgetView, ApiError> {
         .llm
         .as_ref()
         .and_then(|l| l.embedding_price_per_million_tokens);
+    let visitor = budget::usage(&state.pool, ws, Kind::VisitorEmbedding, Direction::Input).await?;
     Ok(BudgetView {
         llm_configured: state.config.llm.is_some(),
         part: part(state, ws, Kind::Embedding, Direction::Input, price).await?,
+        visitor_used_this_month: visitor.month,
+        visitor_used_today: visitor.day,
     })
 }
 
