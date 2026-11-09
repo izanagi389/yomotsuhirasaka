@@ -22,6 +22,7 @@ pub mod jobs;
 pub mod keys;
 pub mod llm;
 pub mod locale;
+pub mod log_redact;
 pub mod mail;
 pub mod mask;
 pub mod media;
