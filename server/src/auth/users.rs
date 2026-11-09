@@ -32,25 +32,31 @@ pub struct LoginRecord {
     pub id: Uuid,
     pub password_hash: Option<String>,
     pub disabled: bool,
-    /// ログインの失敗による待ち時間中か。
+    /// ログインの1段目を通さない待ち時間中か（パスワードの失敗か、2段目の失敗による）。
     pub blocked: bool,
+    /// 2段目の失敗による待ち時間中か。
+    pub second_factor_blocked: bool,
     /// 多要素認証（TOTPかパスキー）を設定しているか。
     pub mfa_enabled: bool,
 }
 
-/// (id, password_hash, disabled, blocked, mfa_enabled)
-type LoginRow = (Uuid, Option<String>, bool, bool, bool);
+/// (id, password_hash, disabled, blocked, second_factor_blocked, mfa_enabled)
+type LoginRow = (Uuid, Option<String>, bool, bool, bool, bool);
 
 /// 多要素認証の有無は [`super::mfa::MFA_ENABLED_U`]（TOTPかパスキー）で判定する。
-const LOGIN_COLUMNS: &str =
-    "u.id, u.password_hash, u.disabled, coalesce(u.login_blocked_until > now(), false)";
+const LOGIN_COLUMNS: &str = "u.id, u.password_hash, u.disabled,
+     coalesce(u.login_blocked_until > now(), false) OR coalesce(u.second_factor_blocked_until > now(), false),
+     coalesce(u.second_factor_blocked_until > now(), false)";
 
-fn login_record((id, password_hash, disabled, blocked, mfa_enabled): LoginRow) -> LoginRecord {
+fn login_record(
+    (id, password_hash, disabled, blocked, second_factor_blocked, mfa_enabled): LoginRow,
+) -> LoginRecord {
     LoginRecord {
         id,
         password_hash,
         disabled,
         blocked,
+        second_factor_blocked,
         mfa_enabled,
     }
 }
@@ -110,7 +116,8 @@ pub async fn set_password<'e>(
 ) -> Result<()> {
     sqlx::query(
         "UPDATE yomi.users SET password_hash = $2, password_changed_at = now(),
-                failed_login_count = 0, login_blocked_until = NULL
+                failed_login_count = 0, login_blocked_until = NULL,
+                second_factor_failed_count = 0, second_factor_blocked_until = NULL
          WHERE id = $1",
     )
     .bind(id)
