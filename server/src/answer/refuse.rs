@@ -1,7 +1,7 @@
 //! 答えない質問（09-qa-chatbot.md「拒否する語」、INV-QA-16）。
 //!
 //! 当てはまった質問は回答せず、検索・埋め込み・LLM・回答キャッシュのどれにも質問文を送らない。質問ログには件数だけを残す。
-//! - 拒否する語: 回答キャッシュと同じ正規化（`cache::normalize`。全角を半角に、大文字を小文字に、空白をまとめる）を
+//! - 拒否する語: 見えない書式文字を除き、半角カナを全角にしたうえで、回答キャッシュと同じ正規化（`cache::normalize`。全角を半角に、大文字を小文字に、空白をまとめる）を
 //!   質問と語の両方にしてから、部分一致で照合する。
 //! - 組み込みの種類（ワークスペースごとの ON/OFF）:
 //!   - クレジットカード番号らしい並び: 13〜19桁で Luhn の検査を通るもの（空白・ハイフンの区切りを許す）
@@ -17,14 +17,60 @@ pub struct Rules {
     pub my_number: bool,
 }
 
+/// 拒否する語の照合のための正規化。回答キャッシュの正規化に加えて、見えない書式文字を除き、半角カナを全角にする。
+/// キャッシュのキーには使わない（意味の違う質問が同じ回答に当たらないよう、そちらは狭くとどめる）。
+fn for_matching(text: &str) -> String {
+    const KANA: &str = "ヲァィゥェォャュョッーアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン";
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            // 見えない書式文字（ゼロ幅の文字、双方向の制御、ソフトハイフンなど）
+            '\u{00AD}'
+            | '\u{034F}'
+            | '\u{061C}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206F}'
+            | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}' => {}
+            '\u{FF66}'..='\u{FF9D}' => {
+                let index = c as usize - 0xFF66;
+                out.extend(KANA.chars().nth(index));
+            }
+            // 濁点と半濁点は、前のカナと合わせる
+            '\u{FF9E}' | '\u{FF9F}' | '\u{3099}' | '\u{309A}' => {
+                let handakuten = matches!(c, '\u{FF9F}' | '\u{309A}');
+                let joined = out.chars().last().and_then(|p| match (p, handakuten) {
+                    ('ウ', false) => Some('ヴ'),
+                    ('ハ' | 'ヒ' | 'フ' | 'ヘ' | 'ホ', true) => char::from_u32(p as u32 + 2),
+                    (
+                        'カ' | 'キ' | 'ク' | 'ケ' | 'コ' | 'サ' | 'シ' | 'ス' | 'セ' | 'ソ' | 'タ'
+                        | 'チ' | 'ツ' | 'テ' | 'ト' | 'ハ' | 'ヒ' | 'フ' | 'ヘ' | 'ホ',
+                        false,
+                    ) => char::from_u32(p as u32 + 1),
+                    _ => None,
+                });
+                if let Some(j) = joined {
+                    out.pop();
+                    out.push(j);
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    normalize(&out)
+}
+
 impl Rules {
     /// 質問を拒否するか。
     pub fn refuses(&self, question: &str) -> bool {
-        let q = normalize(question);
+        let q = for_matching(question);
         if self
             .words
             .iter()
-            .map(|w| normalize(w))
+            .map(|w| for_matching(w))
             .any(|w| !w.is_empty() && q.contains(&w))
         {
             return true;
@@ -156,5 +202,25 @@ mod tests {
         assert!(on.refuses("番号は 1234 5678 9018 です"));
         assert!(!on.refuses("番号は 1234 5678 9010 です"));
         assert!(!rules(&[], false, false).refuses("123456789018"));
+    }
+
+    #[test]
+    fn invisible_characters_and_halfwidth_kana_do_not_slip_through() {
+        let rules = Rules {
+            words: vec!["社外秘".into(), "カード".into(), "ﾃﾞｰﾀ".into()],
+            credit_card: false,
+            my_number: false,
+        };
+        for q in [
+            "社\u{200B}外\u{FEFF}秘の件",
+            "ｶｰﾄﾞの番号",
+            "データの話",
+            "ﾃﾞｰﾀの話",
+            "カ\u{00AD}ード",
+        ] {
+            assert!(rules.refuses(q), "{q}");
+        }
+        assert!(!rules.refuses("公開の資料"));
+        assert_eq!(for_matching("ﾊﾟﾊﾞﾊ ｳﾞ"), "パバハ ヴ");
     }
 }
