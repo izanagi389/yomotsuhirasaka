@@ -4,10 +4,12 @@
 //!   （移行待ちの間も配信を続ける）。
 //! - 本番では、イントロスペクションを無効にする（INV-GQL-04）。深さと複雑さに上限を設ける（INV-GQL-06）。
 //! - 一覧の件数は、コンテンツタイプの `listLimit` を超えない（INV-GQL-05）。
+//! - 1回のリクエストで解決する記事の数に上限を設ける（一覧と参照の組み合わせで件数が掛け算で増えるため）。
 //! - リゾルバーのエラーには内部の詳細を書かない。
 //! - `devNote` はどこにも出さない（Q51）。
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use async_graphql::Value as GqlValue;
@@ -53,6 +55,27 @@ pub struct RequestData {
     pub preview: Option<Entry>,
     /// サイト内検索に要る、ワークスペースの外のもの（予算・埋め込みの呼び出し・キャッシュ）。検証だけのとき（登録）は None。
     pub app: Option<crate::http::AppState>,
+    /// トランザクションを開き直すためのワークスペースのDBの情報。検証だけのときは None。
+    pub db: Option<crate::workspace_db::WorkspaceDb>,
+    /// このリクエストで解決した記事の数。
+    pub resolved: AtomicUsize,
+    /// 解決してよい記事の数の上限。
+    pub max_resolved: usize,
+}
+
+impl RequestData {
+    /// 記事を `n` 件解決したことを数える。上限を超えたら、そのクエリはそこで止める。
+    fn charge(&self, n: usize) -> async_graphql::Result<()> {
+        if self.resolved.fetch_add(n, Ordering::Relaxed) + n > self.max_resolved {
+            return Err(async_graphql::Error::new("query resolves too many entries"));
+        }
+        Ok(())
+    }
+
+    /// 解決した記事の数が上限を超えたか。
+    pub fn over_limit(&self) -> bool {
+        self.resolved.load(Ordering::Relaxed) > self.max_resolved
+    }
 }
 
 /// 深さと複雑さの上限。
@@ -626,7 +649,7 @@ fn search_field(manifest: Arc<Manifest>) -> Field {
             };
             let req = request(&ctx)?;
             let mut guard = req.tx.lock().await;
-            let (Some(tx), Some(app)) = (guard.as_mut(), req.app.as_ref()) else {
+            let (Some(_), Some(app), Some(db)) = (guard.as_ref(), req.app.as_ref(), req.db.as_ref()) else {
                 // 検証だけのとき（登録）は、データを読まない
                 return Ok(Some(FieldValue::owned_any(SearchOutcome {
                     hits: Vec::new(),
@@ -634,6 +657,9 @@ fn search_field(manifest: Arc<Manifest>) -> Field {
                     keyword: Availability::Disabled,
                 })));
             };
+            // 接続の設定と埋め込みは別の接続と外部の応答を待つので、その間はこの接続を持たない（`search::query_embedding`）
+            let held = guard.take().expect("checked above");
+            held.rollback().await.map_err(|e| internal(e.into()))?;
             let setup = crate::workspace_llm::embedding(&app.pool, &app.keys, &app.config, req.workspace_id)
                 .await
                 .map_err(internal)?;
@@ -645,7 +671,22 @@ fn search_field(manifest: Arc<Manifest>) -> Field {
                 cache: &app.search_cache,
                 query_budget: crate::budget::Kind::VisitorEmbedding,
             };
-            match search::search(&services, tx, req.workspace_id, &manifest, &text, &locale, first, mode).await {
+            let mut tx = crate::workspace_db::begin_owned(&app.pool, db).await.map_err(internal)?;
+            let mut vector = Ok(None);
+            if mode != SearchMode::Keyword && first > 0 {
+                let masked = search::masked_query(&text);
+                (tx, vector) = search::query_embedding(&services, db, tx, req.workspace_id, &masked)
+                    .await
+                    .map_err(internal)?;
+            }
+            let result = match vector {
+                Ok(vector) => {
+                    search::search(&services, &mut tx, &manifest, &text, &locale, first, mode, vector).await
+                }
+                Err(e) => Err(e),
+            };
+            *guard = Some(tx);
+            match result {
                 Ok(out) => Ok(Some(FieldValue::owned_any(out))),
                 Err(e) => match e.downcast_ref::<search::Unavailable>() {
                     // 埋め込みを作れなかった（LLMの接続先の障害など）。理由の種類だけを返す
@@ -904,6 +945,8 @@ fn entry_type(ct: &ContentType, manifest: Arc<Manifest>) -> Object {
                                 .map_err(internal)?,
                             None => Vec::new(),
                         };
+                        drop(guard);
+                        req.charge(resolved.len())?;
                         if multiple {
                             Ok(Some(list_of(resolved)))
                         } else {
@@ -1082,6 +1125,8 @@ fn root_fields(query: Object, ct: &ContentType) -> Object {
                 let out = data::list(tx, &name, &locale, limit, offset)
                     .await
                     .map_err(internal)?;
+                drop(guard);
+                req.charge(out.len())?;
                 Ok(Some(list_of(out)))
             })
         },

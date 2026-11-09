@@ -161,6 +161,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         include_str!("../migrations/0033_assist_budgets.sql"),
     ),
     (
+        34,
+        "second_factor_throttle",
+        include_str!("../migrations/0034_second_factor_throttle.sql"),
+    ),
+    (
         35,
         "visitor_embedding_budget",
         include_str!("../migrations/0035_visitor_embedding_budget.sql"),

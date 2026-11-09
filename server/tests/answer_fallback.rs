@@ -94,7 +94,7 @@ async fn answer_fragments_fall_back_to_the_default_locale() {
             let (services, db, manifest) = (&services, &db, &manifest);
             async move {
                 let mut tx = workspace_db::begin_owned(services.pool, db).await.unwrap();
-                let found = fragments(services, &mut tx, ws, manifest, "検索語", locale, 20, 0.2).await.unwrap();
+                let found = fragments(services, &mut tx, manifest, "検索語", locale, 20, 0.2, None).await.unwrap();
                 tx.commit().await.unwrap();
                 let mut out: Vec<(String, String)> = found.into_iter().map(|f| (f.entry_id.to_string(), f.locale)).collect();
                 out.sort();

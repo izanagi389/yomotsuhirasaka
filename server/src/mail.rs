@@ -156,11 +156,29 @@ pub mod notify {
         PasskeyAdded,
         PasskeyRemoved,
         TotpRemoved,
+        IdentityLinked,
+        IdentityUnlinked,
     }
 
     /// (件名, 起きたこと)
     fn texts(event: Event, locale: Locale) -> (&'static str, &'static str) {
         match (event, locale) {
+            (Event::IdentityLinked, Locale::En) => (
+                "An external account was linked",
+                "An external sign-in account was linked to your account.",
+            ),
+            (Event::IdentityLinked, Locale::Ja) => (
+                "外部のアカウントがひも付けられました",
+                "あなたのアカウントに、ログインに使う外部のアカウントがひも付けられました。",
+            ),
+            (Event::IdentityUnlinked, Locale::En) => (
+                "An external account was unlinked",
+                "An external sign-in account was unlinked from your account.",
+            ),
+            (Event::IdentityUnlinked, Locale::Ja) => (
+                "外部のアカウントのひも付けが解除されました",
+                "あなたのアカウントから、ログインに使う外部のアカウントのひも付けが解除されました。",
+            ),
             (Event::PasswordChanged, Locale::En) => (
                 "Your password was changed",
                 "The password for your account was changed.",

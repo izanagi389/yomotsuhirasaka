@@ -189,12 +189,13 @@ type HitRow = (Uuid, String, Option<String>, Vec<String>, String, f64);
 pub async fn search(
     services: &Services<'_>,
     tx: &mut Transaction<'static, Postgres>,
-    workspace_id: Uuid,
     manifest: &Manifest,
     text: &str,
     locale: &str,
     first: i64,
     mode: Mode,
+    // `query_embedding` で先に作った検索語の埋め込み（ベクトル検索を使わなければ、なくてよい）
+    vector: Option<Vec<f32>>,
 ) -> Result<Outcome> {
     // 設定の上で、それぞれの検索が使えるか
     // ベクトル検索は、ワークスペースが今使っているモデルで行う（モデルの切り替えの途中は旧モデル。`super::switch`）
@@ -217,8 +218,7 @@ pub async fn search(
         keyword: available(keyword_schema.is_some()),
     };
     let first = first.clamp(0, MAX_FIRST);
-    let text: String = text.trim().chars().take(MAX_QUERY_CHARS).collect();
-    let masked = crate::mask::mask(&text);
+    let masked = masked_query(text);
     if first == 0 || masked.trim().is_empty() {
         return Ok(out);
     }
@@ -239,9 +239,9 @@ pub async fn search(
 
     let mut vector_rows = Vec::new();
     if mode != Mode::Keyword
-        && let Some((llm_config, egress, vs)) = &vector_setup
+        && let Some((llm_config, _, vs)) = &vector_setup
     {
-        match query_vector(services, workspace_id, llm_config, egress, &masked).await? {
+        match vector {
             Some(vector) => {
                 // ベクトル検索は HNSW の索引でチャンクのまま近い順に取り、記事ごとに1件にする（索引を使うため、SQL では
                 // 記事ごとにまとめない）
@@ -356,12 +356,13 @@ pub struct Fragment {
 pub async fn fragments(
     services: &Services<'_>,
     tx: &mut Transaction<'static, Postgres>,
-    workspace_id: Uuid,
     manifest: &Manifest,
     masked: &str,
     locale: &str,
     k: usize,
     min_similarity: f64,
+    // `query_embedding` で先に作った質問文の埋め込み
+    vector: Option<Vec<f32>>,
 ) -> Result<Vec<Fragment>> {
     if k == 0 || masked.trim().is_empty() {
         return Ok(Vec::new());
@@ -397,12 +398,6 @@ pub async fn fragments(
             per_entry: false,
         });
     }
-    let vector = match &vector_setup {
-        Some((llm_config, egress, _)) => {
-            query_vector(services, workspace_id, llm_config, egress, masked).await?
-        }
-        None => None,
-    };
     let mut vector_rows = Vec::new();
     let mut keyword_rows = Vec::new();
     for target in &targets {
@@ -518,6 +513,40 @@ fn ranked(columns: &str, from_where: &str, per_entry: bool, limit: usize) -> Str
 }
 
 const COLUMNS: &str = "c.entry_id, c.locale, c.anchor, c.breadcrumb, c.content";
+
+/// 検索語のマスク（検索でも埋め込みでも、同じ文を使う）。
+pub fn masked_query(text: &str) -> String {
+    let text: String = text.trim().chars().take(MAX_QUERY_CHARS).collect();
+    crate::mask::mask(&text)
+}
+
+/// 検索語の埋め込みを、DBの接続を持たずに作る。受け取ったトランザクションを閉じ、終わったら新しく開いて返す。
+///
+/// 埋め込みの呼び出しは、予算の確保で別の接続を取り、外部の応答も待つ。接続を持ったまま待つと、同時の検索だけで
+/// 接続のプールが詰まり、インスタンス全体が止まる。ベクトル検索を使わない設定なら、そのまま返す。
+pub async fn query_embedding(
+    services: &Services<'_>,
+    db: &crate::workspace_db::WorkspaceDb,
+    mut tx: Transaction<'static, Postgres>,
+    workspace_id: Uuid,
+    masked: &str,
+) -> Result<(Transaction<'static, Postgres>, Result<Option<Vec<f32>>>)> {
+    if masked.trim().is_empty() {
+        return Ok((tx, Ok(None)));
+    }
+    let serving = super::switch::serving(services.embedding, &mut tx).await?;
+    let setup = match (serving, services.egress) {
+        (Some(c), Some(e)) => super::vector_schema(&mut *tx).await?.map(|_| (c, e)),
+        _ => None,
+    };
+    let Some((llm_config, egress)) = setup else {
+        return Ok((tx, Ok(None)));
+    };
+    tx.rollback().await?;
+    let vector = query_vector(services, workspace_id, &llm_config, egress, masked).await;
+    let tx = crate::workspace_db::begin_owned(services.pool, db).await?;
+    Ok((tx, vector))
+}
 
 /// 検索語の埋め込み（キャッシュになければ、予算の範囲で作る）。予算が尽きていれば None。
 async fn query_vector(

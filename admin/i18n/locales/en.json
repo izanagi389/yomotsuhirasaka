@@ -105,7 +105,8 @@
     "identitiesTitle": "External accounts",
     "identitiesDescription": "Link your {name} account to sign in with it.",
     "identityLink": "Link your {name} account",
-    "identityLinkedAt": "Linked {at}"
+    "identityLinkedAt": "Linked {at}",
+    "identityUnlink": "Unlink"
   },
   "errors": {
     "generic": "The request could not be completed ({status}).",
@@ -164,6 +165,8 @@
     "server_admin_target": "Server administrators can only be recovered with the server CLI.",
     "outside_scope": "This person also belongs to a workspace you do not administer. Ask a server administrator.",
     "deploy_scope_forbidden": "Only server administrators can issue tokens with the deploy scope.",
+    "deploy_scope_exclusive": "The deploy scope cannot be combined with other scopes.",
+    "last_sign_in_method": "Set a password first. This is your only way to sign in.",
     "oidc_not_configured": "Single sign-on is not configured on this server.",
     "oidc_unavailable": "Single sign-on is unavailable because outbound HTTP is not configured correctly.",
     "idp_unreachable": "The identity provider could not be reached or is not configured correctly.",
@@ -517,6 +520,9 @@
       "auth": {
         "login": "Signed in",
         "identity_linked": "External account linked",
+        "identity_unlinked": "External account unlinked",
+        "user_disabled": "User stopped",
+        "user_enabled": "User allowed to sign in again",
         "user_provisioned": "User created by SSO"
       },
       "emergency": {
@@ -699,7 +705,7 @@
       "linked": "Linked: {at}"
     },
     "tokens": {
-      "help": "Tokens for the CLI (import, deploy and so on). A token can only do what both its scopes and your current role allow.",
+      "help": "Tokens for the CLI (import, deploy and so on). A token can only do what both its scopes and your current role allow. The deploy scope cannot be combined with other scopes and lasts up to 30 days.",
       "days": "Valid for (days, up to 365)",
       "workspaces": "Workspaces it can use",
       "create": "Issue",

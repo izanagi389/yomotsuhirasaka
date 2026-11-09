@@ -35,6 +35,9 @@ inv("inv_auth_09", "CLI用の個人トークンは、有効期限の後や失効
   expectRejected(await yomi.createEntryRaw(asBearer(readOnly.secret), a.id, newEntry()), "読み取りだけの個人トークンでの記事の作成");
   const writable = await yomi.createPersonalToken(a.editorSession, [a.id], { scopes: ["read", "write"] });
   expectSuccess(await yomi.createEntryRaw(asBearer(writable.secret), a.id, newEntry()), "書き込みの範囲の個人トークンでの記事の作成");
+  // 範囲: 書き込みだけのトークンでは読めない（対照は、上の読み取りの範囲の有効期限の確認）
+  const writeOnly = await yomi.createPersonalToken(a.editorSession, [a.id], { scopes: ["write"] });
+  expectRejected(await yomi.getEntryRaw(asBearer(writeOnly.secret), a.id, a.entryId), "書き込みだけの個人トークンでの記事の取得");
 
   // 範囲: 選んだワークスペース以外では使えない（本人は両方に所属している）
   const both = await yomi.createMember(a.adminSession, a.id, "editor");
