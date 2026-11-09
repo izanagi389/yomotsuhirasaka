@@ -3,3 +3,5 @@ __MACOSX/
 /target/
 node_modules/
 /cli/dist/
+/deploy/pentest/data/
+/deploy/pentest/.env
