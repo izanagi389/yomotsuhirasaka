@@ -667,6 +667,7 @@ async fn grounds(app: &AppState, req: &Request, masked: &str) -> Result<Grounds>
         embedding: setup.as_ref().map(|s| &s.llm),
         egress: app.egress.as_ref(),
         cache: &app.search_cache,
+        query_budget: Kind::VisitorEmbedding,
     };
     let fragments = search::fragments(
         &services,

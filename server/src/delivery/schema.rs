@@ -643,6 +643,7 @@ fn search_field(manifest: Arc<Manifest>) -> Field {
                 embedding: setup.as_ref().map(|s| &s.llm),
                 egress: app.egress.as_ref(),
                 cache: &app.search_cache,
+                query_budget: crate::budget::Kind::VisitorEmbedding,
             };
             match search::search(&services, tx, req.workspace_id, &manifest, &text, &locale, first, mode).await {
                 Ok(out) => Ok(Some(FieldValue::owned_any(out))),

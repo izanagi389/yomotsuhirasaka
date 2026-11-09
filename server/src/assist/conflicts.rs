@@ -387,6 +387,7 @@ async fn check(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) ->
         embedding: setup.as_ref().map(|s| &s.llm),
         egress: state.egress.as_ref(),
         cache: &state.search_cache,
+        query_budget: crate::budget::Kind::EditorAssist,
     };
     let mut fragments: Vec<Fragment> = Vec::new();
     let mut seen: HashSet<(Uuid, String)> = HashSet::new();

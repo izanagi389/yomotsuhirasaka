@@ -87,6 +87,7 @@ async fn answer_fragments_fall_back_to_the_default_locale() {
             embedding: state.config.llm.as_ref(),
             egress: state.egress.as_ref(),
             cache: &state.search_cache,
+            query_budget: yomi_server::budget::Kind::VisitorEmbedding,
         };
         let db = workspace_db::lookup(&state.pool, ws).await.unwrap().unwrap();
         let pick = |locale: &'static str| {

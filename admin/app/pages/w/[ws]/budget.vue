@@ -100,6 +100,9 @@ const assistExhaustedAt = computed(() => exhaustedAt(assist.value));
           </Alert>
           <p class="text-sm text-muted-foreground">{{ t("budget.help") }}</p>
           <p class="text-sm text-muted-foreground" data-testid="budget-egress-note">{{ t("budget.egressNote") }}</p>
+          <p class="text-sm text-muted-foreground" data-testid="budget-visitor-usage">
+            {{ t("budget.visitorUsage", { month: budget.visitorUsedThisMonth.toLocaleString(locale), day: budget.visitorUsedToday.toLocaleString(locale) }) }}
+          </p>
         </template>
         <BudgetPartForm
           :part="budget"

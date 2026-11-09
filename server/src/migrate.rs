@@ -160,6 +160,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "assist_budgets",
         include_str!("../migrations/0033_assist_budgets.sql"),
     ),
+    (
+        35,
+        "visitor_embedding_budget",
+        include_str!("../migrations/0035_visitor_embedding_budget.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。

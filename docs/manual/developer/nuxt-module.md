@@ -206,12 +206,12 @@ const { text, result, status } = useYomiSearch({ locale: "ja", mode: "HYBRID", f
 | `rateLimit.perMinute` | 訪問者のIPアドレスごとの1分あたりの回数（既定は 30）。超えると 429 |
 | `rateLimit.ipHeader` | 訪問者のIPアドレスを読むヘッダー（例: `cf-connecting-ip`、`x-forwarded-for`）。既定は空で、接続元のアドレスを使う |
 
-- 回数の制限は、訪問者の入力のたびにCMSが呼ばれ、ベクトル検索ならワークスペースの埋め込みの予算も減るためです。数えるのはサイトのサーバーのメモリの中だけです（プロセスごと）。
+- 回数の制限は、訪問者の入力のたびにCMSが呼ばれ、ベクトル検索ならワークスペースの予算（訪問者の検索語の埋め込みの分）も減るためです。数えるのはサイトのサーバーのメモリの中だけです（プロセスごと）。
 - CDN やリバースプロキシの後ろでは、接続元のアドレスが全員同じになり、訪問者全員で1つの上限を共有します。手前のプロキシが付けるヘッダーを `ipHeader` に書いてください（`x-forwarded-for` はいちばん右の値を使います）。訪問者が偽れるヘッダーは書かないでください。本番のビルドで空のままなら、ビルドのログに注意を出します。
 - 検索語は 500 文字まで。空の検索語では CMS を呼ばずに空の結果を返します。同じ検索の結果は 60 秒だけサーバーの中に覚えておき、CMSのWebhookを受けたら消します。応答は `Cache-Control: private, no-store` です。
 - `useYomiSearch` の `locale` は必須です（サイトのロケールの決め方はサイトごとに違うので、モジュールは推測しません）。既定は `HYBRID` で 10 件（上限 50）。入力が止まってから（既定 300 ミリ秒）検索し、後から始めた検索の結果を古い結果で上書きしません。`status` は `idle`・`loading`・`done`・`error`・`rateLimited` です。
 - `<YomiSearchBox>` は、`<search>` の中にラベル付きの検索欄と結果の `<ol>` を描きます。クラスもスタイルも、決まった文言も持ちません。状態はスロット（`loading`・`empty`・`budgetExhausted`・`keywordDisabled`・`rateLimited`・`error`）でだけ描きます。結果1件は `#hit="{ hit, href, segments }"` で置き換えられます。既定は、パンくず（なければURL）のリンクと、一致した箇所を `<mark>` で囲んだ抜粋です。
-- 結果の `breadcrumb` に記事のタイトルが入るのは、タイトルのフィールドが検索の対象のときだけです。`vectorSearch` が `BUDGET_EXHAUSTED` なら埋め込みの予算切れ（キーワード検索の結果だけ）、`keywordSearch` が `DISABLED` なら日本語の全文検索の拡張がないCMSです。
+- 結果の `breadcrumb` に記事のタイトルが入るのは、タイトルのフィールドが検索の対象のときだけです。`vectorSearch` が `BUDGET_EXHAUSTED` なら訪問者の分の埋め込みの予算切れ（キーワード検索の結果だけ）、`keywordSearch` が `DISABLED` なら日本語の全文検索の拡張がないCMSです。
 - 検索のクエリはモジュールが登録します（`yomi/queries/yomiSearch.graphql` という名前は使えません）。
 
 ### チャットボットの回答（`answer` を設定したとき）
