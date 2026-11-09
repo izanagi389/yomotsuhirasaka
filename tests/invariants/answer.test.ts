@@ -431,6 +431,7 @@ inv(
       `${citation(1)} 記事のリンク [資料](${inBody}) と、サイトの別の記事 [関連](${site}/ja/blog/other) があります。`,
       `外部のリンク [罠](${outside}/phish) と画像 ![追跡](${outside}/pixel.png) とサイトの画像 ![図](${site}/media/figure.png)。`,
       `自動リンク <${outside}/auto> と、そのままのURL ${outside}/bare と、スクリプト [押す](javascript:alert(1)) もあります。`,
+      `別のスキーム ftp://evil.example.net/file と、スキームなし //evil.example.net/rel もあります。`,
     ].join("\n");
     await mockLlm.setStrategy(llmKey, { kind: "fixed", content: fixedAnswer([1], body) });
 
