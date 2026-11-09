@@ -18,6 +18,18 @@ pub mod action {
     pub const HOOK_SECRET_SAVED: &str = "hook_secret.saved";
     /// フックが読む秘密を消した。
     pub const HOOK_SECRET_DELETED: &str = "hook_secret.deleted";
+    /// 本人がパスワードを変えた。
+    pub const PASSWORD_CHANGED: &str = "auth.password_changed";
+    /// 本人がTOTPを設定した。
+    pub const TOTP_ENABLED: &str = "auth.totp_enabled";
+    /// 本人がTOTPを外した。
+    pub const TOTP_REMOVED: &str = "auth.totp_removed";
+    /// 本人がパスキーを登録した。
+    pub const PASSKEY_ADDED: &str = "auth.passkey_added";
+    /// 本人がパスキーを外した。
+    pub const PASSKEY_REMOVED: &str = "auth.passkey_removed";
+    /// 本人が復旧コードを作り直した。
+    pub const RECOVERY_CODES_REGENERATED: &str = "auth.recovery_codes_regenerated";
     /// サーバー上のコマンドで利用者を止めた。
     pub const USER_DISABLED: &str = "auth.user_disabled";
     /// サーバー上のコマンドで利用者を再開した。

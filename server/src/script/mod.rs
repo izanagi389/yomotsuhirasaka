@@ -223,9 +223,11 @@ impl Engine {
 
     /// 非同期のフック（保存後・公開後・非公開の後）。返した値は使わない。
     pub async fn after(&self, script: &Script, host: Host, input: &Value) -> Result<(), Failure> {
-        self.call(Mode::Async, script, Some(host), input)
-            .await
-            .map(|_| ())
+        // 返した値は使わない（`async` の関数も、JSONにできない値を返す関数も、そこまでの処理は終わっている）
+        match self.call(Mode::Async, script, Some(host), input).await {
+            Ok(_) | Err(Failure::InvalidResult) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 
     /// デプロイの検査: ソースを読み込み、既定のエクスポートが関数であることを確かめる（関数は呼ばない）。
@@ -346,7 +348,7 @@ fn valid_url(s: &str) -> bool {
 /// `f` には、上限の時刻（ホスト関数が待つ時間の上限に使う）を渡す。
 fn execute<F>(limits: Limits, f: F) -> Result<Value, Failure>
 where
-    F: for<'js> FnOnce(&Ctx<'js>, Instant) -> rquickjs::Result<Value>,
+    F: for<'js> FnOnce(&Ctx<'js>, Instant) -> rquickjs::Result<Result<Value, Failure>>,
 {
     let runtime = Runtime::new().map_err(|_| Failure::Internal)?;
     runtime.set_memory_limit(limits.memory_bytes);
@@ -362,7 +364,11 @@ where
         over
     })));
     let context = Context::full(&runtime).map_err(|_| Failure::Internal)?;
-    let result = context.with(|ctx| f(&ctx, deadline).map_err(|e| classify(&ctx, &e)));
+    let result = context.with(|ctx| {
+        f(&ctx, deadline)
+            .map_err(|e| classify(&ctx, &e))
+            .and_then(|r| r)
+    });
     match result {
         Err(_) if timed_out.load(Ordering::Relaxed) => Err(Failure::TimeLimit),
         other => other,
@@ -391,7 +397,7 @@ fn run(
         }
         let f = load_default(ctx, "template-function", source)?;
         let Some(input) = input else {
-            return Ok(Value::Null);
+            return Ok(Ok(Value::Null));
         };
         let arg = ctx.json_parse(input)?;
         let out: JsValue = f.call((arg,))?;
@@ -428,18 +434,29 @@ fn run_render(limits: Limits, nodes: &[CustomNodeScripts], docs: &str) -> Result
     })
 }
 
-/// 関数の返した値をJSONにする（JSONにできない値は InvalidResult になるよう、ここでは null にしない）。
-fn to_json<'js>(ctx: &Ctx<'js>, v: JsValue<'js>) -> Value {
+/// 関数の返した値をJSONにする。何も返さなければ null。`async` の関数の Promise と、JSONにできない値（循環する
+/// オブジェクト、BigInt、関数など）は [`Failure::InvalidResult`] にする（公開前のフックを、公開を止めないまま素通りさせない）。
+fn to_json<'js>(ctx: &Ctx<'js>, v: JsValue<'js>) -> Result<Value, Failure> {
+    if v.is_undefined() || v.is_null() {
+        return Ok(Value::Null);
+    }
     if let Some(s) = v.as_string().and_then(|s| s.to_string().ok()) {
-        return Value::String(s);
+        return Ok(Value::String(s));
+    }
+    if v.is_promise() {
+        return Err(Failure::InvalidResult);
     }
     match ctx.json_stringify(v) {
         Ok(Some(s)) => s
             .to_string()
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or(Value::Null),
-        _ => Value::Null,
+            .ok_or(Failure::InvalidResult),
+        Ok(None) => Err(Failure::InvalidResult),
+        Err(e) => match classify(ctx, &e) {
+            Failure::MemoryLimit => Err(Failure::MemoryLimit),
+            _ => Err(Failure::InvalidResult),
+        },
     }
 }
 
@@ -486,6 +503,36 @@ mod tests {
 
     async fn call(e: &Engine, source: &str, input: Value) -> Result<Value, Failure> {
         e.call(Mode::Sync, &script(source), None, &input).await
+    }
+
+    #[tokio::test]
+    async fn values_that_cannot_be_read_are_invalid() {
+        let e = engine(16, 1000);
+        for source in [
+            "export default async function () { return { errors: [{ message: 'no' }] }; }",
+            "export default function () { return Promise.resolve({}); }",
+            "export default function () { const a = {}; a.self = a; return a; }",
+            "export default function () { return 10n; }",
+            "export default function () { return function () {}; }",
+            "export default function () { return { toJSON() { throw new Error('x'); } }; }",
+        ] {
+            assert_eq!(
+                call(&e, source, serde_json::json!({})).await,
+                Err(Failure::InvalidResult),
+                "{source}"
+            );
+        }
+        // 何も返さないのは正しい（公開前のフックでは、止める理由なし）
+        for source in [
+            "export default function () {}",
+            "export default function () { return null; }",
+        ] {
+            assert_eq!(
+                call(&e, source, serde_json::json!({})).await,
+                Ok(Value::Null),
+                "{source}"
+            );
+        }
     }
 
     #[tokio::test]

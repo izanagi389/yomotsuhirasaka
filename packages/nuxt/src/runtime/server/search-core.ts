@@ -4,6 +4,8 @@
 // - 数えるのはサイトのサーバーのメモリの中だけ（複数のプロセスで動かすと、プロセスごとに数える）
 // - 同じ検索（検索語・ロケール・モード・件数）の結果を、短い時間だけ覚えておく。CMSのWebhookを受けたら消す
 
+import { isIPv6 } from "node:net";
+
 import { DEFAULT_FIRST, MAX_FIRST, MAX_QUERY_CHARS, SEARCH_MODES, type YomiSearchMode, type YomiSearchResult } from "../search.ts";
 import { QueryError } from "./fetch-query.ts";
 
@@ -55,10 +57,30 @@ export function clientIp(headers: Record<string, string | undefined>, socketIp: 
     if (raw) {
       const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
       const value = parts[parts.length - 1];
-      if (value) return value;
+      if (value) return limitKey(value);
     }
   }
-  return socketIp ?? "unknown";
+  return socketIp ? limitKey(socketIp) : "unknown";
+}
+
+/**
+ * 回数を数える単位。IPv6 は /64 にまとめる（1つの回線が /64 を持つので、アドレスを変えて制限を逃れられないように）。
+ * IPv4射影アドレスは IPv4 に直す。IPアドレスの形でなければ、そのまま返す。
+ */
+export function limitKey(ip: string): string {
+  const bare = ip.replace(/%.*$/, "");
+  if (!isIPv6(bare)) return ip;
+  const hostname = new URL(`http://[${bare}]/`).hostname.slice(1, -1);
+  const [head = "", tail = ""] = hostname.split("::");
+  const left = head === "" ? [] : head.split(":");
+  const right = tail === "" ? [] : tail.split(":");
+  const groups = hostname.includes("::") ? [...left, ...Array<string>(8 - left.length - right.length).fill("0"), ...right] : left;
+  const mapped = groups.slice(0, 5).every((g) => g === "0") && groups[5] === "ffff";
+  if (mapped) {
+    const [hi = 0, lo = 0] = [Number.parseInt(groups[6] ?? "0", 16), Number.parseInt(groups[7] ?? "0", 16)];
+    return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+  }
+  return `${groups.slice(0, 4).join(":")}::/64`;
 }
 
 /** 1分ごとの回数の制限（固定の窓）。 */

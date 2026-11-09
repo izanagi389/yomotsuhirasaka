@@ -43,6 +43,8 @@ pub struct Current {
     pub locale: Option<crate::locale::Locale>,
     /// 最後の本人確認（ログインか再認証）から、再認証が有効な時間内か。個人トークンでは常に false。
     pub reauth_fresh: bool,
+    /// 最後の再認証がTOTPか復旧コードで、今も有効か（SSOのセッションでパスキーを登録する前の確認）。
+    pub reauth_by_code: bool,
     /// 再認証が有効な残りの秒数（有効でなければ0）。管理画面が、重い操作の前に再認証を求めるかを決めるのに使う。
     pub reauth_seconds_left: i64,
     /// 最後の本人確認から、再認証が有効な時間内か（方法は問わない）。
@@ -78,9 +80,13 @@ impl Current {
     }
 
     /// パスキーを登録してよいか。再認証が有効なら登録できる。
-    /// パスキーのないSSOの管理者は、パスキーで再認証できないので、IdPでのログインの直後（再認証が有効な時間内）に限って登録できる（Q131）。
+    /// 多要素認証が1つもないSSOの利用者は、確かめる要素がないので、IdPでのログインの直後なら登録できる。
+    /// TOTPなどがあれば、その確認を求める（IdPのアカウントだけを奪っても、CMS側の多要素認証を素通りさせない）。
     pub fn may_enroll_passkey(&self) -> bool {
-        self.reauth_fresh || (self.sso && !self.has_passkey && self.authenticated_recently)
+        self.reauth_fresh
+            || (self.sso
+                && self.authenticated_recently
+                && (!self.mfa_enabled || self.reauth_by_code))
     }
 
     pub fn csrf_matches(&self, presented: &str) -> bool {
@@ -109,6 +115,7 @@ impl Current {
             admin_anywhere: false,
             locale,
             reauth_fresh: false,
+            reauth_by_code: false,
             reauth_seconds_left: 0,
             authenticated_recently: false,
             grant: Some(grant),
@@ -298,6 +305,8 @@ pub async fn resolve(
         admin_anywhere,
         locale: locale.and_then(|l| l.parse().ok()),
         reauth_fresh,
+        reauth_by_code: authenticated_recently
+            && matches!(reauth_method.as_deref(), Some("totp" | "recovery")),
         reauth_seconds_left: if reauth_fresh { reauth_seconds_left } else { 0 },
         authenticated_recently,
         grant: None,

@@ -266,7 +266,7 @@ pub async fn run(
     if script.permissions.contains(&Permission::HttpFetch)
         && let Some(egress) = egress
     {
-        host = host.with_fetch(egress.clone(), &script.allowed_hosts);
+        host = host.with_fetch(egress.for_workspace_destinations(), &script.allowed_hosts);
     }
     if script.permissions.contains(&Permission::SecretsRead) {
         host = host.with_secrets(hook_secrets::load(pool, keys, ws, &script.secrets).await?);

@@ -242,6 +242,16 @@ async fn write_columns(
     Ok(())
 }
 
+/// あと `adding` 件の記事を作っても、数の上限に収まるか（物理削除を待つ記事も、ディスクを使うので数える）。
+/// 上限で数えるのをやめるので、記事が多くても時間はかからない。同時に作ると少し超えることがある。
+pub async fn room_for(conn: &mut PgConnection, limit: u32, adding: usize) -> Result<bool> {
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM entries LIMIT $1) t")
+        .bind(i64::from(limit))
+        .fetch_one(conn)
+        .await?;
+    Ok(count.saturating_add(adding as i64) <= i64::from(limit))
+}
+
 /// 記事を作る（下書き）。
 pub async fn create(
     conn: &mut PgConnection,

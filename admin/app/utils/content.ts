@@ -506,6 +506,9 @@ export interface BudgetPart {
 export interface EmbeddingBudget extends BudgetPart {
   /** LLMの接続先が設定されているか。なければ埋め込みは作らない。 */
   llmConfigured: boolean;
+  /** 訪問者の検索語と質問文の埋め込みの使用量（上限は同じ値で、別に数える）。 */
+  visitorUsedThisMonth: number;
+  visitorUsedToday: number;
 }
 
 /** GET/PUT /workspaces/{ws}/answer-settings（回答の語り口と「情報なし」の文。M4）。PUT は書いた項目だけを変える。 */

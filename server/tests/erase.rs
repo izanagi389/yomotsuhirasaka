@@ -143,7 +143,7 @@ async fn erasing_version_bodies() {
         };
         let mut tx = yomi_server::workspace_db::begin(&server.pool, &db).await.unwrap();
         for (key, vid) in [(b"cites-v1", &v1), (b"cites-v2", &v2)] {
-            yomi_server::answer::cache::store(&mut tx, key, "答え [1]", false, &[cite(vid)]).await.unwrap();
+            yomi_server::answer::cache::store(&mut tx, key, "答え [1]", false, &[cite(vid)], &[]).await.unwrap();
         }
         tx.commit().await.unwrap();
         let cached_keys = || async {

@@ -62,6 +62,9 @@ pub struct Accepted {
     status: &'static str,
 }
 
+/// 本人の要求の応答にかける時間（登録があるときの処理より十分に長く）。
+const RESET_REQUEST_MIN_TIME: std::time::Duration = std::time::Duration::from_millis(300);
+
 /// 本人がメールでパスワードのリセットを要求する。応答は、登録の有無・SMTPの有無によらず同じ。
 pub async fn request_password_reset(
     State(state): State<AppState>,
@@ -69,7 +72,20 @@ pub async fn request_password_reset(
     headers: HeaderMap,
     JsonBody(req): JsonBody<RequestReset>,
 ) -> Result<(StatusCode, Json<Accepted>), ApiError> {
-    check_origin(&headers, &state.public_origin)?;
+    // 登録の有無で応答の時間が変わらないよう、どの経路も同じ時間だけ待ってから返す
+    let answer_at = tokio::time::Instant::now() + RESET_REQUEST_MIN_TIME;
+    let result = handle_password_reset_request(&state, ip, &headers, req).await;
+    tokio::time::sleep_until(answer_at).await;
+    result
+}
+
+async fn handle_password_reset_request(
+    state: &AppState,
+    ip: std::net::IpAddr,
+    headers: &HeaderMap,
+    req: RequestReset,
+) -> Result<(StatusCode, Json<Accepted>), ApiError> {
+    check_origin(headers, &state.public_origin)?;
     state
         .login_limiter
         .check(ip)
@@ -99,7 +115,7 @@ pub async fn request_password_reset(
     if resets::recently_issued(&mut *tx, user_id, Kind::Password).await? {
         return Ok(accepted);
     }
-    let issued = resets::issue(
+    let issued = resets::issue_alongside(
         &mut tx,
         user_id,
         Kind::Password,
@@ -114,7 +130,7 @@ pub async fn request_password_reset(
         Kind::Password,
         &link,
         &issued.expires_at,
-        locale_of(&state, locale.as_deref()),
+        locale_of(state, locale.as_deref()),
     );
     mail::enqueue(&mut *tx, &state.keys, state.config.smtp.as_ref(), &message).await?;
     audit::record(

@@ -12,7 +12,6 @@ use uuid::Uuid;
 use yomi_server::{audit, auth, config, db, http, keys, migrate, startup, worker};
 
 use std::io::{BufRead as _, Write as _};
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -594,10 +593,15 @@ fn create_server_admin_main(config_path: &Path, email: &str, password_stdin: boo
 }
 
 fn init_logging(level: &str) {
+    use tracing_subscriber::field::MakeExt as _;
     let filter = tracing_subscriber::EnvFilter::try_new(format!("yomi_server={level},warn"))
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let ansi = std::io::IsTerminal::is_terminal(&std::io::stderr());
     tracing_subscriber::fmt()
+        .fmt_fields(
+            tracing_subscriber::fmt::format::debug_fn(yomi_server::log_redact::write_field)
+                .delimited(" "),
+        )
         .with_env_filter(filter)
         .with_ansi(ansi)
         .with_writer(std::io::stderr)
@@ -997,11 +1001,12 @@ async fn serve(config: Config) -> Result<()> {
         .await
         .with_context(|| format!("cannot listen on {listen}"))?;
     tracing::info!("ready: listening on {}", listener.local_addr()?);
-    axum::serve(
+    http::serve::run(
         listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
+        app,
+        shutdown_signal(),
+        http::serve::HEADER_READ_TIMEOUT,
     )
-    .with_graceful_shutdown(shutdown_signal())
     .await?;
     Ok(())
 }
