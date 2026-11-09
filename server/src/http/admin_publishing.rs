@@ -252,6 +252,7 @@ pub async fn publish(
     }
     let applied = writable(&state, ws).await?;
     let db = db(&state, ws).await?;
+    let _hook_slot = state.hook_slot().await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     // 説明は公開と同じトランザクションで保存する（定型文はその時点の文を写す）
     let note = match &req.correction_note {
@@ -443,6 +444,7 @@ pub async fn publish_check(
     reader(&state, &current, ws).await?;
     let applied = readable(&state, ws).await?;
     let db = db(&state, ws).await?;
+    let _hook_slot = state.hook_slot().await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     let scripts = Scripts {
         engine: &state.scripts,
