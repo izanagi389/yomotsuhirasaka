@@ -35,13 +35,21 @@ async function save() {
   }
 }
 
-async function remove(secret: HookSecret) {
-  actionError.value = null;
+// 消すと、その名前を読むフックが値を受け取れなくなるので、確かめてから消す
+const deleting = ref<HookSecret | null>(null);
+const deleteError = ref<unknown>(null);
+async function remove() {
+  if (!deleting.value) return;
+  busy.value = true;
+  deleteError.value = null;
   try {
-    await api.del(`${base.value}/${encodeURIComponent(secret.name)}`);
+    await api.del(`${base.value}/${encodeURIComponent(deleting.value.name)}`);
+    deleting.value = null;
     await refresh();
   } catch (e) {
-    actionError.value = e;
+    deleteError.value = e;
+  } finally {
+    busy.value = false;
   }
 }
 </script>
@@ -70,8 +78,19 @@ async function remove(secret: HookSecret) {
           <code class="break-all">{{ s.name }}</code>
           <span class="ml-2 text-muted-foreground">{{ t("hookSecrets.updatedAt", { at: formatDateTime(s.updatedAt, locale) }) }}</span>
         </span>
-        <Button type="button" variant="outline" size="sm" @click="remove(s)">{{ t("hookSecrets.remove") }}</Button>
+        <Button type="button" variant="outline" size="sm" @click="deleting = s">{{ t("hookSecrets.remove") }}</Button>
       </li>
     </ul>
+    <ConfirmDialog
+      :open="deleting !== null"
+      :title="t('hookSecrets.deleteTitle')"
+      :description="t('hookSecrets.deleteDescription', { name: deleting?.name ?? '' })"
+      :confirm-label="t('hookSecrets.remove')"
+      destructive
+      :busy="busy"
+      :error="deleteError"
+      @update:open="(v) => !v && (deleting = null)"
+      @confirm="remove"
+    />
   </section>
 </template>

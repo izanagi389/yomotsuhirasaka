@@ -115,9 +115,11 @@ const canStart = computed(() => {
           <Input id="llm-api-key" v-model="apiKey" type="password" autocomplete="off" class="max-w-md" :disabled="busy" />
           <p class="text-muted-foreground">
             {{
-              data.settings?.apiKeySet
-                ? t("llmOverride.apiKeySet", { at: formatDateTime(data.settings.apiKeyUpdatedAt, locale) })
-                : t("llmOverride.apiKeyRequired")
+              !data.settings?.apiKeySet
+                ? t("llmOverride.apiKeyRequired")
+                : data.settings.endpoint !== endpoint
+                  ? t("llmOverride.apiKeyForNewEndpoint")
+                  : t("llmOverride.apiKeySet", { at: formatDateTime(data.settings.apiKeyUpdatedAt, locale) })
             }}
           </p>
         </div>
