@@ -333,7 +333,7 @@ pub struct MediaConfig {
     /// 1つのファイルの大きさの上限（バイト。既定は20MB）。
     #[serde(default = "default_max_file_bytes")]
     pub max_file_bytes: u64,
-    /// ワークスペースの容量の既定の上限（バイト。既定は5GB）。サーバー管理者がワークスペースごとに変えられる。
+    /// ワークスペースごとの容量の上限（バイト。既定は5GB）。値はインスタンスで1つ。
     #[serde(default = "default_workspace_quota_bytes")]
     pub default_workspace_quota_bytes: u64,
     /// 画像の処理（デコードとエンコードし直し）にかける時間の上限（秒。既定は20秒）。
