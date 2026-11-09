@@ -257,6 +257,9 @@ pub async fn check(schema: &Schema, query: &str) -> Result<(), Vec<String>> {
         media_base: String::new(),
         preview: None,
         app: None,
+        db: None,
+        resolved: Default::default(),
+        max_resolved: usize::MAX,
     });
     let request = async_graphql::Request::new(query.to_owned())
         .variables(async_graphql::Variables::from_json(Value::Object(

@@ -73,6 +73,15 @@ impl IpLimiter {
         }
     }
 
+    /// すでに上限に達しているか（数えない）。
+    pub fn exceeded(&self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.get(&limit_key(ip)).is_some_and(|(start, count)| {
+            now.duration_since(*start) < self.window && *count >= self.per_window
+        })
+    }
+
     /// 1回の試行を数える。上限を超えていれば、次に試せるまでの秒数を返す。
     pub fn check(&self, ip: IpAddr) -> Result<(), u64> {
         let key = limit_key(ip);

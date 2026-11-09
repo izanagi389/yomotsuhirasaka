@@ -58,6 +58,73 @@ use error::ApiError;
 #[derive(Clone)]
 pub struct AppState(Arc<Inner>);
 
+/// 配信のクエリの実行枠（インスタンス全体と、ワークスペースごと）。
+pub struct QuerySlots {
+    pub total: Arc<tokio::sync::Semaphore>,
+    per_workspace:
+        std::sync::Mutex<std::collections::HashMap<uuid::Uuid, Arc<tokio::sync::Semaphore>>>,
+}
+
+impl QuerySlots {
+    fn new(total: u32) -> Self {
+        Self {
+            total: Arc::new(tokio::sync::Semaphore::new(total as usize)),
+            per_workspace: Default::default(),
+        }
+    }
+
+    /// ワークスペースの実行枠。数はワークスペースの数までしか増えない。
+    pub fn for_workspace(&self, ws: uuid::Uuid, limit: u32) -> Arc<tokio::sync::Semaphore> {
+        let mut map = self.per_workspace.lock().unwrap_or_else(|e| e.into_inner());
+        map.entry(ws)
+            .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(limit as usize)))
+            .clone()
+    }
+}
+
+/// リクエスト全体の上限（13-security.md「入口の上限」）。
+/// - 処理時間: 本文の読み込みを含めて打ち切る。応答を返した後のストリーム（回答、WebSocket）は含まない
+/// - 同時の数: 超えたら待たせずに断る（遅い接続でメモリを持たれ続けないように）
+#[derive(Clone)]
+struct RequestLimits {
+    slots: Arc<tokio::sync::Semaphore>,
+    timeout: std::time::Duration,
+}
+
+/// 処理時間の上限をかけない経路（デプロイと取り込みは長くかかり、途中で切ると移行が中断する）。
+fn long_running(path: &str) -> bool {
+    path.starts_with("/api/admin/templates/") || path.ends_with("/imports")
+}
+
+async fn limit_requests(
+    axum::extract::State(limits): axum::extract::State<RequestLimits>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse as _;
+    let Ok(_permit) = limits.slots.try_acquire() else {
+        return error::ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "server_busy",
+            "The server is handling too many requests.",
+        )
+        .into_response();
+    };
+    if long_running(request.uri().path()) {
+        return next.run(request).await;
+    }
+    match tokio::time::timeout(limits.timeout, next.run(request)).await {
+        Ok(response) => response,
+        Err(_) => error::ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "request_timeout",
+            "The request took too long.",
+        )
+        .into_response(),
+    }
+}
+
 pub struct Inner {
     /// 普段用の接続のプール。
     pub pool: PgPool,
@@ -71,6 +138,10 @@ pub struct Inner {
     /// 認証アプリに表示する発行者の名前（公開URLのホスト名）。
     pub issuer: String,
     pub login_limiter: IpLimiter,
+    /// 無効な配信APIのキーを送る接続元の制限。
+    pub invalid_key_limiter: IpLimiter,
+    /// 配信のクエリの実行枠。
+    pub query_slots: QuerySlots,
     /// 暗号化の鍵（TOTPの秘密などの保存に使う）。
     pub keys: KeyRing,
     /// 国を調べるデータ（設定したときだけ。Q175）。
@@ -116,6 +187,9 @@ impl AppState {
             .map_or(public_origin.as_str(), |(_, host)| host)
             .to_owned();
         let login_limiter = IpLimiter::per_minute(config.limits.login_attempts_per_ip_per_minute);
+        let invalid_key_limiter =
+            IpLimiter::per_minute(config.limits.invalid_api_keys_per_ip_per_minute);
+        let query_slots = QuerySlots::new(config.delivery.max_concurrent_queries);
         // 起動時の設定の検査で、読み込めることは確かめてある。ここで失敗したら国を調べずに続ける
         let geoip = config
             .login_history
@@ -156,6 +230,8 @@ impl AppState {
             public_origin,
             issuer,
             login_limiter,
+            invalid_key_limiter,
+            query_slots,
             keys,
             geoip,
             passkeys,
@@ -253,6 +329,12 @@ async fn count_rate_limited(
 
 pub fn router(state: AppState) -> Router {
     let trusted = std::sync::Arc::new(state.config.trusted_proxies.clone());
+    let limits = RequestLimits {
+        slots: Arc::new(tokio::sync::Semaphore::new(
+            state.config.limits.max_concurrent_requests as usize,
+        )),
+        timeout: std::time::Duration::from_secs(state.config.limits.request_timeout_seconds),
+    };
     let admin = Router::new()
         .route(
             "/session",
@@ -683,6 +765,7 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/{*rel}", get(admin_ui::serve))
         .fallback(not_found)
         .with_state(state)
+        .layer(axum::middleware::from_fn_with_state(limits, limit_requests))
         .layer(axum::middleware::from_fn_with_state(
             trusted,
             count_rate_limited,

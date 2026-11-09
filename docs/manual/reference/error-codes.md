@@ -62,6 +62,9 @@
 | `credential_in_url` | 401 | キーやトークンが URL に入っています。送ったものは失効させてください |
 | `persisted_query_required` | 400 | 登録済みのクエリの ID を送ってください |
 | `persisted_query_not_found` | 400 | その ID のクエリは登録されていません |
+| `query_timeout` | 503 | クエリの実行時間が上限を超えました |
+| `query_too_large` | 422 | クエリで解決する記事が多すぎます。一覧の件数や参照の深さを減らしてください |
+| `delivery_busy` | 503 | 同時に実行するクエリが上限に達しています。少し待って送り直してください |
 | `batch_not_supported` | 400 | 1回のリクエストで送れるクエリは1つです |
 | `invalid_query` | 422 | クエリが正しくないか、深さや複雑さの上限を超えています |
 | `response_too_large` | 422 | 応答が大きさの上限を超えました |
