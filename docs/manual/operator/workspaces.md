@@ -61,4 +61,4 @@ docker compose exec yomi yomi-server reset-mfa --config /data/config.toml --emai
 
 ## 全員への多要素認証の必須
 
-既定で有効です（`[auth] mfa_required_for_everyone`）。無効にすると、管理者以外のロールは任意になり、ワークスペースの管理者が「このワークスペースでは全員に必須」を選べます。**有効のままにすることを勧めます。** よく使われるパスワードの一覧は同梱していないので、漏えいしたパスワードへの備えは、これと [漏えいしたパスワードの照会](config.md#漏えいしたパスワードの照会authbreached_passwords) が担います。
+既定で有効です（`[auth] mfa_required_for_everyone`）。無効にすると、管理者以外のロールは任意になります。**有効のままにすることを勧めます。** よく使われるパスワードの一覧は同梱していないので、漏えいしたパスワードへの備えは、これと [漏えいしたパスワードの照会](config.md#漏えいしたパスワードの照会authbreached_passwords) が担います。
