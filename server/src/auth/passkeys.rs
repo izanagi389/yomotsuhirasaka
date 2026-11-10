@@ -168,8 +168,11 @@ pub struct Registered {
 }
 
 /// 登録を終える。
+///
+/// 登録は呼ぶ側のトランザクションで行う（セッションの失効・通知・監査ログと同じトランザクションにするため）。
 pub async fn finish_registration(
     pool: &PgPool,
+    tx: &mut Transaction<'_, Postgres>,
     rp: &Webauthn,
     session_id: Uuid,
     user_id: Uuid,
@@ -183,18 +186,17 @@ pub async fn finish_registration(
     let Ok(passkey) = rp.finish_passkey_registration(response, &state) else {
         return Ok(Err(Refused::Invalid));
     };
-    let mut tx = pool.begin().await?;
     // 同じ人の同時の登録・解除と順番をそろえる
     let had_mfa: bool = sqlx::query_scalar(crate::sql!(
         "SELECT {} FROM yomi.users u WHERE u.id = $1 FOR UPDATE",
         mfa::MFA_ENABLED_U
     ))
     .bind(user_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.passkeys WHERE user_id = $1")
         .bind(user_id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?;
     if count >= MAX_PER_USER {
         return Ok(Err(Refused::TooMany));
@@ -210,7 +212,7 @@ pub async fn finish_registration(
     .bind(name.unwrap_or_default())
     .bind(passkey.cred_id().as_ref())
     .bind(serde_json::to_string(&passkey)?)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?
     .rows_affected();
     if inserted != 1 {
@@ -219,9 +221,8 @@ pub async fn finish_registration(
     let recovery_codes = if had_mfa {
         Vec::new()
     } else {
-        mfa::replace_recovery_codes(&mut tx, user_id).await?
+        mfa::replace_recovery_codes(tx, user_id).await?
     };
-    tx.commit().await?;
     Ok(Ok(Registered { id, recovery_codes }))
 }
 

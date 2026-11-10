@@ -151,9 +151,10 @@ pub async fn delete(
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }
-    if workspace_llm::remove(&state.pool, ws).await? {
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
+    if workspace_llm::remove(&mut *tx, ws).await? {
         audit::record(
-            &state.pool,
+            &mut *tx,
             Some(ws),
             Some(current.user_id),
             action::LLM_OVERRIDE_REMOVED,
@@ -161,6 +162,7 @@ pub async fn delete(
         )
         .await?;
     }
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -201,15 +203,17 @@ pub async fn start_embedding_switch(
             "Only a server administrator can start the switch to the server's next embedding model.",
         ));
     }
-    workspace_llm::start_embedding_switch(&state.pool, ws, &s.desired, current.user_id).await?;
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
+    workspace_llm::start_embedding_switch(&mut *tx, ws, &s.desired, current.user_id).await?;
     audit::record(
-        &state.pool,
+        &mut *tx,
         Some(ws),
         Some(current.user_id),
         action::EMBEDDING_SWITCH_STARTED,
         &[ws],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     // 新しいモデルの埋め込みを、すぐに作り始める
     super::admin_publishing::schedule_search(&state, ws).await;
     Ok(Json(llm_view(&state, ws).await?))

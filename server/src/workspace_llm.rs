@@ -192,7 +192,7 @@ pub fn workspace_may_start(setup: &EmbeddingSetup, desired: &ModelId) -> bool {
 
 /// ワークスペースの埋め込みのモデルの切り替えを開始する（前の記録は書き直す）。
 pub async fn start_embedding_switch(
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
     workspace: Uuid,
     model: &ModelId,
     user: Uuid,
@@ -207,7 +207,7 @@ pub async fn start_embedding_switch(
     .bind(&model.0)
     .bind(i32::try_from(model.1).unwrap_or(i32::MAX))
     .bind(user)
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }

@@ -787,6 +787,10 @@ pub struct LimitsConfig {
     pub admin_requests_per_workspace_per_minute: u32,
     /// ワークスペースごとの記事の数の上限（翻訳は別の記事として数える。削除して物理削除を待つ記事も含む）。
     pub max_entries_per_workspace: u32,
+    /// 1つの記事の版の数の上限（公開のたびに版が1つ増える。古い版は消さない）。
+    pub max_versions_per_entry: u32,
+    /// ワークスペースごとの版の数の上限。
+    pub max_versions_per_workspace: u32,
     /// ワークスペースごとの登録クエリの数の上限。
     pub max_queries_per_workspace: u32,
     /// ワークスペースごとの、1分あたりのクエリの新規登録の上限（登録済みの文を登録し直すときは数えない）。
@@ -806,6 +810,8 @@ impl Default for LimitsConfig {
             admin_requests_per_user_per_minute: 600,
             admin_requests_per_workspace_per_minute: 3000,
             max_entries_per_workspace: 100_000,
+            max_versions_per_entry: 1000,
+            max_versions_per_workspace: 500_000,
             max_queries_per_workspace: 1000,
             query_registrations_per_workspace_per_minute: 60,
             invalid_api_keys_per_ip_per_minute: 600,

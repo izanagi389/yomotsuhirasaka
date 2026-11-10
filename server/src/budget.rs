@@ -203,7 +203,7 @@ pub async fn limits(
 
 /// ワークスペースの上限を決める（None は上限なし）。呼ぶ側が、権限と天井の範囲を確かめておく。
 pub async fn set_limits(
-    pool: &PgPool,
+    conn: &mut sqlx::PgConnection,
     workspace_id: Uuid,
     kind: Kind,
     direction: Direction,
@@ -223,13 +223,17 @@ pub async fn set_limits(
     .bind(month)
     .bind(day)
     .bind(actor)
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
-    resumed(pool, workspace_id, kind).await
+    resumed(&mut *conn, workspace_id, kind).await
 }
 
 /// 上限が変わった（ワークスペースの上限か天井）。今の期間の「断った」の印を消す（次に断ったら、また知らせる）。
-pub async fn resumed(pool: &PgPool, workspace_id: Uuid, kind: Kind) -> Result<()> {
+pub async fn resumed(
+    executor: impl sqlx::PgExecutor<'_>,
+    workspace_id: Uuid,
+    kind: Kind,
+) -> Result<()> {
     sqlx::query(
         "UPDATE yomi.budget_usage SET exhausted_at = NULL
          WHERE workspace_id = $1 AND exhausted_at IS NOT NULL
@@ -239,7 +243,7 @@ pub async fn resumed(pool: &PgPool, workspace_id: Uuid, kind: Kind) -> Result<()
     )
     .bind(workspace_id)
     .bind(kind.as_str())
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }

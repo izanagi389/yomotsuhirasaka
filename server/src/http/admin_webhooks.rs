@@ -187,10 +187,11 @@ pub async fn delete(
 ) -> Result<StatusCode, ApiError> {
     let (ws, id) = (parse_id(&ws)?, parse_id(&id)?);
     access::workspace_admin(&state.pool, &current, ws).await??;
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     let deleted = sqlx::query("DELETE FROM yomi.webhooks WHERE id = $1 AND workspace_id = $2")
         .bind(id)
         .bind(ws)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await
         .map_err(anyhow::Error::from)?
         .rows_affected();
@@ -198,13 +199,14 @@ pub async fn delete(
         return Err(ApiError::not_found());
     }
     audit::record(
-        &state.pool,
+        &mut *tx,
         Some(ws),
         Some(current.user_id),
         action::WEBHOOK_DELETED,
         &[id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -248,6 +248,7 @@ pub enum Failed {
 }
 
 /// 計画どおりに作成・公開し、URLの変更履歴と翻訳の元を記録する。ワークスペースのロールのトランザクションの中で呼ぶ。
+#[allow(clippy::too_many_arguments)]
 pub async fn apply(
     conn: &mut PgConnection,
     manifest: &Manifest,
@@ -256,6 +257,7 @@ pub async fn apply(
     ct: &ContentType,
     plan: Plan,
     actor: Uuid,
+    limits: publishing::VersionLimits,
 ) -> Result<Result<Vec<Imported>, Failed>> {
     let mut out: Vec<Imported> = Vec::with_capacity(plan.entries.len());
     for p in &plan.entries {
@@ -278,6 +280,7 @@ pub async fn apply(
             1,
             false,
             actor,
+            limits,
         )
         .await?
         {
