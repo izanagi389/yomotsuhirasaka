@@ -35,7 +35,7 @@ use uuid::Uuid;
 use super::AppState;
 use super::admin_entries::{db, editor, parse, reader};
 use super::error::ApiError;
-use super::extract::{AuthSession, JsonBody};
+use super::extract::{AuthSession, ClientIp, JsonBody};
 use crate::access::{self, Access, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
@@ -608,8 +608,19 @@ const MEDIA_HEADERS: &[(&str, &str)] = &[
 
 pub async fn serve(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Path((ws, file)): Path<(String, String)>,
 ) -> Response {
+    // 接続元ごとの回数（第三者の確認の R17）。帯域は別にリバースプロキシや CDN で守る
+    if let Some(limiter) = &state.media_limiter
+        && let Err(retry_after) = limiter.check(ip)
+    {
+        let mut res = StatusCode::TOO_MANY_REQUESTS.into_response();
+        if let Ok(v) = HeaderValue::from_str(&retry_after.to_string()) {
+            res.headers_mut().insert(header::RETRY_AFTER, v);
+        }
+        return res;
+    }
     let Some((path, format)) = store::served_path(&state.config.media.root, &ws, &file) else {
         return StatusCode::NOT_FOUND.into_response();
     };
