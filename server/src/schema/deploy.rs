@@ -207,25 +207,49 @@ pub async fn deploy(
     if !problems.is_empty() {
         return Ok(Err(Rejected::Invalid(problems)));
     }
-    let mut conn = migration.acquire().await?;
-    sqlx::query("SELECT pg_advisory_lock($1)")
-        .bind(DEPLOY_LOCK_KEY)
-        .execute(&mut *conn)
-        .await?;
-    let result = deploy_locked(
-        &mut conn,
-        template,
-        manifest,
-        allow_destructive,
-        queries,
-        actor,
-    )
-    .await;
-    sqlx::query("SELECT pg_advisory_unlock($1)")
-        .bind(DEPLOY_LOCK_KEY)
-        .execute(&mut *conn)
-        .await?;
-    result
+    let template = template.to_owned();
+    with_deploy_lock(migration, move |conn| {
+        Box::pin(async move {
+            deploy_locked(conn, &template, manifest, allow_destructive, queries, actor).await
+        })
+    })
+    .await
+}
+
+/// デプロイのロックを取って `work` を行い、ロックを外す。
+///
+/// ロックは接続ごとのもの（アドバイザリーロック）なので、取ってから外すまでを別のタスクで動かす。リクエストの途中で
+/// 相手が接続を切っても、そのタスクは最後まで走ってロックを外す（呼んだ側の処理が打ち切られて、ロックを持ったままの
+/// 接続がプールに戻ることを防ぐ。侵入テストの前の確認で見つけた）。
+async fn with_deploy_lock<T: Send + 'static>(
+    migration: &PgPool,
+    work: impl for<'c> FnOnce(
+        &'c mut PgConnection,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T>> + Send + 'c>,
+    > + Send
+    + 'static,
+) -> Result<T> {
+    let pool = migration.clone();
+    tokio::spawn(async move {
+        let mut conn = pool.acquire().await?;
+        sqlx::query("SELECT pg_advisory_lock($1)")
+            .bind(DEPLOY_LOCK_KEY)
+            .execute(&mut *conn)
+            .await?;
+        let result = work(&mut conn).await;
+        let unlocked = sqlx::query("SELECT pg_advisory_unlock($1)")
+            .bind(DEPLOY_LOCK_KEY)
+            .execute(&mut *conn)
+            .await;
+        if unlocked.is_err() {
+            // 外せなかった接続はプールに戻さず閉じる（接続が閉じればロックも外れる）
+            let _ = conn.detach();
+        }
+        unlocked?;
+        result
+    })
+    .await?
 }
 
 async fn deploy_locked(
@@ -492,29 +516,22 @@ pub async fn apply_latest_to_new_workspace(
     template: &str,
     actor: Uuid,
 ) -> Result<()> {
-    let mut conn = migration.acquire().await?;
-    sqlx::query("SELECT pg_advisory_lock($1)")
-        .bind(DEPLOY_LOCK_KEY)
-        .execute(&mut *conn)
-        .await?;
-    let result = async {
-        if let Some((version, manifest)) = latest_version(&mut conn, template).await? {
-            migrate_workspace(
-                &mut conn,
-                workspace_id,
-                template,
-                version,
-                &manifest,
-                Some(actor),
-            )
-            .await?;
-        }
-        anyhow::Ok(())
-    }
-    .await;
-    sqlx::query("SELECT pg_advisory_unlock($1)")
-        .bind(DEPLOY_LOCK_KEY)
-        .execute(&mut *conn)
-        .await?;
-    result
+    let template = template.to_owned();
+    with_deploy_lock(migration, move |conn| {
+        Box::pin(async move {
+            if let Some((version, manifest)) = latest_version(conn, &template).await? {
+                migrate_workspace(
+                    conn,
+                    workspace_id,
+                    &template,
+                    version,
+                    &manifest,
+                    Some(actor),
+                )
+                .await?;
+            }
+            Ok(())
+        })
+    })
+    .await
 }

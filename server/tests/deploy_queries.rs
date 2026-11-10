@@ -287,3 +287,53 @@ async fn dry_run_reports_without_changing_anything() {
     })
     .await;
 }
+
+/// デプロイの途中で相手が接続を切っても、デプロイのロック（アドバイザリーロック）は残らない。
+/// 残ると、移行用の接続が入れ替わった後のデプロイとワークスペースの作成が、すべて待ち続ける。
+#[tokio::test]
+async fn a_dropped_deploy_request_releases_the_lock() {
+    use tokio::io::AsyncWriteExt as _;
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        assert_eq!(deploy(&server, &token, "blog", &blog_manifest(), "").await.status, 200);
+        // 移行するワークスペースを増やして、ロックを持つ時間を延ばす
+        for name in ["A", "B", "C", "D", "E", "F", "G", "H"] {
+            workspace_with_template(&server, &root, name, "blog").await;
+        }
+        let mut manifest: serde_json::Value = serde_json::from_str(&blog_manifest()).unwrap();
+        for i in 0..30u64 {
+            manifest["contentTypes"][0]["fields"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({"name": format!("extra{i}"), "type": "text"}));
+            let body = serde_json::json!({"manifest": manifest}).to_string();
+            let mut s = tokio::net::TcpStream::connect(server.addr).await.unwrap();
+            let head = format!(
+                "POST /api/admin/templates/blog/deploy HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            );
+            s.write_all(head.as_bytes()).await.unwrap();
+            s.write_all(body.as_bytes()).await.unwrap();
+            // 処理の途中で切る（時間をずらして、ロックを持っている間に当たるようにする）
+            tokio::time::sleep(std::time::Duration::from_millis(i * 2)).await;
+            drop(s);
+        }
+        // 走っているデプロイが終わるのを待つ
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let held: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'")
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        assert_eq!(held, 0, "a deploy lock was left behind");
+        // その後のデプロイも通る
+        manifest["contentTypes"][0]["fields"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"name": "after", "type": "text"}));
+        let res = deploy(&server, &token, "blog", &manifest.to_string(), "").await;
+        assert_eq!(res.status, 200, "{}", res.body);
+    })
+    .await;
+}
