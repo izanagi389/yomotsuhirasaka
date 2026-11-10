@@ -1079,11 +1079,12 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
       // 検索の方法は GraphQL の列挙の値（HYBRID・VECTOR・KEYWORD）で渡す
       const { mode, ...rest } = input;
       const variables = mode === undefined ? rest : { ...rest, mode: mode.toUpperCase() };
+      // 検索は POST だけ（検索語を URL に載せない）
       const res = ensure(
         "サイト内検索",
-        await request("GET", `/ws/${workspaceId}/graphql`, {
+        await request("POST", `/ws/${workspaceId}/graphql`, {
           auth: deliveryAuth(apiKey),
-          extras: { query: { id: query.ref, variables: JSON.stringify(variables) } },
+          body: { id: query.ref, variables },
         }),
       );
       const body = JSON.parse(res.text) as { data?: { search?: Record<string, unknown> }; errors?: unknown };

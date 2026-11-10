@@ -75,10 +75,12 @@ export function useYomiSearch(options: YomiSearchOptions): {
 
   async function run(n: number, q: string, locale: string, mode: YomiSearchMode | undefined, first: number | undefined) {
     try {
-      const query = new URLSearchParams({ q, locale });
-      if (mode) query.set("mode", mode);
-      if (first !== undefined) query.set("first", String(first));
-      const res = await fetch(`${route}?${query}`, { headers: { Accept: "application/json" } });
+      // 検索語は URL に載せない（プロキシやアクセスログに残さない）
+      const res = await fetch(route, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ q, locale, mode, first }),
+      });
       if (n !== seq) return;
       if (res.status === 429) {
         status.value = "rateLimited";

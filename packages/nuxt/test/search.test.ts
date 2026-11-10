@@ -4,7 +4,7 @@ import { renderToString } from "vue/server-renderer";
 
 import { yomiHighlight, type YomiSearchHit, type YomiSearchResult } from "../src/runtime/search.ts";
 import { QueryError } from "../src/runtime/server/fetch-query.ts";
-import { EMPTY_RESULT, RateLimiter, cachedSearch, clearSearchCache, clientIp, limitKey, parseSearchParams } from "../src/runtime/server/search-core.ts";
+import { EMPTY_RESULT, RateLimiter, cachedSearch, clearSearchCache, clientIp, limitKey, parseSearchBody, parseSearchParams } from "../src/runtime/server/search-core.ts";
 
 vi.mock("nuxt/app", () => ({
   useRuntimeConfig: () => ({ public: { yomi: { searchRoute: "/_yomi/search" } } }),
@@ -53,6 +53,17 @@ describe("yomiHighlight", () => {
     ]);
     expect(yomiHighlight("abc", null)).toEqual([{ text: "abc", match: false }]);
     expect(yomiHighlight("", [{ start: 0, length: 1 }])).toEqual([]);
+  });
+});
+
+describe("parseSearchBody", () => {
+  it("JSON の本文を確かめる", () => {
+    expect(parseSearchBody(JSON.stringify({ q: " トマト ", locale: "ja" }))).toEqual({ q: "トマト", locale: "ja", mode: "HYBRID", first: 10 });
+    expect(parseSearchBody(JSON.stringify({ q: "x", locale: "en", mode: "KEYWORD", first: 50 }))).toEqual({ q: "x", locale: "en", mode: "KEYWORD", first: 50 });
+    for (const bad of [null, "", "not json", "[]", "1", JSON.stringify({ q: 1, locale: "ja" }), JSON.stringify({ q: "x", locale: "ja", first: "5" }), JSON.stringify({ q: "x" })]) {
+      expect(() => parseSearchBody(bad), String(bad)).toThrow(QueryError);
+    }
+    expect(() => parseSearchBody(null)).toThrow(expect.objectContaining({ status: 413 }));
   });
 });
 
@@ -170,8 +181,11 @@ describe("useYomiSearch", () => {
   it("入力が止まってから検索し、古い検索の結果では上書きしない", async () => {
     const replies: ((r: Response) => void)[] = [];
     const urls: string[] = [];
-    vi.stubGlobal("fetch", (u: string) => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal("fetch", (u: string, init?: RequestInit) => {
       urls.push(u);
+      expect(init?.method).toBe("POST");
+      bodies.push(JSON.parse(String(init?.body)));
       return new Promise<Response>((resolve) => replies.push(resolve));
     });
     const scope = effectScope();
@@ -181,7 +195,9 @@ describe("useYomiSearch", () => {
     s.text.value = "トマ";
     await nextTick();
     await vi.advanceTimersByTimeAsync(100);
-    expect(urls).toEqual(["/_yomi/search?q=%E3%83%88%E3%83%9E&locale=ja"]);
+    // 検索語は URL に載せず、本文で送る
+    expect(urls).toEqual(["/_yomi/search"]);
+    expect(bodies).toEqual([{ q: "トマ", locale: "ja" }]);
     s.text.value = "トマト";
     await nextTick();
     await vi.advanceTimersByTimeAsync(100);
@@ -198,7 +214,7 @@ describe("useYomiSearch", () => {
   });
 
   it("回数の制限（429）は rateLimited、空の入力は検索しない", async () => {
-    const fetchMock = vi.fn(async (_u: string) => new Response("", { status: 429 }));
+    const fetchMock = vi.fn(async (_u: string, _init?: RequestInit) => new Response("", { status: 429 }));
     vi.stubGlobal("fetch", fetchMock);
     const scope = effectScope();
     const s = scope.run(() => useYomiSearch({ locale: "ja", mode: "KEYWORD", first: 5, debounceMs: 10 }))!;
@@ -210,7 +226,8 @@ describe("useYomiSearch", () => {
     s.text.value = "トマト";
     await nextTick();
     await vi.advanceTimersByTimeAsync(10);
-    expect(fetchMock.mock.calls[0]![0]).toBe("/_yomi/search?q=%E3%83%88%E3%83%9E%E3%83%88&locale=ja&mode=KEYWORD&first=5");
+    expect(fetchMock.mock.calls[0]![0]).toBe("/_yomi/search");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({ q: "トマト", locale: "ja", mode: "KEYWORD", first: 5 });
     expect(s.status.value).toBe("rateLimited");
     scope.stop();
   });

@@ -31,7 +31,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { addComponent, addImports, addPlugin, addServerHandler, createResolver, defineNuxtModule, useLogger } from "nuxt/kit";
+import { addComponent, addImports, addPlugin, addServerHandler, addServerPlugin, createResolver, defineNuxtModule, useLogger } from "nuxt/kit";
 
 import { RegisterError, checkUrl, readQueries, registerQueries } from "./register.ts";
 import { type AiConfig, type AiOptions, checkAiConfig, markdownPath } from "./runtime/server/ai.ts";
@@ -284,9 +284,11 @@ export default defineNuxtModule<ModuleOptions>({
         addServerHandler({ route, method: "get", handler: resolver.resolve("./runtime/server/preview.js") });
       }
       addPlugin({ src: resolver.resolve("./runtime/live-preview.js"), mode: "client" });
+      // プレビュー中の応答（ページのHTMLを含む）を共有のキャッシュに入れさせない
+      addServerPlugin(resolver.resolve("./runtime/server/preview-no-store.js"));
     }
 
-    if (searchRoute) addServerHandler({ route: searchRoute, method: "get", handler: resolver.resolve("./runtime/server/search.js") });
+    if (searchRoute) addServerHandler({ route: searchRoute, method: "post", handler: resolver.resolve("./runtime/server/search.js") });
     if (answerRoute) addServerHandler({ route: answerRoute, method: "post", handler: resolver.resolve("./runtime/server/answer.js") });
     addServerHandler({ route: `${options.routePrefix}/:name`, method: "get", handler: resolver.resolve("./runtime/server/query.js") });
     addImports([
