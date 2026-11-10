@@ -90,7 +90,8 @@ async fn deployments_that_break_registered_queries_are_refused() {
         )
         .await;
 
-        // 破壊的な変更を許しても、登録済みのクエリを壊すなら拒否する
+        // 破壊的な変更を許しても、登録済みのクエリを壊すワークスペースには適用しない。
+        // ほかのワークスペースには適用する（1つのワークスペースのクエリで、全体のデプロイを止めさせない。R42）
         let destructive = ",\"allowDestructive\":true";
         let res = deploy(
             &server,
@@ -100,28 +101,46 @@ async fn deployments_that_break_registered_queries_are_refused() {
             destructive,
         )
         .await;
-        assert_eq!(
-            (res.status, res.json_str("error").as_deref()),
-            (409, Some("breaks_registered_queries")),
-            "{}",
-            res.body
-        );
+        assert_eq!(res.status, 200, "{}", res.body);
+        let out: Value = serde_json::from_str(&res.body).unwrap();
+        let result_of = |ws: Uuid| {
+            out["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|w| w["workspaceId"] == ws.to_string())
+                .cloned()
+                .unwrap_or_else(|| panic!("{out}"))
+        };
+        let held = result_of(a);
+        assert_eq!(held["state"], "pending", "{out}");
+        assert_eq!(held["error"], "breaks_registered_queries", "{out}");
         assert!(
-            res.body.contains(&a.to_string()) && res.body.contains(&uses_subtitle),
-            "{}",
-            res.body
+            held["brokenQueries"].to_string().contains(&uses_subtitle),
+            "{out}"
         );
-        let res = deploy(&server, &token, "blog", &without(&["related"]), destructive).await;
-        assert_eq!(
-            res.status, 409,
-            "a query of another workspace on the same template"
-        );
-        // 拒否の後も、スキーマは変わらず、クエリは動く
+        assert_eq!(result_of(b)["state"], "ok", "{out}");
+        assert!(result_of(b).get("brokenQueries").is_none(), "{out}");
+        // 適用しなかった側では、クエリが動く
         assert!(run(&server, a, &key_a, &uses_subtitle).await["errors"].is_null());
+        let held_state: String =
+            sqlx::query_scalar("SELECT schema_state FROM yomi.workspaces WHERE id = $1")
+                .bind(a)
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        assert_eq!(held_state, "pending");
 
-        // どのクエリも使っていないフィールドの削除は通る
+        // どのクエリも使っていないフィールドの削除は通り、移行待ちだった側も、クエリが壊れなければ移る
         let res = deploy(&server, &token, "blog", &without(&["body"]), destructive).await;
         assert_eq!(res.status, 200, "{}", res.body);
+        let state: String =
+            sqlx::query_scalar("SELECT schema_state FROM yomi.workspaces WHERE id = $1")
+                .bind(a)
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        assert_eq!(state, "ok", "{}", res.body);
 
         // 長く使われていないクエリは検証しない（Q151）
         let schema = format!("ws_{}", a.simple());

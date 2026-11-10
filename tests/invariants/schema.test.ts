@@ -105,21 +105,28 @@ inv("inv_sch_02", "破壊的なスキーマ変更（フィールドの削除、�
   );
 });
 
-inv("inv_sch_03", "登録済みのPersisted Queryを壊すスキーマ変更は、明示的な指定がない限り、CLIを通さずにデプロイのAPIを直接呼んだ場合も拒否される", async () => {
+inv("inv_sch_03", "登録済みのPersisted Queryを壊すスキーマ変更は、明示的な指定がない限り、そのクエリを持つワークスペースには適用されない（ほかのワークスペースには適用される）。CLIを通さずにデプロイのAPIを直接呼んだ場合も同じ", async () => {
   const { yomi } = await world();
   const { deploy } = await deployer();
   const name = templateName("sch03");
   expectSuccess(await deploy(cloneTemplate(name)), "最初のデプロイ");
-  const ws = await workspaceOn(name, { summary: "要約" });
-  const usesSummary = await yomi.registerQuery(ws.id, ws.registerKey.secret, { kind: "list", fields: ["summary"] });
+  const withQuery = await workspaceOn(name, { summary: "要約" });
+  const other = await workspaceOn(name, { summary: "要約" });
+  const usesSummary = await yomi.registerQuery(withQuery.id, withQuery.registerKey.secret, { kind: "list", fields: ["summary"] });
 
-  // 破壊的な変更そのものは明示的に許しても、登録済みのクエリを壊すなら拒否される
+  // 破壊的な変更そのものは明示的に許しても、登録済みのクエリを壊すワークスペースには適用されない
   const withoutSummary = cloneTemplate(name, (t) => removeField(t, "summary"));
-  expectRefused(await deploy(withoutSummary, { allowDestructive: true }), "登録済みのクエリが使うフィールドの削除");
-  expectSuccess(await yomi.deliveryRaw(ws.id, ws.readKey.secret, usesSummary, { locale: "ja", limit: 5 }), "拒否の後も、登録済みのクエリが動く");
+  expectSuccess(await deploy(withoutSummary, { allowDestructive: true }), "1つのワークスペースのクエリが壊れる変更のデプロイ");
+  expect(await yomi.migrationState(withQuery.adminSession, withQuery.id), "壊れるクエリを持つワークスペースに、変更が適用された").toBe("pending");
+  expectSuccess(await yomi.deliveryRaw(withQuery.id, withQuery.readKey.secret, usesSummary, { locale: "ja", limit: 5 }), "適用されなかった側で、登録済みのクエリが動く");
 
-  // 対照: どのクエリも使っていないフィールドの削除は通る
-  expectSuccess(await deploy(cloneTemplate(name, (t) => removeField(t, "subtitle")), { allowDestructive: true }), "使われていないフィールドの削除");
+  // ほかのワークスペースには適用される（1つのワークスペースのクエリで、全体のデプロイを止められない）
+  expect(await yomi.migrationState(other.adminSession, other.id), "壊れるクエリを持たないワークスペースに、変更が適用されていない").toBe("ok");
+  expectRefused(await yomi.registerQueryRaw(other.id, other.registerKey.secret, { kind: "list", fields: ["summary"] }), "適用された側で、削除したフィールドを使うクエリの登録");
+
+  // 明示的な指定があれば、壊れるクエリを持つワークスペースにも適用される
+  expectSuccess(await deploy(withoutSummary, { allowDestructive: true, allowBrokenQueries: true }), "明示的な指定のあるデプロイ");
+  expect(await yomi.migrationState(withQuery.adminSession, withQuery.id), "明示的な指定があっても、変更が適用されていない").toBe("ok");
 });
 
 // --- INV-SCH-04, 05, 07: 一方のワークスペースだけ移行に失敗する状況を作る ---

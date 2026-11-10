@@ -53,8 +53,8 @@ export async function deploy(client: Client, name: string, manifest: Manifest, o
     blocked = true;
   }
   if (check.brokenQueries.length > 0 && !options.allowBrokenQueries) {
-    log.error("registered queries would break: update the site's queries and register them again, or pass --allow-broken-queries");
-    blocked = true;
+    // 壊れるクエリを持つワークスペースだけが旧版のまま移行待ちになり、ほかのワークスペースには適用される（INV-SCH-03）
+    log.warn("workspaces with these queries keep the current version (migration pending) until their queries are updated and a later deployment runs; pass --allow-broken-queries to apply the change to them anyway");
   }
   if (blocked) return 1;
   if (options.dryRun) {

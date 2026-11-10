@@ -207,7 +207,6 @@ pub async fn create_workspace(
     // テンプレートがデプロイ済みなら、その最新の版を適用する
     crate::schema::deploy::apply_latest_to_new_workspace(
         &state.migration,
-        &state.pool,
         id,
         template,
         current.user_id,
