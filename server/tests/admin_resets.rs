@@ -297,12 +297,30 @@ async fn admins_issue_resets_within_their_scope() {
             403
         );
 
-        // 対照: Aにしか所属していない人には発行でき、SMTPがなければリンクを受け取る
+        // Aにしか所属していない人でも、SMTPがなければワークスペースの管理者は発行できない
+        // （リンクが発行した人に渡り、なりすませるため）
         let res = send(
             &server,
             "POST",
             &in_a(only_a, "password-reset"),
             &admin,
+            None,
+        )
+        .await;
+        assert_eq!(
+            (res.status, res.json_str("error").as_deref()),
+            (403, Some("smtp_required"))
+        );
+        assert_eq!(
+            audit_count(&server.pool, Some(a), "password_reset.issued").await,
+            0
+        );
+        // サーバー管理者は、SMTPがなくても発行でき、リンクを受け取る
+        let res = send(
+            &server,
+            "POST",
+            &in_a(only_a, "password-reset"),
+            &root,
             None,
         )
         .await;
@@ -315,11 +333,10 @@ async fn admins_issue_resets_within_their_scope() {
         );
         // 再認証の有効時間を過ぎていれば発行できない
         expire_reauth(&server.pool, "admin-a@example.test").await;
+        let res = send(&server, "POST", &in_a(only_a, "mfa-reset"), &admin, None).await;
         assert_eq!(
-            send(&server, "POST", &in_a(only_a, "mfa-reset"), &admin, None)
-                .await
-                .status,
-            403
+            (res.status, res.json_str("error").as_deref()),
+            (403, Some("reauth_required"))
         );
         // サーバー管理者は、所属していないワークスペースの経路でも、インスタンスの経路でも発行できる
         let res = send(&server, "POST", &in_a(only_a, "mfa-reset"), &root, None).await;
@@ -488,6 +505,109 @@ async fn later_requests_do_not_cancel_a_link_already_sent() {
         assert!(res.status < 300, "{}", res.body);
         let res = complete_password(&server, &tokens[1], "a-brand-new-long-passphrase-2").await;
         assert!(res.status >= 400, "{}", res.body);
+    })
+    .await;
+}
+
+/// SSOだけでログインする人には、パスワードのリセットを本人にもワークスペースの管理者にも発行させない。
+/// IdPから外された後に、メールを読めるだけでパスワードのログインを得させないため。
+#[tokio::test]
+async fn sso_only_people_recover_through_the_identity_provider() {
+    with_scratch(|app, migration| async move {
+        let (port, _smtp) = fake_smtp().await;
+        let mut cfg = config(&app, &migration);
+        cfg.smtp = Some(smtp_config(port));
+        let server = start(cfg).await;
+        let (_, root) = user(&server, "root@example.test", true, true).await;
+        let a = create_ws(&server, &root, "A").await;
+        let (admin_id, admin) = user(&server, "admin-a@example.test", false, true).await;
+        let (sso_only, _) = user(&server, "sso-only@example.test", false, false).await;
+        let (both, _) = user(&server, "both@example.test", false, false).await;
+        add_member(&server.pool, a, admin_id, "admin").await;
+        add_member(&server.pool, a, sso_only, "editor").await;
+        add_member(&server.pool, a, both, "editor").await;
+        for (id, sub) in [(sso_only, "sso-only"), (both, "both")] {
+            sqlx::query(
+                "INSERT INTO yomi.external_identities (id, user_id, issuer, subject)
+                 VALUES (gen_random_uuid(), $1, 'https://idp.example.test', $2)",
+            )
+            .bind(id)
+            .bind(sub)
+            .execute(&server.pool)
+            .await
+            .unwrap();
+        }
+        sqlx::query("UPDATE yomi.users SET password_hash = NULL WHERE id = $1")
+            .bind(sso_only)
+            .execute(&server.pool)
+            .await
+            .unwrap();
+        let in_a =
+            |user: Uuid, kind: &str| format!("/api/admin/workspaces/{a}/members/{user}/{kind}");
+        let tokens = |user: Uuid| {
+            let pool = server.pool.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM yomi.reset_tokens WHERE user_id = $1",
+                )
+                .bind(user)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+
+        // 本人の申し込み: 応答は同じで、トークンは発行しない
+        let res = request_reset(&server, "sso-only@example.test").await;
+        let unregistered = request_reset(&server, "nobody@example.test").await;
+        assert_eq!(
+            (res.status, &res.body),
+            (unregistered.status, &unregistered.body)
+        );
+        assert_eq!(tokens(sso_only).await, 0);
+        // 対照: パスワードも持つ人には発行する
+        assert_eq!(
+            request_reset(&server, "both@example.test").await.status,
+            202
+        );
+        assert_eq!(tokens(both).await, 1);
+
+        // ワークスペースの管理者: パスワードのリセットは断る。多要素認証のリセットは今までどおり
+        let res = send(
+            &server,
+            "POST",
+            &in_a(sso_only, "password-reset"),
+            &admin,
+            None,
+        )
+        .await;
+        assert_eq!(
+            (res.status, res.json_str("error").as_deref()),
+            (403, Some("sso_only_user"))
+        );
+        assert_eq!(tokens(sso_only).await, 0);
+        let res = send(&server, "POST", &in_a(sso_only, "mfa-reset"), &admin, None).await;
+        assert_eq!(res.status, 201, "{}", res.body);
+
+        // サーバー管理者は発行できる
+        let res = send(
+            &server,
+            "POST",
+            &in_a(sso_only, "password-reset"),
+            &root,
+            None,
+        )
+        .await;
+        assert_eq!(res.status, 201, "{}", res.body);
+        let res = send(
+            &server,
+            "POST",
+            &format!("/api/admin/users/{sso_only}/password-reset"),
+            &root,
+            None,
+        )
+        .await;
+        assert_eq!(res.status, 201, "{}", res.body);
     })
     .await;
 }
