@@ -32,9 +32,10 @@ pub enum Rejected {
     Invalid(Vec<String>),
     /// 明示的な指定のない、破壊的な変更。
     Destructive(Vec<Breaking>),
-    /// 明示的な指定のない、登録済みのクエリを壊す変更（Q54）。
-    BreaksQueries(Vec<BrokenQuery>),
 }
+
+/// 壊れるクエリがあるため移行しなかったワークスペースの、理由のコード。
+pub const BREAKS_QUERIES: &str = "breaks_registered_queries";
 
 /// 新しいスキーマで壊れる登録済みのクエリ。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -64,6 +65,9 @@ pub struct WorkspaceResult {
     pub state: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// 新しい版で壊れるため、移行しなかった理由の登録済みのクエリ（明示的な指定がないとき。INV-SCH-03）。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub broken_queries: Vec<BrokenQuery>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,7 +115,7 @@ async fn latest_version(
         .transpose()
 }
 
-/// テンプレートをデプロイする。`app` は監査ログの記録に使う。
+/// テンプレートをデプロイする。
 /// デプロイの試行の結果（何も書き込まない）。明示的な指定の有無にかかわらず、見つかった問題をすべて返す。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -193,7 +197,6 @@ pub async fn check(
 pub async fn deploy(
     engine: &crate::script::Engine,
     migration: &PgPool,
-    app: &PgPool,
     template: &str,
     manifest: Manifest,
     allow_destructive: bool,
@@ -211,7 +214,6 @@ pub async fn deploy(
         .await?;
     let result = deploy_locked(
         &mut conn,
-        app,
         template,
         manifest,
         allow_destructive,
@@ -228,7 +230,6 @@ pub async fn deploy(
 
 async fn deploy_locked(
     conn: &mut PgConnection,
-    app: &PgPool,
     template: &str,
     manifest: Manifest,
     allow_destructive: bool,
@@ -240,13 +241,19 @@ async fn deploy_locked(
     if !breaking.is_empty() && !allow_destructive {
         return Ok(Err(Rejected::Destructive(breaking)));
     }
-    // 登録済みのクエリを、新しいスキーマで検証する（Q54、INV-SCH-03）。破壊的な変更を許しても、この検証は別に行う
-    if !queries.allow_broken && latest.as_ref().is_none_or(|(_, m)| *m != manifest) {
-        let broken = broken_queries(conn, template, &manifest, queries).await?;
-        if !broken.is_empty() {
-            return Ok(Err(Rejected::BreaksQueries(broken)));
-        }
-    }
+    // 登録済みのクエリの検証（Q54、INV-SCH-03）は、ワークスペースごとに移行の前に行う。壊れるクエリを持つワークスペースだけを
+    // 移行待ちに残し、ほかのワークスペースは移行する（1つのワークスペースのクエリで、全体のデプロイを止めさせない。R42）
+    let schema = if queries.allow_broken {
+        None
+    } else {
+        Some(crate::delivery::schema::build(
+            &manifest,
+            false,
+            queries.limits,
+        )?)
+    };
+    // 版の記録と監査ログは同じトランザクションで書く（R34）
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let (version, unchanged) = match &latest {
         Some((v, m)) if *m == manifest => (*v, true),
         _ => {
@@ -259,19 +266,20 @@ async fn deploy_locked(
             .bind(version)
             .bind(serde_json::to_string(&manifest)?)
             .bind(actor)
-            .execute(&mut *conn)
+            .execute(&mut *tx)
             .await?;
             (version, false)
         }
     };
     audit::record(
-        app,
+        &mut *tx,
         None,
         Some(actor),
         audit::action::TEMPLATE_DEPLOYED,
         &[],
     )
     .await?;
+    tx.commit().await?;
 
     let ids: Vec<Uuid> = sqlx::query_scalar(
         "SELECT id FROM yomi.workspaces
@@ -284,9 +292,15 @@ async fn deploy_locked(
     .await?;
     let mut workspaces = Vec::with_capacity(ids.len());
     for id in ids {
-        workspaces.push(
-            migrate_workspace(conn, app, id, template, version, &manifest, Some(actor)).await?,
-        );
+        if let Some(schema) = &schema {
+            let broken = broken_in_workspace(conn, schema, id, queries.unused_days).await?;
+            if !broken.is_empty() {
+                workspaces.push(hold_for_queries(conn, id, version, Some(actor), broken).await?);
+                continue;
+            }
+        }
+        workspaces
+            .push(migrate_workspace(conn, id, template, version, &manifest, Some(actor)).await?);
     }
     Ok(Ok(Outcome {
         template: template.to_owned(),
@@ -317,32 +331,79 @@ async fn broken_queries(
     .await?;
     let mut broken = Vec::new();
     for workspace_id in ids {
-        let db = WorkspaceDb::names_for(workspace_id);
-        let schema_name = &db.schema;
-        let queries: Vec<(String, String)> = sqlx::query_as(crate::sql!(
-            "SELECT id, query FROM {schema_name}.queries
-             WHERE last_used_at > now() - make_interval(days => $1) ORDER BY id"
-        ))
-        .bind(i32::try_from(check.unused_days).unwrap_or(i32::MAX))
-        .fetch_all(&mut *conn)
-        .await?;
-        for (query_id, query) in queries {
-            if let Err(problems) = crate::delivery::validate::check(&schema, &query).await {
-                broken.push(BrokenQuery {
-                    workspace_id,
-                    query_id,
-                    problems,
-                });
-            }
+        broken.extend(broken_in_workspace(conn, &schema, workspace_id, check.unused_days).await?);
+    }
+    Ok(broken)
+}
+
+/// 1つのワークスペースの登録済みのクエリのうち、新しいスキーマで検証に通らないもの。
+async fn broken_in_workspace(
+    conn: &mut PgConnection,
+    schema: &async_graphql::dynamic::Schema,
+    workspace_id: Uuid,
+    unused_days: u32,
+) -> Result<Vec<BrokenQuery>> {
+    let db = WorkspaceDb::names_for(workspace_id);
+    let schema_name = &db.schema;
+    let queries: Vec<(String, String)> = sqlx::query_as(crate::sql!(
+        "SELECT id, query FROM {schema_name}.queries
+         WHERE last_used_at > now() - make_interval(days => $1) ORDER BY id"
+    ))
+    .bind(i32::try_from(unused_days).unwrap_or(i32::MAX))
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut broken = Vec::new();
+    for (query_id, query) in queries {
+        if let Err(problems) = crate::delivery::validate::check(schema, &query).await {
+            broken.push(BrokenQuery {
+                workspace_id,
+                query_id,
+                problems,
+            });
         }
     }
     Ok(broken)
 }
 
+/// 壊れるクエリがあるワークスペースを、旧版のまま移行待ちにする（配信は続き、編集だけを断る。INV-SCH-04）。
+/// 次のデプロイ（同じ内容でもよい）で、もう一度確かめる。
+async fn hold_for_queries(
+    conn: &mut PgConnection,
+    workspace_id: Uuid,
+    version: i32,
+    actor: Option<Uuid>,
+    broken: Vec<BrokenQuery>,
+) -> Result<WorkspaceResult> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
+    sqlx::query(
+        "UPDATE yomi.workspaces SET schema_state = 'pending', schema_target_version = $2, schema_error = $3
+         WHERE id = $1",
+    )
+    .bind(workspace_id)
+    .bind(version)
+    .bind(BREAKS_QUERIES)
+    .execute(&mut *tx)
+    .await?;
+    audit::record(
+        &mut *tx,
+        Some(workspace_id),
+        actor,
+        audit::action::SCHEMA_MIGRATION_FAILED,
+        &[],
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(WorkspaceResult {
+        workspace_id,
+        state: "pending",
+        error: Some(BREAKS_QUERIES.to_owned()),
+        broken_queries: broken,
+    })
+}
+
 /// 1つのワークスペースを、テンプレートの指定の版へ移行する（別のトランザクション）。
 async fn migrate_workspace(
     conn: &mut PgConnection,
-    app: &PgPool,
     workspace_id: Uuid,
     template: &str,
     version: i32,
@@ -376,24 +437,26 @@ async fn migrate_workspace(
             .bind(version)
             .execute(&mut *tx)
             .await?;
-            tx.commit().await?;
             audit::record(
-                app,
+                &mut *tx,
                 Some(workspace_id),
                 actor,
                 audit::action::SCHEMA_MIGRATED,
                 &[],
             )
             .await?;
+            tx.commit().await?;
             Ok(WorkspaceResult {
                 workspace_id,
                 state: "ok",
                 error: None,
+                broken_queries: Vec::new(),
             })
         }
         Err(failure) => {
             tx.rollback().await?;
             let code = failure.code();
+            let mut tx = sqlx::Connection::begin(&mut *conn).await?;
             sqlx::query(
                 "UPDATE yomi.workspaces SET schema_state = 'pending', schema_target_version = $2, schema_error = $3
                  WHERE id = $1",
@@ -401,20 +464,22 @@ async fn migrate_workspace(
             .bind(workspace_id)
             .bind(version)
             .bind(&code)
-            .execute(&mut *conn)
+            .execute(&mut *tx)
             .await?;
             audit::record(
-                app,
+                &mut *tx,
                 Some(workspace_id),
                 actor,
                 audit::action::SCHEMA_MIGRATION_FAILED,
                 &[],
             )
             .await?;
+            tx.commit().await?;
             Ok(WorkspaceResult {
                 workspace_id,
                 state: "pending",
                 error: Some(code),
+                broken_queries: Vec::new(),
             })
         }
     }
@@ -423,7 +488,6 @@ async fn migrate_workspace(
 /// 作ったばかりのワークスペースに、テンプレートの最新の版を適用する（まだデプロイされていなければ何もしない）。
 pub async fn apply_latest_to_new_workspace(
     migration: &PgPool,
-    app: &PgPool,
     workspace_id: Uuid,
     template: &str,
     actor: Uuid,
@@ -437,7 +501,6 @@ pub async fn apply_latest_to_new_workspace(
         if let Some((version, manifest)) = latest_version(&mut conn, template).await? {
             migrate_workspace(
                 &mut conn,
-                app,
                 workspace_id,
                 template,
                 version,

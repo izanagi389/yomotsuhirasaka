@@ -126,7 +126,6 @@ pub async fn deploy_template(
     match deploy::deploy(
         &state.scripts,
         &state.migration,
-        &state.pool,
         &name,
         req.manifest,
         req.allow_destructive,
@@ -176,19 +175,6 @@ pub async fn deploy_template(
             format!(
                 "The deployment contains destructive changes. Add a field, migrate the data and remove the old one in separate deployments, or allow destructive changes explicitly: {}",
                 report(changes.iter().map(|c| c.describe()))
-            ),
-        )),
-        Err(Rejected::BreaksQueries(broken)) => Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "breaks_registered_queries",
-            format!(
-                "The deployment breaks registered queries. Update the site's queries and register them again, deprecate the field first, or allow broken queries explicitly: {}",
-                report(broken.iter().map(|b| format!(
-                    "workspace {} query {}: {}",
-                    b.workspace_id,
-                    b.query_id,
-                    b.problems.join(", ")
-                )))
             ),
         )),
     }
