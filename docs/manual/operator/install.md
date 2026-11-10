@@ -117,7 +117,7 @@ docker compose exec yomi yomi-server create-server-admin --config /data/config.t
 cosign verify ghcr.io/izanagi389/yomotsuhirasaka:1.0.0 --certificate-identity-regexp '^https://github\.com/izanagi389/yomotsuhirasaka/\.github/workflows/release\.yml@refs/tags/v' --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-SBOM は attestation として付いています。
+SBOM は attestation として2つ付いています。1つはイメージの OS のパッケージ、もう1つはサーバーと管理画面の依存（`Cargo.lock` と `package-lock.json` から作ったもの）です。
 
 ```bash
 cosign verify-attestation --type spdxjson ghcr.io/izanagi389/yomotsuhirasaka:1.0.0 --certificate-identity-regexp '^https://github\.com/izanagi389/yomotsuhirasaka/\.github/workflows/release\.yml@refs/tags/v' --certificate-oidc-issuer https://token.actions.githubusercontent.com
@@ -139,6 +139,8 @@ PostgreSQL のイメージは配布していません。`deploy/postgres.Dockerf
 ### バイナリ
 
 GitHub Releases に、`yomotsuhirasaka-<版>-linux-x86_64.tar.gz` と `-linux-aarch64.tar.gz`、それぞれの SBOM、`SHA256SUMS`、ファイルごとの `.sigstore` があります。
+
+バイナリの SBOM は、サーバーと管理画面の依存を `Cargo.lock` と `package-lock.json` から作ったものです（Rust のバイナリからは、使っているクレートを読み取れないため）。テストやビルドでだけ使う依存も載るので、実際に入っているものより多めです。
 
 ```bash
 cosign verify-blob --bundle SHA256SUMS.sigstore --certificate-identity-regexp '^https://github\.com/izanagi389/yomotsuhirasaka/\.github/workflows/release\.yml@refs/tags/v' --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS

@@ -166,6 +166,25 @@ jobs:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ github.token }}
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      Cargo.lock
+                      package-lock.json
+                  sparse-checkout-cone-mode: false
+                  path: src
+            # 依存の SBOM: Syft は Rust のバイナリから使っているクレートを読めず、ビルドした管理画面のファイルからも npm の
+            # 依存を読めないので、ロックファイルから作る（Cargo.lock と package-lock.json。テストやビルドだけの依存も載る）
+            - name: Collect the lockfiles
+              run: mkdir deps && cp src/Cargo.lock src/package-lock.json deps/
+            - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+              with:
+                  path: deps
+                  format: spdx-json
+                  output-file: deps.spdx.json
+                  upload-artifact: false
+                  upload-release-assets: false
             - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
             - id: manifest
               name: Make the multi-architecture image
@@ -190,7 +209,9 @@ jobs:
                   DIGEST: ${{ steps.manifest.outputs.digest }}
               run: |
                   cosign sign --yes "$IMAGE@$DIGEST"
+                  # OS のパッケージ（イメージを読んだもの）と、サーバーと管理画面の依存（ロックファイルから）の2つ
                   cosign attest --yes --type spdxjson --predicate image.spdx.json "$IMAGE@$DIGEST"
+                  cosign attest --yes --type spdxjson --predicate deps.spdx.json "$IMAGE@$DIGEST"
 
     # バイナリの SBOM・チェックサム・署名を作り、GitHub Releases に置く
     publish-release:
@@ -212,26 +233,34 @@ jobs:
                   pattern: build-*
                   merge-multiple: true
                   path: artifacts
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      Cargo.lock
+                      package-lock.json
+                  sparse-checkout-cone-mode: false
+                  path: src
+            # 依存の SBOM: Syft は Rust のバイナリから使っているクレートを読めず、ビルドした管理画面のファイルからも npm の
+            # 依存を読めないので、ロックファイルから作る（Cargo.lock と package-lock.json。テストやビルドだけの依存も載る）
+            - name: Collect the lockfiles
+              run: mkdir deps && cp src/Cargo.lock src/package-lock.json deps/
+            - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+              with:
+                  path: deps
+                  format: spdx-json
+                  output-file: deps.spdx.json
+                  upload-artifact: false
+                  upload-release-assets: false
             - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
-            - name: Unpack for the SBOMs
+            - name: Place the archives and their SBOMs
               run: |
-                  mkdir -p release unpacked
+                  mkdir -p release
                   mv artifacts/*.tar.gz release/
-                  for f in release/*.tar.gz; do tar -xzf "$f" -C unpacked; done
-            - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-              with:
-                  path: unpacked/yomotsuhirasaka-${{ needs.guard.outputs.version }}-linux-x86_64
-                  format: spdx-json
-                  output-file: release/yomotsuhirasaka-${{ needs.guard.outputs.version }}-linux-x86_64.spdx.json
-                  upload-artifact: false
-                  upload-release-assets: false
-            - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-              with:
-                  path: unpacked/yomotsuhirasaka-${{ needs.guard.outputs.version }}-linux-aarch64
-                  format: spdx-json
-                  output-file: release/yomotsuhirasaka-${{ needs.guard.outputs.version }}-linux-aarch64.spdx.json
-                  upload-artifact: false
-                  upload-release-assets: false
+                  # 中身はアーキテクチャによらず同じ依存（どちらも同じロックファイルからビルドする）
+                  for arch in x86_64 aarch64; do
+                    cp deps.spdx.json "release/yomotsuhirasaka-$VERSION-linux-$arch.spdx.json"
+                  done
             - name: Checksums and signatures
               working-directory: release
               run: |
