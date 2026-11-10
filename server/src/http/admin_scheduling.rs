@@ -31,7 +31,7 @@ use super::admin_reviews::{Person, publisher_people};
 use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::access::{Access, Role};
-use crate::audit::{self, action};
+use crate::audit::action;
 use crate::auth::session::Current;
 use crate::content::entries::{self, Summary};
 use crate::content::publishing::{self, Refused, Scripts};
@@ -260,30 +260,48 @@ pub async fn delete_schedule(
             )
         })?;
     let entry = webhooks::entry_ref(&mut tx, id).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    after_cancel(
-        &state,
+    audit_cancel(
+        &mut tx,
+        &db,
         ws,
         id,
-        entry,
         Reason::Cancelled,
         current.user_id,
         cancelled.id,
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    after_cancel(&state, ws, id, entry, Reason::Cancelled).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// 予約を取り消した後: Webhook と監査ログ。訂正による取り消しは、決定どおり監査ログに分けて記録する（Q133）。
+/// 予約の取り消しを、取り消しと同じトランザクションで監査ログに記録する。訂正による取り消しは、決定どおり分けて記録する（Q133）。
+pub(super) async fn audit_cancel(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    db: &workspace_db::WorkspaceDb,
+    ws: Uuid,
+    id: Uuid,
+    reason: Reason,
+    actor: Uuid,
+    schedule_id: Uuid,
+) -> Result<(), ApiError> {
+    let act = if reason == Reason::Corrected {
+        action::SCHEDULE_CANCELLED_BY_CORRECTION
+    } else {
+        action::SCHEDULE_CANCELLED
+    };
+    workspace_db::audit(tx, db, Some(ws), Some(actor), act, &[id, schedule_id]).await?;
+    Ok(())
+}
+
+/// 予約を取り消した後（コミットの後）: Webhook。監査ログは [`audit_cancel`] でコミットの前に書く。
 pub(super) async fn after_cancel(
     state: &AppState,
     ws: Uuid,
     id: Uuid,
     entry: Option<webhooks::EntryRef>,
     reason: Reason,
-    actor: Uuid,
-    schedule_id: Uuid,
-) -> Result<(), ApiError> {
+) {
     if let Some(entry) = entry {
         let event = ScheduleEvent::Cancelled {
             reason: reason.as_str(),
@@ -292,13 +310,6 @@ pub(super) async fn after_cancel(
             tracing::error!(workspace_id = %ws, entry_id = %id, "cannot queue webhooks: {e:#}");
         }
     }
-    let act = if reason == Reason::Corrected {
-        action::SCHEDULE_CANCELLED_BY_CORRECTION
-    } else {
-        action::SCHEDULE_CANCELLED
-    };
-    audit::record(&state.pool, Some(ws), Some(actor), act, &[id, schedule_id]).await?;
-    Ok(())
 }
 
 /// 一覧の1件（予約と、記事の要約）。

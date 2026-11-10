@@ -186,17 +186,19 @@ pub async fn revoke(
 ) -> Result<StatusCode, ApiError> {
     let (ws, id) = (parse_id(&ws)?, parse_id(&id)?);
     access::workspace_admin(&state.pool, &current, ws).await??;
-    if !invitations::revoke(&state.pool, ws, id).await? {
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
+    if !invitations::revoke(&mut *tx, ws, id).await? {
         return Err(ApiError::not_found());
     }
     audit::record(
-        &state.pool,
+        &mut *tx,
         Some(ws),
         Some(current.user_id),
         action::INVITATION_REVOKED,
         &[id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

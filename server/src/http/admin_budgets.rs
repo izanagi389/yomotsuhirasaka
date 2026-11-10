@@ -216,8 +216,9 @@ pub async fn set_embedding(
         return Err(ApiError::reauth_required());
     }
     check_budget(&state, ws, Kind::Embedding, Direction::Input, req).await?;
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     budget::set_limits(
-        &state.pool,
+        &mut tx,
         ws,
         Kind::Embedding,
         Direction::Input,
@@ -227,13 +228,14 @@ pub async fn set_embedding(
     )
     .await?;
     audit::record(
-        &state.pool,
+        &mut *tx,
         Some(ws),
         Some(current.user_id),
         action::BUDGET_CHANGED,
         &[ws],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     // 予算で止まっていた検索用データの作成を、すぐにやり直す
     super::admin_publishing::schedule_search(&state, ws).await;
     Ok(Json(view(&state, ws).await?))
@@ -281,10 +283,11 @@ async fn set_pair(
         }
     }
     let mut changed = false;
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     for (direction, set) in parts {
         if let Some(set) = set {
             budget::set_limits(
-                &state.pool,
+                &mut tx,
                 ws,
                 kind,
                 direction,
@@ -298,7 +301,7 @@ async fn set_pair(
     }
     if changed {
         audit::record(
-            &state.pool,
+            &mut *tx,
             Some(ws),
             Some(current.user_id),
             action::BUDGET_CHANGED,
@@ -306,5 +309,6 @@ async fn set_pair(
         )
         .await?;
     }
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(answer_view(&state, ws, kind).await?))
 }

@@ -308,12 +308,15 @@ pub(super) async fn establish(
     headers: &HeaderMap,
     sso: bool,
 ) -> Result<Established, ApiError> {
+    // セッションの発行と、ログインの記録は同じトランザクションで行う
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     let issued = if sso {
-        session::issue_sso(&state.pool, user_id, &state.config.session).await?
+        session::issue_sso(&mut *tx, user_id, &state.config.session).await?
     } else {
-        session::issue(&state.pool, user_id, &state.config.session).await?
+        session::issue(&mut *tx, user_id, &state.config.session).await?
     };
-    audit::record(&state.pool, None, Some(user_id), audit::action::LOGIN, &[]).await?;
+    audit::record(&mut *tx, None, Some(user_id), audit::action::LOGIN, &[]).await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     let user_agent = headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok());

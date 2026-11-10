@@ -106,8 +106,9 @@ pub async fn confirm_totp(
     if mfa::totp_enabled(&state.pool, current.user_id).await? {
         return Err(already_enabled());
     }
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     let Some(codes) =
-        mfa::confirm_enrollment(&state.pool, &state.keys, current.user_id, &req.code).await?
+        mfa::confirm_enrollment(&mut tx, &state.keys, current.user_id, &req.code).await?
     else {
         return Err(ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -115,16 +116,17 @@ pub async fn confirm_totp(
             "The verification code is incorrect, or setup was not started.",
         ));
     };
-    session::revoke_others(&state.pool, current.user_id, current.id).await?;
-    notify(&state, &state.pool, &current, Event::MfaEnabled).await?;
+    session::revoke_others(&mut *tx, current.user_id, current.id).await?;
+    notify(&state, &mut *tx, &current, Event::MfaEnabled).await?;
     audit::record(
-        &state.pool,
+        &mut *tx,
         None,
         Some(current.user_id),
         action::TOTP_ENABLED,
         &[current.user_id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     // 今コードを確かめたので、このセッションは本人確認を済ませたものとする
     session::mark_reauthenticated(&state.pool, current.id, session::Method::Totp).await?;
     Ok(Json(RecoveryCodes {
@@ -284,8 +286,10 @@ pub async fn confirm_passkey(
         return Err(ApiError::reauth_required());
     }
     let rp = state.passkeys.as_ref().ok_or_else(passkeys_unavailable)?;
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     let registered = match passkeys::finish_registration(
         &state.pool,
+        &mut tx,
         rp,
         current.id,
         current.user_id,
@@ -316,16 +320,17 @@ pub async fn confirm_passkey(
             ));
         }
     };
-    session::revoke_others(&state.pool, current.user_id, current.id).await?;
-    notify(&state, &state.pool, &current, Event::PasskeyAdded).await?;
+    session::revoke_others(&mut *tx, current.user_id, current.id).await?;
+    notify(&state, &mut *tx, &current, Event::PasskeyAdded).await?;
     audit::record(
-        &state.pool,
+        &mut *tx,
         None,
         Some(current.user_id),
         action::PASSKEY_ADDED,
         &[current.user_id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     // 今パスキーで本人を確かめたので、このセッションは本人確認を済ませたものとする
     session::mark_reauthenticated(&state.pool, current.id, session::Method::Passkey).await?;
     Ok((

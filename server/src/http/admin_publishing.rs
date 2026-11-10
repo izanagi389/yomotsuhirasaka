@@ -38,7 +38,7 @@ use super::admin_entries::{db, invalid, parse, readable, reader, revision_confli
 use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Access, Permission, Role};
-use crate::audit::{self, action};
+use crate::audit::action;
 use crate::auth::session::Current;
 use crate::content::corrections;
 use crate::content::hooks;
@@ -205,8 +205,11 @@ pub(super) fn publish_events(p: &Published) -> Vec<EntryEvent> {
     events
 }
 
+/// 操作と同じトランザクションで監査ログに記録する（コミットの前に呼ぶ）。
+#[allow(clippy::too_many_arguments)]
 async fn audit_if(
-    state: &AppState,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    db: &workspace_db::WorkspaceDb,
     always: bool,
     access: &Access,
     current: &Current,
@@ -215,7 +218,7 @@ async fn audit_if(
     id: Uuid,
 ) -> Result<(), ApiError> {
     if always || access.server_admin {
-        audit::record(&state.pool, Some(ws), Some(current.user_id), act, &[id]).await?;
+        workspace_db::audit(tx, db, Some(ws), Some(current.user_id), act, &[id]).await?;
     }
     Ok(())
 }
@@ -321,6 +324,24 @@ pub async fn publish(
         .await?;
     }
     let entry = webhooks::entry_ref(&mut tx, id).await?;
+    let act = if req.correction {
+        action::ENTRY_PUBLISHED_AS_CORRECTION
+    } else {
+        action::ENTRY_PUBLISHED
+    };
+    if let Some(s) = &cancelled_schedule {
+        super::admin_scheduling::audit_cancel(
+            &mut tx,
+            &db,
+            ws,
+            id,
+            schedule_reason,
+            current.user_id,
+            s.id,
+        )
+        .await?;
+    }
+    audit_if(&mut tx, &db, req.correction, &access, &current, ws, act, id).await?;
     match tx.commit().await {
         Ok(()) => {}
         Err(e) => {
@@ -332,27 +353,12 @@ pub async fn publish(
             });
         }
     }
-    let act = if req.correction {
-        action::ENTRY_PUBLISHED_AS_CORRECTION
-    } else {
-        action::ENTRY_PUBLISHED
-    };
     let events = publish_events(&published);
-    if let Some(s) = &cancelled_schedule {
-        super::admin_scheduling::after_cancel(
-            &state,
-            ws,
-            id,
-            entry.clone(),
-            schedule_reason,
-            current.user_id,
-            s.id,
-        )
-        .await?;
+    if cancelled_schedule.is_some() {
+        super::admin_scheduling::after_cancel(&state, ws, id, entry.clone(), schedule_reason).await;
     }
     notify_webhooks(&state, ws, &events, entry).await;
     schedule_hooks(&state, ws, id, events[0], Some(published.version_id)).await;
-    audit_if(&state, req.correction, &access, &current, ws, act, id).await?;
     Ok(Json(published))
 }
 
@@ -369,13 +375,9 @@ pub async fn unpublish(
         .await?
         .ok_or_else(ApiError::not_found)?;
     let entry = webhooks::entry_ref(&mut tx, id).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
-    if was_published {
-        notify_webhooks(&state, ws, &[EntryEvent::Unpublished], entry).await;
-        schedule_hooks(&state, ws, id, EntryEvent::Unpublished, None).await;
-    }
     audit_if(
-        &state,
+        &mut tx,
+        &db,
         false,
         &access,
         &current,
@@ -384,6 +386,11 @@ pub async fn unpublish(
         id,
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    if was_published {
+        notify_webhooks(&state, ws, &[EntryEvent::Unpublished], entry).await;
+        schedule_hooks(&state, ws, id, EntryEvent::Unpublished, None).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -407,23 +414,21 @@ pub async fn delete(
     )
     .await?;
     let entry = webhooks::entry_ref(&mut tx, id).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
     if let Some(s) = &cancelled_schedule {
-        super::admin_scheduling::after_cancel(
-            &state,
+        super::admin_scheduling::audit_cancel(
+            &mut tx,
+            &db,
             ws,
             id,
-            entry.clone(),
             crate::content::scheduling::Reason::Deleted,
             current.user_id,
             s.id,
         )
         .await?;
     }
-    notify_webhooks(&state, ws, &[EntryEvent::Deleted], entry).await;
-    schedule_hooks(&state, ws, id, EntryEvent::Deleted, None).await;
     audit_if(
-        &state,
+        &mut tx,
+        &db,
         false,
         &access,
         &current,
@@ -432,6 +437,19 @@ pub async fn delete(
         id,
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    if cancelled_schedule.is_some() {
+        super::admin_scheduling::after_cancel(
+            &state,
+            ws,
+            id,
+            entry.clone(),
+            crate::content::scheduling::Reason::Deleted,
+        )
+        .await;
+    }
+    notify_webhooks(&state, ws, &[EntryEvent::Deleted], entry).await;
+    schedule_hooks(&state, ws, id, EntryEvent::Deleted, None).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -628,11 +646,10 @@ pub async fn change_settings(
         .await?
         .ok_or_else(ApiError::not_found)?;
     let entry = webhooks::entry_ref(&mut tx, id).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
     if changed {
-        notify_webhooks(&state, ws, &[EntryEvent::SettingsChanged], entry).await;
         audit_if(
-            &state,
+            &mut tx,
+            &db,
             false,
             &access,
             &current,
@@ -641,6 +658,10 @@ pub async fn change_settings(
             id,
         )
         .await?;
+    }
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    if changed {
+        notify_webhooks(&state, ws, &[EntryEvent::SettingsChanged], entry).await;
     }
     Ok(Json(after))
 }

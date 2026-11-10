@@ -122,14 +122,18 @@ pub async fn list(pool: &PgPool, workspace_id: Uuid) -> Result<Vec<Summary>> {
 }
 
 /// キーを失効させる。そのワークスペースの有効なキーでなければ false。
-pub async fn revoke(pool: &PgPool, workspace_id: Uuid, id: Uuid) -> Result<bool> {
+pub async fn revoke(
+    executor: impl sqlx::PgExecutor<'_>,
+    workspace_id: Uuid,
+    id: Uuid,
+) -> Result<bool> {
     let done = sqlx::query(
         "UPDATE yomi.api_keys SET revoked_at = now()
          WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL",
     )
     .bind(id)
     .bind(workspace_id)
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(done.rows_affected() == 1)
 }
