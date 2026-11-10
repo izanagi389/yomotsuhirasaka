@@ -90,6 +90,11 @@ pub(super) fn refused(r: Refused) -> ApiError {
             ),
         ),
         Refused::UrlTaken => url_taken(),
+        Refused::TooManyVersions => ApiError::new(
+            StatusCode::CONFLICT,
+            "too_many_versions",
+            "This entry or workspace has reached its version limit. Ask a server administrator to raise it.",
+        ),
         Refused::NothingToCorrect => ApiError::new(
             StatusCode::CONFLICT,
             "nothing_to_correct",
@@ -288,6 +293,7 @@ pub async fn publish(
         req.revision,
         req.correction,
         current.user_id,
+        publishing::VersionLimits::from_config(&state.config.limits),
     )
     .await;
     let published = match result {
