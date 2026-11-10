@@ -55,8 +55,8 @@ head -c 24 /dev/urandom | base64 | tr -d '/+=\n' | docker compose run --rm --no-
   --config /data/config.toml \
   --key-file /data/encryption.key \
   --public-url "$PUBLIC_URL" \
-  --database-url "postgres://yomi_app@db:5432/yomi" \
-  --migration-database-url "postgres://yomi_migrate@db:5432/yomi" \
+  --database-url "postgres://yomi_app@db:5432/yomi?sslmode=disable" \
+  --migration-database-url "postgres://yomi_migrate@db:5432/yomi?sslmode=disable" \
   --listen "0.0.0.0:8080" \
   --media-root /data/media \
   --admin-dist-dir /usr/share/yomi-admin \

@@ -127,7 +127,7 @@ pub fn check_config(config: &Config) -> Report {
             Ok(_) if url_has_password(&db.url) => report.problems.push(Problem::fatal(format!(
                 "`{name}.url` must not contain a password; use `{name}.password`"
             ))),
-            Ok(_) => {}
+            Ok(options) => report.problems.extend(check_db_tls(name, &options)),
         }
     }
     if config.dev_mode {
@@ -527,6 +527,25 @@ fn check_smtp(smtp: &crate::config::SmtpConfig) -> Vec<Problem> {
     problems
 }
 
+/// DBへの接続の暗号化の検査。`sslmode` を書かない（`prefer`）か `allow` だと、証明書を確かめず、TLSが使えなければ
+/// 黙って平文に落ちる。同じホストの外のDBには、`require` 以上か、意図して平文を選ぶ `disable` を書かせる。
+fn check_db_tls(name: &str, options: &PgConnectOptions) -> Option<Problem> {
+    use sqlx::postgres::PgSslMode;
+    let local = options.get_socket().is_some()
+        || options.get_host().starts_with('/')
+        || matches!(
+            options.get_host(),
+            "localhost" | "127.0.0.1" | "::1" | "[::1]"
+        );
+    if local || !matches!(options.get_ssl_mode(), PgSslMode::Prefer | PgSslMode::Allow) {
+        return None;
+    }
+    Some(Problem::config(format!(
+        "`{name}.url` may fall back to an unencrypted connection; add `sslmode=verify-full` \
+         (or `require`), or `sslmode=disable` if the database is on a private network you trust"
+    )))
+}
+
 /// URLの userinfo にパスワードがあるか。
 fn url_has_password(url: &str) -> bool {
     let Some(rest) = url.split_once("://").map(|(_, r)| r) else {
@@ -860,6 +879,38 @@ mod tests {
                 .all(|p| !p.message.contains(key))
         );
         assert!(!format!("{with_key:?}").contains(key));
+    }
+
+    #[test]
+    fn db_tls() {
+        let check = |url: &str| check_db_tls("database", &url.parse().unwrap());
+        // 同じホストの外: 黙って平文に落ちうる指定は断る
+        for url in [
+            "postgres://yomi_app@db.example.com:5432/yomi",
+            "postgres://yomi_app@db:5432/yomi?sslmode=prefer",
+            "postgres://yomi_app@10.0.0.5/yomi?sslmode=allow",
+        ] {
+            let p = check(url).unwrap_or_else(|| panic!("{url}"));
+            assert!(!p.fatal, "{url}");
+        }
+        // 暗号化を求めるか、意図して平文を選んだもの
+        for url in [
+            "postgres://yomi_app@db.example.com/yomi?sslmode=require",
+            "postgres://yomi_app@db.example.com/yomi?sslmode=verify-ca",
+            "postgres://yomi_app@db.example.com/yomi?sslmode=verify-full",
+            "postgres://yomi_app@db:5432/yomi?sslmode=disable",
+        ] {
+            assert!(check(url).is_none(), "{url}");
+        }
+        // 同じホスト
+        for url in [
+            "postgres://yomi_app@127.0.0.1:5432/yomi",
+            "postgres://yomi_app@localhost/yomi",
+            "postgres://yomi_app@[::1]/yomi",
+            "postgres://yomi_app@%2Fvar%2Frun%2Fpostgresql/yomi",
+        ] {
+            assert!(check(url).is_none(), "{url}");
+        }
     }
 
     #[test]
