@@ -4,6 +4,7 @@
 
 mod common;
 
+use common::content::*;
 use common::server::*;
 use common::with_scratch;
 use uuid::Uuid;
@@ -234,6 +235,120 @@ async fn emergency_cli() {
         assert_eq!(rotated, 3);
 
         let _ = std::fs::remove_dir_all(&dir);
+    })
+    .await;
+}
+
+/// 緊急停止の一斉失効は、出回っているかもしれないリセットのリンク、未承諾の招待、
+/// すべてのワークスペースのプレビュー用トークンも失効させる。配信APIのキーと承諾済みの所属には触れない。
+#[tokio::test]
+async fn emergency_revokes_links_already_handed_out() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        assert_eq!(
+            deploy(&server, &token, "blog", &blog_manifest(), "").await.status,
+            200
+        );
+        let a = workspace_with_template(&server, &root, "A", "blog").await;
+        let b = workspace_with_template(&server, &root, "B", "blog").await;
+        create_user(&server.pool, "user@example.test", false).await;
+        add_member(&server, a, "user@example.test", "editor").await;
+        let user = user_id(&server, "user@example.test").await;
+
+        // SMTPがないので、リンクはサーバー管理者の画面に出る（＝出回りうる）
+        let res = send(&server, "POST", &format!("/api/admin/users/{user}/password-reset"), &root, None).await;
+        assert_eq!(res.status, 201, "{}", res.body);
+        let res = send(
+            &server,
+            "POST",
+            &format!("/api/admin/workspaces/{a}/invitations"),
+            &root,
+            Some(r#"{"email":"new@example.test","role":"editor"}"#),
+        )
+        .await;
+        assert_eq!(res.status, 201, "{}", res.body);
+        for ws in [a, b] {
+            let res = send(
+                &server,
+                "POST",
+                &format!("/api/admin/workspaces/{ws}/entries"),
+                &root,
+                Some(r#"{"contentType":"post","fields":{}}"#),
+            )
+            .await;
+            assert_eq!(res.status, 201, "{}", res.body);
+            let entry = res.json_str("id").unwrap();
+            let res = send(
+                &server,
+                "POST",
+                &format!("/api/admin/workspaces/{ws}/entries/{entry}/preview-tokens"),
+                &root,
+                Some("{}"),
+            )
+            .await;
+            assert_eq!(res.status, 201, "{}", res.body);
+        }
+
+        let live = |sql: &'static str| {
+            let pool = server.pool.clone();
+            async move { sqlx::query_scalar::<_, i64>(sql).fetch_one(&pool).await.unwrap() }
+        };
+        let live_previews = || {
+            let pool = server.pool.clone();
+            async move {
+                let mut n = 0;
+                for ws in [a, b] {
+                    let db = yomi_server::workspace_db::lookup(&pool, ws)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    let mut tx = yomi_server::workspace_db::begin(&pool, &db).await.unwrap();
+                    n += sqlx::query_scalar::<_, i64>(
+                        "SELECT count(*) FROM preview_tokens WHERE revoked_at IS NULL",
+                    )
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap();
+                }
+                n
+            }
+        };
+        const RESETS: &str = "SELECT count(*) FROM yomi.reset_tokens WHERE used_at IS NULL AND revoked_at IS NULL";
+        const INVITES: &str = "SELECT count(*) FROM yomi.invitations WHERE accepted_at IS NULL AND revoked_at IS NULL";
+        assert_eq!(live(RESETS).await, 1);
+        assert_eq!(live(INVITES).await, 1);
+        assert_eq!(live_previews().await, 2);
+        const MEMBERS: &str = "SELECT count(*) FROM yomi.memberships";
+        let members = live(MEMBERS).await;
+
+        let dir =
+            std::env::temp_dir().join(format!("yomi-cli-emergency-{}", Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key = dir.join("encryption.key");
+        std::fs::write(&key, yomi_server::keys::generate_key_file()).unwrap();
+        let mut cfg = config(&app, &migration);
+        cfg.trusted_proxies = Vec::new();
+        cfg.encryption_key_file = Some(key);
+        let path = dir.join("config.toml");
+        std::fs::write(&path, toml::to_string(&cfg).unwrap()).unwrap();
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_yomi-server"))
+            .args(["revoke-all-sessions", "--yes", "--config"])
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            stdout.contains("1 reset links, 1 pending invitations and 2 preview links"),
+            "{stdout}"
+        );
+
+        assert_eq!(live(RESETS).await, 0);
+        assert_eq!(live(INVITES).await, 0);
+        assert_eq!(live_previews().await, 0);
+        // 承諾済みの所属はそのまま
+        assert_eq!(live(MEMBERS).await, members);
     })
     .await;
 }

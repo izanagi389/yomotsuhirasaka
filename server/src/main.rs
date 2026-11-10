@@ -99,7 +99,8 @@ enum Command {
         #[arg(long)]
         email: String,
     },
-    /// Emergency stop: revoke every session and every personal access token of all users.
+    /// Emergency stop: revoke every session, personal access token, reset link, pending invitation
+    /// and preview link.
     ///
     /// Everyone has to sign in again. Run this when sessions or tokens may have leaked.
     RevokeAllSessions {
@@ -754,7 +755,7 @@ fn confirmed(yes: bool, what: &str) -> bool {
 fn revoke_all_sessions_main(config_path: &Path, yes: bool) -> ExitCode {
     if !confirmed(
         yes,
-        "sign out every user and revoke every personal access token",
+        "sign out every user and revoke every personal access token, reset link, pending invitation and preview link",
     ) {
         return ExitCode::FAILURE;
     }
@@ -763,8 +764,12 @@ fn revoke_all_sessions_main(config_path: &Path, yes: bool) -> ExitCode {
         migration.close().await;
         let revoked = yomi_server::emergency::revoke_all_sessions_and_tokens(&pool).await?;
         println!(
-            "Revoked {} sessions and {} personal access tokens. Everyone has to sign in again.",
-            revoked.sessions, revoked.personal_tokens
+            "Revoked {} sessions, {} personal access tokens, {} reset links, {} pending invitations and {} preview links. Everyone has to sign in again, and pending invitations have to be sent again.",
+            revoked.sessions,
+            revoked.personal_tokens,
+            revoked.reset_tokens,
+            revoked.invitations,
+            revoked.preview_tokens
         );
         Ok(())
     })
