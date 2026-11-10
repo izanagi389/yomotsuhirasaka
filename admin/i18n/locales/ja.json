@@ -1186,7 +1186,8 @@
     "switchFailed": "切り替えを止めました（理由: {code}）。モデルの次元数が設定と合っているか、サーバー管理者に確かめてもらってから、開始し直してください。",
     "estimate": "作り直すチャンクは {chunks} 件、約 {tokens} トークンです。",
     "estimateCost": "費用の見積もりは約 {cost} です。",
-    "startSwitch": "見積もりを確かめて、切り替えを開始"
+    "startSwitch": "見積もりを確かめて、切り替えを開始",
+    "apiKeyForNewEndpoint": "接続先を変えるときは、APIキーを入れ直してください（保存したキーを別の接続先へ送らないため）。"
   },
   "assist": {
     "settingsTitle": "編集者向けのAI支援",
@@ -1255,6 +1256,8 @@
     "save": "保存",
     "empty": "登録した秘密はありません。",
     "updatedAt": "更新: {at}",
-    "remove": "削除"
+    "remove": "削除",
+    "deleteTitle": "フックの秘密を削除します",
+    "deleteDescription": "{name} を削除します。この名前を読むフックは、値を受け取れなくなります。"
   }
 }

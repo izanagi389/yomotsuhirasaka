@@ -1186,7 +1186,8 @@
     "switchFailed": "The switch was stopped (reason: {code}). Ask the server administrator to check the model's dimensions, then start again.",
     "estimate": "{chunks} chunks to rebuild, about {tokens} tokens.",
     "estimateCost": "Estimated cost: about {cost}.",
-    "startSwitch": "Check the estimate and start the switch"
+    "startSwitch": "Check the estimate and start the switch",
+    "apiKeyForNewEndpoint": "Enter the API key again when you change the endpoint (the saved key is never sent to another endpoint)."
   },
   "assist": {
     "settingsTitle": "AI assist for editors",
@@ -1255,6 +1256,8 @@
     "save": "Save",
     "empty": "No secrets yet.",
     "updatedAt": "Updated: {at}",
-    "remove": "Remove"
+    "remove": "Remove",
+    "deleteTitle": "Delete the hook secret",
+    "deleteDescription": "{name} will be deleted. Hooks that read this name will no longer get a value."
   }
 }
