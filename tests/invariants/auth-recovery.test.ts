@@ -24,11 +24,16 @@ inv("inv_auth_10", "サーバー管理者のパスワードと多要素認証は
   expectRejected(await yomi.issuePasswordResetRaw(otherSession, null, target.userId), "サーバー管理者によるサーバー管理者のパスワードのリセット");
   expectRejected(await yomi.issueMfaResetRaw(otherSession, null, target.userId), "サーバー管理者によるサーバー管理者の多要素認証のリセット");
 
-  // ワークスペースの管理者からも（対象がそのワークスペースに所属していても）
+  // ワークスペースの管理者からも（対象がそのワークスペースに所属していても）。
+  // 応答は、サーバー管理者であることを推測させないように成功と同じ形になりうるので、本人にリンクが届かないことで確かめる
   await yomi.addExistingMember(a.adminSession, a.id, target, "editor");
   await yomi.reauthenticate(a.adminSession, a.admin);
-  expectRejected(await yomi.issuePasswordResetRaw(a.adminSession, a.id, target.userId), "ワークスペースの管理者によるサーバー管理者のパスワードのリセット");
-  expectRejected(await yomi.issueMfaResetRaw(a.adminSession, a.id, target.userId), "ワークスペースの管理者によるサーバー管理者の多要素認証のリセット");
+  const before = await mailCursor(target.email);
+  await yomi.issuePasswordResetRaw(a.adminSession, a.id, target.userId);
+  await yomi.issueMfaResetRaw(a.adminSession, a.id, target.userId);
+  for (const m of await newMailWithin(target.email, before, 5_000)) {
+    expect(driver.mail.tokenFrom(m, "reset"), "ワークスペースの管理者の操作で、サーバー管理者にリセットのリンクが届いた").toBeNull();
+  }
 
   // 本人がメールでリセットを要求しても、ネットワーク越しには変えられない
   const seen = await mailCursor(target.email);
@@ -59,11 +64,19 @@ inv(
     await yomi.addExistingMember(b.adminSession, b.id, alsoB, "viewer");
     await yomi.reauthenticate(a.adminSession, a.admin);
 
-    expectRejected(await yomi.issuePasswordResetRaw(a.adminSession, a.id, alsoB.userId), "Bにも所属する利用者のパスワードのリセット");
-    expectRejected(await yomi.issueMfaResetRaw(a.adminSession, a.id, alsoB.userId), "Bにも所属する利用者の多要素認証のリセット");
+    // 応答は、Bへの所属を推測させないように成功と同じ形になりうるので、本人にリンクが届かないことで確かめる
+    const before = await mailCursor(alsoB.email);
+    await yomi.issuePasswordResetRaw(a.adminSession, a.id, alsoB.userId);
+    await yomi.issueMfaResetRaw(a.adminSession, a.id, alsoB.userId);
+    for (const m of await newMailWithin(alsoB.email, before, 5_000)) {
+      expect(driver.mail.tokenFrom(m, "reset"), "Bにも所属する利用者に、Aの管理者が発行したリセットのリンクが届いた").toBeNull();
+    }
+    expectSuccess(await yomi.meRaw(asSession(await yomi.login(alsoB))), "リセットを求められた後の、Bにも所属する利用者のログイン");
 
-    // 対照: Aにしか所属していない利用者には発行できる
+    // 対照: Aにしか所属していない利用者には発行でき、本人にリンクが届く
+    const seenOnlyA = await mailCursor(onlyA.email);
     expectSuccess(await yomi.issuePasswordResetRaw(a.adminSession, a.id, onlyA.userId), "Aにしか所属していない利用者のパスワードのリセット");
+    await waitForToken(onlyA.email, seenOnlyA, "reset");
     expectSuccess(await yomi.issueMfaResetRaw(a.adminSession, a.id, onlyA.userId), "Aにしか所属していない利用者の多要素認証のリセット");
   },
 );

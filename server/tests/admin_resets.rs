@@ -221,7 +221,7 @@ async fn admins_issue_resets_within_their_scope() {
         let in_a =
             |user: Uuid, kind: &str| format!("/api/admin/workspaces/{a}/members/{user}/{kind}");
 
-        // 他のワークスペースにも所属する人には発行できない（INV-AUTH-14）
+        // 他のワークスペースにも所属する人には発行できない（INV-AUTH-14）。SMTPがなければ、範囲の内外を問わず同じ拒否
         let res = send(
             &server,
             "POST",
@@ -232,7 +232,7 @@ async fn admins_issue_resets_within_their_scope() {
         .await;
         assert_eq!(
             (res.status, res.json_str("error").as_deref()),
-            (403, Some("outside_scope"))
+            (403, Some("smtp_required"))
         );
         assert_eq!(
             send(&server, "POST", &in_a(also_b, "mfa-reset"), &admin, None)
@@ -608,6 +608,91 @@ async fn sso_only_people_recover_through_the_identity_provider() {
         )
         .await;
         assert_eq!(res.status, 201, "{}", res.body);
+    })
+    .await;
+}
+
+/// 範囲の外の人（ほかのワークスペースにも所属する人、サーバー管理者）へのワークスペースの管理者のリセットは、
+/// 発行せずに本人に知らせ、管理者には発行したときと同じ形で応答する（他のワークスペースへの所属を推測させない。R27）。
+#[tokio::test]
+async fn outside_scope_resets_get_the_same_reply() {
+    with_scratch(|app, migration| async move {
+        let (port, smtp) = fake_smtp().await;
+        let mut cfg = config(&app, &migration);
+        cfg.smtp = Some(smtp_config(port));
+        let server = start(cfg).await;
+        let (_, root) = user(&server, "root@example.test", true, true).await;
+        let a = create_ws(&server, &root, "A").await;
+        let b = create_ws(&server, &root, "B").await;
+        let (admin_id, admin) = user(&server, "admin-a@example.test", false, true).await;
+        let (only_a, _) = user(&server, "only-a@example.test", false, false).await;
+        let (also_b, _) = user(&server, "also-b@example.test", false, false).await;
+        let (other_root, _) = user(&server, "root2@example.test", true, true).await;
+        add_member(&server.pool, a, admin_id, "admin").await;
+        add_member(&server.pool, a, only_a, "editor").await;
+        add_member(&server.pool, a, also_b, "editor").await;
+        add_member(&server.pool, b, also_b, "viewer").await;
+        add_member(&server.pool, a, other_root, "editor").await;
+        while worker::run_once(&server.state).await.unwrap() {}
+        let in_a =
+            |user: Uuid, kind: &str| format!("/api/admin/workspaces/{a}/members/{user}/{kind}");
+        let shape = |body: &str| {
+            let mut v: serde_json::Value = serde_json::from_str(body).unwrap();
+            v.as_object_mut().unwrap().remove("expiresAt");
+            v
+        };
+        let tokens = |user: Uuid| {
+            let pool = server.pool.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM yomi.reset_tokens WHERE user_id = $1",
+                )
+                .bind(user)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+
+        let inside = send(
+            &server,
+            "POST",
+            &in_a(only_a, "password-reset"),
+            &admin,
+            None,
+        )
+        .await;
+        assert_eq!(inside.status, 201, "{}", inside.body);
+        assert_eq!(tokens(only_a).await, 1);
+        for (target, kind) in [
+            (also_b, "password-reset"),
+            (also_b, "mfa-reset"),
+            (other_root, "password-reset"),
+            (other_root, "mfa-reset"),
+        ] {
+            let res = send(&server, "POST", &in_a(target, kind), &admin, None).await;
+            assert_eq!(res.status, inside.status, "{kind}: {}", res.body);
+            assert_eq!(shape(&res.body), shape(&inside.body), "{kind}");
+            assert!(res.json_str("expiresAt").is_some());
+            assert_eq!(tokens(target).await, 0, "{kind}");
+        }
+        assert_eq!(
+            audit_count(&server.pool, Some(a), "reset.declined_outside_scope").await,
+            4
+        );
+        // 本人には、リンクのない知らせが届く
+        while worker::run_once(&server.state).await.unwrap() {}
+        let received = smtp.lock().unwrap().received.clone();
+        let to_also_b: Vec<_> = received
+            .iter()
+            .filter(|m| m.contains("To: also-b@example.test"))
+            .collect();
+        assert_eq!(to_also_b.len(), 2);
+        for m in to_also_b {
+            let body = decoded_body(m);
+            assert!(!body.contains("token="), "{body}");
+            assert!(body.contains("server administrator"), "{body}");
+        }
     })
     .await;
 }
