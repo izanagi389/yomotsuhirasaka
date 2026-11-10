@@ -1,6 +1,6 @@
 {
   "name": "@yomotsuhirasaka/preview",
-  "version": "0.1.0",
+  "version": "1.0.0-rc.1",
   "private": true,
   "description": "ライブプレビューの、管理画面とサイトの間のメッセージの決まりと、受け付けてよいかの判定（INV-PRV-03）。管理画面とNuxtモジュールが同じものを使う",
   "license": "Apache-2.0",
