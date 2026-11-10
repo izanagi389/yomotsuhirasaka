@@ -81,6 +81,7 @@
 | コード | 状態 | 意味 |
 |---|---|---|
 | `answer_requires_post` | 405 | 回答は POST で送ります |
+| `search_requires_post` | 405 | 検索は POST で送ります（検索語を URL に載せない） |
 | `answer_rate_limited` | 429 | キーごとの回答の回数の制限です |
 | `visitor_rate_limited` | 429 | 訪問者ごとの回答の回数の制限です |
 | `visitor_id_invalid` | 400 | `visitorId` は128文字までの文字列です |

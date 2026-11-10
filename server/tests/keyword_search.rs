@@ -17,17 +17,6 @@ fn parse(res: &Resp) -> Value {
     serde_json::from_str(&res.body).unwrap_or_else(|_| panic!("{}", res.body))
 }
 
-fn enc(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
-
 async fn api_key(server: &Server, root: &Login, ws: Uuid, scopes: &[&str]) -> String {
     let res = send(
         server,
@@ -127,7 +116,8 @@ async fn keyword_search_with_pg_bigm() {
                     Some(m) => json!({"text": text, "mode": m}),
                     None => json!({"text": text}),
                 };
-                let res = request(server, "GET", &format!("/ws/{ws}/graphql?id={query}&variables={}", enc(&vars.to_string())), &[("Authorization", &format!("Bearer {read}"))], None).await;
+                let body = json!({"id": query, "variables": vars}).to_string();
+                let res = request(server, "POST", &format!("/ws/{ws}/graphql"), &[("Authorization", &format!("Bearer {read}"))], Some(&body)).await;
                 assert_eq!(res.status, 200, "{}", res.body);
                 let body = parse(&res);
                 assert!(body.get("errors").is_none(), "{}", res.body);

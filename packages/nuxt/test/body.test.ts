@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { defineComponent, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 
-import YomiBody, { type BodyNode } from "../src/runtime/body.ts";
+import YomiBody, { type BodyNode, linkRel } from "../src/runtime/body.ts";
 
 const render = (doc: BodyNode | null, components = {}) => renderToString(h(YomiBody, { doc, components }));
 const text = (t: string, marks?: BodyNode["marks"]): BodyNode => ({ type: "text", text: t, marks });
@@ -71,5 +71,21 @@ describe("YomiBody", () => {
   it("知らないノードは子だけを描き、本文がなければ何も描かない", async () => {
     expect(await render(doc({ type: "callout", content: [{ type: "paragraph", content: [text("中身")] }] }))).toContain("<p>中身</p>");
     expect(await render(null)).toBe("<!---->");
+  });
+});
+
+describe("linkRel", () => {
+  it("新しい文脈を開きうる target には noopener noreferrer を必ず付ける", () => {
+    expect(linkRel("_blank", undefined)).toBe("noopener noreferrer");
+    expect(linkRel("other-window", undefined)).toBe("noopener noreferrer");
+    expect(linkRel("_BLANK", "nofollow")).toBe("nofollow noopener noreferrer");
+    expect(linkRel("named", "opener")).toBe("opener noopener noreferrer");
+    expect(linkRel("x", "noopener noreferrer")).toBe("noopener noreferrer");
+  });
+  it("同じ文脈にとどまる target では、指定された rel のまま", () => {
+    for (const t of [undefined, "", "_self", "_parent", "_top"]) {
+      expect(linkRel(t, undefined)).toBeUndefined();
+      expect(linkRel(t, "nofollow")).toBe("nofollow");
+    }
   });
 });

@@ -54,6 +54,18 @@ async fn run(server: &Server, ws: Uuid, key: &str, id: &str) -> Resp {
     .await
 }
 
+/// 検索は POST だけ（検索語を URL に載せない）。
+async fn run_post(server: &Server, ws: Uuid, key: &str, id: &str) -> Resp {
+    request(
+        server,
+        "POST",
+        &format!("/ws/{ws}/graphql"),
+        &[("Authorization", &format!("Bearer {key}"))],
+        Some(&json!({ "id": id }).to_string()),
+    )
+    .await
+}
+
 const LIST: &str = "{ postList(locale: \"ja\") { id title } }";
 
 #[tokio::test]
@@ -163,8 +175,16 @@ async fn concurrent_searches_do_not_exhaust_the_pool() {
         let ws = workspace_with_template(&server, &root, "A", "blog").await;
         let key = api_key(&server, &root, ws, &["read", "register"], "server").await;
         let id = register(&server, ws, &key, KEYWORD_SEARCH).await;
+        // GET では断る（検索語を URL に載せない）
+        let res = run(&server, ws, &key, &id).await;
+        assert_eq!(
+            (res.status, res.json_str("error").as_deref()),
+            (405, Some("search_requires_post")),
+            "{}",
+            res.body
+        );
         let started = std::time::Instant::now();
-        let all = (0..32).map(|_| run(&server, ws, &key, &id));
+        let all = (0..32).map(|_| run_post(&server, ws, &key, &id));
         for res in async_graphql::futures_util::future::join_all(all).await {
             assert_eq!(res.status, 200, "{}", res.body);
             assert!(!res.body.contains("errors"), "{}", res.body);

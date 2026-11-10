@@ -10,7 +10,7 @@ Nuxt を使うなら、[Nuxtモジュール](nuxt-module.md) がこの章の内�
 |---|---|---|---|
 | POST | `/ws/{ワークスペースID}/graphql/queries` | クエリを登録する（`{ "query": "…" }`）。応答は 201 で `{ "id": "…" }` | `register` |
 | GET | `/ws/{ワークスペースID}/graphql?id=…&variables=…` | 登録済みのクエリを実行する | `read` |
-| POST | `/ws/{ワークスペースID}/graphql` | 同じ（`{ "id": "…", "variables": { } }`） | `read`（回答は `answer`） |
+| POST | `/ws/{ワークスペースID}/graphql` | 同じ（`{ "id": "…", "variables": { } }`）。回答と検索は POST だけ | `read`（回答は `answer`） |
 | GET | `/ws/{ワークスペースID}/preview` | プレビュー用トークンを確かめる | `read` |
 
 - キーは `Authorization: Bearer <キー>` でだけ受け付けます。URL に入っていれば断ります（`credential_in_url`）。送ってしまったキーは失効させてください。
@@ -54,7 +54,7 @@ Nuxt を使うなら、[Nuxtモジュール](nuxt-module.md) がこの章の内�
 | `aiCatalog(locale, limit, offset)` | AI 向けの目録 |
 | `aiMarkdownByUrl(url)` | 公開 URL から記事の Markdown 版 |
 | `aiTrainingOptOuts` | 学習への利用を拒否した記事の URL |
-| `search(text, locale, mode, first)` | サイト内検索。`mode` は `HYBRID`（既定）、`VECTOR`、`KEYWORD`、`first` は50まで、`text` は500文字まで |
+| `search(text, locale, mode, first)` | サイト内検索。`mode` は `HYBRID`（既定）、`VECTOR`、`KEYWORD`、`first` は50まで、`text` は500文字まで。検索語を URL に載せない（プロキシやアクセスログに残さない）ため、POST でだけ実行できる（GET は `search_requires_post`） |
 | `answer`、`answerStream` | [回答API](answer-api.md) |
 
 検索の応答の `vectorSearch` が `BUDGET_EXHAUSTED` なら訪問者の分の埋め込みの予算切れ（キーワード検索の結果だけ）、`keywordSearch` が `DISABLED` なら日本語の全文検索の拡張がないサーバーです。

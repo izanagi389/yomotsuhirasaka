@@ -24,7 +24,7 @@ export interface SearchParams {
   first: number;
 }
 
-/** ルートのクエリ文字列（`q`・`locale`・`mode`・`first`）を確かめる。 */
+/** 検索の条件（`q`・`locale`・`mode`・`first`。値は文字列）を確かめる。 */
 export function parseSearchParams(query: Record<string, unknown>): SearchParams {
   const one = (k: string): string | undefined => {
     const v = query[k];
@@ -42,6 +42,35 @@ export function parseSearchParams(query: Record<string, unknown>): SearchParams 
   const first = rawFirst === undefined ? DEFAULT_FIRST : Number(rawFirst);
   if (!Number.isInteger(first) || first < 1 || first > MAX_FIRST) throw new QueryError(400, `first must be 1 to ${MAX_FIRST}`);
   return { q, locale, mode, first };
+}
+
+/** 検索のリクエストの本文の上限（バイト）。検索語の上限より十分に大きく、大きな本文は読まない。 */
+export const MAX_SEARCH_BODY_BYTES = 8 * 1024;
+
+/**
+ * ルートの本文（JSON の `{ q, locale, mode?, first? }`）を確かめる。検索語は URL に載せない
+ * （プロキシやアクセスログに残さない）ので、ルートは POST で本文を受け取る。
+ */
+export function parseSearchBody(text: string | null): SearchParams {
+  if (text === null) throw new QueryError(413, "the search request is too large");
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    throw new QueryError(400, "send the search as a JSON object");
+  }
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new QueryError(400, "send the search as a JSON object");
+  const body = v as Record<string, unknown>;
+  const fields: Record<string, unknown> = {};
+  for (const k of ["q", "locale", "mode"] as const) {
+    if (body[k] !== undefined && typeof body[k] !== "string") throw new QueryError(400, `${k} must be a string`);
+    fields[k] = body[k];
+  }
+  if (body["first"] !== undefined) {
+    if (typeof body["first"] !== "number") throw new QueryError(400, "first must be a number");
+    fields["first"] = String(body["first"]);
+  }
+  return parseSearchParams(fields);
 }
 
 /** 空の検索語の結果（CMSを呼ばない）。 */

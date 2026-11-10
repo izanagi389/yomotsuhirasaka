@@ -42,24 +42,35 @@ export function parseVariables(raw: unknown): Record<string, unknown> | undefine
   return v as Record<string, unknown>;
 }
 
-/** 登録済みのクエリを実行し、GraphQL の `data` を返す。 */
+/**
+ * 登録済みのクエリを実行し、GraphQL の `data` を返す。
+ *
+ * ふだんは GET（CMSやCDNがキャッシュできる）。`method: "POST"` は、変数を URL に載せたくないもの
+ * （検索語。プロキシやアクセスログに残さない。CMS も検索は POST だけを受け付ける）に使う。
+ */
 export async function fetchQuery(
   target: QueryTarget,
   id: string,
   variables: Record<string, unknown> | undefined,
   fetchImpl: typeof fetch = fetch,
+  method: "GET" | "POST" = "GET",
 ): Promise<unknown> {
   const u = new URL(`${target.url.replace(/\/+$/, "")}/ws/${encodeURIComponent(target.workspaceId)}/graphql`);
-  u.searchParams.set("id", id);
-  if (variables) u.searchParams.set("variables", JSON.stringify(variables));
+  if (method === "GET") {
+    u.searchParams.set("id", id);
+    if (variables) u.searchParams.set("variables", JSON.stringify(variables));
+  }
   let res: Response;
   try {
     res = await fetchImpl(u, {
+      method,
       headers: {
         Authorization: `Bearer ${target.readKey}`,
         Accept: "application/json",
+        ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
         ...(target.previewToken ? { [PREVIEW_HEADER]: target.previewToken } : {}),
       },
+      ...(method === "POST" ? { body: JSON.stringify({ id, variables: variables ?? null }) } : {}),
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });

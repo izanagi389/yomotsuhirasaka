@@ -51,7 +51,7 @@ function withMarks(node: BodyNode, text: VNode | string, overrides: Overrides): 
         const href = mark.attrs?.["href"];
         if (hrefAllowed(href)) {
           const target = str(mark.attrs?.["target"]);
-          out = h("a", { href, target, rel: target === "_blank" ? "noopener noreferrer" : str(mark.attrs?.["rel"]) }, [out]);
+          out = h("a", { href, target, rel: linkRel(target, str(mark.attrs?.["rel"])) }, [out]);
         }
         break;
       }
@@ -60,6 +60,21 @@ function withMarks(node: BodyNode, text: VNode | string, overrides: Overrides): 
     }
   }
   return out;
+}
+
+/** 同じ閲覧の文脈にとどまる `target`。これ以外（`_blank` や名前付きのウィンドウ）は新しい文脈を開きうる。 */
+const SAME_CONTEXT_TARGETS = new Set(["", "_self", "_parent", "_top"]);
+
+/**
+ * リンクの `rel`。新しい文脈を開きうる `target` には、開いた先から元のページを操作させない
+ * `noopener noreferrer` を必ず付ける（指定された `rel` に足す）。
+ */
+export function linkRel(target: string | undefined, rel: string | undefined): string | undefined {
+  if (SAME_CONTEXT_TARGETS.has((target ?? "").toLowerCase())) return rel;
+  const tokens = new Set((rel ?? "").split(/\s+/).filter(Boolean));
+  tokens.add("noopener");
+  tokens.add("noreferrer");
+  return [...tokens].join(" ");
 }
 
 function renderNodes(nodes: BodyNode[] | undefined, overrides: Overrides): VNodeArrayChildren {

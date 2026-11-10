@@ -52,7 +52,7 @@ use crate::content::previews;
 use crate::content::publishing::Scripts;
 use crate::delivery::data;
 use crate::delivery::limiter::{AnswerLimited, Subject};
-use crate::delivery::names::{ANSWER_FIELD, ANSWER_STREAM_FIELD};
+use crate::delivery::names::{ANSWER_FIELD, ANSWER_STREAM_FIELD, SEARCH_FIELD};
 use crate::delivery::queries;
 use crate::delivery::schema::{QueryLimits, RequestData};
 use crate::script::Host;
@@ -439,6 +439,14 @@ async fn execute(
             StatusCode::METHOD_NOT_ALLOWED,
             "answer_requires_post",
             "Answers are not cacheable. Send the request with POST.",
+        ));
+    }
+    // 検索語を URL に載せない（プロキシやアクセスログに残さない。原則7）。検索は POST だけ
+    if !req.post && shape.roots.iter().any(|r| r == SEARCH_FIELD) {
+        return Err(ApiError::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "search_requires_post",
+            "Search terms must not appear in URLs. Send the request with POST.",
         ));
     }
     if shape.subscription && reading {

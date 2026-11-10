@@ -44,6 +44,17 @@ describe("fetchQuery", () => {
     expect(init?.redirect).toBe("error");
   });
 
+  it("POST では、IDと変数を本文で送り、URL には載せない（検索語）", async () => {
+    const f = vi.fn(async (_u: URL | string, _i?: RequestInit) => reply(200, { data: { search: { hits: [] } } }));
+    expect(await fetchQuery(target, "q1", { text: "トマト" }, f as unknown as typeof fetch, "POST")).toEqual({ search: { hits: [] } });
+    const [u, init] = f.mock.calls[0]!;
+    expect(String(u)).toBe("https://yomi.example.com/ws/ws-1/graphql");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ id: "q1", variables: { text: "トマト" } });
+    expect((init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect((init?.headers as Record<string, string>)["Authorization"]).toBe("Bearer yomi_key_read");
+  });
+
   it("CMSの拒否は、理由のコードだけを添えて 502 にする", async () => {
     const f = async () => reply(401, { error: "unauthenticated", message: "x" });
     await expect(fetchQuery(target, "q1", undefined, f as unknown as typeof fetch)).rejects.toMatchObject({ status: 502 });

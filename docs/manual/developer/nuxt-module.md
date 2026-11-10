@@ -202,7 +202,7 @@ const { text, result, status } = useYomiSearch({ locale: "ja", mode: "HYBRID", f
 
 | 設定 | 内容 |
 |---|---|
-| `route` | サイトのサーバーのルート（既定は `/_yomi/search`）。`?q=&locale=&mode=&first=` で呼ぶ |
+| `route` | サイトのサーバーのルート（既定は `/_yomi/search`）。`POST` で、本文は JSON の `{ "q": "…", "locale": "ja", "mode": "KEYWORD", "first": 10 }`（`mode` と `first` は省略可）。検索語を URL に載せない（プロキシやアクセスログに残さない）ため、GET では呼べない |
 | `rateLimit.perMinute` | 訪問者のIPアドレスごとの1分あたりの回数（既定は 30）。超えると 429 |
 | `rateLimit.ipHeader` | 訪問者のIPアドレスを読むヘッダー（例: `cf-connecting-ip`、`x-forwarded-for`）。既定は空で、接続元のアドレスを使う |
 
