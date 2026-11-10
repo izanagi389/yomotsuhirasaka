@@ -2,6 +2,8 @@
 // プレビュー（03-content-and-editing.md「プレビュー（Q72）」、計画の13番）。記事の画面の「プレビュー」タブ。
 // - サイトで開くURLは「公開URLのオリジン ＋ 設定のプレビュー用のパス ＋ ?token=<プレビュー用トークン>」。公開URLのオリジンが
 //   ワークスペースの「プレビューを許すサイト」になければ開かない（CSP の frame-src も同じ一覧。server/src/http/admin_ui.rs）。
+// - iframe には sandbox を付ける。サイトのスクリプト・自分のオリジンのクッキー・フォーム・新しいウィンドウは許し、
+//   管理画面そのものを別のページへ移すこと（top navigation）などは許さない。
 // - ライブプレビュー: タブを開いている間、iframe でサイトを開く。サイトから `ready` を受け取ったら（そのサイトのオリジンと
 //   iframe の窓からだけ。INV-PRV-03、@yomotsuhirasaka/preview）、自動保存のたびに中身のない `refresh` を送る（宛先のオリジンを指定）。
 // - トークンは10分で切れるので、8分ごとに作り直して開き直す。タブを閉じる・画面を離れるときに失効させる。
@@ -165,6 +167,7 @@ onBeforeUnmount(() => {
       :title="t('preview.frameTitle')"
       class="h-[75svh] w-full rounded-md border bg-white"
       referrerpolicy="no-referrer"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
       data-testid="preview-frame"
     />
     <p v-if="src" class="text-xs text-muted-foreground">{{ t("preview.cookieNote") }}</p>
