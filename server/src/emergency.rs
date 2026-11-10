@@ -10,15 +10,23 @@ use uuid::Uuid;
 use crate::audit;
 use crate::auth::personal_tokens::API_KEY_PREFIX as PREFIX;
 use crate::auth::token;
+use crate::workspace_db;
 
 /// 一斉失効の結果（件数）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Revoked {
     pub sessions: u64,
     pub personal_tokens: u64,
+    pub reset_tokens: u64,
+    pub invitations: u64,
+    pub preview_tokens: u64,
 }
 
-/// すべてのセッション（多要素認証の途中のものを含む）と、すべての個人トークンを失効させる。
+/// すべてのセッション（多要素認証の途中のものを含む）、個人トークン、リセットのトークン、未承諾の招待、
+/// すべてのワークスペースのプレビュー用トークンを失効させる。出回っているかもしれないものを、まとめて止める。
+///
+/// 共通のスキーマのものは1つのトランザクションで失効させ、記録する。プレビュー用トークンはワークスペースごとの
+/// トランザクションで失効させる。途中で失敗しても、もう一度実行すれば残りを失効させられる。
 pub async fn revoke_all_sessions_and_tokens(pool: &PgPool) -> Result<Revoked> {
     let mut tx = pool.begin().await?;
     let sessions =
@@ -31,6 +39,18 @@ pub async fn revoke_all_sessions_and_tokens(pool: &PgPool) -> Result<Revoked> {
             .execute(&mut *tx)
             .await?
             .rows_affected();
+    let reset_tokens = sqlx::query(
+        "UPDATE yomi.reset_tokens SET revoked_at = now() WHERE used_at IS NULL AND revoked_at IS NULL",
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    let invitations = sqlx::query(
+        "UPDATE yomi.invitations SET revoked_at = now() WHERE accepted_at IS NULL AND revoked_at IS NULL",
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
     audit::record(
         &mut *tx,
         None,
@@ -40,9 +60,31 @@ pub async fn revoke_all_sessions_and_tokens(pool: &PgPool) -> Result<Revoked> {
     )
     .await?;
     tx.commit().await?;
+
+    let workspaces: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM yomi.workspaces ORDER BY created_at")
+            .fetch_all(pool)
+            .await?;
+    let mut preview_tokens = 0;
+    for id in workspaces {
+        let Some(db) = workspace_db::lookup(pool, id).await? else {
+            continue;
+        };
+        let mut tx = workspace_db::begin(pool, &db).await?;
+        preview_tokens += sqlx::query(
+            "UPDATE preview_tokens SET revoked_at = now() WHERE revoked_at IS NULL AND expires_at > now()",
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        tx.commit().await?;
+    }
     Ok(Revoked {
         sessions,
         personal_tokens,
+        reset_tokens,
+        invitations,
+        preview_tokens,
     })
 }
 
