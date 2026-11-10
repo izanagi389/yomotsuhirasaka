@@ -359,6 +359,14 @@ pub struct MediaConfig {
     /// 同時に配信するファイルの数の上限（既定は512）。超えた分は 503 を返す。
     #[serde(default = "default_max_concurrent_serves")]
     pub max_concurrent_serves: u32,
+    /// 接続元のIPアドレス（IPv6は /64）ごとの、1分あたりのメディアのリクエストの上限（既定は1200）。超えたら 429。
+    /// 0 なら数えない。CDN を前に置くなら、CDN を `trusted_proxies` に入れる（入れないと CDN の分がまとめて数えられる）。
+    #[serde(default = "default_requests_per_ip_per_minute")]
+    pub requests_per_ip_per_minute: u32,
+}
+
+fn default_requests_per_ip_per_minute() -> u32 {
+    1200
 }
 
 fn default_max_concurrent_serves() -> u32 {
@@ -388,6 +396,7 @@ impl MediaConfig {
             default_workspace_quota_bytes: default_workspace_quota_bytes(),
             processing_timeout_seconds: default_processing_timeout_seconds(),
             max_concurrent_serves: default_max_concurrent_serves(),
+            requests_per_ip_per_minute: default_requests_per_ip_per_minute(),
         }
     }
 }
