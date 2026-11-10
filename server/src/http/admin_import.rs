@@ -86,6 +86,7 @@ pub async fn import(
         ct,
         plan,
         current.user_id,
+        crate::content::publishing::VersionLimits::from_config(&state.config.limits),
     )
     .await
     {
@@ -118,6 +119,7 @@ pub async fn import(
                 Refused::ConversionFailed(f) => {
                     format!("the body could not be converted because {}", f.describe())
                 }
+                Refused::TooManyVersions => "the version limit was reached".to_owned(),
                 Refused::HookFailed(f) => {
                     format!("the beforePublish hook failed because {}", f.describe())
                 }

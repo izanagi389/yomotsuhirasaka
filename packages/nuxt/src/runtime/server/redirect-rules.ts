@@ -53,11 +53,72 @@ export function toPathRules(redirects: YomiRedirect[], siteUrl: string): Map<str
   return out;
 }
 
+/** routeRules のパターンとして読まれる文字。 */
+const ROUTE_PATTERN = /[*:()[\]{}]/;
+
 /** Nuxt の routeRules（ビルドのときに作る 301）。410 は routeRules では表せないので、サーバーのミドルウェアで返す。 */
 export function toRouteRules(rules: Map<string, PathRule>): Record<string, { redirect: { to: string; statusCode: number } }> {
   const out: Record<string, { redirect: { to: string; statusCode: number } }> = {};
   for (const [path, rule] of rules) {
-    if (rule.status === 301 && rule.to && !path.includes("?")) out[path] = { redirect: { to: rule.to, statusCode: 301 } };
+    // routeRules のキーはパターンとして読まれる（`/**`、`:name` など）。パターンの文字を含むパスは、
+    // 1つのパスの規則にならないので入れない（ミドルウェアは文字どおりに照合するので、そちらで返す）
+    if (rule.status === 301 && rule.to && !path.includes("?") && !ROUTE_PATTERN.test(path)) out[path] = { redirect: { to: rule.to, statusCode: 301 } };
+  }
+  return out;
+}
+
+/** Nuxt のページ（`pages:extend` で渡る形の一部）。 */
+export interface PageLike {
+  path: string;
+  children?: PageLike[];
+}
+
+/**
+ * サイト自身の固定のページのパス（パラメーターを持たないルート）。CMS のリダイレクトは、これらのパスには当てない
+ * （取り込みの旧URLなどで、サイトにもともとある CMS の外のページを 301 で奪わせない。第三者の確認の R26）。
+ */
+export function staticPagePaths(pages: PageLike[], parent = ""): string[] {
+  const out: string[] = [];
+  for (const page of pages) {
+    const path = page.path.startsWith("/") ? page.path : `${parent.replace(/\/+$/, "")}/${page.path}`;
+    if (!ROUTE_PATTERN.test(path)) out.push(canonicalPath(path || "/"));
+    if (page.children) out.push(...staticPagePaths(page.children, path));
+  }
+  return out;
+}
+
+/** 比べる形: URL のパスと同じエンコードにし、末尾の / を除く。 */
+export function canonicalPath(path: string): string {
+  let p: string;
+  try {
+    p = new URL(path, "http://x").pathname;
+  } catch {
+    p = path;
+  }
+  return normalizePath(p);
+}
+
+/** 守るパスの一覧（完全一致）と、守る先頭（その下をすべて守る）。`baseURL` はサイトの `app.baseURL`。 */
+export interface Protection {
+  paths: string[];
+  prefixes: string[];
+  baseURL: string;
+}
+
+/** パスが守る対象か（`baseURL` を除いた形でも比べる）。 */
+export function isProtected(path: string, p: Protection): boolean {
+  const canon = canonicalPath(path.split("?")[0] ?? path);
+  const base = normalizePath(p.baseURL || "/");
+  const candidates = [canon];
+  if (base !== "/" && (canon === base || canon.startsWith(`${base}/`))) candidates.push(canonicalPath(canon.slice(base.length) || "/"));
+  return candidates.some((c) => p.paths.includes(c) || p.prefixes.some((pre) => c === pre || c.startsWith(`${pre}/`)));
+}
+
+/** 守るパスを除いた規則。 */
+export function withoutProtected(rules: Map<string, PathRule>, protection: Protection): Map<string, PathRule> {
+  const out = new Map<string, PathRule>();
+  for (const [key, rule] of rules) {
+    if (!isProtected(key, protection)) out.set(key, rule);
   }
   return out;
 }

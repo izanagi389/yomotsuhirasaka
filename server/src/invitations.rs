@@ -176,14 +176,18 @@ pub async fn list_pending(pool: &PgPool, workspace_id: Uuid) -> Result<Vec<Summa
 }
 
 /// 招待を取り消す。そのワークスペースの、承諾待ちの招待でなければ false。
-pub async fn revoke(pool: &PgPool, workspace_id: Uuid, id: Uuid) -> Result<bool> {
+pub async fn revoke(
+    executor: impl sqlx::PgExecutor<'_>,
+    workspace_id: Uuid,
+    id: Uuid,
+) -> Result<bool> {
     let done = sqlx::query(
         "UPDATE yomi.invitations SET revoked_at = now()
          WHERE id = $1 AND workspace_id = $2 AND accepted_at IS NULL AND revoked_at IS NULL",
     )
     .bind(id)
     .bind(workspace_id)
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(done.rows_affected() == 1)
 }

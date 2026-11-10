@@ -200,16 +200,18 @@ pub async fn revoke(
 ) -> Result<StatusCode, ApiError> {
     require_cookie_session(&current)?;
     let id = Uuid::parse_str(&id).map_err(|_| ApiError::not_found())?;
-    if !personal_tokens::revoke(&state.pool, current.user_id, id).await? {
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
+    if !personal_tokens::revoke(&mut *tx, current.user_id, id).await? {
         return Err(ApiError::not_found());
     }
     audit::record(
-        &state.pool,
+        &mut *tx,
         None,
         Some(current.user_id),
         action::PERSONAL_TOKEN_REVOKED,
         &[id],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }

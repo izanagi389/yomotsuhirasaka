@@ -253,3 +253,80 @@ async fn new_query_registrations_are_limited_per_minute() {
     })
     .await;
 }
+
+/// 版の数の上限（R14）。記事ごとと、ワークスペースごと。上限に達したら公開を断り、古い版は消さない。
+#[tokio::test]
+async fn versions_are_limited_per_entry_and_workspace() {
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.limits.max_versions_per_entry = 2;
+        cfg.limits.max_versions_per_workspace = 3;
+        let server = start(cfg).await;
+        let (root, token) = root_with_deploy_token(&server).await;
+        assert_eq!(
+            deploy(&server, &token, "blog", &blog_manifest(), "")
+                .await
+                .status,
+            200
+        );
+        let ws = workspace_with_template(&server, &root, "A", "blog").await;
+        let other = workspace_with_template(&server, &root, "B", "blog").await;
+        let create = |ws: Uuid, slug: &'static str| {
+            let (server, root) = (&server, &root);
+            async move {
+                let res = send(
+                    server,
+                    "POST",
+                    &format!("/api/admin/workspaces/{ws}/entries"),
+                    root,
+                    Some(&entry(slug)),
+                )
+                .await;
+                assert_eq!(res.status, 201, "{}", res.body);
+                res.json_str("id").unwrap()
+            }
+        };
+        let publish = |ws: Uuid, id: String| {
+            let (server, root) = (&server, &root);
+            async move {
+                send(
+                    server,
+                    "POST",
+                    &format!("/api/admin/workspaces/{ws}/entries/{id}/publish"),
+                    root,
+                    Some("{\"revision\":1}"),
+                )
+                .await
+            }
+        };
+        let a = create(ws, "a").await;
+        let b = create(ws, "b").await;
+        for _ in 0..2 {
+            let res = publish(ws, a.clone()).await;
+            assert!(res.status < 300, "{}", res.body);
+        }
+        // 記事ごとの上限
+        let res = publish(ws, a.clone()).await;
+        assert_eq!(
+            code(&res),
+            (409, Some("too_many_versions".to_owned())),
+            "{}",
+            res.body
+        );
+        // ワークスペースごとの上限（a に2版、b に1版で3版）
+        let res = publish(ws, b.clone()).await;
+        assert!(res.status < 300, "{}", res.body);
+        let res = publish(ws, b.clone()).await;
+        assert_eq!(
+            code(&res),
+            (409, Some("too_many_versions".to_owned())),
+            "{}",
+            res.body
+        );
+        // 他のワークスペースは別に数える
+        let c = create(other, "c").await;
+        let res = publish(other, c).await;
+        assert!(res.status < 300, "{}", res.body);
+    })
+    .await;
+}
