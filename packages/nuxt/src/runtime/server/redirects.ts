@@ -5,10 +5,13 @@
 import { createError, defineEventHandler, getRequestURL, sendRedirect } from "h3";
 import { useRuntimeConfig } from "nitropack/runtime";
 import queries from "#yomi/queries";
+import protectedList from "#yomi/protected-paths";
 
 import { cached } from "./cache.ts";
 import { fetchQuery } from "./fetch-query.ts";
-import { type YomiRedirect, type PathRule, normalizePath, toPathRules } from "./redirect-rules.ts";
+import { type YomiRedirect, type PathRule, normalizePath, toPathRules, withoutProtected } from "./redirect-rules.ts";
+
+const protectedPaths: ReadonlySet<string> = new Set(protectedList);
 import { REDIRECTS_QUERY } from "./names.ts";
 
 export default defineEventHandler(async (event) => {
@@ -25,7 +28,7 @@ export default defineEventHandler(async (event) => {
   try {
     rules = await cached("redirects", async () => {
       const data = (await fetchQuery(config.yomi, id, undefined)) as { redirects?: YomiRedirect[] } | null;
-      return toPathRules(data?.redirects ?? [], config.yomi.siteUrl);
+      return withoutProtected(toPathRules(data?.redirects ?? [], config.yomi.siteUrl), protectedPaths);
     });
   } catch {
     return;

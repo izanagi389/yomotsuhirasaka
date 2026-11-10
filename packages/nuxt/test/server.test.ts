@@ -158,6 +158,29 @@ describe("リダイレクトの規則", async () => {
     expect(normalizePath("/")).toBe("/");
   });
 
+  it("サイト自身の固定のページとモジュールのルートには、CMS のリダイレクトを当てない（R26）", async () => {
+    const { staticPagePaths, withoutProtected } = await import("../src/runtime/server/redirect-rules.ts");
+    const pages = [
+      { path: "/" },
+      { path: "/contact/" },
+      { path: "/ja/blog/:slug()" },
+      { path: "/about", children: [{ path: "team" }, { path: ":id" }] },
+      { path: "/[...all]" },
+    ];
+    expect(staticPagePaths(pages)).toEqual(["/", "/contact", "/about", "/about/team"]);
+    const all = toPathRules(
+      [
+        { from: "https://example.com/contact", to: "https://example.com/ja/blog/a", status: 301 },
+        { from: "https://example.com/about/team?x=1", to: "https://example.com/ja/blog/a", status: 301 },
+        { from: "https://example.com/_yomi/webhook", to: null, status: 410 },
+        { from: "https://example.com/ja/blog/old", to: "https://example.com/ja/blog/new", status: 301 },
+      ],
+      "https://example.com",
+    );
+    const kept = withoutProtected(all, new Set([...staticPagePaths(pages), "/_yomi/webhook"]));
+    expect([...kept.keys()]).toEqual(["/ja/blog/old"]);
+  });
+
   it("routeRules には 301 だけを入れる", () => {
     expect(toRouteRules(rules)).toEqual({
       "/ja/blog/old": { redirect: { to: "/ja/blog/new", statusCode: 301 } },

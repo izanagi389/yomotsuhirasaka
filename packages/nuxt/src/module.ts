@@ -56,7 +56,7 @@ import {
   SEARCH_QUERY_TEXT,
 } from "./runtime/server/names.ts";
 import { DEFAULT_PER_MINUTE } from "./runtime/server/search-core.ts";
-import { type YomiRedirect, toPathRules, toRouteRules } from "./runtime/server/redirect-rules.ts";
+import { type YomiRedirect, normalizePath, staticPagePaths, toPathRules, toRouteRules } from "./runtime/server/redirect-rules.ts";
 
 export interface ModuleOptions {
   /** CMSのURL。 */
@@ -224,6 +224,31 @@ export default defineNuxtModule<ModuleOptions>({
     }
     nuxt.options.nitro.virtual = { ...nuxt.options.nitro.virtual, "#yomi/queries": () => `export default ${JSON.stringify(ids)};` };
 
+    // CMS のリダイレクトを当てないパス: サイト自身の固定のページと、モジュールのルート（R26）。
+    // ページはこの後（pages:extend）で分かるので、仮想モジュールは中身をサーバーのビルドのときに作る
+    const protectedPaths = new Set<string>();
+    const redirectRuleKeys: string[] = [];
+    let nitroRef: { options: { routeRules: Record<string, unknown> } } | null = null;
+    const dropProtectedRules = () => {
+      for (const key of redirectRuleKeys) {
+        if (!protectedPaths.has(normalizePath(key))) continue;
+        delete (nuxt.options.routeRules as Record<string, unknown>)[key];
+        if (nitroRef) delete nitroRef.options.routeRules[key];
+      }
+    };
+    nuxt.hook("nitro:init", (nitro) => {
+      nitroRef = nitro as unknown as typeof nitroRef;
+      dropProtectedRules();
+    });
+    nuxt.hook("pages:extend", (pages) => {
+      for (const path of staticPagePaths(pages)) protectedPaths.add(path);
+      dropProtectedRules();
+    });
+    nuxt.options.nitro.virtual = {
+      ...nuxt.options.nitro.virtual,
+      "#yomi/protected-paths": () => `export default ${JSON.stringify([...protectedPaths])};`,
+    };
+
     // リダイレクト: ビルドのときに読むキーがあれば routeRules の 301 を作る（サイトが書いた routeRules は上書きしない）。
     // 410 と、ビルドの後の変更は、サーバーのミドルウェアが返す
     if (siteUrl && ids[REDIRECTS_QUERY]) {
@@ -231,6 +256,7 @@ export default defineNuxtModule<ModuleOptions>({
       if (readKey) {
         const data = (await fetchQuery({ url, workspaceId: options.workspaceId, readKey }, ids[REDIRECTS_QUERY], undefined)) as { redirects?: YomiRedirect[] } | null;
         const rules = toRouteRules(toPathRules(data?.redirects ?? [], siteUrl));
+        redirectRuleKeys.push(...Object.keys(rules).filter((k) => !Object.hasOwn(nuxt.options.routeRules ?? {}, k)));
         nuxt.options.routeRules = { ...rules, ...nuxt.options.routeRules };
         logger.info(`added ${Object.keys(rules).length} redirect(s) from the CMS to routeRules`);
       } else {
@@ -291,6 +317,9 @@ export default defineNuxtModule<ModuleOptions>({
     if (searchRoute) addServerHandler({ route: searchRoute, method: "post", handler: resolver.resolve("./runtime/server/search.js") });
     if (answerRoute) addServerHandler({ route: answerRoute, method: "post", handler: resolver.resolve("./runtime/server/answer.js") });
     addServerHandler({ route: `${options.routePrefix}/:name`, method: "get", handler: resolver.resolve("./runtime/server/query.js") });
+    const moduleRoutes = [options.webhookRoute, previewRoute, previewRoute && `${previewRoute}/exit`, searchRoute, answerRoute, ...feedRoutes, ...(ai ? ["/llms.txt"] : []), ...(ai?.robotsTxt ? ["/robots.txt"] : [])];
+    for (const route of moduleRoutes) if (route) protectedPaths.add(normalizePath(route));
+    dropProtectedRules();
     addImports([
       { name: "useYomiQuery", from: resolver.resolve("./runtime/composables.js") },
       { name: "useYomiCorrections", from: resolver.resolve("./runtime/composables.js") },

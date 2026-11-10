@@ -61,3 +61,33 @@ export function toRouteRules(rules: Map<string, PathRule>): Record<string, { red
   }
   return out;
 }
+
+/** Nuxt のページ（`pages:extend` で渡る形の一部）。 */
+export interface PageLike {
+  path: string;
+  children?: PageLike[];
+}
+
+/**
+ * サイト自身の固定のページのパス（パラメーターを持たないルート）。CMS のリダイレクトは、これらのパスには当てない
+ * （取り込みの旧URLなどで、サイトにもともとある CMS の外のページを 301 で奪わせない。第三者の確認の R26）。
+ */
+export function staticPagePaths(pages: PageLike[], parent = ""): string[] {
+  const out: string[] = [];
+  for (const page of pages) {
+    const path = page.path.startsWith("/") ? page.path : `${parent.replace(/\/+$/, "")}/${page.path}`;
+    if (!/[:*()[\]]/.test(path)) out.push(normalizePath(path || "/"));
+    if (page.children) out.push(...staticPagePaths(page.children, path));
+  }
+  return out;
+}
+
+/** 守るパスを除いた規則。 */
+export function withoutProtected(rules: Map<string, PathRule>, protectedPaths: ReadonlySet<string>): Map<string, PathRule> {
+  const out = new Map<string, PathRule>();
+  for (const [key, rule] of rules) {
+    const path = normalizePath(key.split("?")[0] ?? key);
+    if (!protectedPaths.has(path)) out.set(key, rule);
+  }
+  return out;
+}
