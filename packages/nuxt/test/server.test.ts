@@ -159,26 +159,46 @@ describe("リダイレクトの規則", async () => {
   });
 
   it("サイト自身の固定のページとモジュールのルートには、CMS のリダイレクトを当てない（R26）", async () => {
-    const { staticPagePaths, withoutProtected } = await import("../src/runtime/server/redirect-rules.ts");
+    const { isProtected, staticPagePaths, withoutProtected } = await import("../src/runtime/server/redirect-rules.ts");
     const pages = [
       { path: "/" },
       { path: "/contact/" },
       { path: "/ja/blog/:slug()" },
       { path: "/about", children: [{ path: "team" }, { path: ":id" }] },
       { path: "/[...all]" },
+      { path: "/お問い合わせ" },
     ];
-    expect(staticPagePaths(pages)).toEqual(["/", "/contact", "/about", "/about/team"]);
+    const paths = staticPagePaths(pages);
+    expect(paths).toEqual(["/", "/contact", "/about", "/about/team", "/%E3%81%8A%E5%95%8F%E3%81%84%E5%90%88%E3%82%8F%E3%81%9B"]);
+    const protection = { paths, prefixes: ["/_yomi", "/api-q"], baseURL: "/" };
     const all = toPathRules(
       [
         { from: "https://example.com/contact", to: "https://example.com/ja/blog/a", status: 301 },
         { from: "https://example.com/about/team?x=1", to: "https://example.com/ja/blog/a", status: 301 },
+        { from: "https://example.com/お問い合わせ", to: "https://example.com/ja/blog/a", status: 301 },
         { from: "https://example.com/_yomi/webhook", to: null, status: 410 },
+        { from: "https://example.com/api-q/list", to: "https://example.com/ja/blog/a", status: 301 },
         { from: "https://example.com/ja/blog/old", to: "https://example.com/ja/blog/new", status: 301 },
       ],
       "https://example.com",
     );
-    const kept = withoutProtected(all, new Set([...staticPagePaths(pages), "/_yomi/webhook"]));
-    expect([...kept.keys()]).toEqual(["/ja/blog/old"]);
+    expect([...withoutProtected(all, protection).keys()]).toEqual(["/ja/blog/old"]);
+    // サイトの app.baseURL の下でも守る
+    const based = { ...protection, baseURL: "/site/" };
+    expect(isProtected("/site/contact", based)).toBe(true);
+    expect(isProtected("/site/ja/blog/old", based)).toBe(false);
+  });
+
+  it("パターンとして読まれるパスは、routeRules に入れない", () => {
+    const wild = toPathRules(
+      [
+        { from: "https://example.com/**", to: "https://evil.example/", status: 301 },
+        { from: "https://example.com/:any", to: "https://example.com/x", status: 301 },
+        { from: "https://example.com/ok", to: "https://example.com/x", status: 301 },
+      ],
+      "https://example.com",
+    );
+    expect(Object.keys(toRouteRules(wild))).toEqual(["/ok"]);
   });
 
   it("routeRules には 301 だけを入れる", () => {

@@ -56,7 +56,7 @@ import {
   SEARCH_QUERY_TEXT,
 } from "./runtime/server/names.ts";
 import { DEFAULT_PER_MINUTE } from "./runtime/server/search-core.ts";
-import { type YomiRedirect, normalizePath, staticPagePaths, toPathRules, toRouteRules } from "./runtime/server/redirect-rules.ts";
+import { type Protection, type YomiRedirect, canonicalPath, isProtected, staticPagePaths, toPathRules, toRouteRules } from "./runtime/server/redirect-rules.ts";
 
 export interface ModuleOptions {
   /** CMSのURL。 */
@@ -227,11 +227,14 @@ export default defineNuxtModule<ModuleOptions>({
     // CMS のリダイレクトを当てないパス: サイト自身の固定のページと、モジュールのルート（R26）。
     // ページはこの後（pages:extend）で分かるので、仮想モジュールは中身をサーバーのビルドのときに作る
     const protectedPaths = new Set<string>();
+    const protectedPrefixes = new Set<string>(["/_yomi", "/_nuxt"]);
+    const protection = (): Protection => ({ paths: [...protectedPaths], prefixes: [...protectedPrefixes], baseURL: nuxt.options.app.baseURL ?? "/" });
     const redirectRuleKeys: string[] = [];
     let nitroRef: { options: { routeRules: Record<string, unknown> } } | null = null;
     const dropProtectedRules = () => {
+      const p = protection();
       for (const key of redirectRuleKeys) {
-        if (!protectedPaths.has(normalizePath(key))) continue;
+        if (!isProtected(key, p)) continue;
         delete (nuxt.options.routeRules as Record<string, unknown>)[key];
         if (nitroRef) delete nitroRef.options.routeRules[key];
       }
@@ -240,13 +243,16 @@ export default defineNuxtModule<ModuleOptions>({
       nitroRef = nitro as unknown as typeof nitroRef;
       dropProtectedRules();
     });
-    nuxt.hook("pages:extend", (pages) => {
-      for (const path of staticPagePaths(pages)) protectedPaths.add(path);
-      dropProtectedRules();
-    });
+    // ページは、ほかのモジュールが足したものも含めて確定した後（pages:resolved）にも集める
+    for (const hook of ["pages:extend", "pages:resolved"] as const) {
+      nuxt.hook(hook, (pages) => {
+        for (const path of staticPagePaths(pages)) protectedPaths.add(path);
+        dropProtectedRules();
+      });
+    }
     nuxt.options.nitro.virtual = {
       ...nuxt.options.nitro.virtual,
-      "#yomi/protected-paths": () => `export default ${JSON.stringify([...protectedPaths])};`,
+      "#yomi/protected-paths": () => `export default ${JSON.stringify(protection())};`,
     };
 
     // リダイレクト: ビルドのときに読むキーがあれば routeRules の 301 を作る（サイトが書いた routeRules は上書きしない）。
@@ -318,7 +324,9 @@ export default defineNuxtModule<ModuleOptions>({
     if (answerRoute) addServerHandler({ route: answerRoute, method: "post", handler: resolver.resolve("./runtime/server/answer.js") });
     addServerHandler({ route: `${options.routePrefix}/:name`, method: "get", handler: resolver.resolve("./runtime/server/query.js") });
     const moduleRoutes = [options.webhookRoute, previewRoute, previewRoute && `${previewRoute}/exit`, searchRoute, answerRoute, ...feedRoutes, ...(ai ? ["/llms.txt"] : []), ...(ai?.robotsTxt ? ["/robots.txt"] : [])];
-    for (const route of moduleRoutes) if (route) protectedPaths.add(normalizePath(route));
+    for (const route of moduleRoutes) if (route) protectedPaths.add(canonicalPath(route));
+    // 登録済みクエリのルートは、先頭で守る（/_yomi の外に置いた場合も）
+    protectedPrefixes.add(canonicalPath(options.routePrefix));
     dropProtectedRules();
     addImports([
       { name: "useYomiQuery", from: resolver.resolve("./runtime/composables.js") },
