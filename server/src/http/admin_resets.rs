@@ -97,18 +97,21 @@ async fn handle_password_reset_request(
     let Some(email) = users::normalize_email(&req.email) else {
         return Ok(accepted);
     };
-    let row: Option<(Uuid, bool, bool, Option<String>)> = sqlx::query_as(
-        "SELECT id, disabled, is_server_admin, locale FROM yomi.users WHERE email = $1",
+    let row: Option<(Uuid, bool, bool, Option<String>, bool)> = sqlx::query_as(
+        "SELECT id, disabled, is_server_admin, locale, \
+                (password_hash IS NULL AND EXISTS (SELECT 1 FROM yomi.external_identities x WHERE x.user_id = u.id)) \
+         FROM yomi.users u WHERE email = $1",
     )
     .bind(&email)
     .fetch_optional(&state.pool)
     .await
     .map_err(anyhow::Error::from)?;
-    let Some((user_id, disabled, server_admin, locale)) = row else {
+    let Some((user_id, disabled, server_admin, locale, sso_only)) = row else {
         return Ok(accepted);
     };
-    // 無効にされた利用者と、サーバー管理者（ネットワーク越しには回復させない）には送らない
-    if disabled || server_admin {
+    // 無効にされた利用者と、サーバー管理者（ネットワーク越しには回復させない）と、
+    // SSOだけでログインする人（IdPから外された後に、メールだけでパスワードを作らせない）には送らない
+    if disabled || server_admin || sso_only {
         return Ok(accepted);
     }
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
@@ -299,17 +302,39 @@ async fn issue_reset(
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }
-    let row: Option<(String, bool, Option<String>)> =
-        sqlx::query_as("SELECT email, is_server_admin, locale FROM yomi.users WHERE id = $1")
-            .bind(target)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(anyhow::Error::from)?;
-    let Some((email, target_is_server_admin, locale)) = row else {
+    let by_server_admin = access::acts_as_server_admin(current);
+    // SMTPがなければ、リンクは発行した人に渡る。リンクを受け取った人は対象の人になりすませるので、
+    // もともとすべての権限を持つサーバー管理者だけが発行できる
+    if state.config.smtp.is_none() && !by_server_admin {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "smtp_required",
+            "Email delivery (SMTP) is not configured, so only server administrators can issue reset links.",
+        ));
+    }
+    let row: Option<(String, bool, Option<String>, bool)> = sqlx::query_as(
+        "SELECT email, is_server_admin, locale, \
+                (password_hash IS NULL AND EXISTS (SELECT 1 FROM yomi.external_identities x WHERE x.user_id = u.id)) \
+         FROM yomi.users u WHERE id = $1",
+    )
+    .bind(target)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(anyhow::Error::from)?;
+    let Some((email, target_is_server_admin, locale, sso_only)) = row else {
         return Err(ApiError::not_found());
     };
     if target_is_server_admin {
         return Err(server_admin_target());
+    }
+    // SSOだけでログインする人にパスワードを作らせると、IdPから外された後も入れてしまう。
+    // IdPで回復してもらう。どうしても要るときはサーバー管理者が発行する
+    if kind == Kind::Password && sso_only && !by_server_admin {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "sso_only_user",
+            "This person signs in only with SSO. Recover access through the identity provider, or ask a server administrator.",
+        ));
     }
 
     let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;

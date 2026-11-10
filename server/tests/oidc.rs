@@ -662,3 +662,58 @@ async fn invitations_can_be_accepted_with_sso() {
     })
     .await;
 }
+
+/// SSOのログインでも、ログインの前に持っていたセッションは失効させる（Q107。パスワードのログインと同じ）。
+/// 失敗したSSOでは、持っていたセッションを失効させない。
+#[tokio::test]
+async fn sso_login_replaces_the_session_presented_before() {
+    with_scratch(|app, migration| async move {
+        let idp = start_idp().await;
+        let server = start(oidc_config(&app, &migration, &idp)).await;
+        let claims =
+            json!({"sub": "s-fix", "email": format!("fix@{JIT_DOMAIN}"), "email_verified": true});
+        let before = complete(
+            &server,
+            &run_flow(&server, &idp, LOGIN, "{}", &[], claims.clone()).await,
+        )
+        .await;
+
+        // 戻り先に、前のセッションのCookieも付けて戻る
+        let flow_with_session = |claims: Value| {
+            let (server, idp, before) = (&server, &idp, &before);
+            async move {
+                let res = request(server, "POST", LOGIN, &[], Some("{}")).await;
+                assert_eq!(res.status, 200, "{}", res.body);
+                let browser = cookie_value(&res, "__Host-yomi_oidc").unwrap();
+                let (code, state) =
+                    idp.authorize(&res.json_str("authorizationUrl").unwrap(), claims);
+                let path = format!("/api/admin/session/oidc/callback?code={code}&state={state}");
+                let cookie = format!(
+                    "__Host-yomi_oidc={browser}; __Host-yomi_session={}",
+                    before.cookie
+                );
+                request(server, "GET", &path, &[("Cookie", &cookie)], None).await
+            }
+        };
+
+        // 失敗（登録のない人）: 前のセッションはそのまま
+        let failed = flow_with_session(
+            json!({"sub": "s-none", "email": "none@elsewhere.test", "email_verified": true}),
+        )
+        .await;
+        assert!(
+            location(&failed).contains("error=not_registered"),
+            "{}",
+            location(&failed)
+        );
+        assert_eq!(get(&server, "/api/admin/me", &before).await.status, 200);
+
+        // 成功: 新しいセッションになり、前のセッションは使えない
+        let res = flow_with_session(claims).await;
+        let after = complete(&server, &res).await;
+        assert_ne!(after.cookie, before.cookie);
+        assert_eq!(get(&server, "/api/admin/me", &after).await.status, 200);
+        assert_eq!(get(&server, "/api/admin/me", &before).await.status, 401);
+    })
+    .await;
+}

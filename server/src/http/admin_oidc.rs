@@ -542,21 +542,29 @@ async fn handle_callback(
         .await
         .map_err(finish_error)?;
 
-    match flow.purpose {
-        Purpose::Login => login(state, oidc, ip, headers, &verified).await,
+    let done = match flow.purpose {
+        Purpose::Login => login(state, oidc, ip, headers, &verified).await?,
         Purpose::Invite => {
             let invitation_id = flow.invitation_id.ok_or(Fail::Code("invitation_invalid"))?;
-            accept_invitation(state, ip, headers, &verified, invitation_id).await
+            accept_invitation(state, ip, headers, &verified, invitation_id).await?
         }
         Purpose::Link => {
             let (user_id, _) = owner(state, &flow).await?;
-            link(state, &verified, user_id).await
+            link(state, &verified, user_id).await?
         }
         Purpose::Reauth => {
             let (user_id, session_id) = owner(state, &flow).await?;
-            reauthenticate(state, &verified, user_id, session_id).await
+            reauthenticate(state, &verified, user_id, session_id).await?
         }
+    };
+    // パスワードのログインと同じく、ログインの前に持っていたセッションは失効させる（Q107）。
+    // 新しいセッションのクッキーはまだ送っていないので、提示されたクッキーは古いセッションのもの
+    if matches!(done, Done::SignedIn(_))
+        && let Some(old) = cookie(headers, SESSION_COOKIE)
+    {
+        session::revoke_presented(&state.pool, &old).await?;
     }
+    Ok(done)
 }
 
 /// ひも付け・再認証を始めた本人と、そのセッション（まだ有効であること）。
