@@ -118,20 +118,22 @@ pub async fn start(
             "No embedding model to switch to is set in the config ([llm.next_embedding]).",
         ));
     };
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
     switch::start(
-        &state.pool,
+        &mut *tx,
         &(next.embedding_model.clone(), next.embedding_dimensions),
         current.user_id,
     )
     .await?;
     audit::record(
-        &state.pool,
+        &mut *tx,
         None,
         Some(current.user_id),
         action::EMBEDDING_SWITCH_STARTED,
         &[],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     // すべてのワークスペースの検索用データのジョブを積む（止まっていたものも再開する）
     crate::search::index::schedule_all(&state.pool, &state.keys).await?;
     Ok(Json(view(&state).await?))

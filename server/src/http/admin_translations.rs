@@ -82,6 +82,17 @@ pub async fn create(
             Err(e) if is_locale_conflict(&e) => return Err(locale_exists()),
             Err(e) => return Err(e.into()),
         };
+    if access.server_admin {
+        workspace_db::audit(
+            &mut tx,
+            &db,
+            Some(ws),
+            Some(current.user_id),
+            audit::action::ENTRY_CREATED,
+            &[draft.id],
+        )
+        .await?;
+    }
     if let Err(e) = tx.commit().await {
         let e = anyhow::Error::from(e);
         return Err(if is_locale_conflict(&e) {
@@ -89,16 +100,6 @@ pub async fn create(
         } else {
             e.into()
         });
-    }
-    if access.server_admin {
-        audit::record(
-            &state.pool,
-            Some(ws),
-            Some(current.user_id),
-            audit::action::ENTRY_CREATED,
-            &[draft.id],
-        )
-        .await?;
     }
     Ok((StatusCode::CREATED, Json(draft)))
 }

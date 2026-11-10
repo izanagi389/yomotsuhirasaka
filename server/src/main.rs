@@ -571,16 +571,18 @@ fn create_server_admin_main(config_path: &Path, email: &str, password_stdin: boo
             let (pool, migration, _) = prepare_database(&config).await?;
             migration.close().await;
             let hash = auth::password::hash(password.clone()).await?;
-            let id = auth::users::create(&pool, &email, &hash, true).await?;
+            let mut tx = pool.begin().await?;
+            let id = auth::users::create(&mut *tx, &email, &hash, true).await?;
             // インスタンス単位の記録（管理者への通知。計画の15番）
             audit::record(
-                &pool,
+                &mut *tx,
                 None,
                 None,
                 audit::action::SERVER_ADMIN_CREATED,
                 &[id],
             )
             .await?;
+            tx.commit().await?;
             println!("Created server administrator {email} (id {id}).");
             if generated {
                 println!("Password (shown only once): {password}");

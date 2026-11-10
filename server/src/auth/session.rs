@@ -152,9 +152,13 @@ impl Method {
 }
 
 /// セッションを発行する（パスワードでのログイン）。
-pub async fn issue(pool: &PgPool, user_id: Uuid, config: &SessionConfig) -> Result<Issued> {
+pub async fn issue(
+    executor: impl sqlx::PgExecutor<'_>,
+    user_id: Uuid,
+    config: &SessionConfig,
+) -> Result<Issued> {
     insert(
-        pool,
+        executor,
         user_id,
         config.absolute_lifetime_seconds,
         false,
@@ -165,8 +169,19 @@ pub async fn issue(pool: &PgPool, user_id: Uuid, config: &SessionConfig) -> Resu
 
 /// SSOでログインしたセッションを発行する。
 /// IdPからのリダイレクトで終わるので、CSRFトークンは、戻った画面が一度だけ受け取る（[`take_csrf_handoff`]）。
-pub async fn issue_sso(pool: &PgPool, user_id: Uuid, config: &SessionConfig) -> Result<Issued> {
-    insert(pool, user_id, config.absolute_lifetime_seconds, false, true).await
+pub async fn issue_sso(
+    executor: impl sqlx::PgExecutor<'_>,
+    user_id: Uuid,
+    config: &SessionConfig,
+) -> Result<Issued> {
+    insert(
+        executor,
+        user_id,
+        config.absolute_lifetime_seconds,
+        false,
+        true,
+    )
+    .await
 }
 
 /// 多要素認証の途中のセッションを発行する。多要素認証のコードを送ること以外には使えない。
@@ -175,7 +190,7 @@ pub async fn issue_mfa_pending(pool: &PgPool, user_id: Uuid) -> Result<Issued> {
 }
 
 async fn insert(
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
     user_id: Uuid,
     lifetime: u32,
     mfa_pending: bool,
@@ -200,7 +215,7 @@ async fn insert(
     .bind(if sso { "oidc" } else { "password" })
     .bind(sso.then_some(Method::Oidc.as_str()))
     .bind(sso)
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(issued)
 }

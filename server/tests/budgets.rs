@@ -65,7 +65,7 @@ async fn reservations_never_exceed_the_effective_limit() {
             .unwrap();
 
         // ワークスペースの上限（100）が天井（1000）より小さければ、ワークスペースの上限が効く
-        budget::set_limits(&server.pool, ws, Kind::Embedding, Direction::Input, Some(100), None, admin_id)
+        budget::set_limits(&mut server.pool.acquire().await.unwrap(), ws, Kind::Embedding, Direction::Input, Some(100), None, admin_id)
             .await
             .unwrap();
         let limits = budget::limits(&server.pool, &cfg, ws, Kind::Embedding, Direction::Input).await.unwrap();
@@ -111,7 +111,7 @@ async fn reservations_never_exceed_the_effective_limit() {
         ));
 
         // 上限を変えると「断った」の印が消え、上げた分だけ再開する
-        budget::set_limits(&server.pool, ws, Kind::Embedding, Direction::Input, Some(150), None, admin_id)
+        budget::set_limits(&mut server.pool.acquire().await.unwrap(), ws, Kind::Embedding, Direction::Input, Some(150), None, admin_id)
             .await
             .unwrap();
         assert_eq!(
@@ -371,7 +371,7 @@ async fn visitor_embeddings_do_not_use_up_the_article_embedding_budget() {
                 .await
                 .unwrap();
         budget::set_limits(
-            &server.pool,
+            &mut server.pool.acquire().await.unwrap(),
             ws,
             Kind::Embedding,
             Direction::Input,
@@ -406,7 +406,7 @@ async fn visitor_embeddings_do_not_use_up_the_article_embedding_budget() {
         assert!(matches!(take(Kind::Embedding, 100).await, Reserved::Ok(_)));
         // 上限を変えると、訪問者の分の「断った」の印も消える
         budget::set_limits(
-            &server.pool,
+            &mut server.pool.acquire().await.unwrap(),
             ws,
             Kind::Embedding,
             Direction::Input,

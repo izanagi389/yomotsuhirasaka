@@ -85,7 +85,7 @@ pub async fn find_by_id_for_login(pool: &PgPool, id: Uuid) -> Result<Option<Logi
 
 /// 利用者を作る。同じメールアドレスの利用者がいればエラー。
 pub async fn create(
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
     email: &str,
     password_hash: &str,
     is_server_admin: bool,
@@ -100,7 +100,7 @@ pub async fn create(
     .bind(email)
     .bind(password_hash)
     .bind(is_server_admin)
-    .execute(pool)
+    .execute(executor)
     .await?;
     if inserted.rows_affected() == 0 {
         bail!("a user with this email already exists");

@@ -253,10 +253,11 @@ pub async fn recompute(
     if !(access.server_admin || access.role == Some(Role::Admin)) {
         return Err(crate::access::Denied::Forbidden.into());
     }
-    let queued = crate::search::batch::enqueue(&state.pool, &state.keys, ws).await?;
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
+    let queued = crate::search::batch::enqueue(&mut *tx, &state.keys, ws).await?;
     if access.server_admin {
         audit::record(
-            &state.pool,
+            &mut *tx,
             Some(ws),
             Some(current.user_id),
             action::RELATED_RECOMPUTE_STARTED,
@@ -264,5 +265,6 @@ pub async fn recompute(
         )
         .await?;
     }
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok((StatusCode::ACCEPTED, Json(Recompute { queued })))
 }

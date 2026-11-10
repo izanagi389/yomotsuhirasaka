@@ -100,8 +100,10 @@ fn check_code(keys: &KeyRing, user_id: Uuid, sealed: &[u8], code: &str) -> Resul
 /// 設定を確定する: 確認前の秘密でコードが合えば有効にし、復旧コードを発行して返す。
 /// 既にほかの方法（パスキー）で多要素認証を設定していれば、復旧コードは作り直さない（空を返す）。
 /// コードが合わない・途中の設定がなければ None。
+/// 呼ぶ側のトランザクションで確定する（セッションの失効・通知・監査ログと同じトランザクションにするため）。
+/// `None` のときは何も変えていない。
 pub async fn confirm_enrollment(
-    pool: &PgPool,
+    tx: &mut Transaction<'_, Postgres>,
     keys: &KeyRing,
     user_id: Uuid,
     code: &str,
@@ -109,7 +111,7 @@ pub async fn confirm_enrollment(
     let pending: Option<Option<Vec<u8>>> =
         sqlx::query_scalar("SELECT totp_pending_secret_enc FROM yomi.users WHERE id = $1")
             .bind(user_id)
-            .fetch_optional(pool)
+            .fetch_optional(&mut **tx)
             .await?;
     let Some(sealed) = pending.flatten() else {
         return Ok(None);
@@ -117,12 +119,11 @@ pub async fn confirm_enrollment(
     let Some(step) = check_code(keys, user_id, &sealed, code)? else {
         return Ok(None);
     };
-    let mut tx = pool.begin().await?;
     let had_mfa: bool = sqlx::query_scalar(crate::sql!(
         "SELECT {MFA_ENABLED_U} FROM yomi.users u WHERE u.id = $1 FOR UPDATE"
     ))
     .bind(user_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
     let done = sqlx::query(
         "UPDATE yomi.users SET totp_secret_enc = totp_pending_secret_enc, totp_pending_secret_enc = NULL,
@@ -132,7 +133,7 @@ pub async fn confirm_enrollment(
     .bind(user_id)
     .bind(&sealed)
     .bind(step_i64(step))
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
     if done.rows_affected() != 1 {
         // 同時に別の設定が始まった
@@ -141,9 +142,8 @@ pub async fn confirm_enrollment(
     let codes = if had_mfa {
         Vec::new()
     } else {
-        replace_recovery_codes(&mut tx, user_id).await?
+        replace_recovery_codes(tx, user_id).await?
     };
-    tx.commit().await?;
     Ok(Some(codes))
 }
 
