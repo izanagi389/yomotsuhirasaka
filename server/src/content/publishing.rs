@@ -59,6 +59,41 @@ pub enum Refused {
     HookFailed(Failure),
     /// 本文を変換できなかった。
     ConversionFailed(Failure),
+    /// 版の数の上限に達した（記事ごと、またはワークスペースごと）。
+    TooManyVersions,
+}
+
+/// 版の数の上限（第三者の確認の R14）。公開のたびに全フィールドのコピーが増えるので、ディスクを埋めさせない。
+/// 古い版は消さない（訂正の記録を後から取り返せなくしない。原則8）ので、上限に達したら公開を断る。
+#[derive(Debug, Clone, Copy)]
+pub struct VersionLimits {
+    pub per_entry: u32,
+    pub per_workspace: u32,
+}
+
+impl VersionLimits {
+    pub fn from_config(limits: &crate::config::LimitsConfig) -> Self {
+        Self {
+            per_entry: limits.max_versions_per_entry,
+            per_workspace: limits.max_versions_per_workspace,
+        }
+    }
+}
+
+/// 次の版（`number` 番目）を作れるか。
+async fn room_for_version(
+    conn: &mut PgConnection,
+    limits: VersionLimits,
+    number: i32,
+) -> Result<bool> {
+    if i64::from(number) > i64::from(limits.per_entry) {
+        return Ok(false);
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM versions LIMIT $1) t")
+        .bind(i64::from(limits.per_workspace))
+        .fetch_one(conn)
+        .await?;
+    Ok(count < i64::from(limits.per_workspace))
 }
 
 /// カスタムノードの変換関数（変換器に渡す形）。
@@ -487,6 +522,7 @@ pub async fn publish(
     expected_revision: i64,
     correction: bool,
     published_by: Uuid,
+    limits: VersionLimits,
 ) -> Result<Result<Published, Refused>> {
     let Some((revision, current, previous_url)) = lock(conn, entry_id).await? else {
         return Ok(Err(Refused::NotFound));
@@ -517,6 +553,9 @@ pub async fn publish(
         _ => None,
     };
     let number = latest.as_ref().map_or(1, |(n, _)| n + 1);
+    if !room_for_version(conn, limits, number).await? {
+        return Ok(Err(Refused::TooManyVersions));
+    }
     insert_version(
         conn,
         entry_id,
@@ -560,6 +599,7 @@ pub async fn publish_prepared(
     entry_id: Uuid,
     prepared: &Prepared,
     published_by: Uuid,
+    limits: VersionLimits,
 ) -> Result<Result<Published, Refused>> {
     let Some((_, current, previous_url)) = lock(conn, entry_id).await? else {
         return Ok(Err(Refused::NotFound));
@@ -570,6 +610,9 @@ pub async fn publish_prepared(
     let number = latest_version(conn, entry_id)
         .await?
         .map_or(1, |(n, _)| n + 1);
+    if !room_for_version(conn, limits, number).await? {
+        return Ok(Err(Refused::TooManyVersions));
+    }
     insert_version(
         conn,
         entry_id,

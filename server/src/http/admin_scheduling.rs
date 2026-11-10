@@ -386,7 +386,15 @@ pub async fn run(state: &AppState, payload: &[u8], attempts: i32) -> anyhow::Res
     let failure: &'static str = if applied.pending {
         "schema_migration_pending"
     } else {
-        match publishing::publish_prepared(&mut tx, schema_version, entry_id, &prepared, by).await?
+        match publishing::publish_prepared(
+            &mut tx,
+            schema_version,
+            entry_id,
+            &prepared,
+            by,
+            publishing::VersionLimits::from_config(&state.config.limits),
+        )
+        .await?
         {
             Ok(published) => {
                 scheduling::mark_published(&mut tx, job.schedule_id).await?;
@@ -399,6 +407,7 @@ pub async fn run(state: &AppState, payload: &[u8], attempts: i32) -> anyhow::Res
             }
             Err(Refused::UrlTaken) => "url_taken",
             Err(Refused::NotFound) => "entry_not_found",
+            Err(Refused::TooManyVersions) => "too_many_versions",
             Err(_) => "cannot_publish",
         }
     };
