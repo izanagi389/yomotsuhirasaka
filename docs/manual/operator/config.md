@@ -28,6 +28,7 @@
 - `dev_mode` が有効
 - `public_url` が https でない
 - 暗号化されない SMTP を、ループバック以外の宛先に指定している
+- ループバック以外の DB の URL に、`sslmode` を書いていない（または `prefer`、`allow`）
 
 次は本番でなくても起動を止めます: 暗号化の鍵がない、PostgreSQL が16より古い、接続先の URL にパスワードが入っている。
 
@@ -39,6 +40,14 @@
 | `password` | パスワード |
 
 `[database]` は普段の処理用です（DDL はできません）。`[migration_database]` は移行とワークスペースのロールの作成用で、`CREATEROLE` と DDL の権限を持ちます。どちらもスーパーユーザーにはできません。
+
+DB が同じホストの外にあるときは、URL に `sslmode` を書きます。
+
+- `sslmode=verify-full`（推奨）: 暗号化し、証明書とホスト名を確かめます。
+- `sslmode=require`: 暗号化しますが、証明書は確かめません。
+- `sslmode=disable`: 暗号化しません。同じ Docker のネットワークのように、信頼できる閉じたネットワークのときだけ使います。公式の Docker Compose はこれを使います。
+
+書かないと `prefer` になり、TLS が使えないときに黙って暗号化なしで接続します。そのため、本番の設定では起動を止めます。
 
 ## セッション（`[session]`）
 

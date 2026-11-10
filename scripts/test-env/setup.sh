@@ -136,8 +136,9 @@ if [ -n "$PG15_URL" ]; then
   MIG15="$(random_pw)"
   create_roles "$PG15_URL" "$APP15" "$MIG15"
   {
-    echo "export YOMI_TEST_PG15_URL='postgres://yomi_app:${APP15}@${HP15}/yomi'"
-    echo "export YOMI_TEST_PG15_MIGRATION_URL='postgres://yomi_migrate:${MIG15}@${HP15}/yomi'"
+    # 別のホストの PostgreSQL 15 でも、DB の版の検査に届くように、平文を明示する（TLS の起動時の検査で止めない）
+    echo "export YOMI_TEST_PG15_URL='postgres://yomi_app:${APP15}@${HP15}/yomi?sslmode=disable'"
+    echo "export YOMI_TEST_PG15_MIGRATION_URL='postgres://yomi_migrate:${MIG15}@${HP15}/yomi?sslmode=disable'"
   } >> "$OUT/test.env"
 fi
 chmod 600 "$OUT/test.env"
