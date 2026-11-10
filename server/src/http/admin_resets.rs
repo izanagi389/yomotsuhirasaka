@@ -263,6 +263,44 @@ pub struct IssuedReset {
     reset_url: Option<String>,
 }
 
+/// 範囲の外の人へのリセットを発行せず、本人に知らせる。管理者への応答は、発行したときと同じ形にする。
+async fn decline_outside_scope(
+    state: &AppState,
+    current: &session::Current,
+    ws: Uuid,
+    target: Uuid,
+    email: &str,
+    locale: Option<&str>,
+) -> Result<(StatusCode, Json<IssuedReset>), ApiError> {
+    let mut tx = state.pool.begin().await.map_err(anyhow::Error::from)?;
+    let expires_at: String = sqlx::query_scalar(
+        r#"SELECT to_char((now() + make_interval(secs => $1)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"#,
+    )
+    .bind(f64::from(state.config.session.one_time_token_lifetime_seconds))
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(anyhow::Error::from)?;
+    let notice = mail::reset_declined(email, &state.issuer, locale_of(state, locale));
+    mail::enqueue(&mut *tx, &state.keys, state.config.smtp.as_ref(), &notice).await?;
+    audit::record(
+        &mut *tx,
+        Some(ws),
+        Some(current.user_id),
+        action::RESET_DECLINED_OUTSIDE_SCOPE,
+        &[target],
+    )
+    .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(IssuedReset {
+            expires_at,
+            delivery: "email",
+            reset_url: None,
+        }),
+    ))
+}
+
 fn server_admin_target() -> ApiError {
     ApiError::new(
         StatusCode::FORBIDDEN,
@@ -285,16 +323,6 @@ async fn issue_reset(
             // 対象がこのワークスペースに所属していなければ、存在しないものと同じ（INV-TEN-04）
             if access::role_in(&state.pool, ws, target).await?.is_none() {
                 return Err(ApiError::not_found());
-            }
-            // サーバー管理者として操作しているなら範囲の制限はない。ワークスペースの管理者には範囲がある（INV-AUTH-14）
-            if !access::acts_as_server_admin(current)
-                && !access::reset_within_scope(&state.pool, current.user_id, target).await?
-            {
-                return Err(ApiError::new(
-                    StatusCode::FORBIDDEN,
-                    "outside_scope",
-                    "This person also belongs to a workspace you do not administer. Ask a server administrator.",
-                ));
             }
         }
         None => access::server_admin(current)?,
@@ -324,6 +352,16 @@ async fn issue_reset(
     let Some((email, target_is_server_admin, locale, sso_only)) = row else {
         return Err(ApiError::not_found());
     };
+    // ワークスペースの管理者には範囲がある（INV-AUTH-14）。範囲の外（ほかのワークスペースにも所属する人、
+    // サーバー管理者）には発行しない。ただし、応答は発行したときと同じにする（他のワークスペースへの所属や、
+    // サーバー管理者であることを推測させない。第三者の確認の R27）。ここに来るのは SMTP があるときだけなので、
+    // 発行したときの応答も、いつもメールでの送付になる
+    if let Some(ws) = workspace.filter(|_| !by_server_admin)
+        && (target_is_server_admin
+            || !access::reset_within_scope(&state.pool, current.user_id, target).await?)
+    {
+        return decline_outside_scope(state, current, ws, target, &email, locale.as_deref()).await;
+    }
     if target_is_server_admin {
         return Err(server_admin_target());
     }

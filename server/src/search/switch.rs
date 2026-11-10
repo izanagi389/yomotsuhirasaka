@@ -255,7 +255,11 @@ pub async fn status(
 }
 
 /// 開始する（切り替え先のモデルを記録する。前の記録は書き直す）。
-pub async fn start(pool: &PgPool, model: &ModelId, user_id: uuid::Uuid) -> Result<()> {
+pub async fn start(
+    executor: impl sqlx::PgExecutor<'_>,
+    model: &ModelId,
+    user_id: uuid::Uuid,
+) -> Result<()> {
     sqlx::query(
         "INSERT INTO yomi.embedding_switch (id, model, dimensions, started_by, started_at)
          VALUES (true, $1, $2, $3, now())
@@ -264,7 +268,7 @@ pub async fn start(pool: &PgPool, model: &ModelId, user_id: uuid::Uuid) -> Resul
     .bind(&model.0)
     .bind(i32::try_from(model.1).unwrap_or(i32::MAX))
     .bind(user_id)
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }

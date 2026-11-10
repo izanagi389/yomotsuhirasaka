@@ -199,3 +199,46 @@ async fn serving_is_refused_when_no_slot_is_free() {
     })
     .await;
 }
+
+/// 接続元ごとの回数（R17）。上限を超えたら、ファイルを開かずに 429 を返す。0 なら数えない。
+#[tokio::test]
+async fn serving_is_limited_per_client() {
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.media.requests_per_ip_per_minute = 2;
+        let server = start(cfg).await;
+        let path = format!(
+            "/media/{}/{}.png",
+            uuid::Uuid::new_v4().simple(),
+            "a".repeat(32)
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                request_bytes(&server, "GET", &path, &[], None).await.status,
+                404
+            );
+        }
+        let res = request_bytes(&server, "GET", &path, &[], None).await;
+        assert_eq!(res.status, 429);
+        assert!(res.header("retry-after").is_some());
+    })
+    .await;
+
+    with_scratch(|app, migration| async move {
+        let mut cfg = config(&app, &migration);
+        cfg.media.requests_per_ip_per_minute = 0;
+        let server = start(cfg).await;
+        let path = format!(
+            "/media/{}/{}.png",
+            uuid::Uuid::new_v4().simple(),
+            "b".repeat(32)
+        );
+        for _ in 0..5 {
+            assert_eq!(
+                request_bytes(&server, "GET", &path, &[], None).await.status,
+                404
+            );
+        }
+    })
+    .await;
+}

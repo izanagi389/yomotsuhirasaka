@@ -189,14 +189,14 @@ pub async fn list(pool: &PgPool, user_id: Uuid) -> Result<Vec<Summary>> {
 }
 
 /// 本人のトークンを失効させる。本人のものでなければ false。
-pub async fn revoke(pool: &PgPool, user_id: Uuid, id: Uuid) -> Result<bool> {
+pub async fn revoke(executor: impl sqlx::PgExecutor<'_>, user_id: Uuid, id: Uuid) -> Result<bool> {
     let done = sqlx::query(
         "UPDATE yomi.personal_tokens SET revoked_at = now()
          WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
     )
     .bind(id)
     .bind(user_id)
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(done.rows_affected() == 1)
 }

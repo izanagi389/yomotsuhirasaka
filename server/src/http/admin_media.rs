@@ -35,7 +35,7 @@ use uuid::Uuid;
 use super::AppState;
 use super::admin_entries::{db, editor, parse, reader};
 use super::error::ApiError;
-use super::extract::{AuthSession, JsonBody};
+use super::extract::{AuthSession, ClientIp, JsonBody};
 use crate::access::{self, Access, Role};
 use crate::audit::{self, action};
 use crate::auth::session::Current;
@@ -211,6 +211,17 @@ pub async fn upload(
         }
         let info =
             store::insert(&mut tx, &base, ws, id, &file, &processed, current.user_id).await?;
+        if access.server_admin {
+            workspace_db::audit(
+                &mut tx,
+                &db,
+                Some(ws),
+                Some(current.user_id),
+                action::MEDIA_UPLOADED,
+                &[id],
+            )
+            .await?;
+        }
         tx.commit().await?;
         anyhow::Ok(Some(info))
     }
@@ -226,16 +237,6 @@ pub async fn upload(
             return Err(e.into());
         }
     };
-    if access.server_admin {
-        audit::record(
-            &state.pool,
-            Some(ws),
-            Some(current.user_id),
-            action::MEDIA_UPLOADED,
-            &[id],
-        )
-        .await?;
-    }
     Ok((StatusCode::CREATED, Json(info)))
 }
 
@@ -567,26 +568,30 @@ pub async fn set_limits(
                 .map_err(anyhow::Error::from)?;
         }
     }
-    tx.commit().await.map_err(anyhow::Error::from)?;
     if answer.iter().any(|(_, v)| v.is_some()) {
-        crate::budget::resumed(&state.pool, ws, crate::budget::Kind::VisitorAnswers).await?;
+        crate::budget::resumed(&mut *tx, ws, crate::budget::Kind::VisitorAnswers).await?;
     }
     if assist.iter().any(|(_, v)| v.is_some()) {
-        crate::budget::resumed(&state.pool, ws, crate::budget::Kind::EditorAssist).await?;
+        crate::budget::resumed(&mut *tx, ws, crate::budget::Kind::EditorAssist).await?;
     }
-    if req.embedding_tokens_per_month.is_some() || req.embedding_tokens_per_day.is_some() {
-        crate::budget::resumed(&state.pool, ws, crate::budget::Kind::Embedding).await?;
-        // 予算で止まっていた検索用データの作成を、すぐにやり直す
-        super::admin_publishing::schedule_search(&state, ws).await;
+    let embedding =
+        req.embedding_tokens_per_month.is_some() || req.embedding_tokens_per_day.is_some();
+    if embedding {
+        crate::budget::resumed(&mut *tx, ws, crate::budget::Kind::Embedding).await?;
     }
     audit::record(
-        &state.pool,
+        &mut *tx,
         Some(ws),
         Some(current.user_id),
         action::WORKSPACE_LIMITS_CHANGED,
         &[ws],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    if embedding {
+        // 予算で止まっていた検索用データの作成を、すぐにやり直す
+        super::admin_publishing::schedule_search(&state, ws).await;
+    }
     Ok(Json(limits_of(&state, ws).await?))
 }
 
@@ -603,8 +608,19 @@ const MEDIA_HEADERS: &[(&str, &str)] = &[
 
 pub async fn serve(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Path((ws, file)): Path<(String, String)>,
 ) -> Response {
+    // 接続元ごとの回数（第三者の確認の R17）。帯域は別にリバースプロキシや CDN で守る
+    if let Some(limiter) = &state.media_limiter
+        && let Err(retry_after) = limiter.check(ip)
+    {
+        let mut res = StatusCode::TOO_MANY_REQUESTS.into_response();
+        if let Ok(v) = HeaderValue::from_str(&retry_after.to_string()) {
+            res.headers_mut().insert(header::RETRY_AFTER, v);
+        }
+        return res;
+    }
     let Some((path, format)) = store::served_path(&state.config.media.root, &ws, &file) else {
         return StatusCode::NOT_FOUND.into_response();
     };

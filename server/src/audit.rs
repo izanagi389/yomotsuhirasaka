@@ -47,6 +47,8 @@ pub mod action {
     pub const MEMBER_JOINED: &str = "member.joined";
     pub const PASSWORD_RESET_REQUESTED: &str = "password_reset.requested";
     pub const PASSWORD_RESET_ISSUED: &str = "password_reset.issued";
+    /// ワークスペースの管理者がリセットを求めたが、範囲の外なので発行しなかった（本人には知らせる）。
+    pub const RESET_DECLINED_OUTSIDE_SCOPE: &str = "reset.declined_outside_scope";
     pub const PASSWORD_RESET_COMPLETED: &str = "password_reset.completed";
     pub const MFA_RESET_ISSUED: &str = "mfa_reset.issued";
     pub const MFA_RESET_COMPLETED: &str = "mfa_reset.completed";

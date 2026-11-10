@@ -359,6 +359,14 @@ pub struct MediaConfig {
     /// 同時に配信するファイルの数の上限（既定は512）。超えた分は 503 を返す。
     #[serde(default = "default_max_concurrent_serves")]
     pub max_concurrent_serves: u32,
+    /// 接続元のIPアドレス（IPv6は /64）ごとの、1分あたりのメディアのリクエストの上限（既定は1200）。超えたら 429。
+    /// 0 なら数えない。CDN を前に置くなら、CDN を `trusted_proxies` に入れる（入れないと CDN の分がまとめて数えられる）。
+    #[serde(default = "default_requests_per_ip_per_minute")]
+    pub requests_per_ip_per_minute: u32,
+}
+
+fn default_requests_per_ip_per_minute() -> u32 {
+    1200
 }
 
 fn default_max_concurrent_serves() -> u32 {
@@ -388,6 +396,7 @@ impl MediaConfig {
             default_workspace_quota_bytes: default_workspace_quota_bytes(),
             processing_timeout_seconds: default_processing_timeout_seconds(),
             max_concurrent_serves: default_max_concurrent_serves(),
+            requests_per_ip_per_minute: default_requests_per_ip_per_minute(),
         }
     }
 }
@@ -778,6 +787,10 @@ pub struct LimitsConfig {
     pub admin_requests_per_workspace_per_minute: u32,
     /// ワークスペースごとの記事の数の上限（翻訳は別の記事として数える。削除して物理削除を待つ記事も含む）。
     pub max_entries_per_workspace: u32,
+    /// 1つの記事の版の数の上限（公開のたびに版が1つ増える。古い版は消さない）。
+    pub max_versions_per_entry: u32,
+    /// ワークスペースごとの版の数の上限。
+    pub max_versions_per_workspace: u32,
     /// ワークスペースごとの登録クエリの数の上限。
     pub max_queries_per_workspace: u32,
     /// ワークスペースごとの、1分あたりのクエリの新規登録の上限（登録済みの文を登録し直すときは数えない）。
@@ -797,6 +810,8 @@ impl Default for LimitsConfig {
             admin_requests_per_user_per_minute: 600,
             admin_requests_per_workspace_per_minute: 3000,
             max_entries_per_workspace: 100_000,
+            max_versions_per_entry: 1000,
+            max_versions_per_workspace: 500_000,
             max_queries_per_workspace: 1000,
             query_registrations_per_workspace_per_minute: 60,
             invalid_api_keys_per_ip_per_minute: 600,

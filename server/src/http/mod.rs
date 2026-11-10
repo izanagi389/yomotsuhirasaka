@@ -142,6 +142,8 @@ pub struct Inner {
     pub login_limiter: IpLimiter,
     /// 無効な配信APIのキーを送る接続元の制限。
     pub invalid_key_limiter: IpLimiter,
+    /// メディアの配信の、接続元ごとの回数（0 なら数えない）。
+    pub media_limiter: Option<Arc<IpLimiter>>,
     /// 配信のクエリの実行枠。
     pub query_slots: QuerySlots,
     /// 暗号化の鍵（TOTPの秘密などの保存に使う）。
@@ -217,6 +219,11 @@ impl AppState {
         ));
         let invalid_key_limiter =
             IpLimiter::per_minute(config.limits.invalid_api_keys_per_ip_per_minute);
+        let media_limiter = (config.media.requests_per_ip_per_minute > 0).then(|| {
+            Arc::new(IpLimiter::per_minute(
+                config.media.requests_per_ip_per_minute,
+            ))
+        });
         let query_slots = QuerySlots::new(config.delivery.max_concurrent_queries);
         // 起動時の設定の検査で、読み込めることは確かめてある。ここで失敗したら国を調べずに続ける
         let geoip = config
@@ -261,6 +268,7 @@ impl AppState {
             issuer,
             login_limiter,
             invalid_key_limiter,
+            media_limiter,
             query_slots,
             keys,
             geoip,

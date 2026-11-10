@@ -73,6 +73,8 @@ DB が同じホストの外にあるときは、URL に `sslmode` を書きま�
 | `admin_requests_per_user_per_minute` | 600 | 利用者ごとの、1分あたりの管理 API のリクエスト。個人トークンも合わせて数えます |
 | `admin_requests_per_workspace_per_minute` | 3000 | ワークスペースごとの、1分あたりの管理 API のリクエスト。所属する人のリクエストだけを数えます |
 | `max_entries_per_workspace` | 100000 | ワークスペースごとの記事の数。翻訳は別の記事として数え、物理削除を待つ記事も含みます |
+| `max_versions_per_entry` | 1000 | 1つの記事の版の数。公開のたびに版が1つ増えます。古い版は消さないので、上限に達すると公開できません |
+| `max_versions_per_workspace` | 500000 | ワークスペースごとの版の数 |
 | `max_queries_per_workspace` | 1000 | ワークスペースごとの登録クエリの数 |
 | `query_registrations_per_workspace_per_minute` | 60 | ワークスペースごとの、1分あたりのクエリの新規登録。登録済みの文の登録し直しは数えません |
 
@@ -149,6 +151,7 @@ SMTP を設定しないと、次のようになります。
 | `default_workspace_quota_bytes` | 5368709120（5GB） | ワークスペースの容量の上限 |
 | `processing_timeout_seconds` | 20 | 画像の処理の時間の上限 |
 | `max_concurrent_serves` | 512 | 同時に配信するファイルの数の上限。超えた分は 503 を返します |
+| `requests_per_ip_per_minute` | 1200 | 接続元の IP アドレス（IPv6 は /64）ごとの、1分あたりのメディアのリクエストの上限。超えたら 429 を返します。0 で数えません。**CDN を CMS の前に置くときは、CDN を `trusted_proxies` に入れてください。** 入れないと、CDN からのリクエストがまとめて数えられ、429 になります |
 
 **メディアは管理画面とは別のドメイン（例: `https://media.example.com`）から配信することを勧めます。** 設定がなくてもスクリプトの実行を禁じるヘッダーは付きますが、別のドメインなら、より安全です。
 

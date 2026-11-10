@@ -21,7 +21,7 @@ use super::error::ApiError;
 use super::extract::{AuthSession, JsonBody};
 use crate::access::{self, Permission};
 use crate::answer::log::{self, Settings, SettingsChange, View};
-use crate::audit::{self, action};
+use crate::audit::action;
 use crate::workspace_db;
 
 pub async fn get_settings(
@@ -123,17 +123,18 @@ pub async fn delete_candidate(
     let db = db(&state, ws).await?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
     let deleted = log::delete_candidate(&mut tx, &id).await?;
-    tx.commit().await.map_err(anyhow::Error::from)?;
     if !deleted {
         return Err(ApiError::not_found());
     }
-    audit::record(
-        &state.pool,
+    workspace_db::audit(
+        &mut tx,
+        &db,
         Some(ws),
         Some(current.user_id),
         action::QUESTION_LOG_CANDIDATE_DELETED,
         &[],
     )
     .await?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(StatusCode::NO_CONTENT)
 }

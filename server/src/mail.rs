@@ -363,6 +363,34 @@ pub fn invitation(
     }
 }
 
+/// ワークスペースの管理者がリセットを求めたが、範囲の外（ほかのワークスペースにも所属する、サーバー管理者）なので
+/// 発行しなかったことを、本人に知らせるメール。管理者には、発行したときと同じ応答を返す（所属を推測させない）。
+pub fn reset_declined(to: &str, site: &str, locale: crate::locale::Locale) -> Mail {
+    use crate::locale::Locale;
+    let (subject, body) = match locale {
+        Locale::En => (
+            "A reset was requested for your account",
+            "A workspace administrator asked to reset your password or multi-factor authentication. \
+             No reset was issued, because a workspace administrator cannot reset an account that also belongs \
+             to other workspaces.\n\n\
+             If you need it, ask a server administrator, or use \"Forgot your password?\" on the sign-in page.\n\n\
+             If you did not expect this, you can ignore this email. Your account has not been changed.",
+        ),
+        Locale::Ja => (
+            "アカウントのリセットが求められました",
+            "ワークスペースの管理者が、あなたのアカウントのパスワードか多要素認証のリセットを求めました。\
+             あなたはほかのワークスペースにも所属しているため、ワークスペースの管理者はリセットを発行できず、発行していません。\n\n\
+             リセットが必要なら、サーバー管理者に依頼するか、ログインの画面の「パスワードを忘れた場合」を使ってください。\n\n\
+             心当たりがない場合は、このメールを無視してください。アカウントは変わっていません。",
+        ),
+    };
+    Mail {
+        to: to.to_owned(),
+        subject: format!("[{site}] {subject}"),
+        body: format!("{body}\n\n{site}\n"),
+    }
+}
+
 /// リセットのメール。リンクにはトークンが入るので、ジョブの中身は暗号化して保存される。
 pub fn reset(
     to: &str,
