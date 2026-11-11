@@ -34,6 +34,8 @@ mkdir -p ../yomi-packages && npm pack -w @yomotsuhirasaka/preview -w @yomotsuhir
 
 `templates/<テンプレート名>/template.json` に記事の構造を書きます。例は `templates/blog/template.json` です。デプロイはサーバー管理者が、デプロイの範囲の個人トークンで行います。
 
+見本の `blog` をそのまま使うなら、サーバー管理者が管理画面の「サーバーの管理」→「テンプレート」からデプロイできます（CLI は要りません。[ワークスペースと利用者](../operator/workspaces.md#同梱の見本blogを管理画面からデプロイする)）。見本を変えたテンプレートは、CLI でデプロイします。
+
 ```bash
 YOMI_TOKEN=<個人トークン> yomi deploy templates/blog --url https://yomi.example.com
 ```
