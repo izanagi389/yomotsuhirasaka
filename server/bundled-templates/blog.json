@@ -1,0 +1,227 @@
+{
+  "locales": [
+    "ja",
+    "en"
+  ],
+  "defaultLocale": "ja",
+  "contentTypes": [
+    {
+      "name": "post",
+      "description": "ブログの記事",
+      "urlTemplate": "https://example.com/{locale}/blog/{slug}",
+      "listLimit": 50,
+      "aiMarkdown": {
+        "title": "title",
+        "meta": [
+          "summary"
+        ],
+        "fields": [
+          "body"
+        ],
+        "relations": [
+          "related"
+        ]
+      },
+      "fields": [
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "description": "記事のタイトル"
+        },
+        {
+          "name": "slug",
+          "type": "slug",
+          "required": true,
+          "description": "URLに使う名前（英小文字・数字・ハイフン）"
+        },
+        {
+          "name": "summary",
+          "type": "text",
+          "description": "一覧や検索結果に出す短い説明"
+        },
+        {
+          "name": "body",
+          "type": "richtext",
+          "required": true
+        },
+        {
+          "name": "related",
+          "type": "reference",
+          "referenceTo": "post",
+          "multiple": true,
+          "description": "関連する記事"
+        }
+      ]
+    }
+  ],
+  "body": {
+    "nodes": [
+      {
+        "name": "paragraph",
+        "children": [
+          "hardBreak",
+          "text"
+        ],
+        "attrs": [],
+        "marks": true
+      },
+      {
+        "name": "blockquote",
+        "children": [
+          "paragraph",
+          "blockquote",
+          "bulletList",
+          "codeBlock",
+          "heading",
+          "horizontalRule",
+          "orderedList",
+          "image",
+          "embed"
+        ],
+        "attrs": [],
+        "marks": false
+      },
+      {
+        "name": "bulletList",
+        "children": [
+          "listItem"
+        ],
+        "attrs": [],
+        "marks": false
+      },
+      {
+        "name": "codeBlock",
+        "children": [
+          "text"
+        ],
+        "attrs": [
+          "language"
+        ],
+        "marks": false
+      },
+      {
+        "name": "doc",
+        "children": [
+          "paragraph",
+          "blockquote",
+          "bulletList",
+          "codeBlock",
+          "heading",
+          "horizontalRule",
+          "orderedList",
+          "image",
+          "embed"
+        ],
+        "attrs": [],
+        "marks": false
+      },
+      {
+        "name": "hardBreak",
+        "children": [],
+        "attrs": [],
+        "marks": false
+      },
+      {
+        "name": "heading",
+        "children": [
+          "hardBreak",
+          "text"
+        ],
+        "attrs": [
+          "level"
+        ],
+        "marks": true
+      },
+      {
+        "name": "horizontalRule",
+        "children": [],
+        "attrs": [],
+        "marks": false
+      },
+      {
+        "name": "listItem",
+        "children": [
+          "paragraph",
+          "blockquote",
+          "bulletList",
+          "codeBlock",
+          "heading",
+          "horizontalRule",
+          "orderedList",
+          "image",
+          "embed"
+        ],
+        "attrs": [],
+        "marks": false
+      },
+      {
+        "name": "orderedList",
+        "children": [
+          "listItem"
+        ],
+        "attrs": [
+          "start",
+          "type"
+        ],
+        "marks": false
+      },
+      {
+        "name": "text",
+        "children": [],
+        "attrs": [],
+        "marks": false
+      },
+      {
+        "name": "image",
+        "children": [],
+        "attrs": [
+          "mediaId",
+          "alt",
+          "decorative"
+        ],
+        "marks": false
+      },
+      {
+        "name": "embed",
+        "children": [],
+        "attrs": [
+          "src"
+        ],
+        "marks": false
+      }
+    ],
+    "marks": [
+      {
+        "name": "link",
+        "attrs": [
+          "href",
+          "target",
+          "rel",
+          "class",
+          "title"
+        ]
+      },
+      {
+        "name": "bold",
+        "attrs": []
+      },
+      {
+        "name": "code",
+        "attrs": []
+      },
+      {
+        "name": "italic",
+        "attrs": []
+      },
+      {
+        "name": "strike",
+        "attrs": []
+      }
+    ],
+    "embedProviders": [
+      "www.youtube.com",
+      "www.youtube-nocookie.com"
+    ]
+  }
+}

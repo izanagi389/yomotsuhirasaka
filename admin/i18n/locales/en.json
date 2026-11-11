@@ -68,7 +68,8 @@
     "new": "New workspace",
     "newDescription": "Enter the template name (lowercase letters, digits and hyphens). Leave it empty for default.",
     "name": "Name",
-    "template": "Template"
+    "template": "Template",
+    "templateHelp": "Enter blog to use the bundled sample (a server administrator deploys it under Server → Templates). Empty means default."
   },
   "roles": {
     "admin": "Admin",
@@ -1260,5 +1261,32 @@
     "remove": "Remove",
     "deleteTitle": "Delete the hook secret",
     "deleteDescription": "{name} will be deleted. Hooks that read this name will no longer get a value."
+  },
+  "bundledTemplates": {
+    "title": "Templates",
+    "help": "Deploy the sample templates bundled with this release from here. Deploy your own templates with the CLI (yomi deploy). Deploying updates every workspace that uses a template of the same name.",
+    "notDeployed": "Not deployed",
+    "upToDate": "Version {version} (same as bundled)",
+    "differs": "Version {version} (differs from bundled)",
+    "workspaces": "Workspaces using it: {n}",
+    "check": "Check",
+    "checkTitle": "What deploying {name} would do",
+    "unchanged": "Same as the deployed version. Only workspaces waiting for migration are migrated again.",
+    "problems": "The template has problems and cannot be deployed.",
+    "destructive": "There are destructive changes (such as removed fields). Data may be lost.",
+    "allowDestructive": "Allow destructive changes",
+    "brokenQueries": "Registered queries of these workspaces would break. Those workspaces keep the current version (migration pending) until the queries are fixed.",
+    "allowBrokenQueries": "Apply even if queries break (those queries will fail)",
+    "ready": "No problems found.",
+    "deploy": "Deploy",
+    "confirmTitle": "Deploy {name}",
+    "confirmDescription": "The schema of the workspaces that use this template will change. You will be asked to confirm your identity first.",
+    "done": "Deployed version {version} of {name}.",
+    "doneUnchanged": "{name} stays at version {version}.",
+    "migrated": "Migrated",
+    "pending": "Migration pending ({reason})",
+    "siteUrl": "Site of the public entry URLs",
+    "siteUrlHelp": "In the form https://example.com (no path; http://localhost only for trying it out locally). It replaces the site part of the sample entry URLs (such as https://example.com/en/blog/entry-slug). Changing it later changes the URLs; the history and redirects are kept.",
+    "siteUrlUsed": "Site: {url}"
   }
 }

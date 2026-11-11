@@ -100,6 +100,14 @@ pub async fn load_version<'e>(
         .transpose()
 }
 
+/// テンプレートの最新の版（同梱のテンプレートの一覧で、デプロイ済みの版と比べるため）。
+pub async fn load_latest(
+    conn: &mut PgConnection,
+    template: &str,
+) -> Result<Option<(i32, Manifest)>> {
+    latest_version(conn, template).await
+}
+
 async fn latest_version(
     conn: &mut PgConnection,
     template: &str,

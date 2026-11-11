@@ -127,6 +127,8 @@ jobs:
             # CLI（約束のテストが dist/index.js を実行する）。単体テストもここで流す
             - name: Build and test the CLI
               run: npm test -w @yomotsuhirasaka/cli
+            - name: Check the templates bundled into the server
+              run: node scripts/check-bundled-templates.mjs
             # 管理画面はサーバーが /admin/ で配信する（INV-HDR-01 などが応答を確かめる）。v-html の禁止は eslint で検査する
             - name: Lint, type check and build the admin UI
               working-directory: admin

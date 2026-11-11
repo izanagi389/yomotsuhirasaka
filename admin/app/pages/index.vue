@@ -76,7 +76,8 @@ async function create() {
           </div>
           <div class="grid gap-2">
             <Label for="ws-template">{{ t("workspaces.template") }}</Label>
-            <Input id="ws-template" v-model="template" autocomplete="off" placeholder="default" />
+            <Input id="ws-template" v-model="template" autocomplete="off" placeholder="default" aria-describedby="ws-template-help" />
+            <p id="ws-template-help" class="text-xs text-muted-foreground">{{ t("workspaces.templateHelp") }}</p>
           </div>
           <FormError :error="createError" />
           <DialogFooter>

@@ -612,6 +612,14 @@ pub fn router(state: AppState) -> Router {
             post(admin_templates::deploy_template),
         )
         .route(
+            "/bundled-templates",
+            get(admin_templates::bundled_templates),
+        )
+        .route(
+            "/bundled-templates/{name}/deploy",
+            post(admin_templates::deploy_bundled_template),
+        )
+        .route(
             "/workspaces/{ws}/members",
             get(admin_workspaces::list_members),
         )
