@@ -68,6 +68,8 @@ pub mod action {
     pub const TEMPLATE_DEPLOYED: &str = "template.deployed";
     pub const SCHEMA_MIGRATED: &str = "schema.migrated";
     pub const SCHEMA_MIGRATION_FAILED: &str = "schema.migration_failed";
+    /// ワークスペースのテンプレートの切り替え（重い操作。誰が行っても管理者に知らせる。INV-SCH-09）。
+    pub const TEMPLATE_SWITCHED: &str = "template.switched";
     /// 所属していないサーバー管理者による記事の作成と下書きの保存（Q122）。
     pub const ENTRY_CREATED: &str = "entry.created";
     pub const ENTRY_DRAFT_SAVED: &str = "entry.draft_saved";
@@ -194,6 +196,7 @@ pub const NOTIFY: &[&str] = &[
     action::BUDGET_EXHAUSTED,
     action::ANSWER_BUDGET_EXHAUSTED,
     action::ASSIST_BUDGET_EXHAUSTED,
+    action::TEMPLATE_SWITCHED,
 ];
 
 /// 知らせるかを記録する側が決める記録。

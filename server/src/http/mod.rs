@@ -95,7 +95,9 @@ struct RequestLimits {
 
 /// 処理時間の上限をかけない経路（デプロイと取り込みは長くかかり、途中で切ると移行が中断する）。
 fn long_running(path: &str) -> bool {
-    path.starts_with("/api/admin/templates/") || path.ends_with("/imports")
+    path.starts_with("/api/admin/templates/")
+        || path.ends_with("/imports")
+        || path.ends_with("/template")
 }
 
 async fn limit_requests(
@@ -444,6 +446,19 @@ pub fn router(state: AppState) -> Router {
             delete(admin_locks::release),
         )
         .route("/workspaces/{ws}/schema", get(admin_templates::schema_info))
+        .route(
+            "/workspaces/{ws}/template",
+            post(admin_templates::switch_template),
+        )
+        .route(
+            "/workspaces/{ws}/template/export",
+            post(admin_templates::switch_template_export),
+        )
+        .route(
+            "/workspaces/{ws}/template-options",
+            get(admin_templates::template_options),
+        )
+        .route("/templates", get(admin_templates::list_templates))
         .route(
             "/workspaces/{ws}/hook-secrets",
             get(admin_hook_secrets::list),
