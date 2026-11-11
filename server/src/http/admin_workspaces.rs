@@ -378,7 +378,7 @@ pub async fn change_member_role(
         .map(|v| {
             v.ok_or_else(|| {
                 ApiError::bad_request(
-                    "`grants` must list viewQuestionLog, manageLlm, policySwitches, corrections or takeOverEditing.",
+                    "`grants` must list viewQuestionLog, manageLlm, policySwitches, corrections, takeOverEditing or switchTemplate.",
                 )
             })
         })
@@ -413,6 +413,19 @@ pub async fn change_member_role(
         for p in Permission::ALL.into_iter().filter(|p| p.is_heavy()) {
             after = after.with(p, heavy.contains(&p));
         }
+    }
+    // 「テンプレートの切り替え」の付与と取り消しは、サーバー管理者だけ（INV-SCH-09）
+    if Permission::ALL
+        .into_iter()
+        .filter(|p| p.server_admin_grants_only())
+        .any(|p| after.contains(p) != before.contains(p))
+        && !access::acts_as_server_admin(&current)
+    {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "server_admin_grant_only",
+            "Only a server administrator can grant or remove the permission to switch templates.",
+        ));
     }
     sqlx::query(
         "UPDATE yomi.memberships SET role = coalesce($3, role), grants = $4
