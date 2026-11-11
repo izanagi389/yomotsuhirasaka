@@ -37,8 +37,8 @@ jobs:
             CARGO_PROFILE_TEST_DEBUG: line-tables-only
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-            # パスキーの照合（webauthn-rs）が OpenSSL を使う
-            - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config >/dev/null
+            # パスキーの照合（webauthn-rs）が OpenSSL を使う。パッケージの取得は、ミラーに一時的に届かなくてもやり直す
+            - run: sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q && sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends libssl-dev pkg-config >/dev/null
             - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
             - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
             - run: cargo fmt --check
@@ -77,8 +77,9 @@ jobs:
                     --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-            # パスキーの照合（webauthn-rs）が OpenSSL を使う
-            - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config >/dev/null
+            # パスキーの照合（webauthn-rs）が OpenSSL を使う。テストの DNS（dnsmasq）と DB の準備（psql）の分もここでまとめて入れる。
+            # パッケージの取得は、ミラーに一時的に届かなくてもやり直す（v1.0.0-rc.3 のリリースで、ミラーの名前の解決が続けて失敗した）
+            - run: sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q && sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends libssl-dev pkg-config dnsmasq-base postgresql-client >/dev/null
             - run: rustup toolchain install stable --profile minimal && rustup default stable
             - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
             - run: cargo build --locked
@@ -145,11 +146,9 @@ jobs:
             # inv.test のゾーンだけを、テストの実行環境のDNSサーバーに回す（Webhookなどの外部への送信の確認。INV-WH-*）
             - name: Route inv.test to the test DNS server
               run: |
-                  sudo apt-get install -y --no-install-recommends dnsmasq-base >/dev/null
                   sudo scripts/test-env/harness-dns.sh 5354
             - name: Prepare databases and config
               run: |
-                  sudo apt-get install -y --no-install-recommends postgresql-client >/dev/null
                   scripts/test-env/setup.sh \
                     postgres://postgres:ci-only-superuser-pw-16@127.0.0.1:5432/postgres \
                     postgres://postgres:ci-only-superuser-pw-15@127.0.0.1:5433/postgres \

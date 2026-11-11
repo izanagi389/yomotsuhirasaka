@@ -1,6 +1,6 @@
 {
   "name": "@yomotsuhirasaka/mock-llm",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "private": true,
   "description": "擬似LLM（OpenAI互換の埋め込みとチャットだけを持つ、開発とテスト用のサーバー。12-dev-environment.md）。本番では使わない",
   "license": "Apache-2.0",
