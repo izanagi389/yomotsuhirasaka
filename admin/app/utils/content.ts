@@ -137,8 +137,8 @@ export function entryTitle(ct: ContentType | undefined, fields: Record<string, F
 
 /** 公開・非公開・削除ができるか（管理者・編集者とサーバー管理者。Q77, Q200）。 */
 /** 個人に追加で付与できる重い権限（Q76。server/src/access.rs）。 */
-export type HeavyPermission = "viewQuestionLog" | "manageLlm" | "policySwitches" | "corrections" | "takeOverEditing";
-export const HEAVY_PERMISSIONS: HeavyPermission[] = ["viewQuestionLog", "manageLlm", "policySwitches", "corrections", "takeOverEditing"];
+export type HeavyPermission = "viewQuestionLog" | "manageLlm" | "policySwitches" | "corrections" | "takeOverEditing" | "switchTemplate";
+export const HEAVY_PERMISSIONS: HeavyPermission[] = ["viewQuestionLog", "manageLlm", "policySwitches", "corrections", "takeOverEditing", "switchTemplate"];
 
 /** 重い権限を持つか（ロールの既定か、個人への付与）。 */
 export function hasPermission(w: WorkspaceInfo | null | undefined, p: HeavyPermission): boolean {
