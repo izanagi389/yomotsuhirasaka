@@ -96,7 +96,7 @@ function active(to: string, exact?: boolean): boolean {
         :aria-label="t('workspaceSwitcher.open')"
         data-testid="workspace-switcher"
       >
-        <Kamon :id="workspaceId" />
+        <Kamon :id="workspaceId" :crest="workspace?.crest" />
         <template v-if="!compact">
           <span class="min-w-0 flex-1 truncate font-medium">{{ workspace?.name }}</span>
           <ChevronsUpDown class="size-4 text-sidebar-muted" aria-hidden="true" />
@@ -105,7 +105,7 @@ function active(to: string, exact?: boolean): boolean {
       <DropdownMenuContent align="start" class="w-60">
         <DropdownMenuLabel class="text-xs font-normal text-muted-foreground">{{ t("workspaceSwitcher.label") }}</DropdownMenuLabel>
         <DropdownMenuItem v-for="w in workspaces ?? []" :key="w.id" @select="navigateTo(`/w/${w.id}`)">
-          <Kamon :id="w.id" :size="20" />
+          <Kamon :id="w.id" :crest="w.crest" :size="20" />
           <span class="truncate" :class="w.id === workspaceId ? 'font-medium' : ''">{{ w.name }}</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />

@@ -86,7 +86,7 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
             <tbody>
               <tr v-for="w in workspaces ?? []" :key="w.id" class="border-t">
                 <td class="px-4 py-2.5">
-                  <NuxtLink :to="`/w/${w.id}`" class="flex items-center gap-2.5 font-medium hover:underline"><Kamon :id="w.id" :size="24" />{{ w.name }}</NuxtLink>
+                  <NuxtLink :to="`/w/${w.id}`" class="flex items-center gap-2.5 font-medium hover:underline"><Kamon :id="w.id" :crest="w.crest" :size="24" />{{ w.name }}</NuxtLink>
                 </td>
                 <td class="px-3 py-2.5">{{ w.template }}</td>
                 <td class="px-3 py-2.5" :class="w.schemaState === 'ok' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'">{{ t(`workspaces.schema.${w.schemaState}`) }}</td>

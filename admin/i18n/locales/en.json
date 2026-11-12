@@ -1423,5 +1423,38 @@
     "system": "Match the system",
     "light": "Light",
     "dark": "Dark"
+  },
+  "crest": {
+    "title": "Crest",
+    "help": "A mark that tells workspaces apart. It appears in lists and the sidebar. If you don't choose one, it's picked automatically.",
+    "motif": "Shape",
+    "color": "Colour",
+    "auto": "Automatic",
+    "chosen": "Chosen crest",
+    "save": "Use this crest",
+    "reset": "Back to automatic",
+    "saved": "Crest changed",
+    "motifs": {
+      "shippo": "Shippo",
+      "asanoha": "Hemp leaf",
+      "hishi": "Diamond",
+      "sakura": "Cherry blossom",
+      "ume": "Plum blossom",
+      "kikyo": "Bellflower",
+      "fuji": "Wisteria",
+      "take": "Bamboo",
+      "nami": "Waves",
+      "kumo": "Cloud",
+      "ogi": "Fan",
+      "kuyo": "Nine stars"
+    },
+    "colors": {
+      "ai": "Indigo",
+      "asagi": "Light blue",
+      "shu": "Vermilion",
+      "yamabuki": "Golden yellow",
+      "seiji": "Celadon",
+      "nezumi": "Grey"
+    }
   }
 }

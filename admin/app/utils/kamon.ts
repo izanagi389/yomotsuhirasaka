@@ -1,4 +1,5 @@
-// ワークスペースの紋（形と色）。まだ選んでいないワークスペースは、IDから決める。
+// ワークスペースの紋（形と色）。管理者がワークスペースの設定で選ぶ。まだ選んでいなければ、IDから決める。
+// 形と色の名前は、サーバー（server/src/http/admin_settings.rs の CREST_MOTIFS・CREST_COLORS）と DB の検査制約と同じ。
 
 export const KAMON_MOTIFS = [
   "shippo",
@@ -38,10 +39,30 @@ function hash(s: string): number {
   return h;
 }
 
-export function kamonFor(id: string): { motif: KamonMotif; color: (typeof KAMON_COLORS)[KamonColor] } {
+export interface Crest {
+  motif: string;
+  color: string;
+}
+
+function isMotif(m: string): m is KamonMotif {
+  return (KAMON_MOTIFS as readonly string[]).includes(m);
+}
+function isColor(c: string): c is KamonColor {
+  return c in KAMON_COLORS;
+}
+
+/** 選んだ紋（知らない値なら ID から決めたもの）。 */
+export function kamonFor(id: string, crest?: Crest | null): { motif: KamonMotif; color: (typeof KAMON_COLORS)[KamonColor] } {
+  if (crest && isMotif(crest.motif) && isColor(crest.color)) return { motif: crest.motif, color: KAMON_COLORS[crest.color] };
   const h = hash(id);
   return {
     motif: KAMON_MOTIFS[h % KAMON_MOTIFS.length]!,
     color: KAMON_COLORS[COLOR_KEYS[(h >>> 8) % COLOR_KEYS.length]!],
   };
+}
+
+/** 選んでいないときに ID から決まる紋（設定の画面で「自動」として見せる）。 */
+export function autoCrest(id: string): Crest {
+  const h = hash(id);
+  return { motif: KAMON_MOTIFS[h % KAMON_MOTIFS.length]!, color: COLOR_KEYS[(h >>> 8) % COLOR_KEYS.length]! };
 }

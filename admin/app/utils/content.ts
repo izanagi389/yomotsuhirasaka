@@ -55,6 +55,8 @@ export interface WorkspaceInfo {
   previewOrigins?: string[];
   /** サイトのプレビュー用ルートのパス（1件の取得のときだけ）。 */
   previewPath?: string;
+  /** ワークスペースの紋（選んでいなければ null。そのときは ID から決める）。 */
+  crest?: import("~/utils/kamon").Crest | null;
 }
 
 export type FieldValue = string | string[] | JSONContent | null;
