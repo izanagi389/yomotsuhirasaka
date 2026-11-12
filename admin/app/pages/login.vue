@@ -94,9 +94,9 @@ async function submitPasskey() {
 </script>
 
 <template>
-  <Card>
+  <Card class="border-0 bg-transparent shadow-none">
     <CardHeader>
-      <CardTitle>{{ t("auth.loginTitle") }}</CardTitle>
+      <CardTitle class="font-mincho text-2xl font-medium tracking-[0.14em]">{{ t("auth.loginTitle") }}</CardTitle>
       <CardDescription>{{ step === "password" ? t("auth.loginDescription") : t("auth.mfaDescription") }}</CardDescription>
     </CardHeader>
     <CardContent>

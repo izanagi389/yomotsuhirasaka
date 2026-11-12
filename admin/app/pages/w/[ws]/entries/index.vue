@@ -109,7 +109,7 @@ async function create() {
         </select>
       </div>
 
-      <p v-if="shown.length === 0" class="rounded-xl border border-dashed p-8 text-center text-muted-foreground">{{ counts.all === 0 ? t("entries.empty") : t("entries.noMatch") }}</p>
+      <EmptyState v-if="shown.length === 0" :title="counts.all === 0 ? t('entries.empty') : t('entries.noMatch')" />
       <div v-else class="overflow-x-auto rounded-xl border bg-card">
         <table class="w-full min-w-[640px] text-sm">
           <thead class="bg-muted/50 text-left text-xs text-muted-foreground">

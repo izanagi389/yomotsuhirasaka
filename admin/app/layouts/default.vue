@@ -45,8 +45,9 @@ watch(
     <main v-if="editor" class="min-w-0 flex-1">
       <slot />
     </main>
-    <main v-else class="min-w-0 flex-1 px-4 py-6 md:px-10 md:py-8">
+    <main v-else class="min-w-0 flex-1 px-4 pb-6 md:px-10 md:pb-8">
       <div class="mx-auto max-w-6xl">
+        <SeasonBar class="mb-6 border-b py-3 md:mb-8" />
         <slot />
       </div>
     </main>
@@ -67,6 +68,9 @@ watch(
         </div>
       </div>
     </header>
+    <div class="border-b bg-card">
+      <SeasonBar class="mx-auto max-w-6xl px-4 py-2.5" />
+    </div>
     <main class="mx-auto max-w-6xl px-4 py-8">
       <slot />
     </main>

@@ -106,7 +106,7 @@ function detail(i: TodoItem): string {
     <FormError :error="error ?? todoError ?? readError" />
     <p class="text-sm text-muted-foreground">{{ t("todo.help") }}</p>
 
-    <p v-if="items && items.length === 0" class="text-sm text-muted-foreground" data-testid="todo-empty">{{ t("todo.none") }}</p>
+    <EmptyState v-if="items && items.length === 0" :title="t('todo.none')" data-testid="todo-empty" />
     <ul v-else class="grid gap-2 text-sm" data-testid="todo-list">
       <li v-for="(i, n) in items ?? []" :key="`${i.kind}:${i.entry?.id ?? i.notification?.id}:${i.versionId ?? i.request?.id ?? i.schedule?.id ?? n}`">
         <NotificationCard v-if="i.kind === 'notification' && i.notification" :entry="i.notification" :people="people" :busy="reading" @read="read(i)" />

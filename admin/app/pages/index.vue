@@ -61,7 +61,7 @@ async function create() {
       </template>
     </PageHeader>
     <FormError :error="error" />
-    <p v-if="workspaces && workspaces.length === 0" class="text-muted-foreground">{{ t("workspaces.empty") }}</p>
+    <EmptyState v-if="workspaces && workspaces.length === 0" :title="t('workspaces.empty')" />
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Card v-for="w in workspaces ?? []" :key="w.id" class="relative h-full transition-colors hover:bg-muted/40" data-testid="workspace-card">
         <CardHeader class="flex flex-row items-start gap-3">
