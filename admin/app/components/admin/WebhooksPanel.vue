@@ -116,7 +116,7 @@ const stateVariant = (s: WebhookDelivery["state"]) => (s === "delivered" ? "defa
             <Button size="sm" variant="outline" @click="test(h)">{{ t("webhooks.test") }}</Button>
             <Button size="sm" variant="outline" :aria-expanded="open === h.id" @click="toggle(h)">{{ t("webhooks.deliveries") }}</Button>
             <Button size="sm" variant="outline" @click="rotate(h)">{{ t("webhooks.rotate") }}</Button>
-            <Button size="sm" variant="outline" class="text-destructive" @click="deleting = h">{{ t("webhooks.delete") }}</Button>
+            <Button size="sm" variant="outline" class="text-destructive hover:text-destructive" @click="deleting = h">{{ t("webhooks.delete") }}</Button>
           </div>
         </div>
         <div v-if="open === h.id" class="grid gap-1">

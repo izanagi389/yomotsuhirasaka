@@ -85,7 +85,7 @@ async function revoke() {
           <span class="font-medium">{{ i.email }}</span>
           <span>{{ t(`roles.${i.role}`) }}</span>
           <span class="text-muted-foreground">{{ t("invitations.expires", { at: formatDateTime(i.expiresAt, locale) }) }}</span>
-          <Button size="sm" variant="outline" class="ml-auto" @click="revoking = i">{{ t("invitations.revoke") }}</Button>
+          <Button size="sm" variant="outline" class="ml-auto text-destructive hover:text-destructive" @click="revoking = i">{{ t("invitations.revoke") }}</Button>
         </li>
       </ul>
     </section>

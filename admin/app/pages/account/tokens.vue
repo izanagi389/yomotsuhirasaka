@@ -129,7 +129,7 @@ async function revoke() {
         <span>{{ k.scopes.map((s) => t(`account.tokens.scope.${s}`)).join(", ") }}</span>
         <span class="text-muted-foreground">{{ k.workspaceIds.map(workspaceName).join(", ") || t("account.tokens.noWorkspaces") }}</span>
         <span class="text-muted-foreground">{{ t("apiKeys.expiresAt", { at: formatDateTime(k.expiresAt, locale) }) }}</span>
-        <Button size="sm" variant="outline" class="ml-auto" @click="revoking = k">{{ t("apiKeys.revoke") }}</Button>
+        <Button size="sm" variant="outline" class="ml-auto text-destructive hover:text-destructive" @click="revoking = k">{{ t("apiKeys.revoke") }}</Button>
       </li>
     </ul>
     <ConfirmDialog

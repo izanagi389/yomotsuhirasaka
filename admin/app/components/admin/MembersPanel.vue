@@ -156,7 +156,7 @@ async function issueReset(m: MemberInfo, kind: "password" | "mfa") {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem @select="issueReset(m, 'password')">{{ t("members.issuePasswordReset") }}</DropdownMenuItem>
                     <DropdownMenuItem :disabled="!m.mfaEnabled" @select="issueReset(m, 'mfa')">{{ t("members.issueMfaReset") }}</DropdownMenuItem>
-                    <DropdownMenuItem class="text-destructive" @select="removing = m">{{ t("members.remove") }}</DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" @select="removing = m">{{ t("members.remove") }}</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </td>

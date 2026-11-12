@@ -78,7 +78,7 @@ async function remove() {
           <code class="break-all">{{ s.name }}</code>
           <span class="ml-2 text-muted-foreground">{{ t("hookSecrets.updatedAt", { at: formatDateTime(s.updatedAt, locale) }) }}</span>
         </span>
-        <Button type="button" variant="outline" size="sm" @click="deleting = s">{{ t("hookSecrets.remove") }}</Button>
+        <Button type="button" variant="outline" size="sm" class="text-destructive hover:text-destructive" @click="deleting = s">{{ t("hookSecrets.remove") }}</Button>
       </li>
     </ul>
     <ConfirmDialog

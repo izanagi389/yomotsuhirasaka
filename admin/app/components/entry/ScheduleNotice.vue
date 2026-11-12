@@ -11,6 +11,7 @@ const props = defineProps<{ workspaceId: string; entryId: string; canPublish: bo
 const emit = defineEmits<{ reschedule: [] }>();
 const { t, te, locale } = useI18n();
 const api = useApi();
+const { confirm } = useConfirm();
 const path = computed(() => `/workspaces/${props.workspaceId}/entries/${props.entryId}/schedule`);
 const { data, error, refresh } = useAsyncData(`schedule:${props.entryId}`, () => api.get<EntrySchedule>(path.value));
 const open = computed(() => data.value?.open ?? null);
@@ -24,6 +25,13 @@ const errorText = (code: string | null) => (code && te(`schedule.errors.${code}`
 const busy = ref(false);
 const actionError = ref<unknown>(null);
 async function cancel() {
+  const ok = await confirm({
+    title: t("confirmations.scheduleCancel.title"),
+    description: t("confirmations.scheduleCancel.description"),
+    confirmLabel: t("schedule.cancel"),
+    destructive: true,
+  });
+  if (!ok) return;
   busy.value = true;
   actionError.value = null;
   try {
@@ -55,7 +63,7 @@ defineExpose({ refresh });
       </span>
       <template v-if="canPublish">
         <Button size="sm" variant="outline" :disabled="busy" data-testid="schedule-reschedule" @click="emit('reschedule')">{{ t("schedule.reschedule") }}</Button>
-        <Button size="sm" variant="outline" :disabled="busy" data-testid="schedule-cancel" @click="cancel">{{ t("schedule.cancel") }}</Button>
+        <Button size="sm" variant="outline" class="text-destructive hover:text-destructive" :disabled="busy" data-testid="schedule-cancel" @click="cancel">{{ t("schedule.cancel") }}</Button>
       </template>
     </div>
     <p v-else-if="notice" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status" data-testid="schedule-notice">

@@ -12,6 +12,7 @@ const route = useRoute();
 const ws = route.params.ws as string;
 const { t, locale } = useI18n();
 const api = useApi();
+const { confirm } = useConfirm();
 const { workspace, error: wsError } = await useWorkspace(ws);
 const { data: items, error, refresh } = await useAsyncData(`media:${ws}`, () => api.get<MediaInfo[]>(`/workspaces/${ws}/media`));
 const { data: limits, refresh: refreshLimits } = await useAsyncData(`limits:${ws}`, () => api.get<Limits>(`/workspaces/${ws}/limits`));
@@ -53,6 +54,13 @@ async function open(m: MediaInfo) {
 }
 async function remove(force: boolean) {
   if (!detail.value) return;
+  const ok = await confirm({
+    title: t("confirmations.mediaDelete.title"),
+    description: t(force ? "confirmations.mediaDelete.inUseDescription" : "confirmations.mediaDelete.description"),
+    confirmLabel: t(force ? "media.deleteAnyway" : "media.delete"),
+    destructive: true,
+  });
+  if (!ok || !detail.value) return;
   busy.value = true;
   actionError.value = null;
   try {

@@ -12,6 +12,7 @@ import type { AuditSink } from "~/utils/admin";
 const props = defineProps<{ workspaceId: string }>();
 const { t, te, locale } = useI18n();
 const api = useApi();
+const { confirm } = useConfirm();
 const base = computed(() => `/workspaces/${props.workspaceId}/audit-sinks`);
 const { data: sinks, error, refresh } = useAsyncData(`audit-sinks:${props.workspaceId}`, () => api.get<AuditSink[]>(base.value));
 
@@ -39,7 +40,15 @@ const create = () =>
     url.value = "";
   });
 const resume = (s: AuditSink) => run(() => api.post(`${base.value}/${s.id}/resume`));
-const remove = (s: AuditSink) => run(() => api.del(`${base.value}/${s.id}`));
+async function remove(s: AuditSink) {
+  const ok = await confirm({
+    title: t("confirmations.auditSinkDelete.title"),
+    description: t("confirmations.auditSinkDelete.description", { url: s.url }),
+    confirmLabel: t("auditSinks.delete"),
+    destructive: true,
+  });
+  if (ok) await run(() => api.del(`${base.value}/${s.id}`));
+}
 const errorText = (code: string) => (te(`webhooks.error.${code}`) ? t(`webhooks.error.${code}`) : code);
 </script>
 
@@ -66,7 +75,7 @@ const errorText = (code: string) => (te(`webhooks.error.${code}`) ? t(`webhooks.
           <Badge v-else variant="outline">{{ t("auditSinks.ok") }}</Badge>
           <div class="ml-auto flex flex-wrap gap-2">
             <Button v-if="s.stoppedAt" size="sm" variant="outline" :disabled="busy" @click="resume(s)">{{ t("auditSinks.resume") }}</Button>
-            <Button size="sm" variant="outline" class="text-destructive" :disabled="busy" @click="remove(s)">{{ t("auditSinks.delete") }}</Button>
+            <Button size="sm" variant="outline" class="text-destructive hover:text-destructive" :disabled="busy" @click="remove(s)">{{ t("auditSinks.delete") }}</Button>
           </div>
         </div>
         <p v-if="s.stoppedAt" class="text-muted-foreground">{{ t("auditSinks.stoppedAt", { at: formatDateTime(s.stoppedAt, locale) }) }}</p>

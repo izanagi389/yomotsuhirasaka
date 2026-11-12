@@ -1363,5 +1363,36 @@
   },
   "dangerZone": {
     "title": "Danger zone"
+  },
+  "confirmations": {
+    "sessionRevoke": {
+      "title": "End this session?",
+      "description": "That device is signed out immediately (last active: {at})."
+    },
+    "passkeyRemove": {
+      "title": "Delete the passkey \"{name}\"?",
+      "description": "You can no longer sign in or confirm your identity with this passkey. This cannot be undone."
+    },
+    "identityUnlink": {
+      "title": "Unlink the external account?",
+      "description": "You can no longer sign in with your {issuer} account. You can link it again later."
+    },
+    "recoveryRegenerate": {
+      "title": "Generate new recovery codes?",
+      "description": "All current recovery codes stop working. The new codes are shown only once, so keep them safe."
+    },
+    "auditSinkDelete": {
+      "title": "Delete this export destination?",
+      "description": "Audit log delivery to {url} stops and the destination is deleted. This cannot be undone."
+    },
+    "scheduleCancel": {
+      "title": "Cancel the scheduled publication?",
+      "description": "It will not be published at the scheduled time. The draft stays."
+    },
+    "mediaDelete": {
+      "title": "Delete this media?",
+      "description": "The file is deleted immediately. This cannot be undone.",
+      "inUseDescription": "It is used in an entry draft or past version. Those entries will no longer show it. This cannot be undone."
+    }
   }
 }

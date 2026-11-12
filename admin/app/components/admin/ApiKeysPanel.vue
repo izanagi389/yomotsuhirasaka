@@ -105,7 +105,7 @@ async function revoke() {
         <span>{{ t(`apiKeys.purposes.${k.purpose}`) }}</span>
         <span class="text-muted-foreground">{{ k.expiresAt ? t("apiKeys.expiresAt", { at: formatDateTime(k.expiresAt, locale) }) : t("apiKeys.noExpiry") }}</span>
         <span class="text-muted-foreground">{{ k.lastUsedAt ? t("apiKeys.lastUsed", { at: formatDateTime(k.lastUsedAt, locale) }) : t("apiKeys.neverUsed") }}</span>
-        <Button size="sm" variant="outline" class="ml-auto" @click="revoking = k">{{ t("apiKeys.revoke") }}</Button>
+        <Button size="sm" variant="outline" class="ml-auto text-destructive hover:text-destructive" @click="revoking = k">{{ t("apiKeys.revoke") }}</Button>
       </li>
     </ul>
     <ConfirmDialog
