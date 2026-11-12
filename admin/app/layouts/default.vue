@@ -8,6 +8,8 @@ const { t } = useI18n();
 const route = useRoute();
 
 const ws = computed(() => (typeof route.params.ws === "string" ? route.params.ws : null));
+// 記事の編集画面では、本文を広く取るためにサイドバーをアイコンだけにし、余白も画面に任せる
+const editor = computed(() => /\/w\/[^/]+\/entries\/[^/]+$/.test(route.path));
 const menuOpen = ref(false);
 watch(
   () => route.fullPath,
@@ -19,8 +21,8 @@ watch(
 
 <template>
   <div v-if="ws" class="min-h-svh md:flex">
-    <aside class="sticky top-0 hidden h-svh w-60 shrink-0 md:block">
-      <WorkspaceSidebar :key="ws" :workspace-id="ws" />
+    <aside class="sticky top-0 hidden h-svh shrink-0 md:block" :class="editor ? 'w-16' : 'w-60'">
+      <WorkspaceSidebar :key="ws" :workspace-id="ws" :compact="editor" />
     </aside>
 
     <div class="flex h-14 items-center gap-3 bg-sidebar px-4 text-sidebar-strong md:hidden">
@@ -40,7 +42,10 @@ watch(
       <button type="button" class="flex-1 bg-black/40" :aria-label="t('nav.closeMenu')" @click="menuOpen = false" />
     </div>
 
-    <main class="min-w-0 flex-1 px-4 py-6 md:px-10 md:py-8">
+    <main v-if="editor" class="min-w-0 flex-1">
+      <slot />
+    </main>
+    <main v-else class="min-w-0 flex-1 px-4 py-6 md:px-10 md:py-8">
       <div class="mx-auto max-w-6xl">
         <slot />
       </div>

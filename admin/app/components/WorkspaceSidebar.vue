@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { WorkspaceInfo } from "~/utils/content";
 
-const props = defineProps<{ workspaceId: string }>();
+const props = defineProps<{ workspaceId: string; compact?: boolean }>();
 const { t } = useI18n();
 const route = useRoute();
 const api = useApi();
@@ -81,22 +81,26 @@ function active(to: string, exact?: boolean): boolean {
 </script>
 
 <template>
-  <div class="flex h-full flex-col gap-1 bg-sidebar px-3 py-4 text-sm text-sidebar-foreground" data-testid="workspace-sidebar">
-    <NuxtLink to="/" class="flex items-center gap-2.5 rounded-md px-2 pt-1 pb-3 text-sidebar-strong">
+  <div class="flex h-full flex-col gap-1 overflow-y-auto bg-sidebar py-4 text-sm text-sidebar-foreground" :class="compact ? 'px-2' : 'px-3'" data-testid="workspace-sidebar">
+    <NuxtLink to="/" class="flex items-center gap-2.5 rounded-md pt-1 pb-3 text-sidebar-strong" :class="compact ? 'justify-center' : 'px-2'" :title="compact ? t('app.name') : undefined">
       <BrandMark :size="28" />
-      <span class="font-mincho text-base tracking-[0.18em]">{{ t("app.name") }}</span>
+      <span :class="compact ? 'sr-only' : 'font-mincho text-base tracking-[0.18em]'">{{ t("app.name") }}</span>
     </NuxtLink>
-    <Mizuhiki class="mb-3" />
+    <Mizuhiki v-if="!compact" class="mb-3" />
 
     <DropdownMenu>
       <DropdownMenuTrigger
-        class="mb-3 flex min-h-11 w-full items-center gap-2.5 rounded-[10px] border border-sidebar-border bg-white/5 p-2 text-left text-sidebar-strong outline-none hover:bg-sidebar-active focus-visible:ring-2 focus-visible:ring-ring"
+        class="mb-3 flex min-h-11 w-full items-center gap-2.5 rounded-[10px] text-left text-sidebar-strong outline-none hover:bg-sidebar-active focus-visible:ring-2 focus-visible:ring-ring"
+        :class="compact ? 'justify-center p-1' : 'border border-sidebar-border bg-white/5 p-2'"
+        :title="compact ? workspace?.name : undefined"
         :aria-label="t('workspaceSwitcher.open')"
         data-testid="workspace-switcher"
       >
         <Kamon :id="workspaceId" />
-        <span class="min-w-0 flex-1 truncate font-medium">{{ workspace?.name }}</span>
-        <ChevronsUpDown class="size-4 text-sidebar-muted" aria-hidden="true" />
+        <template v-if="!compact">
+          <span class="min-w-0 flex-1 truncate font-medium">{{ workspace?.name }}</span>
+          <ChevronsUpDown class="size-4 text-sidebar-muted" aria-hidden="true" />
+        </template>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" class="w-60">
         <DropdownMenuLabel class="text-xs font-normal text-muted-foreground">{{ t("workspaceSwitcher.label") }}</DropdownMenuLabel>
@@ -110,15 +114,16 @@ function active(to: string, exact?: boolean): boolean {
     </DropdownMenu>
 
     <nav :aria-label="workspace?.name ?? t('nav.label')" class="grid gap-0.5">
-      <SidebarLink v-for="i in main" :key="i.to" :to="i.to" :label="i.label" :icon="i.icon" :count="'count' in i ? i.count : 0" :active="active(i.to, 'exact' in i && i.exact)" />
+      <SidebarLink v-for="i in main" :key="i.to" :to="i.to" :label="i.label" :icon="i.icon" :count="'count' in i ? i.count : 0" :active="active(i.to, 'exact' in i && i.exact)" :compact="compact" />
       <template v-if="admin.length">
-        <span class="px-2.5 pt-4 pb-1 text-[11px] tracking-[0.2em] text-sidebar-muted">{{ t("nav.adminSection") }}</span>
-        <SidebarLink v-for="i in admin" :key="i.to" :to="i.to" :label="i.label" :icon="i.icon" :active="active(i.to)" />
+        <span v-if="!compact" class="px-2.5 pt-4 pb-1 text-[11px] tracking-[0.2em] text-sidebar-muted">{{ t("nav.adminSection") }}</span>
+        <span v-else aria-hidden="true" class="mx-1 my-2 h-px bg-sidebar-border" />
+        <SidebarLink v-for="i in admin" :key="i.to" :to="i.to" :label="i.label" :icon="i.icon" :active="active(i.to)" :compact="compact" />
       </template>
     </nav>
 
     <div class="mt-auto pt-4">
-      <AccountMenu placement="sidebar" />
+      <AccountMenu placement="sidebar" :compact="compact" />
     </div>
   </div>
 </template>

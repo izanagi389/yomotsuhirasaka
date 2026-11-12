@@ -274,7 +274,12 @@
     "unpublishTitle": "Unpublish this entry",
     "unpublishDescription": "Removes the entry from the public site. The draft and version history are kept.",
     "deleteTitle": "Delete this entry",
-    "deleteDescription": "Deletes the entry and stops publishing it. This cannot be undone from the admin."
+    "deleteDescription": "Deletes the entry and stops publishing it. This cannot be undone from the admin.",
+    "backToList": "Entries",
+    "backToEdit": "Back to editing",
+    "sidePanel": "Entry details",
+    "sideWide": "Widen the side panel",
+    "sideNarrow": "Narrow the side panel"
   },
   "publish": {
     "button": "Publish",
@@ -319,7 +324,8 @@
     "urls": "URL history",
     "freshness": "Freshness",
     "review": "Review",
-    "related": "Related"
+    "related": "Related",
+    "history": "History"
   },
   "translations": {
     "source": "Source entry",
