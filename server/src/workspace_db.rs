@@ -81,6 +81,51 @@ pub async fn provision(
     Ok(db)
 }
 
+/// ワークスペースを完全に削除する（11-permissions-and-audit.md「ワークスペースと利用者」、INV-TEN-08、INV-DB-05）。
+/// 移行・ロールの作成用の接続の中で呼ぶ（デプロイのロックを持って）。消えたら true、なければ false。
+///
+/// 1つのトランザクションで、スキーマ（記事・版・メディアの記録など）とロールを消し、個人トークンからそのワークスペースを外し、
+/// 共通のテーブルの行を消す（所属・招待・APIキー・Webhook・ジョブ・設定は `ON DELETE CASCADE` で消える）。
+/// 監査ログの行は消さない（通常の保存期間まで残す）。メディアのファイルは呼ぶ側が消す。
+pub async fn destroy(conn: &mut PgConnection, workspace_id: Uuid) -> Result<bool> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
+    let found: Option<(String, String)> =
+        sqlx::query_as("SELECT db_schema, db_role FROM yomi.workspaces WHERE id = $1 FOR UPDATE")
+            .bind(workspace_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some((schema, role)) = found else {
+        return Ok(false);
+    };
+    // 登録された名前が、IDから決まる名前と一致することを確かめる（取り違えて別のスキーマを消さない）
+    let expected = WorkspaceDb::names_for(workspace_id);
+    if schema != expected.schema.as_str() || role != expected.role.as_str() {
+        bail!("workspace {workspace_id} has unexpected database names");
+    }
+    let (schema, role) = (&expected.schema, &expected.role);
+    sqlx::query(crate::sql!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&mut *tx)
+        .await
+        .with_context(|| format!("cannot drop the schema of workspace {workspace_id}"))?;
+    sqlx::query(crate::sql!("DROP ROLE {role}"))
+        .execute(&mut *tx)
+        .await
+        .with_context(|| format!("cannot drop the role of workspace {workspace_id}"))?;
+    sqlx::query(
+        "UPDATE yomi.personal_tokens SET workspace_ids = array_remove(workspace_ids, $1)
+         WHERE $1 = ANY (workspace_ids)",
+    )
+    .bind(workspace_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM yomi.workspaces WHERE id = $1")
+        .bind(workspace_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(true)
+}
+
 /// ワークスペースのスキーマの土台のテーブルの移行（版, SQL）。版の昇順に並べる。
 /// SQLは、search_path をそのワークスペースのスキーマにした中で実行する。
 pub const BASE_MIGRATIONS: &[(i32, &str)] = &[

@@ -39,6 +39,8 @@ pub mod action {
     /// 本人が表示名を変えた（名前そのものは書かない）。
     pub const DISPLAY_NAME_CHANGED: &str = "user.display_name_changed";
     pub const WORKSPACE_CREATED: &str = "workspace.created";
+    /// ワークスペースの削除（サーバー管理者。インスタンス全体の記録で、対象は削除したワークスペースのID。管理者に知らせる）。
+    pub const WORKSPACE_DELETED: &str = "workspace.deleted";
     pub const MEMBER_ROLE_CHANGED: &str = "member.role_changed";
     pub const MEMBER_REMOVED: &str = "member.removed";
     pub const MEMBER_PERMISSION_CHANGED: &str = "member.permission_changed";
@@ -197,6 +199,7 @@ pub const NOTIFY: &[&str] = &[
     action::ANSWER_BUDGET_EXHAUSTED,
     action::ASSIST_BUDGET_EXHAUSTED,
     action::TEMPLATE_SWITCHED,
+    action::WORKSPACE_DELETED,
 ];
 
 /// 知らせるかを記録する側が決める記録。

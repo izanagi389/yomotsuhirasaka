@@ -36,6 +36,24 @@ fn workspace_dir(root: &Path, workspace_id: Uuid) -> PathBuf {
     root.join(workspace_id.simple().to_string())
 }
 
+/// 削除したワークスペースのメディアのファイルをすべて消す。まず配信の形に合わない名前へ変えて（すぐに配信されなくなる）、
+/// それから中身を消す。ディレクトリがなければ何もしない。
+pub async fn remove_workspace(root: &Path, workspace_id: Uuid) -> Result<()> {
+    let dir = workspace_dir(root, workspace_id);
+    let trash = root.join(format!(".deleted-{}", Uuid::new_v4().simple()));
+    match tokio::fs::rename(&dir, &trash).await {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => {
+            return Err(e)
+                .with_context(|| format!("cannot remove media of workspace {workspace_id}"));
+        }
+    }
+    tokio::fs::remove_dir_all(&trash)
+        .await
+        .with_context(|| format!("cannot remove media of workspace {workspace_id}"))
+}
+
 /// 保存したファイルの名前として正しい形か（`<32桁の16進数>.<拡張子>`）。
 pub fn valid_file_name(name: &str) -> bool {
     let Some((stem, ext)) = name.split_once('.') else {

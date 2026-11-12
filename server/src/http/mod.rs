@@ -423,7 +423,10 @@ pub fn router(state: AppState) -> Router {
             "/workspaces",
             get(admin_workspaces::list_workspaces).post(admin_workspaces::create_workspace),
         )
-        .route("/workspaces/{ws}", get(admin_workspaces::get_workspace))
+        .route(
+            "/workspaces/{ws}",
+            get(admin_workspaces::get_workspace).delete(admin_workspaces::delete_workspace),
+        )
         .route(
             "/workspaces/{ws}/settings",
             patch(admin_settings::patch_settings),

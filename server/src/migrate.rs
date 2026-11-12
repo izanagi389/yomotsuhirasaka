@@ -190,6 +190,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "switch_template_grant",
         include_str!("../migrations/0039_switch_template_grant.sql"),
     ),
+    (
+        40,
+        "workspace_deletion",
+        include_str!("../migrations/0040_workspace_deletion.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
