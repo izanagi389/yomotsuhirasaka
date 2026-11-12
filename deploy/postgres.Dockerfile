@@ -4,7 +4,7 @@
 # 拡張を使う機能（検索・埋め込み）はM3から。初期化のスクリプト（deploy/init.sh）が、拡張を yomi のDBに作る。
 
 # 外部のイメージは digest で固定する（13-security.md）。postgres:16-trixie のタグの、マルチアーキテクチャの一覧の digest
-FROM postgres:16-trixie@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
+FROM postgres:18-trixie@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
 
 # pg_bigm v1.2-20250903（https://github.com/pgbigm/pg_bigm、PostgreSQL License）
 ARG PG_BIGM_COMMIT=735dceba0ecdd8ac1aaaaa207226a7102b6bbd71
