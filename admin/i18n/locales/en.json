@@ -279,7 +279,16 @@
     "backToEdit": "Back to editing",
     "sidePanel": "Entry details",
     "sideWide": "Widen the side panel",
-    "sideNarrow": "Narrow the side panel"
+    "sideNarrow": "Narrow the side panel",
+    "count": "Entries: {n}",
+    "search": "Search entries",
+    "searchPlaceholder": "Search by title",
+    "filter": {
+      "all": "All",
+      "published": "Published",
+      "draft": "Drafts"
+    },
+    "noMatch": "No entries match these filters."
   },
   "publish": {
     "button": "Publish",
@@ -1399,6 +1408,14 @@
       "title": "Delete this media?",
       "description": "The file is deleted immediately. This cannot be undone.",
       "inUseDescription": "It is used in an entry draft or past version. Those entries will no longer show it. This cannot be undone."
+    },
+    "passwordReset": {
+      "title": "Issue a password reset for {email}?",
+      "description": "Creates a link for them to set a new password (shown here once if email can't be sent). When they complete it, all their sessions are revoked."
+    },
+    "mfaReset": {
+      "title": "Issue a multi-factor reset for {email}?",
+      "description": "Creates a link for them to set up multi-factor authentication again (shown here once if email can't be sent). When they complete it, all their sessions are revoked."
     }
   }
 }

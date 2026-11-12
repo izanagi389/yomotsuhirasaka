@@ -110,4 +110,12 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  /* ブラウザの標準の選択欄とチェックボックスも、配色をそろえる（形は各画面のクラスで決める） */
+  select {
+    @apply rounded-md border border-input bg-background text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50;
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--primary);
+  }
 }
