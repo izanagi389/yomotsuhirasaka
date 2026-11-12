@@ -6,6 +6,7 @@ export interface WorkspaceSummary {
   template: string;
   role: string | null;
   schemaState: "none" | "ok" | "pending";
+  crest?: import("~/utils/kamon").Crest | null;
 }
 
 export function useWorkspaces() {

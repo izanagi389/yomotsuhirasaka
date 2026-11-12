@@ -65,7 +65,7 @@ async function create() {
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Card v-for="w in workspaces ?? []" :key="w.id" class="relative h-full transition-colors hover:bg-muted/40" data-testid="workspace-card">
         <CardHeader class="flex flex-row items-start gap-3">
-          <Kamon :id="w.id" :size="40" />
+          <Kamon :id="w.id" :crest="w.crest" :size="40" />
           <div class="grid min-w-0 flex-1 gap-1">
             <CardTitle class="truncate text-base">
               <NuxtLink :to="`/w/${w.id}`" class="rounded-sm outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:ring-2 focus-visible:ring-ring">{{ w.name }}</NuxtLink>

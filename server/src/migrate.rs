@@ -195,6 +195,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "workspace_deletion",
         include_str!("../migrations/0040_workspace_deletion.sql"),
     ),
+    (
+        41,
+        "workspace_crest",
+        include_str!("../migrations/0041_workspace_crest.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。

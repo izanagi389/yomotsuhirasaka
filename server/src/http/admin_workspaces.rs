@@ -66,6 +66,8 @@ pub struct WorkspaceInfo {
     /// サイトのプレビュー用ルートのパス（1件の取得のときだけ）。
     #[serde(skip_serializing_if = "Option::is_none")]
     preview_path: Option<String>,
+    /// ワークスペースの紋（選んでいなければ null。管理画面が ID から決める）。
+    crest: Option<super::admin_settings::Crest>,
 }
 
 type WorkspaceRow = (
@@ -76,10 +78,12 @@ type WorkspaceRow = (
     Option<String>,
     Option<i32>,
     String,
+    Option<String>,
+    Option<String>,
 );
 
 fn workspace_info(
-    (id, name, template, created_at, role, schema_version, schema_state): WorkspaceRow,
+    (id, name, template, created_at, role, schema_version, schema_state, motif, color): WorkspaceRow,
 ) -> WorkspaceInfo {
     WorkspaceInfo {
         id,
@@ -93,6 +97,9 @@ fn workspace_info(
         take_over_policy: None,
         preview_origins: None,
         preview_path: None,
+        crest: motif
+            .zip(color)
+            .map(|(motif, color)| super::admin_settings::Crest { motif, color }),
     }
 }
 
@@ -102,9 +109,10 @@ pub async fn list_workspaces(
 ) -> Result<Json<Vec<WorkspaceInfo>>, ApiError> {
     let rows: Vec<WorkspaceRow> = sqlx::query_as(crate::sql!(
         "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role,
-                w.schema_version, w.schema_state
+                w.schema_version, w.schema_state, s.crest_motif, s.crest_color
          FROM yomi.workspaces w
          LEFT JOIN yomi.memberships m ON m.workspace_id = w.id AND m.user_id = $1
+         LEFT JOIN yomi.workspace_settings s ON s.workspace_id = w.id
          WHERE (m.user_id IS NOT NULL OR $2)
            AND ($3::uuid[] IS NULL OR w.id = ANY ($3))
          ORDER BY w.created_at, w.id"
@@ -127,9 +135,10 @@ async fn fetch_workspace(
 ) -> Result<WorkspaceInfo, ApiError> {
     let row: WorkspaceRow = sqlx::query_as(crate::sql!(
         "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role,
-                w.schema_version, w.schema_state
+                w.schema_version, w.schema_state, s.crest_motif, s.crest_color
          FROM yomi.workspaces w
          LEFT JOIN yomi.memberships m ON m.workspace_id = w.id AND m.user_id = $2
+         LEFT JOIN yomi.workspace_settings s ON s.workspace_id = w.id
          WHERE w.id = $1"
     ))
     .bind(id)

@@ -1423,5 +1423,38 @@
     "system": "OS の設定に従う",
     "light": "明るい",
     "dark": "暗い"
+  },
+  "crest": {
+    "title": "紋",
+    "help": "ワークスペースを見分けるための印です。一覧やサイドバーに出ます。選ばなければ、自動で決まります。",
+    "motif": "形",
+    "color": "色",
+    "auto": "自動",
+    "chosen": "選んだ紋",
+    "save": "この紋にする",
+    "reset": "自動に戻す",
+    "saved": "紋を変えました",
+    "motifs": {
+      "shippo": "七宝",
+      "asanoha": "麻の葉",
+      "hishi": "菱",
+      "sakura": "桜",
+      "ume": "梅",
+      "kikyo": "桔梗",
+      "fuji": "藤",
+      "take": "竹",
+      "nami": "波",
+      "kumo": "雲",
+      "ogi": "扇",
+      "kuyo": "九曜"
+    },
+    "colors": {
+      "ai": "藍",
+      "asagi": "浅葱",
+      "shu": "朱",
+      "yamabuki": "山吹",
+      "seiji": "青磁",
+      "nezumi": "鼠"
+    }
   }
 }

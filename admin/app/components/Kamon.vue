@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// ワークスペースの紋。12の形と6の色を、ワークスペースのIDから決める（選べるようにするまでの既定）。
+// ワークスペースの紋。管理者が選んだもの（crest）を出し、選んでいなければ12の形と6の色をワークスペースのIDから決める。
 // 形は伝統の文様をもとに、この管理画面用に線で描き起こしたもの。飾りなので読み上げない。
-import { kamonFor } from "~/utils/kamon";
+import { kamonFor, type Crest } from "~/utils/kamon";
 
-const props = withDefaults(defineProps<{ id: string; size?: number }>(), { size: 28 });
-const k = computed(() => kamonFor(props.id));
+const props = withDefaults(defineProps<{ id: string; crest?: Crest | null; size?: number }>(), { size: 28, crest: null });
+const k = computed(() => kamonFor(props.id, props.crest));
 </script>
 
 <template>
