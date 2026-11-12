@@ -70,7 +70,14 @@ async function remove() {
 
 // リセットの発行（本人向けのリンク。SMTP がなければ一度だけ表示する）
 const issued = ref<{ email: string; kind: "password" | "mfa"; result: Issued } | null>(null);
+const { confirm } = useConfirm();
 async function issueReset(m: MemberInfo, kind: "password" | "mfa") {
+  const ok = await confirm({
+    title: t(kind === "password" ? "confirmations.passwordReset.title" : "confirmations.mfaReset.title", { email: m.email }),
+    description: t(kind === "password" ? "confirmations.passwordReset.description" : "confirmations.mfaReset.description"),
+    confirmLabel: t(kind === "password" ? "members.issuePasswordReset" : "members.issueMfaReset"),
+  });
+  if (!ok) return;
   actionError.value = null;
   issued.value = null;
   try {

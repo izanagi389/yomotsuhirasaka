@@ -33,7 +33,16 @@ const people = computed(() => Object.fromEntries((users.value ?? []).map((u) => 
 
 const actionError = ref<unknown>(null);
 const issued = ref<{ email: string; kind: "password" | "mfa"; result: Issued } | null>(null);
+const { confirm } = useConfirm();
+const issuing = ref(false);
 async function issueReset(u: UserInfo, kind: "password" | "mfa") {
+  const ok = await confirm({
+    title: t(kind === "password" ? "confirmations.passwordReset.title" : "confirmations.mfaReset.title", { email: u.email }),
+    description: t(kind === "password" ? "confirmations.passwordReset.description" : "confirmations.mfaReset.description"),
+    confirmLabel: t(kind === "password" ? "members.issuePasswordReset" : "members.issueMfaReset"),
+  });
+  if (!ok) return;
+  issuing.value = true;
   actionError.value = null;
   issued.value = null;
   try {
@@ -41,6 +50,8 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
     issued.value = { email: u.email, kind, result };
   } catch (e) {
     actionError.value = e;
+  } finally {
+    issuing.value = false;
   }
 }
 </script>
@@ -106,8 +117,8 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
             <Badge v-if="u.disabled" variant="destructive">{{ t("server.disabled") }}</Badge>
             <Badge v-if="!u.mfaEnabled" variant="outline">{{ t("members.noMfa") }}</Badge>
             <div v-if="!u.isServerAdmin" class="ml-auto flex gap-2">
-              <Button size="sm" variant="outline" @click="issueReset(u, 'password')">{{ t("members.issuePasswordReset") }}</Button>
-              <Button size="sm" variant="outline" :disabled="!u.mfaEnabled" @click="issueReset(u, 'mfa')">{{ t("members.issueMfaReset") }}</Button>
+              <Button size="sm" variant="outline" :disabled="issuing" @click="issueReset(u, 'password')">{{ t("members.issuePasswordReset") }}</Button>
+              <Button size="sm" variant="outline" :disabled="issuing || !u.mfaEnabled" @click="issueReset(u, 'mfa')">{{ t("members.issueMfaReset") }}</Button>
             </div>
             <span v-else class="ml-auto text-muted-foreground">{{ t("server.cliOnly") }}</span>
           </li>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // ワークスペースの記事の一覧（/w/{ws}/entries）。記事の作成もここから行う。ワークスペースの入り口は「やること」（/w/{ws}）。
-import { Plus } from "@lucide/vue";
+import { Plus, Search } from "@lucide/vue";
 
-import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -19,13 +19,23 @@ const { data: entries, error: listError } = await useAsyncData(`entries:${ws}`, 
 
 const typeFilter = ref("");
 const localeFilter = ref("");
-const shown = computed(() =>
-  (entries.value ?? [])
+const statusFilter = ref<"all" | "published" | "draft">("all");
+const query = ref("");
+const contentType = (name: string) => manifest.value?.contentTypes.find((c) => c.name === name);
+const titleOf = (e: EntrySummary) => entryTitle(contentType(e.contentType), e.fields);
+const shown = computed(() => {
+  const q = query.value.trim().toLowerCase();
+  return (entries.value ?? [])
     .filter((e) => !typeFilter.value || e.contentType === typeFilter.value)
     .filter((e) => !localeFilter.value || e.locale === localeFilter.value)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-);
-const contentType = (name: string) => manifest.value?.contentTypes.find((c) => c.name === name);
+    .filter((e) => statusFilter.value === "all" || (statusFilter.value === "published") === e.published)
+    .filter((e) => !q || (titleOf(e) ?? "").toLowerCase().includes(q))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+});
+const counts = computed(() => {
+  const all = entries.value ?? [];
+  return { all: all.length, published: all.filter((e) => e.published).length, draft: all.filter((e) => !e.published).length };
+});
 
 // 新しい記事
 const createOpen = ref(false);
@@ -55,7 +65,7 @@ async function create() {
 
 <template>
   <div class="grid gap-6">
-    <PageHeader :title="t('nav.entries')" :description="workspace?.name">
+    <PageHeader :title="t('nav.entries')" :description="manifest ? t('entries.count', { n: counts.all }) : workspace?.name">
       <template v-if="manifest && canEdit(workspace) && schema?.state === 'ok'" #actions>
         <Button @click="openCreate">
           <Plus class="size-4" />{{ t("entries.new") }}
@@ -69,48 +79,64 @@ async function create() {
     </p>
 
     <template v-if="manifest">
-      <div class="flex flex-wrap gap-3 text-sm">
-        <label class="flex items-center gap-2">
-          {{ t("entries.contentType") }}
-          <select v-model="typeFilter" class="h-8 rounded-md border bg-background px-2">
-            <option value="">{{ t("entries.all") }}</option>
-            <option v-for="c in manifest.contentTypes" :key="c.name" :value="c.name">{{ c.name }}</option>
-          </select>
+      <div class="flex flex-wrap items-center gap-2.5 text-sm">
+        <div role="radiogroup" :aria-label="t('entries.status')" class="flex rounded-[9px] bg-muted p-[3px]">
+          <button
+            v-for="f in (['all', 'published', 'draft'] as const)"
+            :key="f"
+            type="button"
+            role="radio"
+            :aria-checked="statusFilter === f"
+            class="h-8 rounded-[7px] px-3 text-[13px]"
+            :class="statusFilter === f ? 'bg-card font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            @click="statusFilter = f"
+          >
+            {{ t(`entries.filter.${f}`) }} <span class="text-muted-foreground">{{ counts[f] }}</span>
+          </button>
+        </div>
+        <label class="relative min-w-[200px] max-w-xs flex-1">
+          <span class="sr-only">{{ t("entries.search") }}</span>
+          <Search class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input v-model="query" type="search" :placeholder="t('entries.searchPlaceholder')" class="h-9 pl-8" />
         </label>
-        <label class="flex items-center gap-2">
-          {{ t("entries.locale") }}
-          <select v-model="localeFilter" class="h-8 rounded-md border bg-background px-2">
-            <option value="">{{ t("entries.all") }}</option>
-            <option v-for="l in manifest.locales" :key="l" :value="l">{{ l }}</option>
-          </select>
-        </label>
+        <select v-if="manifest.contentTypes.length > 1" v-model="typeFilter" class="h-9 px-2" :aria-label="t('entries.contentType')">
+          <option value="">{{ t("entries.contentType") }}: {{ t("entries.all") }}</option>
+          <option v-for="c in manifest.contentTypes" :key="c.name" :value="c.name">{{ c.name }}</option>
+        </select>
+        <select v-if="manifest.locales.length > 1" v-model="localeFilter" class="h-9 px-2" :aria-label="t('entries.locale')">
+          <option value="">{{ t("entries.locale") }}: {{ t("entries.all") }}</option>
+          <option v-for="l in manifest.locales" :key="l" :value="l">{{ l }}</option>
+        </select>
       </div>
 
-      <p v-if="shown.length === 0" class="text-muted-foreground">{{ t("entries.empty") }}</p>
-      <div v-else class="overflow-x-auto rounded-md border">
-        <table class="w-full text-sm">
-          <thead class="bg-muted/50 text-left">
+      <p v-if="shown.length === 0" class="rounded-xl border border-dashed p-8 text-center text-muted-foreground">{{ counts.all === 0 ? t("entries.empty") : t("entries.noMatch") }}</p>
+      <div v-else class="overflow-x-auto rounded-xl border bg-card">
+        <table class="w-full min-w-[640px] text-sm">
+          <thead class="bg-muted/50 text-left text-xs text-muted-foreground">
             <tr>
-              <th class="px-3 py-2 font-medium">{{ t("entries.title") }}</th>
-              <th class="px-3 py-2 font-medium">{{ t("entries.contentType") }}</th>
-              <th class="px-3 py-2 font-medium">{{ t("entries.locale") }}</th>
-              <th class="px-3 py-2 font-medium">{{ t("entries.status") }}</th>
-              <th class="px-3 py-2 font-medium">{{ t("entries.updatedAt") }}</th>
+              <th class="px-5 py-2.5 font-medium">{{ t("entries.title") }}</th>
+              <th class="px-3 py-2.5 font-medium">{{ t("entries.status") }}</th>
+              <th v-if="manifest.contentTypes.length > 1" class="px-3 py-2.5 font-medium">{{ t("entries.contentType") }}</th>
+              <th v-if="manifest.locales.length > 1" class="px-3 py-2.5 font-medium">{{ t("entries.locale") }}</th>
+              <th class="px-3 py-2.5 font-medium">{{ t("entries.updatedAt") }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="e in shown" :key="e.id" class="border-t hover:bg-muted/30">
-              <td class="px-3 py-2">
-                <NuxtLink :to="`/w/${ws}/entries/${e.id}`" class="font-medium hover:underline">
-                  {{ entryTitle(contentType(e.contentType), e.fields) ?? t("entries.untitled") }}
+            <tr v-for="e in shown" :key="e.id" class="relative border-t hover:bg-muted/40">
+              <td class="px-5 py-3">
+                <NuxtLink :to="`/w/${ws}/entries/${e.id}`" class="font-medium after:absolute after:inset-0 hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+                  {{ titleOf(e) ?? t("entries.untitled") }}
                 </NuxtLink>
               </td>
-              <td class="px-3 py-2">{{ e.contentType }}</td>
-              <td class="px-3 py-2">{{ e.locale }}</td>
-              <td class="px-3 py-2">
-                <Badge :variant="e.published ? 'default' : 'secondary'">{{ e.published ? t("entries.published") : t("entries.draft") }}</Badge>
+              <td class="px-3 py-3">
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap" :class="e.published ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'">
+                  <svg aria-hidden="true" width="10" height="10" viewBox="0 0 12 12"><path d="M6 0.8L11.2 6L6 11.2L0.8 6Z" fill="currentColor" /></svg>
+                  {{ e.published ? t("entries.published") : t("entries.draft") }}
+                </span>
               </td>
-              <td class="px-3 py-2 text-muted-foreground">{{ formatDateTime(e.updatedAt, locale) }}</td>
+              <td v-if="manifest.contentTypes.length > 1" class="px-3 py-3 text-muted-foreground">{{ e.contentType }}</td>
+              <td v-if="manifest.locales.length > 1" class="px-3 py-3 text-muted-foreground">{{ e.locale }}</td>
+              <td class="px-3 py-3 whitespace-nowrap text-muted-foreground">{{ formatDateTime(e.updatedAt, locale) }}</td>
             </tr>
           </tbody>
         </table>

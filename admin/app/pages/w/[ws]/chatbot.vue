@@ -90,6 +90,7 @@ function changes(): Partial<AnswerSettings> {
 const saving = ref(false);
 const saveError = ref<unknown>(null);
 const saved = ref(false);
+const toast = useToast();
 async function save() {
   if (!form.value || invalid.value) return;
   const body = changes();
@@ -100,6 +101,7 @@ async function save() {
   try {
     data.value = await api.put<AnswerSettings>(`/workspaces/${ws}/answer-settings`, body);
     saved.value = true;
+    toast.show(t("chatbot.saved"));
   } catch (e) {
     saveError.value = e;
   } finally {
@@ -195,9 +197,10 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
         </label>
       </section>
 
-      <div class="flex items-center gap-3">
+      <!-- 保存のボタンは、長い画面のどこにいても押せるよう、画面の下に残す -->
+      <div class="sticky bottom-0 z-10 -mx-4 flex items-center gap-3 border-t bg-background/95 px-4 py-3 backdrop-blur md:-mx-10 md:px-10">
         <Button type="submit" :disabled="saving || invalid">{{ t("common.save") }}</Button>
-        <span v-if="saved" class="text-muted-foreground" role="status">{{ t("chatbot.saved") }}</span>
+        <span v-if="saved" class="text-muted-foreground">{{ t("chatbot.saved") }}</span>
       </div>
     </form>
     <div v-if="allowed && form" class="border-t pt-6">
