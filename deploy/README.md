@@ -1,6 +1,8 @@
 # 公式の Docker Compose
 
-CMSのサーバーと、拡張（pgvector・pg_bigm）を入れた PostgreSQL 16 を起動します。
+CMSのサーバーと、拡張（pgvector・pg_bigm）を入れた PostgreSQL 18 を起動します（CMS が対応する最低の版は 16 です）。
+
+PostgreSQL 16 の公式のイメージ（v1.0.0-rc.4 まで）から移るときは、[更新の手順](../docs/manual/operator/update.md#postgresql-16-から-18-に移る) を見てください。
 
 手順は手順書の [導入](../docs/manual/operator/install.md) にあります。設定は [設定ファイル](../docs/manual/operator/config.md)、LLM は [LLMの設定](../docs/manual/operator/llm.md) を見てください。
 
