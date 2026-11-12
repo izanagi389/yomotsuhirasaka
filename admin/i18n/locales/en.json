@@ -961,7 +961,7 @@
     }
   },
   "todo": {
-    "help": "Things you can act on, most urgent first. Opening one takes you to the matching tab of the entry.",
+    "help": "Things you can act on, most urgent first. Opening one takes you to the matching panel of the entry.",
     "none": "Nothing to do right now.",
     "sourcePublishedAt": "Source published: {at}",
     "kind": {
