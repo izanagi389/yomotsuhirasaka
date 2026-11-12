@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, AnswerError, AnswerSettings, AssistBudget, AssistSettings, ConflictCheck, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, YomiClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, AnswerError, AnswerSettings, AssistBudget, AssistSettings, ConflictCheck, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, YomiClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TemplateMapping, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -1212,6 +1212,14 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
       if (typeof token !== "string") throw new SetupError("デプロイの範囲の個人トークンの読み取り", res);
       return token;
     },
+    async workspaceTemplate(s: Session, workspaceId: string): Promise<string> {
+      const res = ensure("スキーマ情報の取得", await schemaInfoRaw(session(s), workspaceId));
+      const { template } = JSON.parse(res.text) as { template?: unknown };
+      if (typeof template !== "string") throw new SetupError("テンプレートの名前の読み取り", res);
+      return template;
+    },
+    switchTemplateRaw: (auth: Auth, workspaceId: string, options: { template: string; allowDestructive?: boolean; dryRun?: boolean; mapping?: TemplateMapping }) =>
+      request("POST", `${ADMIN}/workspaces/${workspaceId}/template`, { auth, body: options }),
     async migrationState(s: Session, workspaceId: string): Promise<"ok" | "pending"> {
       const res = ensure("スキーマ情報の取得", await schemaInfoRaw(session(s), workspaceId));
       const { state } = JSON.parse(res.text) as { state?: unknown };

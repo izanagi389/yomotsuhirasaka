@@ -185,6 +185,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "audit_retention",
         include_str!("../migrations/0038_audit_retention.sql"),
     ),
+    (
+        39,
+        "switch_template_grant",
+        include_str!("../migrations/0039_switch_template_grant.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。

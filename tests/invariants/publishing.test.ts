@@ -67,7 +67,7 @@ inv("inv_pub_02", "記事を非公開にすると、その直後からCMSの配�
   expect((after.byId + after.list).includes(mark), "非公開にした直後も配信された").toBe(false);
 });
 
-inv("inv_pub_03", "公開版を更新しても、以前の版は版の履歴として残る（本文を抹消した版は、IDとメタデータだけが残る）", async () => {
+inv("inv_pub_03", "公開版を更新しても、以前の版は版の履歴として残る（本文を抹消した版は、IDとメタデータだけが残る。テンプレートを切り替えた版は、本文が新しいテンプレートの形に置き換わるが、IDとメタデータは残る）", async () => {
   const w = await world();
   const { yomi, a } = w;
   const v1Marker = marker("pub03-v1");

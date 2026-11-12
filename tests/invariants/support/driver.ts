@@ -184,7 +184,7 @@ export interface EmbeddingSwitchStatus {
   }[];
 }
 
-export type HeavyPermission = "viewQuestionLog" | "manageLlm" | "policySwitches" | "corrections" | "takeOverEditing";
+export type HeavyPermission = "viewQuestionLog" | "manageLlm" | "policySwitches" | "corrections" | "takeOverEditing" | "switchTemplate";
 
 export interface Member extends Credentials {
   userId: string;
@@ -304,6 +304,13 @@ export interface Draft {
   body: TiptapDoc;
   slug: string;
   fields: Record<string, unknown>;
+}
+
+/** テンプレートの切り替えの対応づけ（古い名前 → 新しい名前。null は対応づけない＝消える）。 */
+export interface TemplateMapping {
+  contentTypes?: Record<string, string | null>;
+  /** `"<コンテンツタイプ>.<フィールド>"` → `"<フィールド>"`（対応づけたコンテンツタイプの中の名前）。 */
+  fields?: Record<string, string | null>;
 }
 
 export interface VersionInfo {
@@ -897,6 +904,17 @@ export interface YomiClient {
   deployToken(serverAdminSession: Session, creds: Credentials): Promise<string>;
   schemaInfoRaw(auth: Auth, workspaceId: string): Promise<HttpResponse>;
   migrationState(session: Session, workspaceId: string): Promise<"ok" | "pending">;
+  /** ワークスペースが使うテンプレートの名前。 */
+  workspaceTemplate(session: Session, workspaceId: string): Promise<string>;
+  /**
+   * ワークスペースのテンプレートを、デプロイ済みの別のテンプレートに切り替える。
+   * `mapping` を省くと、名前の同じコンテンツタイプとフィールドを対応づける。
+   */
+  switchTemplateRaw(
+    auth: Auth,
+    workspaceId: string,
+    options: { template: string; allowDestructive?: boolean; dryRun?: boolean; mapping?: TemplateMapping },
+  ): Promise<HttpResponse>;
 
   // --- 監査ログ ---
   /** 監査ログを読む。workspaceId が null ならインスタンス全体のログ。 */

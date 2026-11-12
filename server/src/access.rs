@@ -69,16 +69,19 @@ pub enum Permission {
     Corrections,
     /// 編集の引き継ぎ。
     TakeOverEditing,
+    /// テンプレートの切り替え。どのロールにも既定では付けず、付与できるのはサーバー管理者だけ（INV-SCH-09）。
+    SwitchTemplate,
 }
 
 impl Permission {
-    pub const ALL: [Permission; 6] = [
+    pub const ALL: [Permission; 7] = [
         Permission::ViewMembers,
         Permission::ViewQuestionLog,
         Permission::ManageLlm,
         Permission::PolicySwitches,
         Permission::Corrections,
         Permission::TakeOverEditing,
+        Permission::SwitchTemplate,
     ];
 
     /// 重い権限（管理APIの `grants`・`permissions` で扱うもの。所属者の一覧の閲覧は `canViewMembers` で扱う）。
@@ -94,11 +97,17 @@ impl Permission {
             Permission::PolicySwitches => "policySwitches",
             Permission::Corrections => "corrections",
             Permission::TakeOverEditing => "takeOverEditing",
+            Permission::SwitchTemplate => "switchTemplate",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|p| p.as_str() == s)
+    }
+
+    /// 付与と取り消しをサーバー管理者だけが行える権限か。
+    pub fn server_admin_grants_only(self) -> bool {
+        self == Permission::SwitchTemplate
     }
 
     /// ロールが既定で持つか。
@@ -107,7 +116,7 @@ impl Permission {
             Permission::ViewMembers | Permission::ManageLlm | Permission::PolicySwitches => {
                 role == Role::Admin
             }
-            Permission::ViewQuestionLog => false,
+            Permission::ViewQuestionLog | Permission::SwitchTemplate => false,
             Permission::Corrections | Permission::TakeOverEditing => {
                 matches!(role, Role::Admin | Role::Editor)
             }
