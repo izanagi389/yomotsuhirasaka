@@ -26,12 +26,20 @@ interface Identity {
 
 const { t, locale } = useI18n();
 const api = useApi();
+const { confirm } = useConfirm();
 const { data: sessions, error, refresh } = await useAsyncData("me:sessions", () => api.get<SessionSummary[]>("/me/sessions"));
 const { data: history } = await useAsyncData("me:login-history", () => api.get<LoginEntry[]>("/me/login-history"));
 const { data: identities } = await useAsyncData("me:identities", () => api.get<Identity[]>("/me/identities"));
 
 const actionError = ref<unknown>(null);
 async function revoke(s: SessionSummary) {
+  const ok = await confirm({
+    title: t("confirmations.sessionRevoke.title"),
+    description: t("confirmations.sessionRevoke.description", { at: formatDateTime(s.lastSeenAt, locale.value) }),
+    confirmLabel: t("account.sessions.revoke"),
+    destructive: true,
+  });
+  if (!ok) return;
   actionError.value = null;
   try {
     await api.del(`/me/sessions/${s.id}`);
@@ -56,7 +64,7 @@ async function revoke(s: SessionSummary) {
           <Badge v-if="s.current">{{ t("account.sessions.current") }}</Badge>
           <span>{{ t("account.sessions.started", { at: formatDateTime(s.createdAt, locale) }) }}</span>
           <span class="text-muted-foreground">{{ t("account.sessions.lastSeen", { at: formatDateTime(s.lastSeenAt, locale) }) }}</span>
-          <Button v-if="!s.current" size="sm" variant="outline" class="ml-auto" @click="revoke(s)">{{ t("account.sessions.revoke") }}</Button>
+          <Button v-if="!s.current" size="sm" variant="outline" class="ml-auto text-destructive hover:text-destructive" @click="revoke(s)">{{ t("account.sessions.revoke") }}</Button>
         </li>
       </ul>
     </section>

@@ -56,7 +56,7 @@ async function remove() {
             <span class="text-muted-foreground">{{ c.locale }}</span>
             <span class="tabular-nums">{{ t("questionLog.count", { count: c.count }) }}</span>
             <span class="text-muted-foreground">{{ formatDateTime(c.lastAskedAt, locale) }}</span>
-            <Button variant="outline" size="sm" @click="deleting = c">{{ t("questionLog.delete") }}</Button>
+            <Button variant="outline" size="sm" class="text-destructive hover:text-destructive" @click="deleting = c">{{ t("questionLog.delete") }}</Button>
             <OutlinePanel :workspace-id="ws" :candidate-id="c.id" />
           </li>
         </ul>

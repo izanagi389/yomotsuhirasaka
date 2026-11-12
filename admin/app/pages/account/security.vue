@@ -23,6 +23,7 @@ interface Passkey {
 
 const { t, locale } = useI18n();
 const api = useApi();
+const { confirm } = useConfirm();
 const { me, refresh } = useAuth();
 
 const error = ref<unknown>(null);
@@ -76,6 +77,14 @@ async function addPasskey() {
   }
 }
 async function removePasskey(id: string) {
+  const name = passkeys.value.find((p) => p.id === id)?.name ?? "";
+  const ok = await confirm({
+    title: t("confirmations.passkeyRemove.title", { name }),
+    description: t("confirmations.passkeyRemove.description"),
+    confirmLabel: t("common.remove"),
+    destructive: true,
+  });
+  if (!ok) return;
   error.value = null;
   try {
     await api.del(`/me/mfa/passkeys/${id}`);
@@ -105,6 +114,14 @@ async function linkIdentity() {
 }
 
 async function unlinkIdentity(id: string) {
+  const issuer = identities.value.find((i) => i.id === id)?.issuer ?? "";
+  const ok = await confirm({
+    title: t("confirmations.identityUnlink.title"),
+    description: t("confirmations.identityUnlink.description", { issuer }),
+    confirmLabel: t("security.identityUnlink"),
+    destructive: true,
+  });
+  if (!ok) return;
   error.value = null;
   try {
     await api.del(`/me/identities/${encodeURIComponent(id)}`);
@@ -116,6 +133,13 @@ async function unlinkIdentity(id: string) {
 
 // --- 復旧コード ---
 async function regenerateCodes() {
+  const ok = await confirm({
+    title: t("confirmations.recoveryRegenerate.title"),
+    description: t("confirmations.recoveryRegenerate.description"),
+    confirmLabel: t("security.recoveryRegenerate"),
+    destructive: true,
+  });
+  if (!ok) return;
   error.value = null;
   try {
     recoveryCodes.value = (await api.post<{ recoveryCodes: string[] }>("/me/mfa/recovery-codes")).recoveryCodes;
@@ -207,7 +231,7 @@ onMounted(() => {
         <ul class="grid gap-2">
           <li v-for="p in passkeys" :key="p.id" class="flex items-center justify-between gap-2 text-sm">
             <span>{{ p.name }}</span>
-            <Button variant="ghost" size="sm" @click="removePasskey(p.id)">{{ t("common.remove") }}</Button>
+            <Button variant="outline" size="sm" class="text-destructive hover:text-destructive" @click="removePasskey(p.id)">{{ t("common.remove") }}</Button>
           </li>
         </ul>
         <form class="flex gap-2" @submit.prevent="addPasskey">
@@ -227,7 +251,7 @@ onMounted(() => {
           <li v-for="i in identities" :key="i.id" class="flex flex-wrap justify-between gap-2">
             <span class="break-all">{{ i.issuer }}</span>
             <span class="text-muted-foreground">{{ t("security.identityLinkedAt", { at: formatDateTime(i.linkedAt, locale) }) }}</span>
-            <Button variant="outline" size="sm" @click="unlinkIdentity(i.id)">{{ t("security.identityUnlink") }}</Button>
+            <Button variant="outline" size="sm" class="text-destructive hover:text-destructive" @click="unlinkIdentity(i.id)">{{ t("security.identityUnlink") }}</Button>
           </li>
         </ul>
         <Button v-else variant="outline" class="justify-self-start" @click="linkIdentity">

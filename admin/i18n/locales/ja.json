@@ -1363,5 +1363,36 @@
   },
   "dangerZone": {
     "title": "危険な操作"
+  },
+  "confirmations": {
+    "sessionRevoke": {
+      "title": "このセッションを終了しますか？",
+      "description": "その端末はすぐにログアウトします（最後の操作: {at}）。"
+    },
+    "passkeyRemove": {
+      "title": "パスキー「{name}」を削除しますか？",
+      "description": "このパスキーではログインと本人の確認ができなくなります。元に戻せません。"
+    },
+    "identityUnlink": {
+      "title": "外部のアカウントのひも付けを外しますか？",
+      "description": "{issuer} のアカウントでは、ログインできなくなります。もう一度ひも付けることはできます。"
+    },
+    "recoveryRegenerate": {
+      "title": "復旧コードを作り直しますか？",
+      "description": "今の復旧コードはすべて使えなくなります。新しいコードは一度だけ表示されるので、保管してください。"
+    },
+    "auditSinkDelete": {
+      "title": "書き出し先を削除しますか？",
+      "description": "{url} への監査ログの送信を止め、設定を削除します。元に戻せません。"
+    },
+    "scheduleCancel": {
+      "title": "予約公開を取り消しますか？",
+      "description": "予約した日時に公開されなくなります。記事の下書きは残ります。"
+    },
+    "mediaDelete": {
+      "title": "このメディアを削除しますか？",
+      "description": "ファイルがすぐに削除され、元に戻せません。",
+      "inUseDescription": "記事の下書きか過去の版で使われています。削除すると、その記事では画像が表示されなくなります。元に戻せません。"
+    }
   }
 }
