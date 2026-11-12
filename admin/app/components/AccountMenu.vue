@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 本人のメニュー（アカウントの設定、言語、サーバーの管理、ログアウト）。サイドバーの下と、上部の帯に置く。
-import { ChevronsUpDown, KeyRound, Languages, LogOut, Monitor, Server, ShieldCheck, UserRound } from "@lucide/vue";
+import { ChevronsUpDown, KeyRound, Languages, LogOut, Monitor, Server, ShieldCheck, SunMoon, UserRound } from "@lucide/vue";
 
 import {
   DropdownMenu,
@@ -18,6 +18,8 @@ withDefaults(defineProps<{ placement?: "sidebar" | "header"; compact?: boolean }
 const { me, logout } = useAuth();
 const { t, locale, locales, setLocale } = useI18n();
 const api = useApi();
+const { preference, setPreference } = useTheme();
+const THEMES = ["system", "light", "dark"] as const;
 
 const name = computed(() => me.value?.displayName || me.value?.email || "");
 const initial = computed(() => Array.from(name.value)[0]?.toUpperCase() ?? "?");
@@ -71,6 +73,11 @@ async function changeLocale(code: string) {
       <DropdownMenuLabel class="flex items-center gap-2 text-xs font-normal text-muted-foreground"><Languages class="size-3.5" aria-hidden="true" />{{ t("app.language") }}</DropdownMenuLabel>
       <DropdownMenuRadioGroup :model-value="locale" @update:model-value="(v) => changeLocale(String(v))">
         <DropdownMenuRadioItem v-for="l in locales" :key="l.code" :value="l.code">{{ l.name }}</DropdownMenuRadioItem>
+      </DropdownMenuRadioGroup>
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel class="flex items-center gap-2 text-xs font-normal text-muted-foreground"><SunMoon class="size-3.5" aria-hidden="true" />{{ t("theme.label") }}</DropdownMenuLabel>
+      <DropdownMenuRadioGroup :model-value="preference" @update:model-value="(v) => setPreference(THEMES.find((x) => x === v) ?? 'system')">
+        <DropdownMenuRadioItem v-for="th in THEMES" :key="th" :value="th" :data-testid="`theme-${th}`">{{ t(`theme.${th}`) }}</DropdownMenuRadioItem>
       </DropdownMenuRadioGroup>
       <DropdownMenuSeparator />
       <DropdownMenuItem data-testid="logout" @select="logout"><LogOut aria-hidden="true" />{{ t("auth.logout") }}</DropdownMenuItem>
