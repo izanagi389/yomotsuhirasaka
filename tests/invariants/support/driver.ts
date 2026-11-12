@@ -672,6 +672,8 @@ export interface YomiClient {
   // --- ワークスペースと所属 ---
   createWorkspace(session: Session, name: string, options?: { template?: string }): Promise<{ id: string }>;
   createWorkspaceRaw(auth: Auth, name: string): Promise<HttpResponse>;
+  /** ワークスペースを削除する（`confirmName` は確認のために入力するワークスペースの名前。応答をそのまま返す）。 */
+  deleteWorkspaceRaw(auth: Auth, workspaceId: string, options: { confirmName?: string }): Promise<HttpResponse>;
   /**
    * 招待から承諾までを済ませ、新しい利用者を作る。
    * mfa を省略すると、admin のときだけ多要素認証（TOTP）を設定する。
@@ -1075,6 +1077,10 @@ export interface ImportOptions {
 export interface DbLayout {
   workspaceSchema(workspaceId: string): Promise<string>;
   workspaceRole(workspaceId: string): Promise<string>;
+  /** DBにそのスキーマがあるか（スーパーユーザーの接続で調べる）。 */
+  schemaExists(schema: string): Promise<boolean>;
+  /** DBにそのロールがあるか（スーパーユーザーの接続で調べる）。 */
+  roleExists(role: string): Promise<boolean>;
   sharedSchemas(): Promise<string[]>;
   auditLogTables(): Promise<string[]>;
 }
@@ -1360,6 +1366,10 @@ export const driver = {
   db: {
     workspaceSchema: async (workspaceId: string): Promise<string> => (await registeredDbNames(workspaceId)).schema,
     workspaceRole: async (workspaceId: string): Promise<string> => (await registeredDbNames(workspaceId)).role,
+    schemaExists: (schema: string): Promise<boolean> =>
+      withClient(env.dbSuperuserUrl, async (c) => (await c.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schema])).rowCount === 1),
+    roleExists: (role: string): Promise<boolean> =>
+      withClient(env.dbSuperuserUrl, async (c) => (await c.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [role])).rowCount === 1),
     // 共通のスキーマ（server/src/migrate.rs の SHARED_SCHEMA）
     sharedSchemas: async (): Promise<string[]> => ["yomi"],
     // 監査ログのテーブル（server/migrations/0001_init.sql）

@@ -1241,6 +1241,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
     createWorkspaceRaw(auth: Auth, name: string): Promise<HttpResponse> {
       return request("POST", `${ADMIN}/workspaces`, { auth, body: { name } });
     },
+    deleteWorkspaceRaw: (auth: Auth, workspaceId: string, options: { confirmName?: string }) =>
+      request("DELETE", `${ADMIN}/workspaces/${workspaceId}`, { auth, body: options }),
     // テンプレートを指定しなければ、テスト環境でデプロイ済みの BASE_TEMPLATE を使う（README「テスト環境」）
     async createWorkspace(s: Session, name: string, options: { template?: string } = {}): Promise<{ id: string }> {
       const res = ensure(

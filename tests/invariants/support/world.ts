@@ -27,6 +27,8 @@ export const sleep = (seconds: number): Promise<void> => new Promise((r) => setT
 
 export interface WorkspaceFixture {
   id: string;
+  /** ワークスペースの名前（削除の確認で入力する）。 */
+  name: string;
   admin: Member;
   adminSession: Session;
   editor: Member;
@@ -52,7 +54,8 @@ export interface World {
 
 async function makeWorkspace(yomi: YomiClient, serverAdmin: Credentials, serverAdminSession: Session, label: string): Promise<WorkspaceFixture> {
   await yomi.reauthenticate(serverAdminSession, serverAdmin);
-  const { id } = await yomi.createWorkspace(serverAdminSession, `inv-${label}-${randomUUID().slice(0, 8)}`);
+  const name = `inv-${label}-${randomUUID().slice(0, 8)}`;
+  const { id } = await yomi.createWorkspace(serverAdminSession, name);
 
   const admin = await yomi.createMember(serverAdminSession, id, "admin");
   const adminSession = await yomi.login(admin);
@@ -74,6 +77,7 @@ async function makeWorkspace(yomi: YomiClient, serverAdmin: Credentials, serverA
 
   return {
     id,
+    name,
     admin,
     adminSession,
     editor,
@@ -86,6 +90,11 @@ async function makeWorkspace(yomi: YomiClient, serverAdmin: Credentials, serverA
     byIdQuery,
     target: { workspaceId: id, entryId: entry.id, userId: editor.userId, apiKeyId: readKey.id },
   };
+}
+
+/** 削除のテストのための、使い捨てのワークスペース（舞台の A・B と同じ作り）。 */
+export async function disposableWorkspace(world: World, label: string): Promise<WorkspaceFixture> {
+  return makeWorkspace(world.yomi, world.serverAdmin, world.serverAdminSession, label);
 }
 
 /**
