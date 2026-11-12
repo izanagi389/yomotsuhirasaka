@@ -1324,5 +1324,13 @@
     "confirmDescription": "The switch is recorded in the audit log and administrators are notified.",
     "confirmDestructive": "Data that is not carried over is removed and cannot be restored. Make sure you have exported it. The switch is recorded in the audit log and administrators are notified.",
     "done": "Switched from {from} to {template} (version {version})."
+  },
+  "workspaceDelete": {
+    "title": "Delete workspace",
+    "help": "Delete this workspace immediately and completely, with its entries, versions, media, delivery API keys, webhooks, members and settings. This cannot be undone (restore from a backup to get it back). User accounts are kept. Audit log entries are kept until their retention. Only server administrators can do this.",
+    "typeName": "To confirm, type the workspace name \"{name}\"",
+    "delete": "Delete workspace",
+    "confirmTitle": "Delete \"{name}\"?",
+    "confirmDescription": "It is deleted immediately and completely, and cannot be undone. Delivery stops. The deletion is recorded in the audit log and administrators are notified."
   }
 }

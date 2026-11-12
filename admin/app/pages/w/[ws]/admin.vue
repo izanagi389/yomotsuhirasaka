@@ -8,6 +8,7 @@ import AuditSinksPanel from "~/components/admin/AuditSinksPanel.vue";
 import CorrectionTemplatesPanel from "~/components/admin/CorrectionTemplatesPanel.vue";
 import InvitationsPanel from "~/components/admin/InvitationsPanel.vue";
 import TemplateSwitchPanel from "~/components/admin/TemplateSwitchPanel.vue";
+import WorkspaceDeletePanel from "~/components/admin/WorkspaceDeletePanel.vue";
 import QuestionLogSettingsPanel from "~/components/admin/QuestionLogSettingsPanel.vue";
 import MembersPanel from "~/components/admin/MembersPanel.vue";
 import RelatedRecomputePanel from "~/components/admin/RelatedRecomputePanel.vue";
@@ -59,6 +60,7 @@ watch(tab, async (v) => {
         <QuestionLogSettingsPanel :workspace-id="ws" />
         <RelatedRecomputePanel :workspace-id="ws" />
         <TemplateSwitchPanel v-if="me?.isServerAdmin || hasPermission(workspace, 'switchTemplate')" :workspace-id="ws" />
+        <WorkspaceDeletePanel v-if="me?.isServerAdmin" :workspace-id="ws" :name="workspace.name" />
       </TabsContent>
       <TabsContent value="invitations" class="mt-4"><InvitationsPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="apiKeys" class="mt-4"><ApiKeysPanel :workspace-id="ws" /></TabsContent>
