@@ -84,7 +84,7 @@ export function useApi() {
     post: <T>(path: string, json?: unknown, options: Options = {}) => send<T>("POST", path, json === undefined ? undefined : { json }, options),
     put: <T>(path: string, json: unknown, options: Options = {}) => send<T>("PUT", path, { json }, options),
     patch: <T>(path: string, json: unknown, options: Options = {}) => send<T>("PATCH", path, { json }, options),
-    del: <T>(path: string, options: Options = {}) => send<T>("DELETE", path, undefined, options),
+    del: <T>(path: string, options: Options = {}, json?: unknown) => send<T>("DELETE", path, json === undefined ? undefined : { json }, options),
     upload: <T>(path: string, file: Blob, contentType: string, options: Options = {}) => send<T>("POST", path, { form: file, contentType }, options),
   };
 }
