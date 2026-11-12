@@ -11,18 +11,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-interface Workspace {
-  id: string;
-  name: string;
-  template: string;
-  role: string | null;
-  schemaState: "none" | "ok" | "pending";
-}
-
 const { t } = useI18n();
 const api = useApi();
 const { me } = useAuth();
-const { data: workspaces, error } = await useAsyncData("workspaces", () => api.get<Workspace[]>("/workspaces"));
+const { data: workspaces, error } = await useWorkspaces();
 
 interface TemplateOption {
   name: string;
@@ -71,17 +63,24 @@ async function create() {
     <FormError :error="error" />
     <p v-if="workspaces && workspaces.length === 0" class="text-muted-foreground">{{ t("workspaces.empty") }}</p>
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <NuxtLink v-for="w in workspaces ?? []" :key="w.id" :to="`/w/${w.id}`" class="rounded-xl focus-visible:outline-2 focus-visible:outline-ring">
-        <Card class="h-full transition-colors hover:bg-muted/40">
-          <CardHeader>
-            <CardTitle class="flex items-center gap-3"><Kamon :id="w.id" :size="32" />{{ w.name }}</CardTitle>
-            <CardDescription>
-              {{ w.role ? t(`roles.${w.role}`) : t("roles.serverAdmin") }} ·
-              {{ t(`workspaces.schema.${w.schemaState}`) }}
+      <Card v-for="w in workspaces ?? []" :key="w.id" class="relative h-full transition-colors hover:bg-muted/40" data-testid="workspace-card">
+        <CardHeader class="flex flex-row items-start gap-3">
+          <Kamon :id="w.id" :size="40" />
+          <div class="grid min-w-0 flex-1 gap-1">
+            <CardTitle class="truncate text-base">
+              <NuxtLink :to="`/w/${w.id}`" class="rounded-sm outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:ring-2 focus-visible:ring-ring">{{ w.name }}</NuxtLink>
+            </CardTitle>
+            <CardDescription class="text-xs">
+              {{ t("workspaces.templateLabel", { name: w.template }) }} ·
+              {{ w.role ? t(`roles.${w.role}`) : t("roles.serverAdmin") }}
             </CardDescription>
-          </CardHeader>
-        </Card>
-      </NuxtLink>
+            <span class="text-xs" :class="w.schemaState === 'ok' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'">{{ t(`workspaces.schema.${w.schemaState}`) }}</span>
+          </div>
+          <div class="relative z-10 -mt-1 -mr-2">
+            <WorkspaceActions :workspace="w" />
+          </div>
+        </CardHeader>
+      </Card>
     </div>
 
     <Dialog v-model:open="createOpen">
