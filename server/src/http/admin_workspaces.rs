@@ -158,6 +158,64 @@ pub async fn get_workspace(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DeleteWorkspace {
+    /// 確認のために入力するワークスペースの名前（今の名前と一致しなければ削除しない）。
+    #[serde(default)]
+    confirm_name: Option<String>,
+}
+
+/// ワークスペースの削除。サーバー管理者だけで、名前の入力と再認証が要る（INV-TEN-07）。すぐに完全に消す（INV-TEN-08、INV-DB-05）。
+pub async fn delete_workspace(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path(ws): Path<String>,
+    JsonBody(req): JsonBody<DeleteWorkspace>,
+) -> Result<StatusCode, ApiError> {
+    super::extract::require_cookie_session(&current)?;
+    access::server_admin(&current)?;
+    let id = parse_id(&ws)?;
+    let name: Option<String> = sqlx::query_scalar("SELECT name FROM yomi.workspaces WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(anyhow::Error::from)?;
+    let Some(name) = name else {
+        return Err(ApiError::not_found());
+    };
+    if req.confirm_name.as_deref().map(str::trim) != Some(name.as_str()) {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "confirm_name_mismatch",
+            "Type the name of the workspace in `confirmName` to delete it.",
+        ));
+    }
+    if !current.reauth_fresh {
+        return Err(ApiError::reauth_required());
+    }
+    let deleted = crate::schema::deploy::with_deploy_lock(&state.migration, move |conn| {
+        Box::pin(async move { workspace_db::destroy(conn, id).await })
+    })
+    .await?;
+    if !deleted {
+        return Err(ApiError::not_found());
+    }
+    // 監査ログはインスタンス全体の記録として残す（管理者に知らせる）
+    audit::record(
+        &state.pool,
+        None,
+        Some(current.user_id),
+        action::WORKSPACE_DELETED,
+        &[id],
+    )
+    .await?;
+    if let Err(e) = crate::media::store::remove_workspace(&state.config.media.root, id).await {
+        tracing::error!(workspace_id = %id, "cannot remove the media of a deleted workspace: {e:#}");
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateWorkspace {
     name: String,
     template: Option<String>,
