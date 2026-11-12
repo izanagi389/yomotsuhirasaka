@@ -73,7 +73,13 @@
     "templateVersion": "{name}（版 {version}）",
     "templateNotDeployed": "{name}（同梱。まだデプロイしていません）",
     "templateOther": "その他（名前を入力）",
-    "templateOtherName": "テンプレートの名前"
+    "templateOtherName": "テンプレートの名前",
+    "actions": "「{name}」の操作",
+    "settings": "設定",
+    "templateLabel": "テンプレート {name}",
+    "schemaColumn": "スキーマ",
+    "yourRole": "自分の立場",
+    "actionsColumn": "操作"
   },
   "roles": {
     "admin": "管理者",
@@ -695,7 +701,8 @@
     "title": "サーバーの管理",
     "users": "利用者",
     "disabled": "無効",
-    "cliOnly": "サーバー管理者の復旧はサーバーのCLIで行います"
+    "cliOnly": "サーバー管理者の復旧はサーバーのCLIで行います",
+    "workspacesHelp": "このサーバーのすべてのワークスペースです。削除はサーバー管理者だけが行えます。"
   },
   "account": {
     "nav": {
@@ -1337,7 +1344,11 @@
     "typeName": "確認のため、ワークスペースの名前「{name}」を入力してください",
     "delete": "ワークスペースを削除する",
     "confirmTitle": "「{name}」を削除しますか？",
-    "confirmDescription": "すぐに完全に削除され、元に戻せません。配信も止まります。削除は監査ログに残り、管理者に通知されます。"
+    "confirmDescription": "すぐに完全に削除され、元に戻せません。配信も止まります。削除は監査ログに残り、管理者に通知されます。",
+    "done": "「{name}」を削除しました",
+    "reauthNote": "削除する前に、もう一度本人の確認をします。",
+    "summary": "記事・メディア・キー・所属ごと、すぐに完全に削除します。元に戻せません。",
+    "openDialog": "削除…"
   },
   "workspaceSwitcher": {
     "open": "ワークスペースを切り替える",
@@ -1347,5 +1358,8 @@
   "accountMenu": {
     "open": "アカウントのメニューを開く",
     "serverAdmin": "サーバー管理者"
+  },
+  "dangerZone": {
+    "title": "危険な操作"
   }
 }

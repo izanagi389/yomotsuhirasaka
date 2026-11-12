@@ -82,7 +82,8 @@ function onOpenChange(v: boolean) {
 
 <template>
   <Dialog :open="open" @update:open="onOpenChange">
-    <DialogContent>
+    <!-- ほかのダイアログ（削除の確認など）から開くことが多いので、いつもいちばん上に重ねる -->
+    <DialogContent class="z-[70]" overlay-class="z-[70]">
       <form class="grid gap-4" @submit.prevent="submit">
         <DialogHeader>
           <DialogTitle>{{ t("reauth.title") }}</DialogTitle>

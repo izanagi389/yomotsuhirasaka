@@ -22,12 +22,13 @@ interface UserInfo {
 const { t } = useI18n();
 const api = useApi();
 const { me } = useAuth();
-const TABS = ["users", "templates", "notifications", "embedding", "audit"];
+const TABS = ["workspaces", "users", "templates", "notifications", "embedding", "audit"];
 const route = useRoute();
-const tab = ref(TABS.includes(String(route.query.tab)) ? String(route.query.tab) : "users");
+const tab = ref(TABS.includes(String(route.query.tab)) ? String(route.query.tab) : "workspaces");
 const { data: users, error } = await useAsyncData("server:users", () =>
   me.value?.isServerAdmin ? api.get<UserInfo[]>("/users") : Promise.resolve([] as UserInfo[]),
 );
+const { data: workspaces, error: workspacesError } = await useWorkspaces();
 const people = computed(() => Object.fromEntries((users.value ?? []).map((u) => [u.id, u.email])));
 
 const actionError = ref<unknown>(null);
@@ -50,12 +51,41 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
     <p v-if="!me?.isServerAdmin" class="text-muted-foreground">{{ t("errors.forbidden") }}</p>
     <Tabs v-else v-model="tab">
       <TabsList>
+        <TabsTrigger value="workspaces" data-testid="tab-workspaces">{{ t("workspaces.title") }}</TabsTrigger>
         <TabsTrigger value="users">{{ t("server.users") }}</TabsTrigger>
         <TabsTrigger value="templates" data-testid="tab-templates">{{ t("bundledTemplates.title") }}</TabsTrigger>
         <TabsTrigger value="notifications" data-testid="tab-notifications">{{ t("notifications.title") }}</TabsTrigger>
         <TabsTrigger value="embedding" data-testid="tab-embedding">{{ t("embeddingSwitch.title") }}</TabsTrigger>
         <TabsTrigger value="audit">{{ t("adminTabs.audit") }}</TabsTrigger>
       </TabsList>
+      <TabsContent value="workspaces" class="mt-4 grid gap-4" data-testid="server-workspaces">
+        <FormError :error="workspacesError" />
+        <p class="text-sm text-muted-foreground">{{ t("server.workspacesHelp") }}</p>
+        <div class="overflow-x-auto rounded-lg border bg-card">
+          <table class="w-full min-w-[560px] text-sm">
+            <thead class="bg-muted/50 text-left text-xs text-muted-foreground">
+              <tr>
+                <th class="px-4 py-2.5 font-medium">{{ t("workspaces.name") }}</th>
+                <th class="px-3 py-2.5 font-medium">{{ t("workspaces.template") }}</th>
+                <th class="px-3 py-2.5 font-medium">{{ t("workspaces.schemaColumn") }}</th>
+                <th class="px-3 py-2.5 font-medium">{{ t("workspaces.yourRole") }}</th>
+                <th class="w-12 px-3 py-2.5"><span class="sr-only">{{ t("workspaces.actionsColumn") }}</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="w in workspaces ?? []" :key="w.id" class="border-t">
+                <td class="px-4 py-2.5">
+                  <NuxtLink :to="`/w/${w.id}`" class="flex items-center gap-2.5 font-medium hover:underline"><Kamon :id="w.id" :size="24" />{{ w.name }}</NuxtLink>
+                </td>
+                <td class="px-3 py-2.5">{{ w.template }}</td>
+                <td class="px-3 py-2.5" :class="w.schemaState === 'ok' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'">{{ t(`workspaces.schema.${w.schemaState}`) }}</td>
+                <td class="px-3 py-2.5 text-muted-foreground">{{ w.role ? t(`roles.${w.role}`) : t("roles.serverAdmin") }}</td>
+                <td class="px-3 py-1.5 text-right"><WorkspaceActions :workspace="w" /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </TabsContent>
       <TabsContent value="users" class="mt-4 grid gap-4">
         <FormError :error="error ?? actionError" />
         <template v-if="issued">

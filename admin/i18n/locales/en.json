@@ -73,7 +73,13 @@
     "templateVersion": "{name} (version {version})",
     "templateNotDeployed": "{name} (bundled, not deployed yet)",
     "templateOther": "Other (enter a name)",
-    "templateOtherName": "Template name"
+    "templateOtherName": "Template name",
+    "actions": "Actions for \"{name}\"",
+    "settings": "Settings",
+    "templateLabel": "Template {name}",
+    "schemaColumn": "Schema",
+    "yourRole": "Your role",
+    "actionsColumn": "Actions"
   },
   "roles": {
     "admin": "Admin",
@@ -695,7 +701,8 @@
     "title": "Server administration",
     "users": "Users",
     "disabled": "Disabled",
-    "cliOnly": "Server administrators are recovered with the server CLI"
+    "cliOnly": "Server administrators are recovered with the server CLI",
+    "workspacesHelp": "Every workspace on this server. Only server administrators can delete them."
   },
   "account": {
     "nav": {
@@ -1337,7 +1344,11 @@
     "typeName": "To confirm, type the workspace name \"{name}\"",
     "delete": "Delete workspace",
     "confirmTitle": "Delete \"{name}\"?",
-    "confirmDescription": "It is deleted immediately and completely, and cannot be undone. Delivery stops. The deletion is recorded in the audit log and administrators are notified."
+    "confirmDescription": "It is deleted immediately and completely, and cannot be undone. Delivery stops. The deletion is recorded in the audit log and administrators are notified.",
+    "done": "Deleted \"{name}\"",
+    "reauthNote": "You will confirm your identity again before it is deleted.",
+    "summary": "Deletes it immediately and completely, with its entries, media, keys and memberships. This cannot be undone.",
+    "openDialog": "Delete…"
   },
   "workspaceSwitcher": {
     "open": "Switch workspace",
@@ -1347,5 +1358,8 @@
   "accountMenu": {
     "open": "Open account menu",
     "serverAdmin": "Server administrator"
+  },
+  "dangerZone": {
+    "title": "Danger zone"
   }
 }

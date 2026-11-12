@@ -23,7 +23,9 @@ const { t } = useI18n();
 const api = useApi();
 const { me } = useAuth();
 const { workspace, manifest, error } = await useWorkspace(ws);
-const tab = ref("members");
+// `?tab=settings` などで開くタブを選べる（ワークスペースの一覧の「設定」から飛ぶため）
+const ADMIN_TABS = ["members", "invitations", "apiKeys", "webhooks", "hookSecrets", "correctionTemplates", "audit", "settings"];
+const tab = ref(ADMIN_TABS.includes(String(route.query.tab)) ? String(route.query.tab) : "members");
 
 // 監査ログに、操作した人のメールアドレスを出す（所属者の一覧から分かる人だけ）
 const people = ref<Record<string, string>>({});

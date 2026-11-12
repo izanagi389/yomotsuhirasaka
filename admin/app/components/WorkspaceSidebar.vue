@@ -21,7 +21,7 @@ const route = useRoute();
 const api = useApi();
 
 const { data: workspace } = useAsyncData(`ws-nav:${props.workspaceId}`, () => api.get<WorkspaceInfo>(`/workspaces/${props.workspaceId}`));
-const { data: workspaces } = useAsyncData("workspaces", () => api.get<{ id: string; name: string }[]>("/workspaces"));
+const { data: workspaces } = useWorkspaces();
 const { data: todo } = useTodo(props.workspaceId);
 
 const base = computed(() => `/w/${props.workspaceId}`);
