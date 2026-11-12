@@ -1417,5 +1417,11 @@
       "title": "Issue a multi-factor reset for {email}?",
       "description": "Creates a link for them to set up multi-factor authentication again (shown here once if email can't be sent). When they complete it, all their sessions are revoked."
     }
+  },
+  "theme": {
+    "label": "Appearance",
+    "system": "Match the system",
+    "light": "Light",
+    "dark": "Dark"
   }
 }

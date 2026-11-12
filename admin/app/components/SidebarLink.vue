@@ -18,6 +18,6 @@ defineProps<{ to: string; label: string; icon?: Component; count?: number; activ
     </svg>
     <component :is="icon" v-if="icon" class="size-4.5 shrink-0" aria-hidden="true" />
     <span :class="compact ? 'sr-only' : 'truncate'">{{ label }}</span>
-    <span v-if="count" :class="compact ? 'absolute top-0.5 right-0.5' : 'ml-auto'" class="rounded-full bg-shu px-1.5 text-[11px] font-bold text-white" data-testid="todo-count">{{ count }}</span>
+    <span v-if="count" :class="compact ? 'absolute top-0.5 right-0.5' : 'ml-auto'" class="rounded-full bg-shu px-1.5 text-[11px] font-bold text-shu-foreground" data-testid="todo-count">{{ count }}</span>
   </NuxtLink>
 </template>
