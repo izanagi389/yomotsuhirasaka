@@ -184,6 +184,8 @@ onMounted(() => {
       <CardContent class="grid gap-4">
         <Button v-if="!totp" variant="outline" class="justify-self-start" @click="beginTotp">{{ t("security.totpBegin") }}</Button>
         <form v-else class="grid gap-4" @submit.prevent="confirmTotp">
+          <p class="text-sm">{{ t("security.totpScan") }}</p>
+          <QrCode :value="totp.otpauthUrl" :label="t('security.totpQrLabel')" class="justify-self-start" />
           <p class="text-sm">{{ t("security.totpManual") }}</p>
           <code class="rounded bg-muted p-2 font-mono text-sm break-all">{{ totp.secret }}</code>
           <a :href="totp.otpauthUrl" class="text-sm underline">{{ t("security.totpOpenApp") }}</a>
