@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { GRANTABLE_TO, type Issued, type MemberInfo, ROLES, type Role } from "~/utils/admin";
+import { GRANTABLE_TO, SERVER_ADMIN_GRANTS_ONLY, type Issued, type MemberInfo, ROLES, type Role } from "~/utils/admin";
 import { HEAVY_PERMISSIONS, type HeavyPermission } from "~/utils/content";
 
 const props = defineProps<{ workspaceId: string }>();
@@ -34,12 +34,14 @@ async function change(m: MemberInfo, body: { role?: Role; canViewMembers?: boole
 
 // 重い権限（行を開いて切り替える）
 const openGrants = ref<string | null>(null);
-/** 表に出す重い権限: ロールの既定で持つもの、付与できるもの、すでに付与したもの。 */
+/** 表に出す重い権限: ロールの既定で持つもの、付与できるもの、すでに付与したもの。
+ *  サーバー管理者だけが付与できるもの（テンプレートの切り替え）は、ほかの人には付与済みのときだけ、変えられない形で出す。 */
 function heavyRows(m: MemberInfo) {
   return HEAVY_PERMISSIONS.flatMap((p) => {
     const granted = m.grants.includes(p);
-    if (m.permissions.includes(p) && !granted) return [{ p, byRole: true, granted: false }];
-    if (granted || GRANTABLE_TO[p].includes(m.role)) return [{ p, byRole: false, granted }];
+    const locked = SERVER_ADMIN_GRANTS_ONLY.includes(p) && !me.value?.isServerAdmin;
+    if (m.permissions.includes(p) && !granted) return [{ p, byRole: true, granted: false, locked }];
+    if (granted || (!locked && GRANTABLE_TO[p].includes(m.role))) return [{ p, byRole: false, granted, locked }];
     return [];
   });
 }
@@ -168,7 +170,7 @@ async function issueReset(m: MemberInfo, kind: "password" | "mfa") {
                       v-if="!row.byRole"
                       :id="`grant-${m.userId}-${row.p}`"
                       :model-value="row.granted"
-                      :disabled="busy"
+                      :disabled="busy || row.locked"
                       @update:model-value="(v) => toggleGrant(m, row.p, v as boolean)"
                     />
                     <Badge v-else variant="secondary">{{ t("members.byRole") }}</Badge>

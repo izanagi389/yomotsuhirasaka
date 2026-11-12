@@ -7,6 +7,7 @@ import AuditPanel from "~/components/admin/AuditPanel.vue";
 import AuditSinksPanel from "~/components/admin/AuditSinksPanel.vue";
 import CorrectionTemplatesPanel from "~/components/admin/CorrectionTemplatesPanel.vue";
 import InvitationsPanel from "~/components/admin/InvitationsPanel.vue";
+import TemplateSwitchPanel from "~/components/admin/TemplateSwitchPanel.vue";
 import QuestionLogSettingsPanel from "~/components/admin/QuestionLogSettingsPanel.vue";
 import MembersPanel from "~/components/admin/MembersPanel.vue";
 import RelatedRecomputePanel from "~/components/admin/RelatedRecomputePanel.vue";
@@ -19,6 +20,7 @@ const route = useRoute();
 const ws = route.params.ws as string;
 const { t } = useI18n();
 const api = useApi();
+const { me } = useAuth();
 const { workspace, manifest, error } = await useWorkspace(ws);
 const tab = ref("members");
 
@@ -56,6 +58,7 @@ watch(tab, async (v) => {
         <WorkspaceSettingsPanel :workspace-id="ws" />
         <QuestionLogSettingsPanel :workspace-id="ws" />
         <RelatedRecomputePanel :workspace-id="ws" />
+        <TemplateSwitchPanel v-if="me?.isServerAdmin || hasPermission(workspace, 'switchTemplate')" :workspace-id="ws" />
       </TabsContent>
       <TabsContent value="invitations" class="mt-4"><InvitationsPanel :workspace-id="ws" /></TabsContent>
       <TabsContent value="apiKeys" class="mt-4"><ApiKeysPanel :workspace-id="ws" /></TabsContent>

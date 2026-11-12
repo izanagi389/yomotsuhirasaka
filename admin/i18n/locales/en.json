@@ -66,10 +66,14 @@
     },
     "open": "Open",
     "new": "New workspace",
-    "newDescription": "Enter the template name (lowercase letters, digits and hyphens). Leave it empty for default.",
+    "newDescription": "Choose the template to use.",
     "name": "Name",
     "template": "Template",
-    "templateHelp": "Enter blog to use the bundled sample (a server administrator deploys it under Server → Templates). Empty means default."
+    "templateHelp": "Choose a deployed template. The bundled sample (blog) can be chosen after a server administrator deploys it under Server → Templates. For a template that is not deployed yet, choose Other and enter its name (empty means default; it is applied when deployed).",
+    "templateVersion": "{name} (version {version})",
+    "templateNotDeployed": "{name} (bundled, not deployed yet)",
+    "templateOther": "Other (enter a name)",
+    "templateOtherName": "Template name"
   },
   "roles": {
     "admin": "Admin",
@@ -828,6 +832,10 @@
     "takeOverEditing": {
       "label": "Take over editing",
       "help": "Take over editing an entry someone else is editing."
+    },
+    "switchTemplate": {
+      "label": "Switch templates",
+      "help": "Switch the workspace to another deployed template. Data that is not mapped is removed. Only server administrators can grant or remove this."
     }
   },
   "review": {
@@ -1288,5 +1296,33 @@
     "siteUrl": "Site of the public entry URLs",
     "siteUrlHelp": "In the form https://example.com (no path; http://localhost only for trying it out locally). It replaces the site part of the sample entry URLs (such as https://example.com/en/blog/entry-slug). Changing it later changes the URLs; the history and redirects are kept.",
     "siteUrlUsed": "Site: {url}"
+  },
+  "templateSwitch": {
+    "title": "Switch template",
+    "help": "Switch this workspace to another deployed template. Choose which content type and field of the new template each current one is carried over to (initially, the ones with the same name and type are chosen).",
+    "noOptions": "There is no template to switch to. A server administrator deploys a template first.",
+    "target": "Template to switch to",
+    "choose": "Choose one",
+    "from": "Current template",
+    "to": "New template",
+    "typeOf": "Carry {name} over to",
+    "fieldOf": "Carry {name} over to",
+    "remove": "(Do not carry over; remove)",
+    "lostType": "{name} (entries are deleted)",
+    "added": "Added (start empty): {names}",
+    "problems": "The mapping has problems.",
+    "destructive": "The following data is not carried over and will be removed.",
+    "pastVersions": "Past versions are also rewritten to the shape of the new template, and the values of fields that are not carried over are removed from them too. Version numbers, dates and correction records are kept.",
+    "export": "Export the data to be removed (JSON)",
+    "exported": "Exported.",
+    "allowDestructive": "I understand that data will be removed",
+    "brokenQueries": "The following registered queries do not work with the new template.",
+    "allowBrokenQueries": "I understand that these queries will stop working",
+    "after": "After switching, rendered results, search data and public URLs of published entries are rebuilt. This takes a little while.",
+    "run": "Switch",
+    "confirmTitle": "Switch to {name}?",
+    "confirmDescription": "The switch is recorded in the audit log and administrators are notified.",
+    "confirmDestructive": "Data that is not carried over is removed and cannot be restored. Make sure you have exported it. The switch is recorded in the audit log and administrators are notified.",
+    "done": "Switched from {from} to {template} (version {version})."
   }
 }

@@ -11,7 +11,11 @@ export const GRANTABLE_TO: Record<HeavyPermission, Role[]> = {
   policySwitches: ["editor", "author"],
   corrections: ["author"],
   takeOverEditing: ["author"],
+  // 付与できるのはサーバー管理者だけ（INV-SCH-09。SERVER_ADMIN_GRANTS_ONLY）
+  switchTemplate: ["admin"],
 };
+/** 付与と取り消しをサーバー管理者だけが行える重い権限。 */
+export const SERVER_ADMIN_GRANTS_ONLY: HeavyPermission[] = ["switchTemplate"];
 export const ROLES: Role[] = ["admin", "editor", "author", "viewer"];
 
 export interface MemberInfo {
