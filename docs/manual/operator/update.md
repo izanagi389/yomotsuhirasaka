@@ -42,4 +42,35 @@
 
 ## PostgreSQL の更新
 
-公式のイメージは PostgreSQL 16 です。メジャーバージョンを上げるときは、[復旧の手順](backup.md#復旧する) のとおりに、新しいボリュームへ復元してください。ボリュームをそのまま新しいメジャーバージョンで開くことはできません。
+公式のイメージは PostgreSQL 18 です（v1.0.0-rc.4 までは 16）。CMS が対応する最低の版は 16 なので、自分で用意した PostgreSQL 16・17 もそのまま使えます。
+
+メジャーバージョンを上げるときは、新しいボリュームへ復元します。ボリュームをそのまま新しいメジャーバージョンで開くことはできません。公式のイメージのメジャーバージョンは自動では上げません（Dependabot でも上げない設定です）。
+
+### PostgreSQL 16 から 18 に移る
+
+v1.0.0-rc.4 までの公式の Docker Compose（PostgreSQL 16、ボリューム `pgdata`）から移る手順です。18 のイメージはデータの置き場所が変わったため、新しい版の Compose は別のボリューム `pgdata18` を使います。古いボリュームは消さないので、うまくいかなければ前の版に戻せます。
+
+1. **前の版のまま**、CMS を止めて、DB の中身をすべて書き出します。
+
+   ```bash
+   docker compose stop yomi
+   docker compose exec -T db pg_dumpall -U postgres > yomi-pg16.sql
+   ```
+
+   書き出したファイルには、DB のロールのパスワードのハッシュと記事の内容が入ります。作業が終わったら安全に消してください。
+2. 新しい版のファイル（`deploy/` 一式）に替え、DB だけを起動します。新しいボリュームに空の PostgreSQL 18 ができます（`./data/db-init` が残っていれば、ロールと DB も作られます）。
+
+   ```bash
+   docker compose up -d --build --wait db
+   ```
+3. 書き出したものを読み込みます。`already exists` の行は、すでにあるロールや DB を作ろうとしたもので、問題ありません。
+
+   ```bash
+   docker compose exec -T db psql -U postgres -q -f - < yomi-pg16.sql
+   ```
+4. CMS を起動し、管理画面で記事とワークスペースがそろっていることを確かめます。
+
+   ```bash
+   docker compose up -d
+   ```
+5. 確かめたら、古いボリュームを消します（`docker volume ls` で名前を確かめてから。例: `docker volume rm yomi_pgdata`）。

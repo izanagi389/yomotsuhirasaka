@@ -30,11 +30,13 @@ services:
     build:
       context: .
       dockerfile: postgres.Dockerfile
-    image: yomotsuhirasaka/postgres:16-local
+    image: yomotsuhirasaka/postgres:18-local
     environment:
       POSTGRES_PASSWORD_FILE: /run/yomi-init/postgres-password
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PostgreSQL 18 のイメージはデータを /var/lib/postgresql/18/docker に置く。16 のデータ（ボリューム pgdata）とは
+      # 混ぜないよう、別のボリュームにする（16 からの移り方は docs/manual/operator/update.md）
+      - pgdata18:/var/lib/postgresql
       # 初回の起動のときだけ使う（ロールとDBと拡張の作成）
       - ./data/db-init:/docker-entrypoint-initdb.d:ro
       - ./data/postgres-password:/run/yomi-init/postgres-password:ro
@@ -56,4 +58,4 @@ networks:
   outside: {}
 
 volumes:
-  pgdata: {}
+  pgdata18: {}

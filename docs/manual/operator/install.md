@@ -1,6 +1,6 @@
 # 導入
 
-公式の Docker Compose で動かすのが基本です。CMS のサーバーと、拡張（pgvector、pg_bigm）を入れた PostgreSQL 16 が起動します。
+公式の Docker Compose で動かすのが基本です。CMS のサーバーと、拡張（pgvector、pg_bigm）を入れた PostgreSQL 18 が起動します。
 
 ## 用意するもの
 
@@ -34,7 +34,7 @@ cd deploy && ./init.sh https://yomi.example.com
 | `./data/yomi/media/` | メディアのファイル |
 | `./data/postgres-password` | PostgreSQL のスーパーユーザーのパスワード（CMS は使いません） |
 | `./data/db-init/10-yomi.sql` | ロール（`yomi_app`、`yomi_migrate`）、DB、拡張の作成 |
-| ボリューム `pgdata` | PostgreSQL のデータ |
+| ボリューム `pgdata18` | PostgreSQL のデータ（PostgreSQL 18。v1.0.0-rc.4 までは `pgdata`） |
 
 - 秘密の値に初期値はありません。`yomi-server init` が生成します。
 - **`./data/yomi/encryption.key` は、DB のバックアップとは別の場所にも保管してください。** 鍵がないとサーバーは起動せず、保存した秘密の値も読めなくなります（[バックアップと復旧](backup.md)）。

@@ -42,3 +42,7 @@ updates:
           # （奇数の版は LTS にならないため。2026-11-08）
           - dependency-name: node
             update-types: ["version-update:semver-major"]
+          # PostgreSQL の大きな版は、データの移し替え（新しいボリュームへの復元）が要るので、手順を用意して手で上げる
+          # （16 → 18 の自動の更新でイメージのビルドが壊れた。2026-11-13）
+          - dependency-name: postgres
+            update-types: ["version-update:semver-major"]
