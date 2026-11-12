@@ -13,6 +13,7 @@ import type { WorkspaceInfo } from "~/utils/content";
 const props = defineProps<{ workspaceId: string }>();
 const { t } = useI18n();
 const api = useApi();
+const toast = useToast();
 const { data: workspace, error, refresh } = useAsyncData(`workspace-settings:${props.workspaceId}`, () =>
   api.get<WorkspaceInfo>(`/workspaces/${props.workspaceId}`),
 );
@@ -25,6 +26,7 @@ async function save(changes: Record<string, unknown>): Promise<boolean> {
     await api.patch(`/workspaces/${props.workspaceId}/settings`, changes);
     await refresh();
     await refreshNuxtData(`workspace:${props.workspaceId}`);
+    toast.show(t("workspaceSettings.saved"));
     return true;
   } catch (e) {
     saveError.value = e;

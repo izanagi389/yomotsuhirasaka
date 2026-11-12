@@ -63,17 +63,18 @@ async function create() {
 
 <template>
   <div class="grid gap-6">
-    <div class="flex flex-wrap items-center gap-3">
-      <h1 class="text-2xl font-semibold">{{ t("workspaces.title") }}</h1>
-      <Button v-if="me?.isServerAdmin" class="ml-auto" @click="createOpen = true"><Plus class="size-4" />{{ t("workspaces.new") }}</Button>
-    </div>
+    <PageHeader :title="t('workspaces.title')">
+      <template v-if="me?.isServerAdmin" #actions>
+        <Button @click="createOpen = true"><Plus class="size-4" />{{ t("workspaces.new") }}</Button>
+      </template>
+    </PageHeader>
     <FormError :error="error" />
     <p v-if="workspaces && workspaces.length === 0" class="text-muted-foreground">{{ t("workspaces.empty") }}</p>
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <NuxtLink v-for="w in workspaces ?? []" :key="w.id" :to="`/w/${w.id}`" class="rounded-xl focus-visible:outline-2 focus-visible:outline-ring">
         <Card class="h-full transition-colors hover:bg-muted/40">
           <CardHeader>
-            <CardTitle>{{ w.name }}</CardTitle>
+            <CardTitle class="flex items-center gap-3"><Kamon :id="w.id" :size="32" />{{ w.name }}</CardTitle>
             <CardDescription>
               {{ w.role ? t(`roles.${w.role}`) : t("roles.serverAdmin") }} ·
               {{ t(`workspaces.schema.${w.schemaState}`) }}

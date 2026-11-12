@@ -55,12 +55,13 @@ async function create() {
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="hasPermission(workspace, 'manageLlm')" :questions="hasPermission(workspace, 'viewQuestionLog')" />
-    <div v-if="manifest && canEdit(workspace) && schema?.state === 'ok'" class="flex">
-      <Button class="ml-auto" @click="openCreate">
-        <Plus class="size-4" />{{ t("entries.new") }}
-      </Button>
-    </div>
+    <PageHeader :title="t('nav.entries')" :description="workspace?.name">
+      <template v-if="manifest && canEdit(workspace) && schema?.state === 'ok'" #actions>
+        <Button @click="openCreate">
+          <Plus class="size-4" />{{ t("entries.new") }}
+        </Button>
+      </template>
+    </PageHeader>
     <FormError :error="error ?? listError" />
     <p v-if="schema && !manifest" class="text-muted-foreground">{{ t("entries.noSchema") }}</p>
     <p v-if="schema?.state === 'pending'" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">

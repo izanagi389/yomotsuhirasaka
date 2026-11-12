@@ -1,4 +1,4 @@
-/* 管理画面の見た目（Tailwind CSS v4 と shadcn-vue の neutral の配色）。ビルドのときに CSS ファイルになり、
+/* 管理画面の見た目（Tailwind CSS v4 と shadcn-vue。配色は和C: 藍・朱・水引）。ビルドのときに CSS ファイルになり、
    実行中に <style> を差し込まないので、CSP の style-src 'self' のままで動く。 */
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -29,50 +29,77 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-shu: var(--shu);
+  --color-kin: var(--kin);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-strong: var(--sidebar-strong);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-border: var(--sidebar-border);
+  /* 書体は端末に入っているものだけを使う（外部への通信なし、同梱なし） */
+  --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --font-mincho: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", serif;
 }
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* 和C（藍・朱・水引）。地は青みのある白、主な操作は藍、差し色と大事な操作は朱 */
+  --background: #f7f8fa;
+  --foreground: #141b26;
+  --card: #ffffff;
+  --card-foreground: #141b26;
+  --popover: #ffffff;
+  --popover-foreground: #141b26;
+  --primary: #1e4e8c;
+  --primary-foreground: #ffffff;
+  --secondary: #edf0f4;
+  --secondary-foreground: #141b26;
+  --muted: #edf0f4;
+  --muted-foreground: #5a6678;
+  --accent: #e8eff8;
+  --accent-foreground: #1e4e8c;
+  --destructive: #a23b26;
+  --border: #e3e7ed;
+  --input: #dde2ea;
+  --ring: #1e4e8c;
+  --shu: #c0462b;
+  --kin: #e7c873;
+  --sidebar: #14243b;
+  --sidebar-foreground: #c3cedd;
+  --sidebar-strong: #ffffff;
+  --sidebar-muted: #8fa1b8;
+  --sidebar-active: rgb(255 255 255 / 12%);
+  --sidebar-border: rgb(255 255 255 / 12%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
+    --background: #10161f;
+    --foreground: #e4e8ee;
+    --card: #141c27;
+    --card-foreground: #e4e8ee;
+    --popover: #18212e;
+    --popover-foreground: #e4e8ee;
+    --primary: #6fa0db;
+    --primary-foreground: #0a1019;
+    --secondary: #18212e;
+    --secondary-foreground: #e4e8ee;
+    --muted: #18212e;
+    --muted-foreground: #93a0b2;
+    --accent: #1a2432;
+    --accent-foreground: #e4e8ee;
+    --destructive: #c4553c;
+    --border: #1f2a38;
+    --input: #243042;
+    --ring: #6fa0db;
+    --shu: #e06a4e;
+    --sidebar: #0a1019;
+    --sidebar-foreground: #b6c1d0;
+    --sidebar-strong: #f2f4f7;
+    --sidebar-muted: #7f8da1;
+    --sidebar-active: #1a2432;
+    --sidebar-border: #243042;
   }
 }
 

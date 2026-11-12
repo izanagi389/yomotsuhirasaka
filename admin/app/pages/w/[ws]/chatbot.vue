@@ -114,7 +114,7 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="allowed" :questions="hasPermission(workspace, 'viewQuestionLog')" />
+    <PageHeader :title="t('nav.chatbot')" :description="workspace?.name" />
     <FormError :error="wsError ?? error ?? saveError" />
     <p v-if="workspace && !allowed" class="text-muted-foreground">{{ t("errors.forbidden") }}</p>
 
