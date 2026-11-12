@@ -108,7 +108,7 @@ pub async fn load_latest(
     latest_version(conn, template).await
 }
 
-async fn latest_version(
+pub(crate) async fn latest_version(
     conn: &mut PgConnection,
     template: &str,
 ) -> Result<Option<(i32, Manifest)>> {
@@ -229,7 +229,7 @@ pub async fn deploy(
 /// ロックは接続ごとのもの（アドバイザリーロック）なので、取ってから外すまでを別のタスクで動かす。リクエストの途中で
 /// 相手が接続を切っても、そのタスクは最後まで走ってロックを外す（呼んだ側の処理が打ち切られて、ロックを持ったままの
 /// 接続がプールに戻ることを防ぐ。侵入テストの前の確認で見つけた）。
-async fn with_deploy_lock<T: Send + 'static>(
+pub(crate) async fn with_deploy_lock<T: Send + 'static>(
     migration: &PgPool,
     work: impl for<'c> FnOnce(
         &'c mut PgConnection,
@@ -369,7 +369,7 @@ async fn broken_queries(
 }
 
 /// 1つのワークスペースの登録済みのクエリのうち、新しいスキーマで検証に通らないもの。
-async fn broken_in_workspace(
+pub(crate) async fn broken_in_workspace(
     conn: &mut PgConnection,
     schema: &async_graphql::dynamic::Schema,
     workspace_id: Uuid,

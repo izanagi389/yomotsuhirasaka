@@ -6,6 +6,10 @@
 //! | GET | /api/admin/workspaces/{ws}/schema | ワークスペースに適用済みのスキーマ（`devNote` は除く） |
 //! | GET | /api/admin/bundled-templates | 同梱のテンプレートの一覧と、デプロイ済みの版との違い（サーバー管理者） |
 //! | POST | /api/admin/bundled-templates/{name}/deploy | 同梱のテンプレートをデプロイする（サーバー管理者のセッションと再認証）。`dryRun` なら検査だけ |
+//! | POST | /api/admin/workspaces/{ws}/template | テンプレートを切り替える（サーバー管理者と、権限を付与された管理者。再認証）。`dryRun` なら計画だけ |
+//! | POST | /api/admin/workspaces/{ws}/template/export | 切り替えで消えるデータを JSON で書き出す（再認証） |
+//! | GET | /api/admin/workspaces/{ws}/template-options | 切り替え先に選べるテンプレート |
+//! | GET | /api/admin/templates | テンプレートの一覧（ワークスペースの作成で選ぶため。サーバー管理者） |
 //!
 //! デプロイはサーバー管理者だけが、デプロイの範囲を持つ個人トークンで行う（13-security.md「デプロイ」、Q102）。
 //! デプロイの範囲のトークンは、サーバー管理者が多要素認証で再認証してから発行する。
@@ -357,4 +361,261 @@ pub async fn deploy_bundled_template(
         return Err(ApiError::reauth_required());
     }
     run_deploy(&state, &name, manifest, flags, current.user_id).await
+}
+
+// ---- テンプレートの切り替え（02-schema-and-delivery-api.md「テンプレートの切り替え」、INV-SCH-08・09） ----
+
+/// 切り替えられる人: サーバー管理者と、重い権限「テンプレートの切り替え」を付与されたワークスペースの管理者（INV-SCH-09）。
+/// Cookie のセッションだけ（個人トークンでは行えない）。管理者とサーバー管理者の多要素認証は `member` が求める。
+async fn switcher(state: &AppState, current: &session::Current, ws: Uuid) -> Result<(), ApiError> {
+    require_cookie_session(current)?;
+    let access = access::member(&state.pool, current, ws).await??;
+    let granted_admin =
+        access.role == Some(access::Role::Admin) && access.has(access::Permission::SwitchTemplate);
+    if !(access::acts_as_server_admin(current) || granted_admin) {
+        return Err(access::Denied::Forbidden.into());
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SwitchRequest {
+    template: String,
+    /// 古いコンテンツタイプとフィールドを、新しいテンプレートのどれに引き継ぐか（書いていないものは名前の同じもの）。
+    #[serde(default)]
+    mapping: crate::schema::switch::MappingInput,
+    /// データが消える切り替えを許す（INV-SCH-08）。
+    #[serde(default)]
+    allow_destructive: bool,
+    #[serde(default)]
+    allow_broken_queries: bool,
+    /// 試行: 対応づけと消えるもの、壊れるクエリを返すだけで、何も変えない。
+    #[serde(default)]
+    dry_run: bool,
+}
+
+fn valid_target(name: &str) -> Result<(), ApiError> {
+    if valid_template_name(name) {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(
+            "The template name must be 1 to 64 characters of a-z, 0-9 and -.",
+        ))
+    }
+}
+
+fn switch_rejected(r: crate::schema::switch::Rejected) -> ApiError {
+    use crate::schema::switch::Rejected as R;
+    match r {
+        R::NotDeployed => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "template_not_deployed",
+            "The template has not been deployed yet.",
+        ),
+        R::SameTemplate => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "same_template",
+            "The workspace already uses this template.",
+        ),
+        R::Mapping(problems) => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_mapping",
+            format!("The mapping is not valid: {}", report(problems.into_iter())),
+        ),
+        R::Destructive(plan) => {
+            let lost = plan.content_types.iter().flat_map(|t| match &t.to {
+                None => vec![t.from.clone()],
+                Some(_) => t
+                    .fields
+                    .iter()
+                    .filter(|f| f.to.is_none())
+                    .map(|f| format!("{}.{}", t.from, f.from))
+                    .collect(),
+            });
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "destructive_change",
+                format!(
+                    "Switching removes data that is not mapped to the new template. Map it, or allow destructive changes explicitly: {}",
+                    report(lost)
+                ),
+            )
+        }
+        R::BrokenQueries(broken) => ApiError::new(
+            StatusCode::CONFLICT,
+            deploy::BREAKS_QUERIES,
+            format!(
+                "Registered queries do not work with the new template. Fix them, or allow it explicitly: {}",
+                report(broken.into_iter().map(|q| q.query_id))
+            ),
+        ),
+        R::Failed(code) => ApiError::new(
+            StatusCode::CONFLICT,
+            "switch_failed",
+            format!("The existing data does not fit the new template: {code}"),
+        ),
+    }
+}
+
+/// ワークスペースのテンプレートを切り替える。`dryRun` なら計画だけを返す。本当の切り替えは再認証が要る。
+pub async fn switch_template(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path(ws): Path<String>,
+    JsonBody(req): JsonBody<SwitchRequest>,
+) -> Result<Json<crate::schema::switch::Outcome>, ApiError> {
+    let id = Uuid::parse_str(&ws).map_err(|_| ApiError::not_found())?;
+    switcher(&state, &current, id).await?;
+    valid_target(&req.template)?;
+    if !req.dry_run && !current.reauth_fresh {
+        return Err(ApiError::reauth_required());
+    }
+    let limits = crate::delivery::schema::QueryLimits {
+        depth: state.config.delivery.max_depth,
+        complexity: state.config.delivery.max_complexity,
+    };
+    let outcome = crate::schema::switch::switch(
+        &state.migration,
+        id,
+        crate::schema::switch::Request {
+            template: req.template,
+            mapping: req.mapping,
+            allow_destructive: req.allow_destructive,
+            allow_broken_queries: req.allow_broken_queries,
+            dry_run: req.dry_run,
+        },
+        limits,
+        state.config.delivery.query_check_unused_days,
+        current.user_id,
+    )
+    .await?
+    .map_err(switch_rejected)?;
+    if !outcome.dry_run {
+        // 版の変換結果を作り直し、検索用データと公開URLを見直す（デプロイの後と同じ）
+        if let Err(e) = crate::content::rerender::schedule(&state.pool, &state.keys, id).await {
+            tracing::error!(workspace_id = %id, "cannot queue re-rendering: {e:#}");
+        }
+        super::admin_publishing::schedule_search(&state, id).await;
+        for ct in &outcome.content_types {
+            if let Err(e) =
+                crate::content::urls::schedule_content_type(&state.pool, &state.keys, id, ct).await
+            {
+                tracing::error!(workspace_id = %id, "cannot queue URL recomputation: {e:#}");
+            }
+        }
+    }
+    Ok(Json(outcome))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SwitchExportRequest {
+    template: String,
+    #[serde(default)]
+    mapping: crate::schema::switch::MappingInput,
+}
+
+/// 切り替えで消えるデータを書き出す（JSON）。記事の本文を含むので、再認証が要る。何も変えない。
+pub async fn switch_template_export(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path(ws): Path<String>,
+    JsonBody(req): JsonBody<SwitchExportRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let id = Uuid::parse_str(&ws).map_err(|_| ApiError::not_found())?;
+    switcher(&state, &current, id).await?;
+    valid_target(&req.template)?;
+    if !current.reauth_fresh {
+        return Err(ApiError::reauth_required());
+    }
+    let export = crate::schema::switch::export(&state.migration, id, &req.template, &req.mapping)
+        .await?
+        .map_err(switch_rejected)?;
+    let mut data = export.data;
+    if let Some(obj) = data.as_object_mut() {
+        obj.insert("workspaceId".into(), serde_json::json!(id));
+        obj.insert("template".into(), serde_json::json!(req.template));
+        obj.insert(
+            "plan".into(),
+            serde_json::to_value(&export.plan).map_err(anyhow::Error::from)?,
+        );
+    }
+    Ok(Json(data))
+}
+
+/// デプロイ済みのテンプレート。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateOption {
+    name: String,
+    /// デプロイ済みの最新の版（同梱でまだデプロイしていなければ null）。
+    version: Option<i32>,
+    /// 同梱のテンプレートか。
+    bundled: bool,
+}
+
+async fn deployed_templates(state: &AppState) -> Result<Vec<(String, i32)>, ApiError> {
+    Ok(sqlx::query_as(
+        "SELECT template, max(version) FROM yomi.template_versions GROUP BY template ORDER BY template",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(anyhow::Error::from)?)
+}
+
+/// テンプレートの一覧（ワークスペースの作成で選ぶため。サーバー管理者）。デプロイ済みのものと、まだデプロイしていない同梱のもの。
+pub async fn list_templates(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+) -> Result<Json<Vec<TemplateOption>>, ApiError> {
+    server_admin_session(&current)?;
+    let mut out: Vec<TemplateOption> = deployed_templates(&state)
+        .await?
+        .into_iter()
+        .map(|(name, v)| TemplateOption {
+            bundled: crate::schema::bundled::names().any(|b| b == name),
+            name,
+            version: Some(v),
+        })
+        .collect();
+    for name in crate::schema::bundled::names() {
+        if !out.iter().any(|t| t.name == name) {
+            out.push(TemplateOption {
+                name: name.to_owned(),
+                version: None,
+                bundled: true,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(Json(out))
+}
+
+/// 切り替え先に選べるテンプレート（デプロイ済みで、今のもの以外）。切り替えられる人だけ。
+pub async fn template_options(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path(ws): Path<String>,
+) -> Result<Json<Vec<TemplateOption>>, ApiError> {
+    let id = Uuid::parse_str(&ws).map_err(|_| ApiError::not_found())?;
+    switcher(&state, &current, id).await?;
+    let current_template: String =
+        sqlx::query_scalar("SELECT template FROM yomi.workspaces WHERE id = $1")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(anyhow::Error::from)?;
+    Ok(Json(
+        deployed_templates(&state)
+            .await?
+            .into_iter()
+            .filter(|(name, _)| *name != current_template)
+            .map(|(name, v)| TemplateOption {
+                bundled: crate::schema::bundled::names().any(|b| b == name),
+                name,
+                version: Some(v),
+            })
+            .collect(),
+    ))
 }
