@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-withDefaults(defineProps<{ placement?: "sidebar" | "header" }>(), { placement: "sidebar" });
+withDefaults(defineProps<{ placement?: "sidebar" | "header"; compact?: boolean }>(), { placement: "sidebar", compact: false });
 
 const { me, logout } = useAuth();
 const { t, locale, locales, setLocale } = useI18n();
@@ -45,11 +45,11 @@ async function changeLocale(code: string) {
       data-testid="account-menu"
     >
       <span aria-hidden="true" class="flex size-7.5 shrink-0 items-center justify-center rounded-full bg-[#2f6fb5] text-xs text-white">{{ initial }}</span>
-      <span class="grid min-w-0 leading-tight" :class="placement === 'header' ? 'max-sm:hidden' : ''">
+      <span class="grid min-w-0 leading-tight" :class="compact ? 'sr-only' : placement === 'header' ? 'max-sm:hidden' : ''">
         <span class="truncate text-[13px]">{{ name }}</span>
         <span v-if="me.isServerAdmin" class="truncate text-[11px] text-sidebar-muted">{{ t("accountMenu.serverAdmin") }}</span>
       </span>
-      <ChevronsUpDown class="ml-auto size-4 text-sidebar-muted" aria-hidden="true" />
+      <ChevronsUpDown v-if="!compact" class="ml-auto size-4 text-sidebar-muted" aria-hidden="true" />
     </DropdownMenuTrigger>
     <DropdownMenuContent :side="placement === 'sidebar' ? 'top' : 'bottom'" align="start" class="w-64">
       <DropdownMenuLabel class="grid font-normal">

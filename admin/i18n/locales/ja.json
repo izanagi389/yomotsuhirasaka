@@ -274,7 +274,12 @@
     "unpublishTitle": "記事を非公開にします",
     "unpublishDescription": "公開サイトから記事を取り下げます。下書きと版の履歴は残ります。",
     "deleteTitle": "記事を削除します",
-    "deleteDescription": "記事を削除し、公開も止めます。この操作は画面からは元に戻せません。"
+    "deleteDescription": "記事を削除し、公開も止めます。この操作は画面からは元に戻せません。",
+    "backToList": "記事の一覧",
+    "backToEdit": "編集に戻る",
+    "sidePanel": "記事の情報",
+    "sideWide": "右の欄を広げる",
+    "sideNarrow": "右の欄を戻す"
   },
   "publish": {
     "button": "公開",
@@ -319,7 +324,8 @@
     "urls": "URLの履歴",
     "freshness": "鮮度",
     "review": "レビュー",
-    "related": "関連記事"
+    "related": "関連記事",
+    "history": "履歴"
   },
   "translations": {
     "source": "元の記事",
