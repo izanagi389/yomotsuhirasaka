@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "CMS",
+    "name": "よもつひらさか",
     "language": "言語"
   },
   "common": {
@@ -398,7 +398,11 @@
     "admin": "管理",
     "budget": "予算",
     "chatbot": "チャットボット",
-    "questions": "質問ログ"
+    "questions": "質問ログ",
+    "adminSection": "管理",
+    "label": "メニュー",
+    "openMenu": "メニューを開く",
+    "closeMenu": "メニューを閉じる"
   },
   "adminTabs": {
     "members": "所属者",
@@ -1334,5 +1338,14 @@
     "delete": "ワークスペースを削除する",
     "confirmTitle": "「{name}」を削除しますか？",
     "confirmDescription": "すぐに完全に削除され、元に戻せません。配信も止まります。削除は監査ログに残り、管理者に通知されます。"
+  },
+  "workspaceSwitcher": {
+    "open": "ワークスペースを切り替える",
+    "label": "ワークスペース",
+    "all": "ワークスペースの一覧"
+  },
+  "accountMenu": {
+    "open": "アカウントのメニューを開く",
+    "serverAdmin": "サーバー管理者"
   }
 }

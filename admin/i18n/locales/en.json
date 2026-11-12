@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "CMS",
+    "name": "Yomotsuhirasaka",
     "language": "Language"
   },
   "common": {
@@ -398,7 +398,11 @@
     "admin": "Admin",
     "budget": "Budget",
     "chatbot": "Chatbot",
-    "questions": "Question log"
+    "questions": "Question log",
+    "adminSection": "Administration",
+    "label": "Menu",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu"
   },
   "adminTabs": {
     "members": "Members",
@@ -1334,5 +1338,14 @@
     "delete": "Delete workspace",
     "confirmTitle": "Delete \"{name}\"?",
     "confirmDescription": "It is deleted immediately and completely, and cannot be undone. Delivery stops. The deletion is recorded in the audit log and administrators are notified."
+  },
+  "workspaceSwitcher": {
+    "open": "Switch workspace",
+    "label": "Workspaces",
+    "all": "All workspaces"
+  },
+  "accountMenu": {
+    "open": "Open account menu",
+    "serverAdmin": "Server administrator"
   }
 }

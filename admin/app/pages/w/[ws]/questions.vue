@@ -40,7 +40,7 @@ async function remove() {
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="hasPermission(workspace, 'manageLlm')" :questions="allowed" />
+    <PageHeader :title="t('nav.questions')" :description="workspace?.name" />
     <FormError :error="wsError ?? error" />
     <p v-if="workspace && !allowed" class="text-muted-foreground">{{ t("errors.forbidden") }}</p>
 

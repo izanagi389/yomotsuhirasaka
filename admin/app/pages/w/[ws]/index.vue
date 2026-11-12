@@ -102,7 +102,7 @@ function detail(i: TodoItem): string {
 
 <template>
   <div class="grid gap-6">
-    <WorkspaceNav :workspace-id="ws" :name="workspace?.name" :admin="isWorkspaceAdmin(workspace)" :budget="hasPermission(workspace, 'manageLlm')" :questions="hasPermission(workspace, 'viewQuestionLog')" />
+    <PageHeader :title="t('nav.todo')" :description="workspace?.name" />
     <FormError :error="error ?? todoError ?? readError" />
     <p class="text-sm text-muted-foreground">{{ t("todo.help") }}</p>
 

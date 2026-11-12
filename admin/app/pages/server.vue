@@ -46,7 +46,7 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
 
 <template>
   <div class="grid gap-6 text-sm">
-    <h1 class="text-2xl font-semibold">{{ t("server.title") }}</h1>
+    <PageHeader :title="t('server.title')" />
     <p v-if="!me?.isServerAdmin" class="text-muted-foreground">{{ t("errors.forbidden") }}</p>
     <Tabs v-else v-model="tab">
       <TabsList>

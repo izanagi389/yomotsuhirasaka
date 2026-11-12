@@ -44,7 +44,7 @@ async function revoke(s: SessionSummary) {
 
 <template>
   <div class="grid max-w-3xl gap-6 text-sm">
-    <h1 class="text-2xl font-semibold">{{ t("security.title") }}</h1>
+    <PageHeader :title="t('account.nav.sessions')" :description="t('security.title')" />
     <AccountNav />
     <FormError :error="error ?? actionError" />
 
