@@ -1,80 +1,17 @@
 <script setup lang="ts">
-// ワークスペースの管理（管理者とサーバー管理者）: 所属者・招待・配信APIのキー・Webhook・訂正の定型文・監査ログ。
-// 権限の判断はサーバーが行う。発行や変更の多くは再認証が要り、サーバーが求めたらダイアログで確認する。
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import ApiKeysPanel from "~/components/admin/ApiKeysPanel.vue";
-import AuditPanel from "~/components/admin/AuditPanel.vue";
-import AuditSinksPanel from "~/components/admin/AuditSinksPanel.vue";
-import CorrectionTemplatesPanel from "~/components/admin/CorrectionTemplatesPanel.vue";
-import InvitationsPanel from "~/components/admin/InvitationsPanel.vue";
-import TemplateSwitchPanel from "~/components/admin/TemplateSwitchPanel.vue";
-import WorkspaceDeletePanel from "~/components/admin/WorkspaceDeletePanel.vue";
-import QuestionLogSettingsPanel from "~/components/admin/QuestionLogSettingsPanel.vue";
-import MembersPanel from "~/components/admin/MembersPanel.vue";
-import RelatedRecomputePanel from "~/components/admin/RelatedRecomputePanel.vue";
-import HookSecretsPanel from "~/components/admin/HookSecretsPanel.vue";
-import WebhooksPanel from "~/components/admin/WebhooksPanel.vue";
-import WorkspaceSettingsPanel from "~/components/admin/WorkspaceSettingsPanel.vue";
-import type { MemberInfo } from "~/utils/admin";
-
-const route = useRoute();
-const ws = route.params.ws as string;
+// ワークスペースの管理（管理者とサーバー管理者）。所属者・招待・配信APIのキー・Webhook・フックの秘密・訂正の定型文・
+// テンプレート・監査ログ・設定を、それぞれ別の画面（admin/*.vue）にし、サイドバーから開く。
+// ここでは、入れる人か（管理者かサーバー管理者か）だけを確かめる。権限の最終的な判断はサーバーが行う。
+// 発行や変更の多くは再認証が要り、サーバーが求めたらダイアログで確認する。
+const ws = useRoute().params.ws as string;
 const { t } = useI18n();
-const api = useApi();
-const { me } = useAuth();
-const { workspace, manifest, error } = await useWorkspace(ws);
-// `?tab=settings` などで開くタブを選べる（ワークスペースの一覧の「設定」から飛ぶため）
-const ADMIN_TABS = ["members", "invitations", "apiKeys", "webhooks", "hookSecrets", "correctionTemplates", "audit", "settings"];
-const tab = ref(ADMIN_TABS.includes(String(route.query.tab)) ? String(route.query.tab) : "members");
-
-// 監査ログに、操作した人のメールアドレスを出す（所属者の一覧から分かる人だけ）
-const people = ref<Record<string, string>>({});
-watch(tab, async (v) => {
-  if (v !== "audit" || Object.keys(people.value).length > 0) return;
-  try {
-    const members = await api.get<MemberInfo[]>(`/workspaces/${ws}/members`);
-    people.value = Object.fromEntries(members.map((m) => [m.userId, m.email]));
-  } catch {
-    // 分からなければIDのまま
-  }
-});
+const { workspace, error } = await useWorkspace(ws);
 </script>
 
 <template>
   <div class="grid gap-6">
-    <PageHeader :title="t('nav.admin')" :description="workspace?.name" />
     <FormError :error="error" />
     <p v-if="workspace && !isWorkspaceAdmin(workspace)" class="text-muted-foreground">{{ t("errors.forbidden") }}</p>
-    <Tabs v-else-if="workspace" v-model="tab">
-      <TabsList class="flex-wrap">
-        <TabsTrigger value="members">{{ t("adminTabs.members") }}</TabsTrigger>
-        <TabsTrigger value="invitations">{{ t("adminTabs.invitations") }}</TabsTrigger>
-        <TabsTrigger value="apiKeys">{{ t("adminTabs.apiKeys") }}</TabsTrigger>
-        <TabsTrigger value="webhooks">{{ t("adminTabs.webhooks") }}</TabsTrigger>
-        <TabsTrigger value="hookSecrets">{{ t("adminTabs.hookSecrets") }}</TabsTrigger>
-        <TabsTrigger value="correctionTemplates">{{ t("adminTabs.correctionTemplates") }}</TabsTrigger>
-        <TabsTrigger value="audit">{{ t("adminTabs.audit") }}</TabsTrigger>
-        <TabsTrigger value="settings">{{ t("adminTabs.settings") }}</TabsTrigger>
-      </TabsList>
-      <TabsContent value="members" class="mt-4"><MembersPanel :workspace-id="ws" /></TabsContent>
-      <TabsContent value="settings" class="mt-4 grid gap-8">
-        <WorkspaceSettingsPanel :workspace-id="ws" />
-        <QuestionLogSettingsPanel :workspace-id="ws" />
-        <RelatedRecomputePanel :workspace-id="ws" />
-        <TemplateSwitchPanel v-if="me?.isServerAdmin || hasPermission(workspace, 'switchTemplate')" :workspace-id="ws" />
-        <WorkspaceDeletePanel v-if="me?.isServerAdmin" :workspace-id="ws" :name="workspace.name" />
-      </TabsContent>
-      <TabsContent value="invitations" class="mt-4"><InvitationsPanel :workspace-id="ws" /></TabsContent>
-      <TabsContent value="apiKeys" class="mt-4"><ApiKeysPanel :workspace-id="ws" /></TabsContent>
-      <TabsContent value="webhooks" class="mt-4"><WebhooksPanel :workspace-id="ws" /></TabsContent>
-      <TabsContent value="hookSecrets" class="mt-4"><HookSecretsPanel :workspace-id="ws" /></TabsContent>
-      <TabsContent value="correctionTemplates" class="mt-4">
-        <CorrectionTemplatesPanel :workspace-id="ws" :locales="manifest?.locales ?? []" />
-      </TabsContent>
-      <TabsContent value="audit" class="mt-4 grid gap-8">
-        <AuditPanel :workspace-id="ws" :people="people" />
-        <AuditSinksPanel :workspace-id="ws" />
-      </TabsContent>
-    </Tabs>
+    <NuxtPage v-else-if="workspace" />
   </div>
 </template>

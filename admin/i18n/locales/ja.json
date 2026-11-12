@@ -418,7 +418,8 @@
     "audit": "監査ログ",
     "correctionTemplates": "訂正の定型文",
     "settings": "設定",
-    "hookSecrets": "フックの秘密"
+    "hookSecrets": "フックの秘密",
+    "template": "テンプレート"
   },
   "secretOnce": {
     "warning": "この値は今だけ表示します。閉じると二度と表示できないので、安全な場所に保管してください。",
@@ -1001,7 +1002,8 @@
     "stoppedAt": "{at} に停止しました。再開すると、続きから送ります。",
     "failingSince": "{at} から送れていません",
     "resume": "再開",
-    "delete": "削除"
+    "delete": "削除",
+    "toggle": "書き出し先の設定"
   },
   "notifications": {
     "title": "通知",

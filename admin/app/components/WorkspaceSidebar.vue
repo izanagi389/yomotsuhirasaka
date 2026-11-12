@@ -3,7 +3,25 @@
 // 管理は管理者とサーバー管理者だけ、予算とチャットボットは重い権限 manageLlm を持つ人とサーバー管理者だけ、
 // 質問ログは viewQuestionLog を持つ人だけに出す（権限の判断はサーバー）。
 // 「やること」には、その人が対応できる項目の件数を出す（0件なら出さない）。
-import { Bot, ChartColumn, ChevronsUpDown, CircleCheckBig, FileText, Image, LayoutGrid, MessagesSquare, Settings } from "@lucide/vue";
+import {
+  Bot,
+  ChartColumn,
+  ChevronsUpDown,
+  CircleCheckBig,
+  FilePen,
+  FileText,
+  Image,
+  KeyRound,
+  LayoutGrid,
+  LayoutTemplate,
+  LockKeyhole,
+  Mail,
+  MessagesSquare,
+  ScrollText,
+  Settings,
+  Users,
+  Webhook,
+} from "@lucide/vue";
 
 import {
   DropdownMenu,
@@ -37,7 +55,25 @@ const main = computed(() => [
     : []),
   ...(hasPermission(workspace.value, "viewQuestionLog") ? [{ to: `${base.value}/questions`, label: t("nav.questions"), icon: MessagesSquare }] : []),
 ]);
-const admin = computed(() => (isWorkspaceAdmin(workspace.value) ? [{ to: `${base.value}/admin`, label: t("nav.admin"), icon: Settings }] : []));
+const { me } = useAuth();
+// 管理の各画面（管理者とサーバー管理者だけ）。テンプレートの切り替えは、サーバー管理者と switchTemplate を持つ人だけ
+const admin = computed(() => {
+  if (!isWorkspaceAdmin(workspace.value)) return [];
+  const a = `${base.value}/admin`;
+  return [
+    { to: `${a}/members`, label: t("adminTabs.members"), icon: Users },
+    { to: `${a}/invitations`, label: t("adminTabs.invitations"), icon: Mail },
+    { to: `${a}/api-keys`, label: t("adminTabs.apiKeys"), icon: KeyRound },
+    { to: `${a}/webhooks`, label: t("adminTabs.webhooks"), icon: Webhook },
+    { to: `${a}/hook-secrets`, label: t("adminTabs.hookSecrets"), icon: LockKeyhole },
+    { to: `${a}/correction-templates`, label: t("adminTabs.correctionTemplates"), icon: FilePen },
+    ...(me.value?.isServerAdmin || hasPermission(workspace.value, "switchTemplate")
+      ? [{ to: `${a}/template`, label: t("adminTabs.template"), icon: LayoutTemplate }]
+      : []),
+    { to: `${a}/audit`, label: t("adminTabs.audit"), icon: ScrollText },
+    { to: `${a}/settings`, label: t("adminTabs.settings"), icon: Settings },
+  ];
+});
 
 function active(to: string, exact?: boolean): boolean {
   return exact ? route.path === to : route.path === to || route.path.startsWith(`${to}/`);
@@ -76,8 +112,7 @@ function active(to: string, exact?: boolean): boolean {
     <nav :aria-label="workspace?.name ?? t('nav.label')" class="grid gap-0.5">
       <SidebarLink v-for="i in main" :key="i.to" :to="i.to" :label="i.label" :icon="i.icon" :count="'count' in i ? i.count : 0" :active="active(i.to, 'exact' in i && i.exact)" />
       <template v-if="admin.length">
-        <span v-if="admin.length > 1" class="px-2.5 pt-4 pb-1 text-[11px] tracking-[0.2em] text-sidebar-muted">{{ t("nav.adminSection") }}</span>
-        <span v-else aria-hidden="true" class="mx-2.5 my-2 h-px bg-sidebar-border" />
+        <span class="px-2.5 pt-4 pb-1 text-[11px] tracking-[0.2em] text-sidebar-muted">{{ t("nav.adminSection") }}</span>
         <SidebarLink v-for="i in admin" :key="i.to" :to="i.to" :label="i.label" :icon="i.icon" :active="active(i.to)" />
       </template>
     </nav>

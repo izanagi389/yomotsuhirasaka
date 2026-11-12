@@ -418,7 +418,8 @@
     "audit": "Audit log",
     "correctionTemplates": "Correction templates",
     "settings": "Settings",
-    "hookSecrets": "Hook secrets"
+    "hookSecrets": "Hook secrets",
+    "template": "Template"
   },
   "secretOnce": {
     "warning": "This value is shown only now. Once closed it cannot be shown again, so store it somewhere safe.",
@@ -1001,7 +1002,8 @@
     "stoppedAt": "Stopped at {at}. Resume to continue from where it stopped.",
     "failingSince": "Not delivering since {at}",
     "resume": "Resume",
-    "delete": "Delete"
+    "delete": "Delete",
+    "toggle": "Export destinations"
   },
   "notifications": {
     "title": "Notifications",

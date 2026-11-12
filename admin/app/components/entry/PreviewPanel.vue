@@ -153,7 +153,7 @@ onBeforeUnmount(() => {
     <p v-if="problem === 'noUrl'" class="text-muted-foreground">{{ t("preview.noUrl") }}</p>
     <p v-else-if="problem === 'notAllowed'" class="text-muted-foreground" data-testid="preview-not-allowed">
       {{ t("preview.notAllowed") }}
-      <NuxtLink v-if="isWorkspaceAdmin(workspace)" :to="`/w/${workspaceId}/admin`" class="underline">{{ t("preview.openSettings") }}</NuxtLink>
+      <NuxtLink v-if="isWorkspaceAdmin(workspace)" :to="`/w/${workspaceId}/admin/settings`" class="underline">{{ t("preview.openSettings") }}</NuxtLink>
     </p>
     <div class="flex flex-wrap items-center gap-2">
       <Button size="sm" variant="outline" data-testid="preview-new-tab" @click="openInNewTab">{{ t("preview.openInNewTab") }}</Button>

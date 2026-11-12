@@ -22,7 +22,7 @@ const canDelete = computed(() => !!me.value?.isServerAdmin);
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" class="w-52">
       <DropdownMenuItem @select="navigateTo(`/w/${workspace.id}`)"><ExternalLink aria-hidden="true" />{{ t("workspaces.open") }}</DropdownMenuItem>
-      <DropdownMenuItem v-if="isWorkspaceAdmin(workspace)" @select="navigateTo(`/w/${workspace.id}/admin?tab=settings`)">
+      <DropdownMenuItem v-if="isWorkspaceAdmin(workspace)" @select="navigateTo(`/w/${workspace.id}/admin/settings`)">
         <Settings aria-hidden="true" />{{ t("workspaces.settings") }}
       </DropdownMenuItem>
       <template v-if="canDelete">
