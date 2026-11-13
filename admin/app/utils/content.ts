@@ -2,7 +2,7 @@
 import type { JSONContent } from "@tiptap/core";
 import type { ManifestBody } from "@yomotsuhirasaka/editor-schema";
 
-export type FieldType = "text" | "slug" | "richtext" | "reference";
+export type FieldType = "text" | "slug" | "richtext" | "reference" | "image";
 
 export interface Field {
   name: string;
@@ -59,7 +59,14 @@ export interface WorkspaceInfo {
   crest?: import("~/utils/kamon").Crest | null;
 }
 
-export type FieldValue = string | string[] | JSONContent | null;
+/** 画像のフィールドの値（server/src/content/fields.rs）。本文の画像のノードと同じ属性。 */
+export interface ImageValue {
+  mediaId: string;
+  alt?: string;
+  decorative?: boolean;
+}
+
+export type FieldValue = string | string[] | JSONContent | ImageValue | null;
 
 export interface EntrySummary {
   id: string;

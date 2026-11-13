@@ -288,7 +288,15 @@
       "published": "Published",
       "draft": "Drafts"
     },
-    "noMatch": "No entries match these filters."
+    "noMatch": "No entries match these filters.",
+    "image": {
+      "none": "No image selected",
+      "choose": "Choose an image",
+      "chooseHint": "Pick one image from this workspace's media.",
+      "upload": "Upload",
+      "remove": "Remove",
+      "pick": "Choose this image ({w}×{h})"
+    }
   },
   "publish": {
     "button": "Publish",
