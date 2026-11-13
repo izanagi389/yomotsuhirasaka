@@ -1,6 +1,6 @@
 {
   "name": "@yomotsuhirasaka/converter",
-  "version": "1.0.0-rc.4",
+  "version": "1.0.0-rc.5",
   "private": true,
   "description": "本文（TiptapのJSON）の変換器。Markdown と HTML を作る。サーバーの組み込みJSと管理画面で同じものを動かす（Q56）",
   "license": "Apache-2.0",
