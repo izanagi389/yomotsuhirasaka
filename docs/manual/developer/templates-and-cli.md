@@ -77,7 +77,7 @@ CLI の入れ方は [最初のサイトを作るまでの流れ](getting-started
 | 項目 | 内容 |
 |---|---|
 | `name` | 英小文字で始まる英小文字、数字、`_` |
-| `type` | `text`（1行）、`slug`（英小文字、数字、ハイフン）、`richtext`（本文）、`reference`（他の記事への参照） |
+| `type` | `text`（1行）、`slug`（英小文字、数字、ハイフン）、`richtext`（本文）、`reference`（他の記事への参照）、`image`（画像1枚。サムネイルなど） |
 | `required` | 公開に必須か（スラッグは常に必須） |
 | `referenceTo`、`multiple` | 参照先のコンテンツタイプ、複数の値を持つか（参照フィールドだけ） |
 | `searchable` | 検索と質問応答の対象か。**既定は対象外**です。使えるのは `text` と `richtext` だけです |
