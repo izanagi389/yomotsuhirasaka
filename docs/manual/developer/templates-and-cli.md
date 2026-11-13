@@ -136,6 +136,7 @@ YOMI_TOKEN=<読むと書くの範囲の個人トークン> yomi import ./content
 - `redirects.json` には、Nuxt の `routeRules`（元の URL のパス → 新しい URL のパス、301）を書き出します。
 - 代替テキストのない画像は「飾り」として取り込み、警告を出します。
 - 画像はフォルダの中のファイルだけを読みます（`/` で始まるパスは `--static-dir` の中）。外部の URL の画像は取り込めません。
+- 画像のフィールド（`image`）には、frontmatter に画像のパスを書きます（例: `thumbnail: ./images/a.jpg`）。代替テキストは `<フィールド名>Alt`（例: `thumbnailAlt`）に書きます。なければ「飾り」として取り込み、警告を出します。
 
 設定ファイル（JSON、すべて省略可）:
 
