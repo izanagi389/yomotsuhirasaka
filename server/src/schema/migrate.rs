@@ -50,7 +50,7 @@ pub fn column_name(field: &str) -> Result<Ident> {
 fn column_type(f: &Field) -> &'static str {
     match (f.kind, f.multiple) {
         (FieldType::Text | FieldType::Slug, _) => "text",
-        (FieldType::Richtext, _) => "jsonb",
+        (FieldType::Richtext | FieldType::Image, _) => "jsonb",
         (FieldType::Reference, false) => "uuid",
         (FieldType::Reference, true) => "uuid[]",
     }

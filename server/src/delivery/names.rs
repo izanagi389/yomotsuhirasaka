@@ -17,6 +17,8 @@ use crate::schema::manifest::Manifest;
 pub const QUERY_TYPE: &str = "Query";
 pub const JSON_SCALAR: &str = "YomiJSON";
 pub const ALTERNATE_TYPE: &str = "YomiAlternate";
+/// 画像のフィールドの型（M5）。
+pub const IMAGE_TYPE: &str = "YomiImage";
 pub const REDIRECT_TYPE: &str = "YomiRedirect";
 /// CMSが置くルートのフィールド（リダイレクト一覧）。コンテンツタイプから決まる名前とぶつけない。
 pub const REDIRECTS_FIELD: &str = "redirects";

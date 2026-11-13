@@ -121,12 +121,60 @@ fn convert(
                 }
             }
         }
+        (FieldType::Image, Value::Null) => Column::Json(None),
+        (FieldType::Image, Value::Object(obj)) => match image_value(obj) {
+            Ok(v) => Column::Json(Some(v.to_string())),
+            Err(why) => {
+                problems.push(format!("{path}: {why}"));
+                return None;
+            }
+        },
         _ => {
             problems.push(format!("{path}: wrong type of value"));
             return None;
         }
     };
     Some((field.name.clone(), column))
+}
+
+/// 画像のフィールドの値を検査し、そろえた形（`mediaId` は小文字・ハイフン区切り）にする。
+/// メディアがワークスペースにあるかは、保存のときにデータと照らし合わせて確かめる（INV-IMG-03）。
+fn image_value(obj: &Map<String, Value>) -> Result<Value, &'static str> {
+    if obj
+        .keys()
+        .any(|k| !matches!(k.as_str(), "mediaId" | "alt" | "decorative"))
+    {
+        return Err("image may only have mediaId, alt and decorative");
+    }
+    let id = obj
+        .get("mediaId")
+        .and_then(Value::as_str)
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .ok_or("image needs a media ID")?;
+    let mut out = Map::new();
+    out.insert("mediaId".into(), Value::String(id.hyphenated().to_string()));
+    match obj.get("alt") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(s)) if valid_text(s) => {
+            out.insert("alt".into(), Value::String(s.clone()));
+        }
+        Some(_) => return Err("alt must be text without control characters"),
+    }
+    match obj.get("decorative") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => {}
+        Some(Value::Bool(true)) => {
+            out.insert("decorative".into(), Value::Bool(true));
+        }
+        Some(_) => return Err("decorative must be true or false"),
+    }
+    Ok(Value::Object(out))
+}
+
+/// 画像のフィールドの値の、メディアのID（そろえた値から読む）。
+pub fn image_media_id(v: &Value) -> Option<Uuid> {
+    v.get("mediaId")
+        .and_then(Value::as_str)
+        .and_then(|s| Uuid::parse_str(s).ok())
 }
 
 /// 送られたフィールド（一部でよい）を検査し、(フィールド名, 列の値) の一覧にする。
@@ -184,6 +232,34 @@ mod tests {
         assert!(out.contains(&("title".into(), Column::Text(Some("t".into())))));
         assert!(out.contains(&("related".into(), Column::Uuids(Some(vec![id])))));
         assert!(conv(json!({"title": null, "related": null})).is_ok());
+    }
+
+    #[test]
+    fn normalizes_image_values() {
+        let v = image_value(
+            json!({"mediaId": "0123456789ABCDEF0123456789ABCDEF", "alt": "a", "decorative": false})
+                .as_object()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            v,
+            json!({"mediaId": "01234567-89ab-cdef-0123-456789abcdef", "alt": "a"})
+        );
+        assert_eq!(
+            image_media_id(&v),
+            Uuid::parse_str("0123456789abcdef0123456789abcdef").ok()
+        );
+        for bad in [
+            json!({}),
+            json!({"mediaId": "x"}),
+            json!({"mediaId": Uuid::new_v4().to_string(), "src": "https://evil.example/a.png"}),
+            json!({"mediaId": Uuid::new_v4().to_string(), "alt": 1}),
+            json!({"mediaId": Uuid::new_v4().to_string(), "alt": "a\u{7}"}),
+            json!({"mediaId": Uuid::new_v4().to_string(), "decorative": "yes"}),
+        ] {
+            assert!(image_value(bad.as_object().unwrap()).is_err(), "{bad}");
+        }
     }
 
     #[test]

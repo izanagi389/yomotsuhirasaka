@@ -27,7 +27,7 @@ use super::data::{self, Entry};
 use super::names::{
     self, AI_CATALOG_FIELD, AI_CATALOG_ITEM_TYPE, AI_MARKDOWN_BY_URL_FIELD, AI_MARKDOWN_FIELD,
     AI_TRAINING_OPT_OUTS_FIELD, ALTERNATE_TYPE, CORRECTION_FEED_ITEM_TYPE, CORRECTION_TYPE,
-    CORRECTIONS_FIELD, DELETED_ANCHOR_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE,
+    CORRECTIONS_FIELD, DELETED_ANCHOR_TYPE, IMAGE_TYPE, JSON_SCALAR, QUERY_TYPE, REDIRECT_TYPE,
     REDIRECTS_FIELD, RELATED_ENTRIES_FIELD, RELATED_ENTRY_TYPE, SEARCH_AVAILABILITY_TYPE,
     SEARCH_FIELD, SEARCH_HIT_TYPE, SEARCH_MATCH_TYPE, SEARCH_MODE_TYPE, SEARCH_RESULT_TYPE,
 };
@@ -137,6 +137,38 @@ fn system_fields(obj: Object) -> Object {
         TypeRef::named_nn(TypeRef::ID),
         |e| e.group_id.to_string(),
     ))
+}
+
+/// 画像のフィールドの型（M5）。メディアが削除されていれば、フィールドは null になる（INV-IMG-02）。
+fn image_type() -> Object {
+    use data::DeliveredImage as I;
+    Object::new(IMAGE_TYPE)
+        .description("An image of an image field. The field is null when the media was deleted.")
+        .field(value_field::<I, _>(
+            "url",
+            TypeRef::named_nn(TypeRef::STRING),
+            |i| Some(GqlValue::from(i.url.clone())),
+        ))
+        .field(value_field::<I, _>(
+            "width",
+            TypeRef::named_nn(TypeRef::INT),
+            |i| Some(GqlValue::from(i.width)),
+        ))
+        .field(value_field::<I, _>(
+            "height",
+            TypeRef::named_nn(TypeRef::INT),
+            |i| Some(GqlValue::from(i.height)),
+        ))
+        .field(value_field::<I, _>(
+            "alt",
+            TypeRef::named(TypeRef::STRING),
+            |i| Some(i.alt.clone().map_or(GqlValue::Null, GqlValue::from)),
+        ))
+        .field(value_field::<I, _>(
+            "decorative",
+            TypeRef::named_nn(TypeRef::BOOLEAN),
+            |i| Some(GqlValue::from(i.decorative)),
+        ))
 }
 
 fn alternate_type() -> Object {
@@ -915,6 +947,25 @@ fn entry_type(ct: &ContentType, manifest: Arc<Manifest>) -> Object {
                     )))
                 })
             }),
+            // 画像のフィールド: メディアが削除されていれば null（INV-IMG-02）
+            FieldType::Image => Field::new(&f.name, TypeRef::named(IMAGE_TYPE), move |ctx| {
+                let name = name.clone();
+                FieldFuture::new(async move {
+                    let e = parent(&ctx)?;
+                    let Some(value) = e.fields.get(&name).filter(|v| v.is_object()).cloned() else {
+                        return Ok(None);
+                    };
+                    let req = request(&ctx)?;
+                    let mut guard = req.tx.lock().await;
+                    let Some(tx) = guard.as_mut() else {
+                        return Ok(None);
+                    };
+                    let image = data::image(tx, &req.media_base, req.workspace_id, &value)
+                        .await
+                        .map_err(internal)?;
+                    Ok(image.map(FieldValue::owned_any))
+                })
+            }),
             FieldType::Reference => {
                 let target_ct = f.reference_to.clone().unwrap_or_default();
                 let target = names::type_name(&target_ct);
@@ -1219,6 +1270,7 @@ pub fn build(
             Scalar::new(JSON_SCALAR).description("A JSON value (rich text bodies as Tiptap JSON)."),
         )
         .register(alternate_type())
+        .register(image_type())
         .register(redirect_type())
         .register(correction_type())
         .register(deleted_anchor_type())

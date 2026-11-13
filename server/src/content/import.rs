@@ -270,6 +270,27 @@ pub async fn apply(
         {
             return Ok(Err(Failed::SlugTaken(p.key.clone())));
         }
+        // 画像のフィールド: このワークスペースにある、削除されていないメディアだけ（INV-IMG-03）
+        for f in ct.fields.iter().filter(|f| f.kind == FieldType::Image) {
+            let Some((_, Column::Json(Some(json)))) = p.columns.iter().find(|(n, _)| *n == f.name)
+            else {
+                continue;
+            };
+            let id = serde_json::from_str::<Value>(json)
+                .ok()
+                .as_ref()
+                .and_then(fields::image_media_id);
+            let found = match id {
+                Some(id) => crate::media::store::exists(conn, id).await?,
+                None => false,
+            };
+            if !found {
+                return Ok(Err(Failed::Refused(
+                    p.key.clone(),
+                    Refused::Invalid(vec![format!("fields.{}: unknown media", f.name)]),
+                )));
+            }
+        }
         entries::create(conn, ct, p.id, &p.locale, p.group, actor, &p.columns).await?;
         let published = match publishing::publish(
             conn,
