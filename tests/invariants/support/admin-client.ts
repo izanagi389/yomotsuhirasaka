@@ -468,7 +468,7 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
     switch (spec.kind) {
       case "list":
         // 変数を省略したときは、既定のロケールと上限の件数
-        return `query($locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $limit: Int) { ${LIST}(locale: $locale, limit: $limit) { ${selection(spec.fields)} } }`;
+        return `query($locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $limit: Int) { ${LIST}(locale: $locale, limit: $limit) { ${[selection(spec.fields), ...(spec.include ?? []).map((i) => INCLUDES[i])].join(" ")} } }`;
       case "byId":
         return `query($id: ID!, $locale: String) { ${SINGLE}(id: $id, locale: $locale) { ${[selection(spec.fields), ...(spec.include ?? []).map((i) => INCLUDES[i])].join(" ")} } }`;
       case "bySlug":

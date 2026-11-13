@@ -3,12 +3,13 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "vitest";
 import { inv } from "./support/inv.js";
-import { asSession, driver, type Session } from "./support/driver.js";
+import { asBearer, asSession, driver, type Session } from "./support/driver.js";
 import { expectNotLeaked, expectRefused, expectRejected, expectSuccess, expectTextNotLeaked } from "./support/assert.js";
 import { doc, paragraph, simpleBody } from "./support/body.js";
 import { pngImage } from "./support/images.js";
 import { operationsOf } from "./support/operations.js";
-import { BASE_TEMPLATE, postType } from "./support/template.js";
+import { beforeSaveSettingImage } from "./support/scripts.js";
+import { BASE_TEMPLATE, cloneTemplate, postType } from "./support/template.js";
 import { lazyWorld, marker, type World, type WorkspaceFixture } from "./support/world.js";
 
 const world = lazyWorld();
@@ -283,10 +284,17 @@ inv("inv_img_02", "画像のフィールドが指すメディアが削除され�
   const { yomi, a } = w;
   const s = a.editorSession;
   const query = await yomi.registerQuery(a.id, a.registerKey.secret, { kind: "byId", fields: ["id", "title"], include: ["cover"] });
+  const listQuery = await yomi.registerQuery(a.id, a.registerKey.secret, { kind: "list", fields: ["id", "title"], include: ["cover"] });
   const coverOf = async (entryId: string) => {
     const res = await yomi.deliveryRaw(a.id, a.readKey.secret, query, { id: entryId, locale: "ja" });
     expectSuccess(res, "配信APIでの記事の取得");
-    return { image: driver.fields.deliveredImage(res.text, "cover"), text: res.text };
+    return { image: driver.fields.deliveredImage(res.text, "cover", entryId), text: res.text };
+  };
+  // 一覧（新しい順）。このテストで公開した記事が最も新しいので、一覧の上限に入る
+  const listedCoverOf = async (entryId: string) => {
+    const res = await yomi.deliveryRaw(a.id, a.readKey.secret, listQuery, { locale: "ja", limit: postType(BASE_TEMPLATE).listLimit });
+    expectSuccess(res, "配信APIでの一覧の取得");
+    return { image: driver.fields.deliveredImage(res.text, "cover", entryId), text: res.text };
   };
   const pathOf = (url: string) => new URL(url).pathname;
 
@@ -303,6 +311,8 @@ inv("inv_img_02", "画像のフィールドが指すメディアが削除され�
   expect(before.image, "削除する前の画像のフィールドが空").not.toBeNull();
   expect(pathOf(before.image!.url), "画像のフィールドのURLが、アップロードしたメディアのURLでない").toBe(pathOf(media.url));
   expect(before.image!.alt, "画像のフィールドの代替テキストが返らない").toBe("表紙");
+  const listedBefore = await listedCoverOf(e.id);
+  expect(listedBefore.image && pathOf(listedBefore.image.url), "削除する前の一覧で、画像のフィールドにメディアのURLが返らない").toBe(pathOf(media.url));
 
   // メディアを削除する（使われていても削除する）
   expectSuccess(await yomi.deleteMediaRaw(a.adminSession, a.id, media.id, { force: true }), "使われているメディアの削除");
@@ -311,6 +321,9 @@ inv("inv_img_02", "画像のフィールドが指すメディアが削除され�
   expect(after.image, "削除したメディアが、画像のフィールドに返った").toBeNull();
   expect(after.text.includes(pathOf(media.url)), "削除したメディアのURLが、配信APIの応答に含まれる").toBe(false);
   expect(after.text.includes(mark), "画像を返さない代わりに、記事ごと返らなくなった").toBe(true);
+  const listedAfter = await listedCoverOf(e.id);
+  expect(listedAfter.image, "削除したメディアが、一覧の画像のフィールドに返った").toBeNull();
+  expect(listedAfter.text.includes(pathOf(media.url)), "削除したメディアのURLが、一覧の応答に含まれる").toBe(false);
 
   // 対照: 削除していないメディアは、ほかの記事で返り続ける
   const other = await coverOf(control.id);
@@ -343,7 +356,42 @@ inv("inv_img_03", "画像のフィールドには、そのワークスペース�
 
   // 対照: 同じワークスペースの削除されていないメディアは保存できる
   expectSuccess(await yomi.saveDraftRaw(asSession(s), a.id, target.id, { fields: cover(own.id) }, draft.revision), "同じワークスペースのメディアを画像のフィールドに入れた下書きの保存");
-});
+
+  // 保存前のフックが画像のフィールドを直した場合も同じ（フックの直しも保存の前に確かめる）
+  const { serverAdmin, serverAdminSession } = w;
+  const name = `inv-img03-${randomUUID().slice(0, 8)}`;
+  const hooked = cloneTemplate(name, (t) => (postType(t).hooks = { beforeSave: { source: beforeSaveSettingImage("cover"), permissions: [] } }));
+  expectSuccess(await yomi.deployTemplateRaw(asBearer(await yomi.deployToken(serverAdminSession, serverAdmin)), hooked), "テンプレートのデプロイ");
+  await yomi.reauthenticate(serverAdminSession, serverAdmin);
+  const site = await yomi.createWorkspace(serverAdminSession, `${name}-ws`, { template: name });
+  const siteAdmin = await yomi.createMember(serverAdminSession, site.id, "admin");
+  const siteAdminSession = await yomi.login(siteAdmin);
+  const siteEditor = await yomi.login(await yomi.createMember(siteAdminSession, site.id, "editor"));
+  const siteOwn = await yomi.uploadMedia(siteEditor, site.id, png());
+  const siteDeleted = await yomi.uploadMedia(siteEditor, site.id, png());
+  expectSuccess(await yomi.deleteMediaRaw(siteAdminSession, site.id, siteDeleted.id), "使われていないメディアの削除");
+  const hookTarget = await yomi.createEntry(siteEditor, site.id, { title: marker("img03-hook"), body: doc(paragraph("x")) });
+  for (const [label, mediaId] of [
+    ["存在しない", randomUUID()],
+    ["削除した", siteDeleted.id],
+    ["ほかのワークスペースの", otherWorkspace.id],
+  ] as const) {
+    const d = await yomi.getDraft(siteEditor, site.id, hookTarget.id);
+    expectRefused(
+      await yomi.saveDraftRaw(asSession(siteEditor), site.id, hookTarget.id, { fields: { summary: `media:${mediaId}` } }, d.revision),
+      `保存前のフックが${label}メディアを画像のフィールドに入れる下書きの保存`,
+    );
+  }
+  const hookDraft = await yomi.getDraft(siteEditor, site.id, hookTarget.id);
+  expect(JSON.stringify(hookDraft.fields["cover"] ?? null).includes(otherWorkspace.id), "保存前のフックが入れたほかのワークスペースのメディアが、下書きに保存された").toBe(false);
+  // 対照: フックが同じワークスペースのメディアを入れるなら保存でき、フックが動いたことも確かめる
+  expectSuccess(
+    await yomi.saveDraftRaw(asSession(siteEditor), site.id, hookTarget.id, { fields: { summary: `media:${siteOwn.id}` } }, hookDraft.revision),
+    "保存前のフックが同じワークスペースのメディアを画像のフィールドに入れる下書きの保存",
+  );
+  const saved = await yomi.getDraft(siteEditor, site.id, hookTarget.id);
+  expect(JSON.stringify(saved.fields["cover"] ?? null).includes(siteOwn.id), "保存前のフックが動いていない（画像のフィールドが直っていない）").toBe(true);
+}, 120_000);
 
 inv("inv_cor_01", "「訂正として公開」した版は訂正として記録され、通常の公開と区別して取得できる", async () => {
   const w = await world();
