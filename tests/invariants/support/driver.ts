@@ -404,12 +404,12 @@ export type QuerySpec =
   | {
       kind: "byId";
       fields?: string[];
-      include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness" | "aiMarkdown")[];
+      include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness" | "aiMarkdown" | "cover")[];
     }
   | {
       kind: "bySlug";
       fields?: string[];
-      include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness" | "aiMarkdown")[];
+      include?: ("body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness" | "aiMarkdown" | "cover")[];
     }
   | { kind: "deep"; depth: number }
   | { kind: "wide"; aliases: number }
@@ -840,6 +840,8 @@ export interface YomiClient {
   uploadMediaRaw(session: Session, workspaceId: string, file: UploadFile): Promise<HttpResponse>;
   uploadMedia(session: Session, workspaceId: string, file: UploadFile): Promise<{ id: string; url: string }>;
   fetchMediaRaw(url: string): Promise<HttpResponse & { bytes: Buffer }>;
+  /** メディアを削除する。force が true なら、使われていても削除する。 */
+  deleteMediaRaw(session: Session, workspaceId: string, mediaId: string, options?: { force?: boolean }): Promise<HttpResponse>;
 
   // --- Webhook ---
   createWebhook(session: Session, workspaceId: string, url: string): Promise<{ id: string; secret: string }>;
@@ -1223,6 +1225,23 @@ export const driver = {
         { origins: allowedOrigins, source: expectedWindow },
       );
       return accepted !== null;
+    },
+  },
+
+  /** 本文以外のフィールドの値。 */
+  fields: {
+    // 画像のフィールドの値（server/src/content/fields.rs）。本文の画像のノードと同じ属性を持つ
+    image: (media: { mediaId: string; alt?: string; decorative?: boolean }): Record<string, unknown> =>
+      Object.fromEntries(Object.entries({ mediaId: media.mediaId, alt: media.alt, decorative: media.decorative }).filter(([, v]) => v !== undefined)),
+    /** 配信APIの応答（記事1件）から、画像のフィールドの値を取り出す。null は画像がないこと。形が違えば例外を投げる。 */
+    deliveredImage: (body: string, field: string): { url: string; alt: string | null; decorative: boolean } | null => {
+      const v = JSON.parse(body) as { data?: Record<string, Record<string, unknown> | null> };
+      const entry = Object.values(v.data ?? {})[0];
+      if (!entry || !(field in entry)) throw new Error(`記事1件の応答に ${field} がない: ${body.slice(0, 200)}`);
+      const img = entry[field] as { url?: unknown; alt?: unknown; decorative?: unknown } | null;
+      if (img === null) return null;
+      if (typeof img.url !== "string") throw new Error(`画像のフィールドの形が違う: ${JSON.stringify(img)}`);
+      return { url: img.url, alt: typeof img.alt === "string" ? img.alt : null, decorative: img.decorative === true };
     },
   },
 

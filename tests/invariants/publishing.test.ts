@@ -1,4 +1,4 @@
-// 公開・版・権限の約束: INV-PUB-01〜06, INV-PERM-01, INV-IMG-01, INV-COR-01, INV-URL-01, INV-EDIT-01
+// 公開・版・権限の約束: INV-PUB-01〜06, INV-PERM-01, INV-IMG-01〜03, INV-COR-01, INV-URL-01, INV-EDIT-01
 
 import { randomUUID } from "node:crypto";
 import { expect } from "vitest";
@@ -158,7 +158,10 @@ inv(
     const inOtherDraft = await upload("other-draft"); // 別の記事の下書きでも使う
     const inCurrent = await upload("current"); // この記事の公開中の版でも使う
     const inOtherOldVersion = await upload("other-old"); // 別の記事の古い版でも使う
+    const inOtherCoverDraft = await upload("other-cover-draft"); // 別の記事の下書きの画像のフィールドでも使う
+    const inOtherCoverOld = await upload("other-cover-old"); // 別の記事の古い版の画像のフィールドでも使う
     const img = (m: { id: string }) => driver.body.image({ mediaId: m.id, alt: "画像" });
+    const cover = (m: { id: string }) => ({ cover: driver.fields.image({ mediaId: m.id, alt: "画像" }) });
 
     // 別の記事: 古い版で inOtherOldVersion を使い、その後の版では使わない。下書きで inOtherDraft を使う
     const other = await yomi.createEntry(s, a.id, { title: marker("pub06-other"), body: doc(paragraph("x"), img(inOtherOldVersion)) });
@@ -167,9 +170,16 @@ inv(
     await yomi.publishEntry(s, a.id, other.id);
     await yomi.saveDraft(s, a.id, other.id, { body: doc(paragraph("z"), img(inOtherDraft)) });
 
+    // さらに別の記事: 画像のフィールドで、古い版では inOtherCoverOld を、下書きでは inOtherCoverDraft を使う
+    const coverUser = await yomi.createEntry(s, a.id, { title: marker("pub06-cover"), body: doc(paragraph("c")), fields: cover(inOtherCoverOld) });
+    await yomi.publishEntry(s, a.id, coverUser.id);
+    await yomi.saveDraft(s, a.id, coverUser.id, { fields: { cover: null } });
+    await yomi.publishEntry(s, a.id, coverUser.id);
+    await yomi.saveDraft(s, a.id, coverUser.id, { fields: cover(inOtherCoverDraft) });
+
     // 対象の記事: v1 ですべて使い、v2（公開中）では inCurrent だけを使う
     const v1Marker = marker("pub06-v1");
-    const e = await yomi.createEntry(s, a.id, { title: "抹消の対象", body: doc(paragraph(v1Marker), img(onlyHere), img(inOtherDraft), img(inCurrent), img(inOtherOldVersion)) });
+    const e = await yomi.createEntry(s, a.id, { title: "抹消の対象", body: doc(paragraph(v1Marker), img(onlyHere), img(inOtherDraft), img(inCurrent), img(inOtherOldVersion), img(inOtherCoverDraft), img(inOtherCoverOld)) });
     await yomi.publishEntry(s, a.id, e.id);
     await yomi.saveDraft(s, a.id, e.id, { body: doc(paragraph("v2"), img(inCurrent)) });
     await yomi.publishEntry(s, a.id, e.id);
@@ -177,16 +187,22 @@ inv(
 
     const candidates = await yomi.eraseCandidates(a.adminSession, a.id, e.id, v1);
     expect(candidates, "他で使われていないメディアが削除の候補にない").toContain(onlyHere.id);
-    for (const [label, m] of [["別の記事の下書き", inOtherDraft], ["この記事の公開中の版", inCurrent], ["別の記事の古い版", inOtherOldVersion]] as const) {
+    for (const [label, m] of [
+      ["別の記事の下書き", inOtherDraft],
+      ["この記事の公開中の版", inCurrent],
+      ["別の記事の古い版", inOtherOldVersion],
+      ["別の記事の下書きの画像のフィールド", inOtherCoverDraft],
+      ["別の記事の古い版の画像のフィールド", inOtherCoverOld],
+    ] as const) {
       expect(candidates, `${label}で使われているメディアが削除の候補に入っている`).not.toContain(m.id);
     }
 
     // 削除を選んだメディアは取得できなくなる。使われているメディアは、指定されても消えない
     await yomi.reauthenticate(a.adminSession, a.admin);
-    await yomi.eraseVersionRaw(a.adminSession, a.id, e.id, v1, [onlyHere.id, inOtherDraft.id]);
+    await yomi.eraseVersionRaw(a.adminSession, a.id, e.id, v1, [onlyHere.id, inOtherDraft.id, inOtherCoverDraft.id]);
     const gone = await yomi.fetchMediaRaw(onlyHere.url);
     expect(gone.status >= 400 && gone.status < 500, `削除を選んだメディアが取得できる（状態コード ${gone.status}）`).toBe(true);
-    for (const m of [inOtherDraft, inCurrent, inOtherOldVersion]) {
+    for (const m of [inOtherDraft, inCurrent, inOtherOldVersion, inOtherCoverDraft, inOtherCoverOld]) {
       expectSuccess(await yomi.fetchMediaRaw(m.url), "使われているメディアの取得");
     }
   },
@@ -240,6 +256,93 @@ inv("inv_img_01", "代替テキストも「装飾画像」の印もない画像�
   expectSuccess(await yomi.publishRaw(asSession(s), a.id, withAlt.id), "代替テキストのある画像を含む記事の公開");
   const decorative = await create("img01-deco", driver.body.image({ mediaId: media.id, decorative: true }));
   expectSuccess(await yomi.publishRaw(asSession(s), a.id, decorative.id), "装飾画像の印のある画像を含む記事の公開");
+
+  // 画像のフィールド（サムネイルなど）の画像も同じ
+  const withCover = async (label: string, image: Record<string, unknown>) => {
+    const mark = marker(label);
+    const e = await yomi.createEntry(s, a.id, { title: mark, body: doc(paragraph(mark)), fields: { cover: image } });
+    return { id: e.id, mark };
+  };
+  for (const [label, image] of [
+    ["代替テキストも印もない", driver.fields.image({ mediaId: media.id })],
+    ["空の代替テキストで印もない", driver.fields.image({ mediaId: media.id, alt: " ", decorative: false })],
+  ] as const) {
+    const e = await withCover("img01-cover-ng", image);
+    expectRefused(await yomi.publishRaw(asSession(s), a.id, e.id), `画像のフィールドに${label}画像がある記事の公開`);
+    const d = await delivered(w, a, e.id);
+    expect((d.byId + d.list).includes(e.mark), `画像のフィールドに${label}画像がある記事が公開された`).toBe(false);
+  }
+  const coverAlt = await withCover("img01-cover-alt", driver.fields.image({ mediaId: media.id, alt: "説明" }));
+  expectSuccess(await yomi.publishRaw(asSession(s), a.id, coverAlt.id), "画像のフィールドに代替テキストのある画像がある記事の公開");
+  const coverDeco = await withCover("img01-cover-deco", driver.fields.image({ mediaId: media.id, decorative: true }));
+  expectSuccess(await yomi.publishRaw(asSession(s), a.id, coverDeco.id), "画像のフィールドに装飾画像の印のある画像がある記事の公開");
+});
+
+inv("inv_img_02", "画像のフィールドが指すメディアが削除されると、配信APIはそのフィールドに画像を返さない", async () => {
+  const w = await world();
+  const { yomi, a } = w;
+  const s = a.editorSession;
+  const query = await yomi.registerQuery(a.id, a.registerKey.secret, { kind: "byId", fields: ["id", "title"], include: ["cover"] });
+  const coverOf = async (entryId: string) => {
+    const res = await yomi.deliveryRaw(a.id, a.readKey.secret, query, { id: entryId, locale: "ja" });
+    expectSuccess(res, "配信APIでの記事の取得");
+    return { image: driver.fields.deliveredImage(res.text, "cover"), text: res.text };
+  };
+  const pathOf = (url: string) => new URL(url).pathname;
+
+  const media = await yomi.uploadMedia(s, a.id, { filename: "cover.png", bytes: pngImage(8, 8), contentType: "image/png" });
+  const kept = await yomi.uploadMedia(s, a.id, { filename: "kept.png", bytes: pngImage(8, 8), contentType: "image/png" });
+  const mark = marker("img02");
+  const e = await yomi.createEntry(s, a.id, { title: mark, body: doc(paragraph(mark)), fields: { cover: driver.fields.image({ mediaId: media.id, alt: "表紙" }) } });
+  await yomi.publishEntry(s, a.id, e.id);
+  const control = await yomi.createEntry(s, a.id, { title: marker("img02-control"), body: doc(paragraph("x")), fields: { cover: driver.fields.image({ mediaId: kept.id, alt: "表紙" }) } });
+  await yomi.publishEntry(s, a.id, control.id);
+
+  // 対照: 削除する前は、画像のフィールドにメディアのURLが返る
+  const before = await coverOf(e.id);
+  expect(before.image, "削除する前の画像のフィールドが空").not.toBeNull();
+  expect(pathOf(before.image!.url), "画像のフィールドのURLが、アップロードしたメディアのURLでない").toBe(pathOf(media.url));
+  expect(before.image!.alt, "画像のフィールドの代替テキストが返らない").toBe("表紙");
+
+  // メディアを削除する（使われていても削除する）
+  expectSuccess(await yomi.deleteMediaRaw(a.adminSession, a.id, media.id, { force: true }), "使われているメディアの削除");
+
+  const after = await coverOf(e.id);
+  expect(after.image, "削除したメディアが、画像のフィールドに返った").toBeNull();
+  expect(after.text.includes(pathOf(media.url)), "削除したメディアのURLが、配信APIの応答に含まれる").toBe(false);
+  expect(after.text.includes(mark), "画像を返さない代わりに、記事ごと返らなくなった").toBe(true);
+
+  // 対照: 削除していないメディアは、ほかの記事で返り続ける
+  const other = await coverOf(control.id);
+  expect(other.image && pathOf(other.image.url), "削除していないメディアが、画像のフィールドに返らない").toBe(pathOf(kept.url));
+});
+
+inv("inv_img_03", "画像のフィールドには、そのワークスペースにある削除されていないメディアしか保存できない", async () => {
+  const w = await world();
+  const { yomi, a, b } = w;
+  const s = a.editorSession;
+  const png = () => ({ filename: "img03.png", bytes: pngImage(8, 8), contentType: "image/png" });
+  const own = await yomi.uploadMedia(s, a.id, png());
+  const deleted = await yomi.uploadMedia(s, a.id, png());
+  expectSuccess(await yomi.deleteMediaRaw(a.adminSession, a.id, deleted.id), "使われていないメディアの削除");
+  const otherWorkspace = await yomi.uploadMedia(b.editorSession, b.id, png());
+  const cover = (mediaId: string) => ({ cover: driver.fields.image({ mediaId, alt: "表紙" }) });
+
+  const target = await yomi.createEntry(s, a.id, { title: marker("img03"), body: doc(paragraph("x")) });
+  for (const [label, mediaId] of [
+    ["存在しない", randomUUID()],
+    ["削除した", deleted.id],
+    ["ほかのワークスペースの", otherWorkspace.id],
+  ] as const) {
+    expectRefused(await yomi.createEntryRaw(asSession(s), a.id, { title: marker("img03-new"), body: doc(paragraph("x")), fields: cover(mediaId) }), `${label}メディアを画像のフィールドに入れた記事の作成`);
+    const draft = await yomi.getDraft(s, a.id, target.id);
+    expectRefused(await yomi.saveDraftRaw(asSession(s), a.id, target.id, { fields: cover(mediaId) }, draft.revision), `${label}メディアを画像のフィールドに入れた下書きの保存`);
+  }
+  const draft = await yomi.getDraft(s, a.id, target.id);
+  expect(JSON.stringify(draft.fields["cover"] ?? null).includes(otherWorkspace.id), "ほかのワークスペースのメディアが、下書きに保存された").toBe(false);
+
+  // 対照: 同じワークスペースの削除されていないメディアは保存できる
+  expectSuccess(await yomi.saveDraftRaw(asSession(s), a.id, target.id, { fields: cover(own.id) }, draft.revision), "同じワークスペースのメディアを画像のフィールドに入れた下書きの保存");
 });
 
 inv("inv_cor_01", "「訂正として公開」した版は訂正として記録され、通常の公開と区別して取得できる", async () => {

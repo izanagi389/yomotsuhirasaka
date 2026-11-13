@@ -451,7 +451,9 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
   // 変換した本文: 本文のフィールド <名前> に対して <名前>Html と <名前>Markdown（server/src/delivery/schema.rs）
   // 訂正履歴・削除済みアンカー・鮮度（M2。server/src/delivery/schema.rs）
   // AI向けのMarkdown版（M2。server/src/delivery/schema.rs）
-  const INCLUDES: Record<"body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness" | "aiMarkdown", string> = {
+  const INCLUDES: Record<"body" | "bodyHtml" | "bodyMarkdown" | "alternates" | "related" | "corrections" | "deletedAnchors" | "freshness" | "aiMarkdown" | "cover", string> = {
+    // 画像のフィールド（M5。server/src/delivery/schema.rs）
+    cover: "cover { url width height alt decorative }",
     aiMarkdown: "aiMarkdown",
     corrections: "corrections { correctedAt description sections }",
     deletedAnchors: "deletedAnchors { anchor deletedAt description }",
@@ -987,6 +989,8 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
       ensure("原文の更新の反映済み", await markSourceReflectedRaw(session(s), workspaceId, entryId));
     },
     uploadMediaRaw: (s: Session, workspaceId: string, file: UploadFile) => uploadMediaRaw(session(s), workspaceId, file),
+    deleteMediaRaw: (s: Session, workspaceId: string, mediaId: string, options?: { force?: boolean }) =>
+      request("DELETE", `${mediaPath(workspaceId)}/${mediaId}${options?.force ? "?force=true" : ""}`, { auth: session(s) }),
     async uploadMedia(s: Session, workspaceId: string, file: UploadFile): Promise<{ id: string; url: string }> {
       const res = ensure("メディアのアップロード", await uploadMediaRaw(session(s), workspaceId, file));
       const { id, url } = JSON.parse(res.text) as { id?: unknown; url?: unknown };
