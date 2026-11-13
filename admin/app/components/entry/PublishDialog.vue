@@ -137,6 +137,9 @@ async function publish() {
 
 /** `fields.body.content[2]` を、人が読める場所にする（フィールドの名前と、何番目の画像か）。 */
 function imagePlace(path: string, index: number): string {
+  // 画像のフィールドは `fields.<名前>` だけ（1枚なので番号を付けない）
+  const imageField = /^fields\.([^.[]+)$/.exec(path)?.[1];
+  if (imageField) return t("publish.imageField", { field: imageField });
   const field = /^fields\.([^.[]+)/.exec(path)?.[1] ?? "";
   return t("publish.imagePlace", { field, n: index + 1 });
 }

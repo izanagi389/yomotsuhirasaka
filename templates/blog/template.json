@@ -17,7 +17,8 @@
         { "name": "slug", "type": "slug", "required": true, "description": "URLに使う名前（英小文字・数字・ハイフン）" },
         { "name": "summary", "type": "text", "description": "一覧や検索結果に出す短い説明" },
         { "name": "body", "type": "richtext", "required": true },
-        { "name": "related", "type": "reference", "referenceTo": "post", "multiple": true, "description": "関連する記事" }
+        { "name": "related", "type": "reference", "referenceTo": "post", "multiple": true, "description": "関連する記事" },
+        { "name": "thumbnail", "type": "image", "description": "一覧やSNSでの共有に使う画像" }
       ]
     }
   ]

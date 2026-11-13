@@ -5,7 +5,8 @@ import type { JSONContent } from "@tiptap/core";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import RichTextEditor from "~/components/editor/RichTextEditor.vue";
-import type { EntrySummary, Field, FieldValue, Manifest } from "~/utils/content";
+import ImageField from "~/components/entry/ImageField.vue";
+import type { EntrySummary, Field, FieldValue, ImageValue, Manifest } from "~/utils/content";
 
 const props = defineProps<{
   field: Field;
@@ -87,6 +88,15 @@ function removeReference(group: string) {
       :workspace-id="workspaceId"
       :editable="editable"
       :label="field.name"
+      @update:model-value="emit('update:modelValue', $event)"
+    />
+
+    <ImageField
+      v-else-if="field.type === 'image'"
+      :id="id"
+      :model-value="(modelValue as ImageValue | null) ?? null"
+      :workspace-id="workspaceId"
+      :editable="editable"
       @update:model-value="emit('update:modelValue', $event)"
     />
 
