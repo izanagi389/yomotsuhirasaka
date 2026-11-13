@@ -51,6 +51,11 @@
           "referenceTo": "post",
           "multiple": true,
           "description": "関連する記事"
+        },
+        {
+          "name": "thumbnail",
+          "type": "image",
+          "description": "一覧やSNSでの共有に使う画像"
         }
       ]
     }
