@@ -330,7 +330,8 @@
     "confirm": "公開する",
     "confirmCorrection": "訂正として公開する",
     "done": "公開しました: {url}",
-    "doneCorrection": "訂正として公開しました: {url}"
+    "doneCorrection": "訂正として公開しました: {url}",
+    "imageField": "{field} の画像"
   },
   "entryTabs": {
     "content": "内容",

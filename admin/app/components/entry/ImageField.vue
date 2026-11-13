@@ -87,7 +87,8 @@ async function upload(ev: Event) {
     uploading.value = false;
   }
 }
-const altId = `${props.id}-alt`;
+// 欄の名前のラベル（EntryField）は代替テキストの入力欄を指す
+const altId = props.id;
 </script>
 
 <template>
@@ -116,7 +117,7 @@ const altId = `${props.id}-alt`;
           <p v-if="missing" class="text-destructive">{{ t("editor.image.missing") }}</p>
         </template>
         <div v-if="editable" class="flex flex-wrap gap-2">
-          <Button :id="id" type="button" variant="outline" size="sm" @click="openPicker"><ImagePlus class="size-4" />{{ t("entries.image.choose") }}</Button>
+          <Button type="button" variant="outline" size="sm" @click="openPicker"><ImagePlus class="size-4" />{{ t("entries.image.choose") }}</Button>
           <Button type="button" variant="outline" size="sm" :disabled="uploading" @click="fileInput?.click()"><Upload class="size-4" />{{ t("entries.image.upload") }}</Button>
           <Button v-if="modelValue" type="button" variant="ghost" size="sm" @click="emit('update:modelValue', null)"><X class="size-4" />{{ t("entries.image.remove") }}</Button>
           <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden" @change="upload" />

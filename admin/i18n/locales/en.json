@@ -330,7 +330,8 @@
     "confirm": "Publish",
     "confirmCorrection": "Publish as correction",
     "done": "Published: {url}",
-    "doneCorrection": "Published as a correction: {url}"
+    "doneCorrection": "Published as a correction: {url}",
+    "imageField": "The image in {field}"
   },
   "entryTabs": {
     "content": "Content",
