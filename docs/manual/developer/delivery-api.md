@@ -45,6 +45,8 @@ Nuxt を使うなら、[Nuxtモジュール](nuxt-module.md) がこの章の内�
 
 本文（`richtext`）は Tiptap の JSON で返ります。自分で描くときは、**すべての文字列をエスケープし、リンクの URL を確かめてください。**
 
+画像のフィールド（`image`）は `{ url width height alt decorative }` で返ります（例: `thumbnail { url width height alt decorative }`）。メディアが削除されていれば `null` です。`decorative` が `true` の画像は、`alt=""` で描いてください。SNS の共有ボタンや OGP（`og:image` など）は、この値と題名・要約・URL からサイト側で作ります。
+
 ## ルートのフィールド
 
 | フィールド | 内容 |

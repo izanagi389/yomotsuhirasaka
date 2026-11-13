@@ -49,19 +49,23 @@ pub fn is_blank(doc: &Value, body: &Body) -> bool {
     !has_content(doc, &leaves)
 }
 
+/// 画像の属性（本文の画像のノードの `attrs`、または画像のフィールドの値）に、空白だけでない代替テキストか
+/// 「装飾画像」の印があるか（Q75、INV-IMG-01）。
+pub fn has_alt(attrs: &Value) -> bool {
+    let alt = attrs
+        .get("alt")
+        .and_then(Value::as_str)
+        .is_some_and(|s| !s.trim().is_empty());
+    alt || attrs.get("decorative") == Some(&Value::Bool(true))
+}
+
 /// 代替テキストも「装飾画像」の印もない画像の場所（JSONのパス）。
 pub fn images_missing_alt(doc: &Value) -> Vec<String> {
     fn walk(v: &Value, path: &str, out: &mut Vec<String>) {
-        if v.get("type").and_then(Value::as_str) == Some(IMAGE) {
-            let attrs = v.get("attrs");
-            let alt = attrs
-                .and_then(|a| a.get("alt"))
-                .and_then(Value::as_str)
-                .is_some_and(|s| !s.trim().is_empty());
-            let decorative = attrs.and_then(|a| a.get("decorative")) == Some(&Value::Bool(true));
-            if !alt && !decorative {
-                out.push(path.to_owned());
-            }
+        if v.get("type").and_then(Value::as_str) == Some(IMAGE)
+            && !v.get("attrs").is_some_and(has_alt)
+        {
+            out.push(path.to_owned());
         }
         for (i, c) in children(v).iter().enumerate() {
             walk(c, &format!("{path}.content[{i}]"), out);

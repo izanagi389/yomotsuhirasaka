@@ -214,16 +214,24 @@ fn problems(manifest: &Manifest, ct: &ContentType, draft: &Draft) -> Vec<String>
     problems
 }
 
-/// 代替テキストも「装飾画像」の印もない画像の場所（`fields.<名前>.content[..]`）。
+/// 代替テキストも「装飾画像」の印もない画像の場所（`fields.<名前>.content[..]`、画像のフィールドは `fields.<名前>`）。
 fn missing_alt(ct: &ContentType, draft: &Draft) -> Vec<String> {
     let mut missing = Vec::new();
-    for f in ct.fields.iter().filter(|f| f.kind == FieldType::Richtext) {
-        if let Some(doc) = draft.fields.get(&f.name).filter(|v| v.is_object()) {
-            missing.extend(
-                sections::images_missing_alt(doc)
+    for f in &ct.fields {
+        let Some(value) = draft.fields.get(&f.name).filter(|v| v.is_object()) else {
+            continue;
+        };
+        match f.kind {
+            FieldType::Richtext => missing.extend(
+                sections::images_missing_alt(value)
                     .into_iter()
                     .map(|p| format!("fields.{}{}", f.name, p.trim_start_matches('$'))),
-            );
+            ),
+            // 画像のフィールドも、本文の画像と同じ規則（INV-IMG-01）
+            FieldType::Image if !sections::has_alt(value) => {
+                missing.push(format!("fields.{}", f.name))
+            }
+            _ => {}
         }
     }
     missing

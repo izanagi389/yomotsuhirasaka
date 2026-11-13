@@ -272,7 +272,12 @@ pub async fn usage(
     let mut found: std::collections::BTreeMap<Uuid, Usage> = Default::default();
     for ct in &manifest.content_types {
         let table = table_name(&ct.name)?;
-        for f in ct.fields.iter().filter(|f| f.kind == FieldType::Richtext) {
+        // 本文のフィールドの画像と、画像のフィールド（どちらもメディアのIDは小文字・ハイフン区切り）
+        for f in ct
+            .fields
+            .iter()
+            .filter(|f| matches!(f.kind, FieldType::Richtext | FieldType::Image))
+        {
             let column = column_name(&f.name)?;
             let rows: Vec<(Uuid, String)> = sqlx::query_as(crate::sql!(
                 "SELECT e.id, e.locale FROM {table} t JOIN entries e ON e.id = t.entry_id
@@ -315,6 +320,17 @@ pub async fn usage(
             .push(number);
     }
     Ok(found.into_values().collect())
+}
+
+/// ワークスペースにある、削除されていないメディアか（画像のフィールドの保存の検査。INV-IMG-03）。
+/// メディアの表はワークスペースのスキーマにあるので、ほかのワークスペースのメディアは見つからない。
+pub async fn exists(conn: &mut PgConnection, id: Uuid) -> Result<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM media WHERE id = $1 AND deleted_at IS NULL)",
+    )
+    .bind(id)
+    .fetch_one(conn)
+    .await?)
 }
 
 /// 削除の印を付け、ファイルの名前を返す（なければ None）。ファイルはトランザクションの確定の後に消す。

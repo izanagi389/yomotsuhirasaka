@@ -214,3 +214,17 @@ export default function toHtml(node, ctx) {
 }
 `;
 }
+
+/**
+ * 保存前のフック: summary が `media:<ID>` なら、画像のフィールド field を、そのメディアID（代替テキストあり）に直す。
+ * それ以外の記事では何も直さない。値の形は driver.fields.image と同じ（server/src/content/fields.rs）。
+ */
+export function beforeSaveSettingImage(field: string): string {
+  return `
+export default function beforeSave(input) {
+  const s = input.entry.fields.summary;
+  if (typeof s !== "string" || !s.startsWith("media:")) return { fields: {} };
+  return { fields: { ${lit(field)}: { mediaId: s.slice(6), alt: "表紙" } } };
+}
+`;
+}

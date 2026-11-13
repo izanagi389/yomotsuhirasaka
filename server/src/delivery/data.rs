@@ -360,6 +360,41 @@ pub async fn resolve_media_refs(
     Ok(out)
 }
 
+/// 画像のフィールドの、配信する値。
+#[derive(Debug, Clone)]
+pub struct DeliveredImage {
+    pub url: String,
+    pub width: i32,
+    pub height: i32,
+    pub alt: Option<String>,
+    pub decorative: bool,
+}
+
+/// 画像のフィールドの値を、配信する値にする。メディアが削除されていれば None（配信のたびに確かめる。INV-IMG-02）。
+pub async fn image(
+    conn: &mut PgConnection,
+    media_base: &str,
+    workspace_id: Uuid,
+    value: &Value,
+) -> Result<Option<DeliveredImage>> {
+    let Some(id) = crate::content::fields::image_media_id(value) else {
+        return Ok(None);
+    };
+    let row: Option<(String, i32, i32)> = sqlx::query_as(
+        "SELECT file, width, height FROM media WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .fetch_optional(conn)
+    .await?;
+    Ok(row.map(|(file, width, height)| DeliveredImage {
+        url: crate::media::store::url_of(media_base, workspace_id, &file),
+        width,
+        height,
+        alt: value.get("alt").and_then(Value::as_str).map(str::to_owned),
+        decorative: value.get("decorative") == Some(&Value::Bool(true)),
+    }))
+}
+
 /// 本文の画像に、配信のURLと大きさ（`src`・`width`・`height`）を足す。削除されたメディアの画像は本文から除く。
 pub async fn with_media(
     conn: &mut PgConnection,

@@ -7,7 +7,7 @@ export const DESCRIPTION_MARKER = "DESC-MARKER-0b7e2c";
 /** 配信APIとスキーマ情報のAPIに決して出てはいけない目印（INV-SCH-01）。 */
 export const DEVNOTE_MARKER = "DEVNOTE-MARKER-7f3a91";
 
-export type FieldType = "text" | "slug" | "richtext" | "reference";
+export type FieldType = "text" | "slug" | "richtext" | "reference" | "image";
 
 /**
  * 組み込みJSで動く関数（URL生成関数・フックなど）が、権限として宣言できるホスト関数（04-hooks.md、Q11）。
@@ -137,6 +137,8 @@ export const BASE_TEMPLATE: TemplateSpec = {
         { name: "summary", type: "text", description: DESCRIPTION_MARKER, devNote: DEVNOTE_MARKER },
         { name: "body", type: "richtext" },
         { name: "related", type: "reference", referenceTo: "post", multiple: true },
+        // 画像のフィールド（サムネイルなど。M5）
+        { name: "cover", type: "image" },
       ],
       devNote: DEVNOTE_MARKER,
     },

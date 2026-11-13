@@ -34,7 +34,7 @@ pub struct OtherLocale {
     pub locale: String,
 }
 
-/// 版で使っているメディア（本文のフィールドの画像）。
+/// 版で使っているメディア（本文のフィールドの画像と、画像のフィールド）。
 fn media_in(manifest: &Manifest, content_type: &str, fields: &Value) -> Vec<Uuid> {
     let Some(ct) = manifest.content_type(content_type) else {
         return Vec::new();
@@ -42,9 +42,14 @@ fn media_in(manifest: &Manifest, content_type: &str, fields: &Value) -> Vec<Uuid
     let mut out: Vec<Uuid> = ct
         .fields
         .iter()
-        .filter(|f| f.kind == FieldType::Richtext)
-        .filter_map(|f| fields.get(&f.name))
-        .flat_map(body::media_ids)
+        .filter_map(|f| Some((f.kind, fields.get(&f.name)?)))
+        .flat_map(|(kind, v)| match kind {
+            FieldType::Richtext => body::media_ids(v),
+            FieldType::Image => crate::content::fields::image_media_id(v)
+                .into_iter()
+                .collect(),
+            _ => Vec::new(),
+        })
         .collect();
     out.sort();
     out.dedup();

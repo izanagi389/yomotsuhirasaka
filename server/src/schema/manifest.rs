@@ -36,6 +36,8 @@ pub enum FieldType {
     Richtext,
     /// 他の記事への参照（翻訳グループを指す。Q157）。
     Reference,
+    /// 画像（メディアのID・代替テキスト・装飾画像の印。1枚だけ。M5、02-schema-and-delivery-api.md「画像のフィールド」）。
+    Image,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

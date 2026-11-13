@@ -106,7 +106,7 @@ pub(super) async fn db(state: &AppState, ws: Uuid) -> Result<workspace_db::Works
         .ok_or_else(ApiError::not_found)
 }
 
-/// 参照とスラッグの検査（ワークスペースのデータと照らし合わせるもの）。
+/// 参照・スラッグ・画像のフィールドの検査（ワークスペースのデータと照らし合わせるもの）。
 async fn check_against_data(
     conn: &mut sqlx::PgConnection,
     ct: &ContentType,
@@ -140,6 +140,20 @@ async fn check_against_data(
                 let to = field.reference_to.as_deref().unwrap_or_default();
                 if !entries::groups_exist(conn, to, ids).await? {
                     return Ok(Err(invalid(vec![format!("fields.{name}: unknown entry")])));
+                }
+            }
+            // 画像のフィールド: このワークスペースにある、削除されていないメディアだけ（INV-IMG-03）
+            (FieldType::Image, Column::Json(Some(json))) => {
+                let id = serde_json::from_str::<serde_json::Value>(json)
+                    .ok()
+                    .as_ref()
+                    .and_then(crate::content::fields::image_media_id);
+                let found = match id {
+                    Some(id) => crate::media::store::exists(conn, id).await?,
+                    None => false,
+                };
+                if !found {
+                    return Ok(Err(invalid(vec![format!("fields.{name}: unknown media")])));
                 }
             }
             _ => {}
