@@ -35,7 +35,7 @@ export type ExitCode = 0 | 1 | 3;
 
 interface Field {
   name: string;
-  type: "text" | "slug" | "richtext" | "reference";
+  type: "text" | "slug" | "richtext" | "reference" | "image";
 }
 interface ContentType {
   name: string;
@@ -193,6 +193,11 @@ export async function runImport(client: Client, options: ImportOptions, log: Log
   const problems: string[] = [];
   const items: Item[] = [];
   const images: { ref: ImageRef; path: string }[] = [];
+  // 画像のフィールド: frontmatter のパスの画像をアップロードし、そのメディアIDを入れる（03-content-and-editing.md）
+  const fieldImages: { fields: Record<string, unknown>; key: string; node: TiptapNode }[] = [];
+  const imageFields = new Set(ct.fields.filter((f) => f.type === "image").map((f) => f.name));
+  /** 画像のフィールドの代替テキストのキー（`<フィールド名>Alt`）。 */
+  const altKeys = new Set([...imageFields].map((n) => `${n}Alt`));
   const files = markdownFiles(sourceRoot);
   if (files.length === 0) {
     log.error("no Markdown files (.md, .mdx) were found");
@@ -233,6 +238,10 @@ export async function runImport(client: Client, options: ImportOptions, log: Log
     const fields: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(fm)) {
       if (special.has(key) || ignored.has(key)) continue;
+      if (altKeys.has(key) && !ct.fields.some((f) => f.name === key)) {
+        if (typeof value !== "string") problems.push(`${file}: "${key}" must be a string`);
+        continue;
+      }
       const field = ct.fields.find((f) => f.name === key);
       if (!field) {
         problems.push(`${file}: frontmatter key "${key}" is not a field of "${ct.name}" (add it to "ignoreKeys" to skip it)`);
@@ -244,6 +253,21 @@ export async function runImport(client: Client, options: ImportOptions, log: Log
       }
       if (typeof value !== "string") {
         problems.push(`${file}: "${key}" must be a string`);
+        continue;
+      }
+      if (field.type === "image") {
+        // 本文の画像と同じく、代替テキストがなければ装飾画像として扱い、警告を出す
+        const altValue = fm[`${key}Alt`];
+        const alt = typeof altValue === "string" && altValue.trim() !== "" ? altValue : undefined;
+        if (!alt) log.warn(`${file}: "${key}" has no alternative text ("${key}Alt") and was imported as decorative`);
+        const node: TiptapNode = { type: "image", attrs: alt ? { mediaId: "", alt } : { mediaId: "", decorative: true } };
+        const ref: ImageRef = { src: value, line: 1, node };
+        const r = resolveImage(ref, file, path, sourceRoot, staticRoot);
+        if ("problem" in r) problems.push(r.problem.replace(`${file}:1:`, `${file}: "${key}":`));
+        else {
+          images.push({ ref, path: r.path });
+          fieldImages.push({ fields, key, node });
+        }
         continue;
       }
       fields[key] = value;
@@ -305,6 +329,7 @@ export async function runImport(client: Client, options: ImportOptions, log: Log
   for (const { ref, path } of images) {
     (ref.node as TiptapNode).attrs = { ...ref.node.attrs, mediaId: uploaded.get(path)! };
   }
+  for (const { fields, key, node } of fieldImages) fields[key] = { ...node.attrs };
 
   // --- 3. 取り込み ---
   let result: { entries: { key: string; id: string; url: string }[] };
