@@ -42,12 +42,14 @@ watch(
       <button type="button" class="flex-1 bg-black/40" :aria-label="t('nav.closeMenu')" @click="menuOpen = false" />
     </div>
 
-    <main v-if="editor" class="min-w-0 flex-1">
-      <slot />
-    </main>
-    <main v-else class="min-w-0 flex-1 px-4 pb-6 md:px-10 md:pb-8">
-      <div class="mx-auto max-w-6xl">
-        <SeasonBar class="mb-6 border-b py-3 md:mb-8" />
+    <!--
+      ページの置き場所は1つにする（記事の画面かどうかでは、余白と幅だけを変える）。
+      v-if/v-else で別々の <main> に置くと、一覧から記事へ移るときにページの描画が作り直され、
+      見えない記事の画面が残って編集のロックを持ち続ける（自分の別の画面が編集中、と出る）。
+    -->
+    <main class="min-w-0 flex-1" :class="editor ? '' : 'px-4 pb-6 md:px-10 md:pb-8'">
+      <div :class="editor ? '' : 'mx-auto max-w-6xl'">
+        <SeasonBar v-if="!editor" class="mb-6 border-b py-3 md:mb-8" />
         <slot />
       </div>
     </main>
