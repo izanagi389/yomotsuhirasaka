@@ -27,6 +27,7 @@
           "name": "title",
           "type": "text",
           "required": true,
+          "searchable": true,
           "description": "記事のタイトル"
         },
         {
@@ -43,7 +44,8 @@
         {
           "name": "body",
           "type": "richtext",
-          "required": true
+          "required": true,
+          "searchable": true
         },
         {
           "name": "related",
