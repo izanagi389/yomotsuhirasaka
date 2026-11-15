@@ -608,6 +608,7 @@ export interface ConflictCheck {
   revision: number | null;
   state: AssistState;
   period?: "month" | "day";
+  /** 説明が空なら、指定の言語で書かれていなかったので見せない（食い違った記事は見せる）。 */
   conflicts: { entryId: string; versionId: string; explanation: string }[];
 }
 
@@ -615,7 +616,7 @@ export interface ConflictCheck {
 export interface AssistTask {
   state: AssistState;
   period?: "month" | "day";
-  /** 見直しの手がかり（下書きにそのまま含まれる語句と、その理由）。 */
+  /** 見直しの手がかり（下書きにそのまま含まれる語句と、その理由）。理由が空なら、指定の言語でなかったので見せない。 */
   hints?: { quote: string; reason: string }[];
   /** 構成案（Markdown の文。HTML にせず、文字のまま見せる）。 */
   outline?: string;

@@ -1250,6 +1250,7 @@
     "budgetExhaustedDay": "今日の上限に達しました。",
     "conflictsTitle": "ほかの記事との食い違い（AI）",
     "noConflicts": "意味の近いほかの記事との食い違いは見つかりませんでした。",
+    "explanationWithheld": "AI の説明を表示できませんでした（指定の言語で書かれていなかったため）。",
     "openOther": "相手の記事を開く",
     "conflictsNote": "AIによる確認です。見落としや誤りがありえます。公開はこの結果を待たずにできます。",
     "staleTitle": "見直しの手がかり（AI）",

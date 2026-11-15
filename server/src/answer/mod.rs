@@ -420,7 +420,10 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     let ws = req.workspace_id;
     let (input, output) = reserve(app, ws, input_estimate).await?;
     let llm = Llm::new(egress.clone(), llm_config.clone());
-    let mut stream = match llm.chat_stream(&model, &messages, MAX_OUTPUT_TOKENS).await {
+    let mut stream = match llm
+        .chat_stream(&model, &messages, MAX_OUTPUT_TOKENS, None)
+        .await
+    {
         Ok(s) => s,
         Err(e) => {
             let charged = if budget::not_charged(e) {

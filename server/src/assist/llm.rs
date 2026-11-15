@@ -3,6 +3,7 @@
 //! - 接続先はワークスペースの上書きか、インスタンスの設定（Q26）。チャットのモデルがなければ呼ばない。
 //! - 呼ぶ前に、入力の見積もり（1文字＝1トークン）と出力の上限を確保する。足りなければ呼ばず、尽きた期間を返す
 //!   （期間ごとに1回、ワークスペースの管理者に知らせる）。呼んだあと、使用量（なければ文字数）で精算する。
+//! - 温度は [`TEMPERATURE`]。
 //! - 失敗の中身（相手の応答や送った文）はログに書かない。
 
 use anyhow::Result;
@@ -12,6 +13,9 @@ use crate::audit;
 use crate::budget::{self, Direction, Kind, Period, Reserved};
 use crate::http::AppState;
 use crate::llm::{ChatMessage, Llm};
+
+/// 支援の呼び出しの温度。判定と抜き出しが仕事なので、揺れないように 0 にする（同じ入力には同じ答え。言語の揺れも減る）。
+pub const TEMPERATURE: f32 = 0.0;
 
 /// 呼び出しの結果。
 #[derive(Debug, PartialEq, Eq)]
@@ -73,7 +77,9 @@ pub async fn call(
         };
     let llm = Llm::new(egress.clone(), llm_config);
     let reply = async {
-        let mut stream = llm.chat_stream(&model, messages, max_tokens).await?;
+        let mut stream = llm
+            .chat_stream(&model, messages, max_tokens, Some(TEMPERATURE))
+            .await?;
         let mut text = String::new();
         while let Some(t) = stream.next_text().await? {
             text.push_str(&t);
