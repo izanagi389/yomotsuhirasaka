@@ -650,9 +650,13 @@ fn written_in(locale: &str, result: &Stored) -> bool {
 }
 
 /// 構成案を消す（候補を消したとき・質問ログを無効にしたとき。`key` が None ならすべて）。
+/// 答えられなかった質問を含めた構成の確認の結果も、あわせてすべて消す（AI の指摘の文が、
+/// 消した質問の内容に触れていることがあるため。結果はボタンを押せば作り直せる）。
 pub async fn forget_outlines(conn: &mut PgConnection, key: Option<&str>) -> Result<()> {
     sqlx::query(
-        "DELETE FROM assist_tasks WHERE kind = 'outline' AND ($1::text IS NULL OR subject = $1)",
+        "DELETE FROM assist_tasks
+         WHERE (kind = 'outline' AND ($1::text IS NULL OR subject = $1))
+            OR (kind = 'structure' AND subject LIKE '%:q')",
     )
     .bind(key)
     .execute(&mut *conn)
@@ -660,12 +664,14 @@ pub async fn forget_outlines(conn: &mut PgConnection, key: Option<&str>) -> Resu
     Ok(())
 }
 
-/// 残す時間を過ぎた結果と、候補がなくなった構成案を消す（`conn` はワークスペースのトランザクション）。
+/// 残す時間を過ぎた結果と、候補がなくなった構成案と、質問ログが無効なのに残った「質問を含めた構成の確認」を消す（`conn` はワークスペースのトランザクション）。
 pub async fn sweep_workspace(conn: &mut PgConnection) -> Result<u64> {
     Ok(sqlx::query(
         "DELETE FROM assist_tasks t
          WHERE t.created_at <= now() - make_interval(hours => $1)
-            OR (t.kind = 'outline' AND NOT EXISTS (SELECT 1 FROM question_log q WHERE q.key = t.subject))",
+            OR (t.kind = 'outline' AND NOT EXISTS (SELECT 1 FROM question_log q WHERE q.key = t.subject))
+            OR (t.kind = 'structure' AND t.subject LIKE '%:q'
+                AND NOT (SELECT enabled FROM question_log_settings))",
     )
     .bind(KEEP_HOURS)
     .execute(&mut *conn)
