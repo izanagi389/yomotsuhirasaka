@@ -41,6 +41,8 @@ use crate::workspace_db::{self, WorkspaceDb};
 pub const MAX_QUESTION_CHARS: usize = 500;
 /// LLMに求める回答の長さの上限（トークン）。予算にも、この分を確保する。
 pub const MAX_OUTPUT_TOKENS: u32 = 1024;
+/// LLMに渡す温度。回答は断片だけから書くので、ぶれを小さくする（同じ質問に、言語や引用の付け方が揺れないように）。
+pub const TEMPERATURE: f32 = 0.0;
 /// LLMに渡す断片の数。
 const FRAGMENTS: usize = 6;
 /// ベクトル検索の候補の、コサイン類似度の足切り（ゆるい足切り。最終の判断はLLM）。
@@ -421,7 +423,7 @@ async fn run(app: &AppState, req: &Request, out: &Out) -> Result<(), Refusal> {
     let (input, output) = reserve(app, ws, input_estimate).await?;
     let llm = Llm::new(egress.clone(), llm_config.clone());
     let mut stream = match llm
-        .chat_stream(&model, &messages, MAX_OUTPUT_TOKENS, None)
+        .chat_stream(&model, &messages, MAX_OUTPUT_TOKENS, Some(TEMPERATURE))
         .await
     {
         Ok(s) => s,
