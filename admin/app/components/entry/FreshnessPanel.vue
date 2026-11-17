@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { FreshnessDetail } from "~/utils/content";
-import StaleHintsPanel from "~/components/assist/StaleHintsPanel.vue";
 
 const props = defineProps<{ workspaceId: string; entryId: string; editable: boolean; canVerify: boolean }>();
 const { t, locale } = useI18n();
@@ -81,7 +80,7 @@ function saveReview() {
         </dd>
       </dl>
 
-      <StaleHintsPanel v-if="detail.reviewExpired && editable" :workspace-id="workspaceId" :entry-id="entryId" />
+      <p v-if="detail.reviewExpired && editable" class="text-muted-foreground" data-testid="stale-in-ai-tab">{{ t("freshness.staleInAiTab") }}</p>
 
       <section v-if="canVerify" class="grid gap-2">
         <h3 class="font-medium">{{ t("freshness.verify") }}</h3>

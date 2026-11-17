@@ -624,6 +624,29 @@ export interface AssistTask {
   outline?: string;
 }
 
+/** 構成の確認（AI。2026-11-17）の指摘。kind は論理の流れ・答えられなかった質問・近い記事との重なり。 */
+export interface StructureFinding {
+  kind: "flow" | "question" | "overlap";
+  /** 指摘の文。空なら、指定の言語でなかったので見せない。HTML にせず、文字のまま見せる。 */
+  text: string;
+  /** 重なる相手の記事（overlap）。 */
+  entryId?: string;
+  entryTitle?: string;
+  /** 答えられなかった質問（question。質問ログの閲覧の権限がある人だけ）。 */
+  question?: string;
+}
+
+/** GET/POST /workspaces/{ws}/entries/{id}/assist/structure。 */
+export interface StructureCheck {
+  state: AssistState;
+  period?: "month" | "day";
+  suggestions?: StructureFinding[];
+  /** 答えられなかった質問を含めたか（含めなかったときは、その理由）。 */
+  questions: "included" | "noPermission" | "reauthRequired" | "logDisabled";
+  /** 始める前に見せる、トークン数の上限の見積もり。 */
+  estimate: { inputTokens: number; outputTokens: number };
+}
+
 /** POST /workspaces/{ws}/answer-test（回答のテスト。M4、09-qa-chatbot.md「根拠と判定」）。 */
 export interface AnswerTestResult {
   /** マスクした後の質問文（LLM と埋め込みに送ったもの）。 */

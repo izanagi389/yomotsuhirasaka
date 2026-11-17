@@ -221,11 +221,11 @@ async fn finish(
     Ok(())
 }
 
-/// 比べる断片1つ。
-struct Fragment {
-    entry_id: Uuid,
-    version_id: Uuid,
-    text: String,
+/// 比べる断片1つ（他の公開中の記事の、比べたときの公開版）。
+pub(crate) struct Fragment {
+    pub entry_id: Uuid,
+    pub version_id: Uuid,
+    pub text: String,
 }
 
 /// 文字数で切る（Unicode のコードポイント）。
@@ -384,65 +384,18 @@ async fn check(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) ->
     let changed = changed_sections(&before, &after);
 
     // 意味の近い他の記事の断片（検索と同じ照合。下書きの埋め込みは「埋め込みの作成」の予算から）
-    let setup = crate::workspace_llm::embedding(pool, &state.keys, &state.config, ws).await?;
-    let services = search::Services {
-        pool,
-        config: &state.config,
-        embedding: setup.as_ref().map(|s| &s.llm),
-        egress: state.egress.as_ref(),
-        cache: &state.search_cache,
-        query_budget: crate::budget::Kind::Embedding,
-    };
-    let mut fragments: Vec<Fragment> = Vec::new();
-    let mut seen: HashSet<(Uuid, String)> = HashSet::new();
-    for section in &changed {
-        let (held, vector) = search::query_embedding(&services, db, tx, ws, section).await?;
-        tx = held;
-        let found = search::fragments(
-            &services,
-            &mut tx,
-            manifest,
-            section,
-            &draft.locale,
-            PER_SECTION * 3,
-            MIN_SIMILARITY,
-            vector?,
-        )
-        .await?;
-        let mut taken = 0;
-        for f in found {
-            if taken == PER_SECTION {
-                break;
-            }
-            if f.entry_id == p.entry_id || f.locale != draft.locale {
-                continue;
-            }
-            if !seen.insert((f.entry_id, f.content.clone())) {
-                continue;
-            }
-            let version: Option<Uuid> = sqlx::query_scalar(
-                "SELECT published_version_id FROM entries WHERE id = $1 AND deleted_at IS NULL",
-            )
-            .bind(f.entry_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .flatten();
-            let Some(version_id) = version else {
-                continue;
-            };
-            let text = if f.breadcrumb.is_empty() {
-                f.content
-            } else {
-                format!("{}: {}", f.breadcrumb.join(" > "), f.content)
-            };
-            fragments.push(Fragment {
-                entry_id: f.entry_id,
-                version_id,
-                text: truncate(&text, SECTION_MAX_CHARS),
-            });
-            taken += 1;
-        }
-    }
+    let (tx, fragments) = nearby(
+        state,
+        db,
+        tx,
+        manifest,
+        ws,
+        p.entry_id,
+        &draft.locale,
+        &changed,
+        PER_SECTION,
+    )
+    .await?;
     tx.commit().await?;
     if fragments.is_empty() {
         // 比べる相手がなければ、LLM を呼ばない（予算も使わない）
@@ -490,6 +443,83 @@ async fn check(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) ->
         })
         .collect();
     finish(pool, db, p, "done", None, &conflicts).await
+}
+
+/// 下書きのセクションごとに、意味の近い他の公開中の記事の断片を `per_section` 件まで探す（検索と同じ照合で、同じロケールのもの。
+/// 同じ断片は1回まで）。下書きの埋め込みは「埋め込みの作成」の予算から出す。構成の確認（`assist::structure`）でも使う。
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn nearby(
+    state: &AppState,
+    db: &workspace_db::WorkspaceDb,
+    mut tx: sqlx::Transaction<'static, sqlx::Postgres>,
+    manifest: &crate::schema::manifest::Manifest,
+    ws: Uuid,
+    entry_id: Uuid,
+    locale: &str,
+    sections: &[String],
+    per_section: usize,
+) -> Result<(sqlx::Transaction<'static, sqlx::Postgres>, Vec<Fragment>)> {
+    let pool = &state.pool;
+    let setup = crate::workspace_llm::embedding(pool, &state.keys, &state.config, ws).await?;
+    let services = search::Services {
+        pool,
+        config: &state.config,
+        embedding: setup.as_ref().map(|s| &s.llm),
+        egress: state.egress.as_ref(),
+        cache: &state.search_cache,
+        query_budget: crate::budget::Kind::Embedding,
+    };
+    let mut fragments: Vec<Fragment> = Vec::new();
+    let mut seen: HashSet<(Uuid, String)> = HashSet::new();
+    for section in sections {
+        let (held, vector) = search::query_embedding(&services, db, tx, ws, section).await?;
+        tx = held;
+        let found = search::fragments(
+            &services,
+            &mut tx,
+            manifest,
+            section,
+            locale,
+            per_section * 3,
+            MIN_SIMILARITY,
+            vector?,
+        )
+        .await?;
+        let mut taken = 0;
+        for f in found {
+            if taken == per_section {
+                break;
+            }
+            if f.entry_id == entry_id || f.locale != locale {
+                continue;
+            }
+            if !seen.insert((f.entry_id, f.content.clone())) {
+                continue;
+            }
+            let version: Option<Uuid> = sqlx::query_scalar(
+                "SELECT published_version_id FROM entries WHERE id = $1 AND deleted_at IS NULL",
+            )
+            .bind(f.entry_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
+            let Some(version_id) = version else {
+                continue;
+            };
+            let text = if f.breadcrumb.is_empty() {
+                f.content
+            } else {
+                format!("{}: {}", f.breadcrumb.join(" > "), f.content)
+            };
+            fragments.push(Fragment {
+                entry_id: f.entry_id,
+                version_id,
+                text: truncate(&text, SECTION_MAX_CHARS),
+            });
+            taken += 1;
+        }
+    }
+    Ok((tx, fragments))
 }
 
 /// 版を引いた結果を消す（版の本文を抹消したとき。Q134）。

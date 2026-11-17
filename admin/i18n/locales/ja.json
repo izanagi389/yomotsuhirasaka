@@ -364,7 +364,8 @@
     "review": "レビュー",
     "related": "関連記事",
     "history": "履歴",
-    "block": "ブロック"
+    "block": "ブロック",
+    "ai": "AI"
   },
   "translations": {
     "source": "元の記事",
@@ -861,7 +862,8 @@
     "days": "日",
     "disabled": "この記事は期限なし",
     "history": "確認の記録",
-    "noHistory": "まだ記録はありません。"
+    "noHistory": "まだ記録はありません。",
+    "staleInAiTab": "古くなっていそうな箇所は、「AI」タブでAIに探させることができます。"
   },
   "correctionTemplates": {
     "help": "訂正として公開するときに選べる説明の文と、説明を書いていない訂正に表示する文を、ロケールごとに決めます。選んだ文はその時点で説明に写されるため、ここを変えても過去の説明は変わりません。",
@@ -1281,7 +1283,28 @@
     "outlineStart": "構成案を作る（AI）",
     "outlineNote": "AIによる構成案です。事実は記事を書くときに確かめてください。",
     "copy": "コピー",
-    "copied": "コピーしました。"
+    "copied": "コピーしました。",
+    "aiTabNote": "ボタンを押したときだけ、保存済みの下書きが外部のLLMの提供会社に送られます。AIの提案は、あなたが当てるまで記事を変えません。",
+    "headingsTitle": "見出しの形",
+    "headingsOk": "見出しの形に問題は見つかりませんでした。",
+    "headingsNone": "本文に見出しがありません。",
+    "headingEmpty": "空の見出しがあります。",
+    "headingSkip": "「{text}」は見出しの段が飛んでいます（H{from} の次に H{to}）。",
+    "headingDuplicate": "「{text}」という見出しが {count} 回あります。",
+    "structureTitle": "構成の確認（AI）",
+    "structureHelp": "保存済みの下書きについて、論理の流れ、答えられなかった質問、近い記事との重なりをAIが指摘します。",
+    "structureStart": "構成を確認",
+    "estimate": "最大で入力 約{input}・出力 約{output} トークン（編集者向けの支援の予算から）",
+    "questionsNoPermission": "答えられなかった質問は、質問ログの閲覧の権限がないため含めません。",
+    "questionsReauth": "答えられなかった質問も含めるには、再認証してください。",
+    "questionsLogDisabled": "質問ログが無効なため、答えられなかった質問は含めません。",
+    "questionsIncluded": "答えられなかった質問も含めます（質問ログの閲覧として記録されます）。",
+    "findingFlow": "論理の流れ",
+    "findingQuestion": "答えられなかった質問",
+    "findingOverlap": "近い記事との重なり",
+    "noFindings": "指摘はありませんでした。",
+    "structureNote": "AIによる指摘です。見落としや誤りがありえます。",
+    "otherEntryUntitled": "（タイトルなし）"
   },
   "answerTest": {
     "title": "回答を試す",

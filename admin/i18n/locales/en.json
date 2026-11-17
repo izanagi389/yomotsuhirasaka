@@ -364,7 +364,8 @@
     "review": "Review",
     "related": "Related",
     "history": "History",
-    "block": "Block"
+    "block": "Block",
+    "ai": "AI"
   },
   "translations": {
     "source": "Source entry",
@@ -861,7 +862,8 @@
     "days": "days",
     "disabled": "No deadline for this entry",
     "history": "Verification log",
-    "noHistory": "No records yet."
+    "noHistory": "No records yet.",
+    "staleInAiTab": "In the AI tab, the AI can look for places that may be outdated."
   },
   "correctionTemplates": {
     "help": "Per locale, set the notes editors can pick when publishing a correction, and the text shown for corrections without a note. A picked note is copied at that moment, so changing it here does not change past notes.",
@@ -1281,7 +1283,28 @@
     "outlineStart": "Draft an outline (AI)",
     "outlineNote": "This outline was written by AI. Check the facts when you write the article.",
     "copy": "Copy",
-    "copied": "Copied."
+    "copied": "Copied.",
+    "aiTabNote": "Only when you press a button, the saved draft is sent to the external LLM provider. AI suggestions never change the entry until you apply them.",
+    "headingsTitle": "Heading structure",
+    "headingsOk": "No problems found in the headings.",
+    "headingsNone": "The body has no headings.",
+    "headingEmpty": "There is an empty heading.",
+    "headingSkip": "\"{text}\" skips a heading level (H{to} after H{from}).",
+    "headingDuplicate": "The heading \"{text}\" appears {count} times.",
+    "structureTitle": "Structure check (AI)",
+    "structureHelp": "The AI points out problems in the flow, unanswered visitor questions and overlaps with similar articles in the saved draft.",
+    "structureStart": "Check the structure",
+    "estimate": "Up to about {input} input and {output} output tokens (from the editor assist budget)",
+    "questionsNoPermission": "Unanswered questions are not included because you cannot view the question log.",
+    "questionsReauth": "Re-authenticate to include unanswered questions.",
+    "questionsLogDisabled": "Unanswered questions are not included because the question log is disabled.",
+    "questionsIncluded": "Unanswered questions are included (recorded as viewing the question log).",
+    "findingFlow": "Flow",
+    "findingQuestion": "Unanswered questions",
+    "findingOverlap": "Overlap with similar articles",
+    "noFindings": "No findings.",
+    "structureNote": "Checked by AI. It may miss things or be wrong.",
+    "otherEntryUntitled": "(untitled)"
   },
   "answerTest": {
     "title": "Try an answer",
