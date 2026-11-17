@@ -10,6 +10,16 @@ import { Switch } from "@/components/ui/switch";
 
 const props = defineProps(nodeViewProps);
 const { t } = useI18n();
+// ブロック型のエディタでは、属性の入力は右の欄の「ブロック」タブで行い、ここには値の要約だけを出す
+const { mode } = useEditorMode();
+const blockMode = computed(() => mode.value === "block");
+const summary = computed(() =>
+  (decl.value.attrs ?? [])
+    .map((a) => ({ name: a.name, value: props.node.attrs[a.name] as string | number | boolean | null }))
+    .filter((a) => a.value !== null && a.value !== "")
+    .map((a) => `${a.name}: ${a.value === true ? "✓" : a.value === false ? "✗" : String(a.value)}`)
+    .join(" / "),
+);
 
 const options = computed(() => props.extension.options as { decl: CustomNodeDecl; isEditable: () => boolean });
 const decl = computed(() => options.value.decl);
@@ -38,7 +48,16 @@ function setBoolean(a: CustomAttrDecl, v: boolean) {
     data-testid="custom-node"
     :data-node="decl.name"
   >
-    <component :is="inline ? 'span' : 'div'" :class="inline ? 'inline-flex items-center gap-1' : 'grid gap-2'" contenteditable="false" data-custom-form>
+    <component
+      :is="inline ? 'span' : 'div'"
+      v-if="blockMode"
+      :class="[inline ? 'inline-flex items-center gap-1' : 'grid gap-1', selected ? 'text-primary' : '']"
+      contenteditable="false"
+    >
+      <span class="font-medium">{{ decl.name }}</span>
+      <span v-if="summary" class="text-xs break-all text-muted-foreground" data-testid="custom-node-summary">{{ summary }}</span>
+    </component>
+    <component :is="inline ? 'span' : 'div'" v-else :class="inline ? 'inline-flex items-center gap-1' : 'grid gap-2'" contenteditable="false" data-custom-form>
       <span class="font-medium">{{ decl.name }}</span>
       <span v-if="!inline && decl.description" class="text-sm text-muted-foreground">{{ decl.description }}</span>
       <component

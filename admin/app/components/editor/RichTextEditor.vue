@@ -317,7 +317,20 @@ function insertCustom(name: string) {
   else chain().insertContent({ type: name }).run();
 }
 
-onBeforeUnmount(() => editor.value?.destroy());
+// 右の欄の「ブロック」タブに、このエディタの選んだブロックを知らせる
+let untrack: (() => void) | null = null;
+watch(
+  editor,
+  (e) => {
+    untrack?.();
+    untrack = e ? trackBlockSelection(e) : null;
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => {
+  untrack?.();
+  editor.value?.destroy();
+});
 </script>
 
 <template>

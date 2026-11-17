@@ -245,6 +245,15 @@
       "insert": "Insert a block",
       "insertHint": "Type / to choose a block",
       "noMatch": "No matching blocks"
+    },
+    "blockSettings": {
+      "empty": "Select a block in the body to see its settings here.",
+      "none": "This block has no settings.",
+      "level": "Heading level",
+      "image": "Image",
+      "embed": "Embed",
+      "embedChange": "To change the URL, delete this block and insert it again.",
+      "altMissing": "No alt text"
     }
   },
   "entries": {
@@ -354,7 +363,8 @@
     "freshness": "Freshness",
     "review": "Review",
     "related": "Related",
-    "history": "History"
+    "history": "History",
+    "block": "Block"
   },
   "translations": {
     "source": "Source entry",
