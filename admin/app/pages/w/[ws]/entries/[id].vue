@@ -3,7 +3,7 @@
 // - 入力は自動で保存する（楽観ロック。Q73, Q137）
 // - 公開は分割ボタン: 「公開」が主で、▼から「訂正として公開」（Q68）。どちらも確認画面を通す
 // - 非公開と削除は、公開できる人（管理者・編集者とサーバー管理者）だけ。画面の一番下の「危険な操作」に置き、確認してから行う
-// - 画面の形: 上に帯（一覧へ戻る・状態・保存・プレビュー・公開）、中央に本文、右に欄（レビュー・履歴・翻訳・鮮度・関連・設定）
+// - 画面の形: 上に帯（一覧へ戻る・状態・保存・プレビュー・公開）、中央にタイトルと本文、右に欄（項目・レビュー・履歴・翻訳・鮮度・関連・設定）
 import { ArrowLeft, ChevronDown, Eye, Maximize2, Minimize2, PencilLine } from "@lucide/vue";
 
 import { Badge } from "@/components/ui/badge";
@@ -96,13 +96,18 @@ async function reload() {
 
 const statusText = computed(() => t(`entries.save.${autosave.status.value}`));
 const title = computed(() => (draft.value ? entryTitle(contentType.value, values) : null));
+// 中央にはタイトル（entryTitle と同じ規則: 最初のテキストの項目）と本文（リッチテキストの項目）だけを置き、
+// ほかの項目は右の欄の「項目」タブに置く（03-content-and-editing.md「本文のエディタ」）
+const titleField = computed(() => contentType.value?.fields.find((f) => f.type === "text"));
+const bodyFields = computed(() => (contentType.value?.fields ?? []).filter((f) => f.type === "richtext"));
+const otherFields = computed(() => (contentType.value?.fields ?? []).filter((f) => f !== titleField.value && f.type !== "richtext"));
 
 // 中央は「本文」か「プレビュー」。本文のエディタは、プレビューを見ている間も状態を保つため残しておく
-// 右の欄は、レビュー・履歴（版とURL）・翻訳・鮮度・関連・設定を切り替える
+// 右の欄は、項目・レビュー・履歴（版とURL）・翻訳・鮮度・関連・設定を切り替える
 // ?tab=review などで、開く欄を選べる（「やること」の一覧から。前の形の名前も受け付ける）
-const SIDE_TABS = ["review", "versions", "translations", "freshness", "related", "settings"];
+const SIDE_TABS = ["fields", "review", "versions", "translations", "freshness", "related", "settings"];
 const view = ref<"content" | "preview">("content");
-const side = ref("review");
+const side = ref(otherFields.value.length > 0 ? "fields" : "review");
 // 右の欄を広げているか（版の差分など、幅のいる内容を見るとき）
 const sideWide = ref(false);
 function openTab(name: string) {
@@ -292,7 +297,20 @@ onBeforeRouteLeave(async () => {
 
             <form v-show="view === 'content'" class="grid gap-6" @submit.prevent>
               <EntryField
-                v-for="f in contentType.fields"
+                v-if="titleField"
+                :key="`${titleField.name}:${generation}`"
+                :field="titleField"
+                :model-value="values[titleField.name]"
+                :manifest="manifest"
+                :workspace-id="ws"
+                :locale="draft.locale"
+                :editable="editable"
+                :entries="entries ?? []"
+                variant="title"
+                @update:model-value="change(titleField.name, $event)"
+              />
+              <EntryField
+                v-for="f in bodyFields"
                 :key="`${f.name}:${generation}`"
                 :field="f"
                 :model-value="values[f.name]"
@@ -333,6 +351,7 @@ onBeforeRouteLeave(async () => {
           <Tabs v-model="side">
             <div class="sticky top-0 z-10 flex items-start gap-1 border-b bg-card px-3 pt-3 pb-2">
               <TabsList class="flex-1">
+                <TabsTrigger v-if="otherFields.length > 0" value="fields" data-testid="tab-fields">{{ t("entryTabs.fields") }}</TabsTrigger>
                 <TabsTrigger value="review" data-testid="tab-review">
                   {{ t("entryTabs.review") }}
                   <span v-if="review?.open" class="inline-block size-2 rounded-full bg-amber-500" :aria-label="t('review.waiting')" />
@@ -359,6 +378,22 @@ onBeforeRouteLeave(async () => {
               </Button>
             </div>
             <div class="p-4 text-sm">
+              <TabsContent v-if="otherFields.length > 0" value="fields">
+                <form class="grid gap-5" @submit.prevent>
+                  <EntryField
+                    v-for="f in otherFields"
+                    :key="`${f.name}:${generation}`"
+                    :field="f"
+                    :model-value="values[f.name]"
+                    :manifest="manifest"
+                    :workspace-id="ws"
+                    :locale="draft.locale"
+                    :editable="editable"
+                    :entries="entries ?? []"
+                    @update:model-value="change(f.name, $event)"
+                  />
+                </form>
+              </TabsContent>
               <TabsContent value="review">
                 <ReviewPanel :key="published" :workspace-id="ws" :entry-id="id" :can-edit="canEdit(workspace)" :can-publish="canPublish(workspace)" />
               </TabsContent>

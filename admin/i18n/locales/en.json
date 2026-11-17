@@ -334,6 +334,7 @@
     "imageField": "The image in {field}"
   },
   "entryTabs": {
+    "fields": "Fields",
     "content": "Content",
     "preview": "Preview",
     "translations": "Translations",

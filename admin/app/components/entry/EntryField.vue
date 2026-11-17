@@ -17,6 +17,8 @@ const props = defineProps<{
   editable: boolean;
   /** 参照フィールドの候補（ワークスペースの記事の一覧）。 */
   entries: EntrySummary[];
+  /** title: 本文の上に大きく出すタイトル（見出しは読み上げだけにし、項目名を入力欄の薄い文字に出す）。 */
+  variant?: "default" | "title";
 }>();
 const emit = defineEmits<{ "update:modelValue": [value: FieldValue] }>();
 const { t } = useI18n();
@@ -68,13 +70,24 @@ function removeReference(group: string) {
 
 <template>
   <div class="grid gap-2">
-    <Label :for="id">
+    <Label :for="id" :class="variant === 'title' ? 'sr-only' : ''">
       {{ field.name }}
       <span v-if="field.required || field.type === 'slug'" class="text-destructive" :title="t('entries.requiredToPublish')">*</span>
     </Label>
-    <p v-if="field.description" class="text-sm text-muted-foreground">{{ field.description }}</p>
+    <p v-if="field.description && variant !== 'title'" class="text-sm text-muted-foreground">{{ field.description }}</p>
 
-    <Input v-if="field.type === 'text'" :id="id" :model-value="text" :readonly="!editable" @update:model-value="setText" />
+    <Input
+      v-if="field.type === 'text' && variant === 'title'"
+      :id="id"
+      :model-value="text"
+      :readonly="!editable"
+      :placeholder="field.name"
+      :aria-description="field.description"
+      class="h-auto rounded-none border-0 border-b bg-transparent px-0 py-2 font-mincho text-2xl font-semibold shadow-none focus-visible:border-primary focus-visible:ring-0 md:text-3xl dark:bg-transparent"
+      data-testid="entry-title-input"
+      @update:model-value="setText"
+    />
+    <Input v-else-if="field.type === 'text'" :id="id" :model-value="text" :readonly="!editable" @update:model-value="setText" />
 
     <template v-else-if="field.type === 'slug'">
       <Input :id="id" :model-value="text" :readonly="!editable" autocomplete="off" spellcheck="false" @update:model-value="setText" />
