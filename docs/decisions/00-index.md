@@ -8,7 +8,7 @@
 |---|---|
 | `01-architecture.md` | 全体構成、マルチテナント、マイルストーン、未決事項 |
 | `02-schema-and-delivery-api.md` | スキーマ定義、移行、GraphQL配信、Persisted Queries |
-| `03-content-and-editing.md` | 本文（Tiptap）、アンカー、版、レビュー、予約公開、プレビュー、同時編集、取り込み、管理画面の体験 |
+| `03-content-and-editing.md` | 本文（Tiptap）、アンカー、版、レビュー、予約公開、プレビュー、同時編集、取り込み、管理画面の体験、本文のエディタ（ブロック型） |
 | `04-hooks.md` | 組み込みJSランタイム、フック、ホスト関数 |
 | `05-urls-and-redirects.md` | 公開URL、URLの変更履歴、リダイレクト |
 | `06-corrections-and-freshness.md` | 訂正履歴、鮮度（最終確認日と確認期限）、訂正フィード |
