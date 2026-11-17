@@ -111,7 +111,12 @@ watch(editorMode, (m) => {
 const title = computed(() => (draft.value ? entryTitle(contentType.value, values) : null));
 // 中央にはタイトル（entryTitle と同じ規則: 最初のテキストの項目）と本文（リッチテキストの項目）だけを置き、
 // ほかの項目は右の欄の「項目」タブに置く（03-content-and-editing.md「本文のエディタ」）
-const titleField = computed(() => contentType.value?.fields.find((f) => f.type === "text"));
+// 本文の上に大きく出すタイトル: スキーマの titleField（なければ最初の text のフィールド）
+const titleField = computed(() => {
+  const ct = contentType.value;
+  if (!ct) return undefined;
+  return ct.fields.find((f) => f.name === ct.titleField && f.type === "text") ?? ct.fields.find((f) => f.type === "text");
+});
 const bodyFields = computed(() => (contentType.value?.fields ?? []).filter((f) => f.type === "richtext"));
 const otherFields = computed(() => (contentType.value?.fields ?? []).filter((f) => f !== titleField.value && f.type !== "richtext"));
 

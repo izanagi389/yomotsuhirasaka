@@ -1,4 +1,4 @@
-// テンプレートの関数（と検索の対象の指定）の、サーバーと同じ規則による早めの検査（13-security.md「デプロイ」: 判定はサーバーが行い、ここは早く知らせるだけ）。
+// テンプレートの関数（と検索の対象・タイトルと要約のフィールドの指定）の、サーバーと同じ規則による早めの検査（13-security.md「デプロイ」: 判定はサーバーが行い、ここは早く知らせるだけ）。
 // サーバーの検査は server/src/schema/manifest.rs（INV-NODE-01、INV-HOOK-01）。
 
 type Json = Record<string, unknown>;
@@ -52,6 +52,14 @@ export function checkTemplateFunctions(template: Json): string[] {
       if (isObject(f) && f["searchable"] === true && f["type"] !== "text" && f["type"] !== "richtext") {
         problems.push(`contentTypes[${i}].fields[${j}].searchable: only text and richtext fields can be searchable`);
       }
+    }
+    // 記事のタイトルと要約のフィールド（執筆支援の案を当てる先）は、text のフィールドで、同じフィールドではないこと
+    const isText = (name: unknown) => list(ct["fields"]).some((f) => isObject(f) && f["name"] === name && f["type"] === "text");
+    for (const key of ["titleField", "summaryField"]) {
+      if (typeof ct[key] === "string" && !isText(ct[key])) problems.push(`contentTypes[${i}].${key}: must name a text field`);
+    }
+    if (typeof ct["summaryField"] === "string" && ct["summaryField"] === ct["titleField"]) {
+      problems.push(`contentTypes[${i}].summaryField: must not be the same field as titleField`);
     }
     checkFunction(`contentTypes[${i}].urlFunction`, ct["urlFunction"], "sync", problems);
     const hooks = isObject(ct["hooks"]) ? ct["hooks"] : {};

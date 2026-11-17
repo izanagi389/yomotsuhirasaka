@@ -20,6 +20,8 @@ export interface ContentType {
   fields: Field[];
   /** 記事のタイトルにするフィールド。 */
   titleField?: string;
+  /** 記事の要約のフィールド（AI の要約の案の当て先）。 */
+  summaryField?: string;
   /** 確認期限の既定。 */
   review?: { intervalDays: number };
 }

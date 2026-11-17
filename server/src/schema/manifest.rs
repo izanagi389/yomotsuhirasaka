@@ -88,6 +88,10 @@ pub struct ContentType<F = crate::script::Script> {
     /// 記事のタイトルのフィールド（text）。訂正フィード・目録・管理画面の一覧などで記事の名前として使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_field: Option<String>,
+    /// 記事の要約のフィールド（text）。編集者向けの執筆支援の、要約の案を当てる先（2026-11-17、10-llm-and-budget.md）。
+    /// タイトルの案は `titleField` に当てる。なければ、その案は出さない。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_field: Option<String>,
     /// 確認期限（06-corrections-and-freshness.md「鮮度」）。なければ期限なし。記事ごとに上書きできる。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review: Option<Review>,
@@ -837,6 +841,19 @@ pub fn validate(m: &Manifest) -> Vec<String> {
         {
             problems.push(format!("{path}.titleField: must name a text field"));
         }
+        if let Some(sf) = &ct.summary_field
+            && !ct
+                .fields
+                .iter()
+                .any(|f| &f.name == sf && f.kind == FieldType::Text)
+        {
+            problems.push(format!("{path}.summaryField: must name a text field"));
+        }
+        if ct.summary_field.is_some() && ct.summary_field == ct.title_field {
+            problems.push(format!(
+                "{path}.summaryField: must not be the same field as titleField"
+            ));
+        }
         if let Some(ai) = &ct.ai_markdown {
             problems.extend(ai_markdown_problems(&path, ct, ai));
         }
@@ -1079,6 +1096,45 @@ pub(crate) mod tests {
             .iter_mut()
             .for_each(|f| f.searchable = matches!(f.kind, FieldType::Text | FieldType::Richtext));
         assert!(!validate(&m).iter().any(|p| p.contains(".searchable")));
+    }
+
+    /// 執筆支援の当て先（titleField・summaryField）は、そのタイプの text のフィールドで、同じフィールドではないこと。
+    #[test]
+    fn title_and_summary_fields_name_text_fields() {
+        let mut m = sample();
+        let summary = Field {
+            name: "summary".into(),
+            required: false,
+            ..m.content_types[0].fields[0].clone()
+        };
+        m.content_types[0].fields.push(summary);
+        let problems = |m: &Manifest| -> Vec<String> {
+            validate(m)
+                .into_iter()
+                .filter(|p| p.contains("titleField") || p.contains("summaryField"))
+                .collect()
+        };
+        m.content_types[0].title_field = Some("title".into());
+        m.content_types[0].summary_field = Some("summary".into());
+        assert!(problems(&m).is_empty(), "{:?}", problems(&m));
+        // 無いフィールド・text でないフィールド
+        for bad in ["missing", "slug", "body", "related"] {
+            m.content_types[0].summary_field = Some(bad.into());
+            assert_eq!(
+                problems(&m),
+                vec!["contentTypes[0].summaryField: must name a text field".to_string()],
+                "{bad}"
+            );
+        }
+        // タイトルと同じフィールド
+        m.content_types[0].summary_field = Some("title".into());
+        assert_eq!(
+            problems(&m),
+            vec![
+                "contentTypes[0].summaryField: must not be the same field as titleField"
+                    .to_string()
+            ]
+        );
     }
 
     #[test]

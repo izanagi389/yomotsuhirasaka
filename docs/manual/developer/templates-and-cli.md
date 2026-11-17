@@ -30,6 +30,7 @@ CLI の入れ方は [最初のサイトを作るまでの流れ](getting-started
       "name": "post",
       "urlTemplate": "https://example.com/{locale}/blog/{slug}",
       "titleField": "title",
+      "summaryField": "summary",
       "listLimit": 50,
       "review": { "intervalDays": 365 },
       "aiMarkdown": { "title": "title", "meta": ["summary"], "fields": ["body"], "relations": ["related"] },
@@ -64,7 +65,8 @@ CLI の入れ方は [最初のサイトを作るまでの流れ](getting-started
 | `name` | 英小文字で始まる英小文字、数字、`_`。DB と GraphQL の名前の元になります |
 | `urlTemplate` | 公開 URL のテンプレート。使える差し込みは `{locale}` と `{slug}` |
 | `urlFunction` | テンプレートで書けない URL を作る関数（あれば `urlTemplate` の代わりに使います） |
-| `titleField` | 記事のタイトルのフィールド（text）。訂正フィードや一覧で記事の名前に使います |
+| `titleField` | 記事のタイトルのフィールド（text）。訂正フィードや一覧で記事の名前に使います。管理画面では本文の上に大きく出し、AI のタイトル案の当て先にもなります |
+| `summaryField` | 記事の要約のフィールド（text。`titleField` とは別のもの）。AI の要約の案の当て先です。なければ要約の案は出ません |
 | `hooks` | フック（[関数](functions.md)） |
 | `review.intervalDays` | 確認期限の既定（1〜3650日）。なければ期限なし。記事ごとに変えられます |
 | `aiMarkdown` | AI 向けの Markdown 版に載せるもの。挙げていないフィールドは載せません。なければ、このタイプの記事は AI 向けの素材になりません |

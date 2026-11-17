@@ -103,8 +103,9 @@ export function toManifest(t: TemplateSpec): unknown {
       description: ct.description,
       devNote: ct.devNote,
       review: ct.review ? { intervalDays: ct.review.intervalDays } : undefined,
-      // 執筆支援の項目の指定（2026-11-17）。書いたときだけ載せる
-      ...(ct.assist ? { assist: { ...ct.assist } } : {}),
+      // タイトルと要約のフィールド（執筆支援の案の当て先。2026-11-17）。書いたときだけ載せる
+      ...(ct.titleField !== undefined ? { titleField: ct.titleField } : {}),
+      ...(ct.summaryField !== undefined ? { summaryField: ct.summaryField } : {}),
       fields: ct.fields.map((f) => ({
         // 検索・質問応答の対象（M3、Q16）。既定は対象外なので、対象のときだけ書く
         ...(f.searchable ? { searchable: true } : {}),
