@@ -235,6 +235,16 @@
     "custom": {
       "menu": "カスタムノードを挿入",
       "noAttrs": "入力する項目はありません。"
+    },
+    "block": {
+      "menu": "ブロックの操作（ドラッグで並べ替え）",
+      "moveUp": "上へ",
+      "moveDown": "下へ",
+      "duplicate": "複製",
+      "delete": "削除",
+      "insert": "ブロックを入れる",
+      "insertHint": "「/」でブロックを選ぶ",
+      "noMatch": "当てはまるブロックがありません"
     }
   },
   "entries": {
@@ -1467,5 +1477,10 @@
       "seiji": "青磁",
       "nezumi": "鼠"
     }
+  },
+  "editorMode": {
+    "label": "本文のエディタ",
+    "block": "ブロック",
+    "classic": "クラシック"
   }
 }

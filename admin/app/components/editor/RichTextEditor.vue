@@ -3,9 +3,13 @@
 // - 本文に、このエディタが知らないノードやマークがあれば、編集させない（読み込むと消えてしまうため）。
 // - 保存するJSONからは、マニフェストにない属性を取り除く（サーバーは定義にない属性を拒否する）。
 // - Tiptap が差し込む <style> は CSP で使えないので、injectCSS を切り、assets/css/editor.css に置いている。
-import type { JSONContent } from "@tiptap/core";
-import { NodeSelection } from "@tiptap/pm/state";
+// - 書き方は2通り（useEditorMode。03-content-and-editing.md「本文のエディタ」）。どちらも同じ JSON を編集する。
+//   - ブロック型: 空の行の「＋」と行の頭の「/」でブロックを入れ、左のつまみで並べ替え、選んだ文字の上のメニューで装飾する
+//   - クラシック: 上の固定のツールバー
+import type { JSONContent, Range } from "@tiptap/core";
+import { type EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/vue-3";
+import { BubbleMenu, FloatingMenu } from "@tiptap/vue-3/menus";
 import { type ManifestBody, forManifest, sanitize, unknownTypes } from "@yomotsuhirasaka/editor-schema";
 import {
   Bold,
@@ -21,6 +25,7 @@ import {
   ListOrdered,
   Minus,
   Pilcrow,
+  Plus,
   Puzzle,
   Quote,
   Redo2,
@@ -34,6 +39,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import BlockHandle from "./BlockHandle.vue";
+import { blockKeys, slashCommand } from "./blocks";
 import { editorExtensions } from "./extensions";
 import type { MediaInfo } from "~/utils/content";
 
@@ -47,6 +54,8 @@ const props = defineProps<{
 const emit = defineEmits<{ "update:modelValue": [value: JSONContent] }>();
 const { t } = useI18n();
 const api = useApi();
+const { mode } = useEditorMode();
+const blockMode = computed(() => mode.value === "block");
 
 // 編集できるか（ノードビューにも渡す）
 const editableRef = ref(false);
@@ -63,8 +72,55 @@ const unknown = props.modelValue ? unknownTypes(props.modelValue, narrowed.exten
 const canEdit = computed(() => props.editable && narrowed.editable && unknown.length === 0);
 watchEffect(() => (editableRef.value = canEdit.value));
 
+// 「/」の候補の一覧（ブロック型だけ）。位置は「/」の文字の位置から決める
+const slash = reactive<{ open: boolean; query: string; left: number; top: number; index: number; range: Range | null }>({
+  open: false,
+  query: "",
+  left: 0,
+  top: 0,
+  index: 0,
+  range: null,
+});
+const slashList = ref<HTMLElement | null>(null);
+const slashExtension = slashCommand({
+  enabled: () => blockMode.value && editableRef.value,
+  open(query, rect, range) {
+    if (!slash.open || slash.query !== query) slash.index = 0;
+    slash.open = true;
+    slash.query = query;
+    slash.range = range;
+    if (rect) {
+      slash.left = rect.left;
+      slash.top = rect.bottom + 4;
+    }
+  },
+  close() {
+    slash.open = false;
+    slash.range = null;
+  },
+  key(event, range) {
+    const items = slashItems.value;
+    if (event.key === "Escape") {
+      slash.open = false;
+      return true;
+    }
+    if (items.length === 0) return false;
+    if (event.key === "ArrowDown") slash.index = (slash.index + 1) % items.length;
+    else if (event.key === "ArrowUp") slash.index = (slash.index + items.length - 1) % items.length;
+    else if (event.key === "Enter") chooseSlash(slash.index, range);
+    else return false;
+    return true;
+  },
+});
+watch([() => slash.left, () => slash.top, () => slash.open, slashList], () => {
+  const el = slashList.value;
+  if (!el) return;
+  el.style.setProperty("left", `${slash.left}px`);
+  el.style.setProperty("top", `${slash.top}px`);
+});
+
 const editor = useEditor({
-  extensions: narrowed.extensions,
+  extensions: [...narrowed.extensions, slashExtension, blockKeys],
   content: props.modelValue ?? undefined,
   editable: canEdit.value,
   injectCSS: false,
@@ -124,6 +180,71 @@ const tools = computed<Tool[][]>(() => {
     ],
   ].map((group) => group.filter((tool) => tool.show));
 });
+
+// ブロック型の、入れられるブロックの一覧（「＋」と「/」で共通）。keywords は絞り込みに使う別名
+interface BlockItem {
+  key: string;
+  icon: Component;
+  label: string;
+  keywords: string;
+  run: () => void;
+}
+const blockItems = computed<BlockItem[]>(() => {
+  if (!editor.value) return [];
+  const items: (BlockItem & { show: boolean })[] = [
+    { key: "paragraph", icon: Pilcrow, label: t("editor.tools.paragraph"), keywords: "paragraph text p", show: true, run: () => chain().setParagraph().run() },
+    ...([2, 3, 4] as const).map((level) => ({
+      key: `h${level}`,
+      icon: { 2: Heading2, 3: Heading3, 4: Heading4 }[level],
+      label: t("editor.tools.heading", { level }),
+      keywords: `heading h${level}`,
+      show: has("nodes", "heading"),
+      run: () => chain().setHeading({ level }).run(),
+    })),
+    { key: "bulletList", icon: List, label: t("editor.tools.bulletList"), keywords: "bullet list ul", show: has("nodes", "bulletList"), run: () => chain().toggleBulletList().run() },
+    { key: "orderedList", icon: ListOrdered, label: t("editor.tools.orderedList"), keywords: "ordered number list ol", show: has("nodes", "orderedList"), run: () => chain().toggleOrderedList().run() },
+    { key: "blockquote", icon: Quote, label: t("editor.tools.blockquote"), keywords: "quote blockquote", show: has("nodes", "blockquote"), run: () => chain().toggleBlockquote().run() },
+    { key: "codeBlock", icon: SquareCode, label: t("editor.tools.codeBlock"), keywords: "code block pre", show: has("nodes", "codeBlock"), run: () => chain().setCodeBlock().run() },
+    { key: "hr", icon: Minus, label: t("editor.tools.horizontalRule"), keywords: "hr divider rule line", show: has("nodes", "horizontalRule"), run: () => chain().setHorizontalRule().run() },
+    { key: "image", icon: ImagePlus, label: t("editor.tools.image"), keywords: "image picture img", show: has("nodes", "image"), run: () => fileInput.value?.click() },
+    { key: "embed", icon: Clapperboard, label: t("editor.tools.embed"), keywords: "embed video youtube", show: has("nodes", "embed"), run: openEmbed },
+    ...customNodes.value.map((c) => ({
+      key: `custom:${c.name}`,
+      icon: Puzzle,
+      label: c.name,
+      keywords: `${c.name} ${c.description ?? ""}`,
+      show: true,
+      run: () => insertCustom(c.name),
+    })),
+  ];
+  return items.filter((i) => i.show);
+});
+const slashItems = computed(() => {
+  const q = slash.query.trim().toLowerCase();
+  if (!q) return blockItems.value;
+  return blockItems.value.filter((i) => i.label.toLowerCase().includes(q) || i.keywords.toLowerCase().includes(q));
+});
+function chooseSlash(index: number, range: Range | null = slash.range) {
+  const item = slashItems.value[index];
+  if (!item || !range) return;
+  // 「/」と絞り込みの文字を消してから入れる
+  editor.value!.chain().focus().deleteRange(range).run();
+  slash.open = false;
+  item.run();
+}
+// 空の行の「＋」は、「/」を打ったのと同じ一覧を開く
+function openInserter() {
+  chain().insertContent("/").run();
+}
+// 選んだ文字の上のメニュー（装飾）は、文字を選んでいるときだけ（コードブロックの中では出さない）
+const showBubble = ({ state }: { state: EditorState }) =>
+  blockMode.value && editableRef.value && state.selection instanceof TextSelection && !state.selection.empty && state.selection.$from.parent.type.name !== "codeBlock";
+const showFloating = ({ state }: { state: EditorState }) => {
+  const { $from, empty } = state.selection;
+  return blockMode.value && editableRef.value && empty && $from.depth === 1 && $from.parent.type.name === "paragraph" && $from.parent.content.size === 0;
+};
+const marks = computed(() => tools.value[1] ?? []);
+const blockRoot = ref<HTMLElement | null>(null);
 
 // リンク
 const linkOpen = ref(false);
@@ -204,8 +325,8 @@ onBeforeUnmount(() => editor.value?.destroy());
     <div v-if="unknown.length > 0 || !narrowed.editable" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">
       {{ t("editor.readonlyUnknown", { names: (unknown.length > 0 ? unknown : narrowed.unsupported).join(", ") || "paragraph" }) }}
     </div>
-    <div class="yomi-editor rounded-md border">
-      <div v-if="canEdit && editor" class="flex flex-wrap items-center gap-1 border-b p-1" role="toolbar" :aria-label="t('editor.toolbar')">
+    <div class="yomi-editor rounded-md border" :class="blockMode ? 'border-transparent' : ''">
+      <div v-if="canEdit && editor && !blockMode" class="flex flex-wrap items-center gap-1 border-b p-1" role="toolbar" :aria-label="t('editor.toolbar')">
         <template v-for="(group, i) in tools" :key="i">
           <span v-if="i > 0 && group.length > 0" class="mx-1 h-5 w-px bg-border" aria-hidden="true" />
           <Button
@@ -244,10 +365,78 @@ onBeforeUnmount(() => editor.value?.destroy());
             </DropdownMenuContent>
           </DropdownMenu>
         </template>
-        <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="upload" />
       </div>
-      <EditorContent :editor="editor" class="px-4 py-3" />
+      <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="upload" />
+      <div v-if="blockMode" ref="blockRoot" class="relative">
+        <template v-if="canEdit && editor">
+          <BlockHandle :editor="editor" :container="blockRoot" />
+          <FloatingMenu :editor="editor" :should-show="showFloating" plugin-key="blockInserter">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              class="-ml-1 h-7 gap-1 px-2 text-muted-foreground"
+              :aria-label="t('editor.block.insert')"
+              data-testid="block-insert"
+              @mousedown.prevent
+              @click="openInserter"
+            >
+              <Plus class="size-4" />{{ t("editor.block.insertHint") }}
+            </Button>
+          </FloatingMenu>
+          <BubbleMenu :editor="editor" :should-show="showBubble" plugin-key="blockMarks">
+            <div class="flex items-center gap-0.5 rounded-md border bg-popover p-0.5 shadow-md" role="toolbar" :aria-label="t('editor.toolbar')" data-testid="block-bubble">
+              <Button
+                v-for="tool in marks"
+                :key="tool.key"
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                :class="tool.active ? 'bg-accent text-accent-foreground' : ''"
+                :aria-label="tool.label"
+                :aria-pressed="tool.active ?? undefined"
+                :title="tool.label"
+                @mousedown.prevent
+                @click="tool.run"
+              >
+                <component :is="tool.icon" class="size-4" />
+              </Button>
+            </div>
+          </BubbleMenu>
+        </template>
+        <EditorContent :editor="editor" class="py-3 pr-2 pl-10" />
+      </div>
+      <EditorContent v-else :editor="editor" class="px-4 py-3" />
     </div>
+    <Teleport to="body">
+      <div
+        v-if="slash.open"
+        ref="slashList"
+        class="fixed z-50 grid max-h-72 w-64 overflow-y-auto rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+        role="listbox"
+        :aria-label="t('editor.block.insert')"
+        data-testid="block-slash"
+      >
+        <p v-if="slashItems.length === 0" class="px-2 py-1.5 text-muted-foreground">{{ t("editor.block.noMatch") }}</p>
+        <button
+          v-for="(item, i) in slashItems"
+          :key="item.key"
+          type="button"
+          role="option"
+          :aria-selected="i === slash.index"
+          class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-left"
+          :class="i === slash.index ? 'bg-accent text-accent-foreground' : ''"
+          :data-testid="`block-slash-${item.key}`"
+          @mousedown.prevent
+          @mouseenter="slash.index = i"
+          @click="chooseSlash(i)"
+        >
+          <component :is="item.icon" class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          {{ item.label }}
+        </button>
+      </div>
+    </Teleport>
     <FormError :error="uploadError" />
 
     <Dialog v-model:open="linkOpen">

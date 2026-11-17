@@ -235,6 +235,16 @@
     "custom": {
       "menu": "Insert a custom node",
       "noAttrs": "Nothing to fill in."
+    },
+    "block": {
+      "menu": "Block actions (drag to reorder)",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "duplicate": "Duplicate",
+      "delete": "Delete",
+      "insert": "Insert a block",
+      "insertHint": "Type / to choose a block",
+      "noMatch": "No matching blocks"
     }
   },
   "entries": {
@@ -1467,5 +1477,10 @@
       "seiji": "Celadon",
       "nezumi": "Grey"
     }
+  },
+  "editorMode": {
+    "label": "Body editor",
+    "block": "Block",
+    "classic": "Classic"
   }
 }
