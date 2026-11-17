@@ -95,6 +95,7 @@ async function reload() {
 }
 
 const statusText = computed(() => t(`entries.save.${autosave.status.value}`));
+const { mode: editorMode, setMode: setEditorMode } = useEditorMode();
 const title = computed(() => (draft.value ? entryTitle(contentType.value, values) : null));
 // 中央にはタイトル（entryTitle と同じ規則: 最初のテキストの項目）と本文（リッチテキストの項目）だけを置き、
 // ほかの項目は右の欄の「項目」タブに置く（03-content-and-editing.md「本文のエディタ」）
@@ -224,6 +225,21 @@ onBeforeRouteLeave(async () => {
 
         <div class="ml-auto flex flex-wrap items-center gap-2">
           <span class="text-xs text-muted-foreground" role="status" aria-live="polite" data-testid="save-status">{{ statusText }}</span>
+          <!-- 本文のエディタの種類（このブラウザに覚える）。プレビュー中は出さない -->
+          <div v-if="view === 'content'" class="flex rounded-md border p-0.5" role="group" :aria-label="t('editorMode.label')">
+            <button
+              v-for="m in EDITOR_MODES"
+              :key="m"
+              type="button"
+              class="rounded-sm px-2 py-0.5 text-xs"
+              :class="editorMode === m ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground hover:text-foreground'"
+              :aria-pressed="editorMode === m"
+              :data-testid="`editor-mode-switch-${m}`"
+              @click="setEditorMode(m)"
+            >
+              {{ t(`editorMode.${m}`) }}
+            </button>
+          </div>
           <Button
             v-if="canEdit(workspace)"
             size="sm"

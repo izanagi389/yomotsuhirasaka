@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 本人のメニュー（アカウントの設定、言語、サーバーの管理、ログアウト）。サイドバーの下と、上部の帯に置く。
-import { ChevronsUpDown, KeyRound, Languages, LogOut, Monitor, Server, ShieldCheck, SunMoon, UserRound } from "@lucide/vue";
+import { ChevronsUpDown, KeyRound, Languages, LogOut, Monitor, PenLine, Server, ShieldCheck, SunMoon, UserRound } from "@lucide/vue";
 
 import {
   DropdownMenu,
@@ -19,6 +19,7 @@ const { me, logout } = useAuth();
 const { t, locale, locales, setLocale } = useI18n();
 const api = useApi();
 const { preference, setPreference } = useTheme();
+const { mode: editorMode, setMode: setEditorMode } = useEditorMode();
 const THEMES = ["system", "light", "dark"] as const;
 
 const name = computed(() => me.value?.displayName || me.value?.email || "");
@@ -78,6 +79,11 @@ async function changeLocale(code: string) {
       <DropdownMenuLabel class="flex items-center gap-2 text-xs font-normal text-muted-foreground"><SunMoon class="size-3.5" aria-hidden="true" />{{ t("theme.label") }}</DropdownMenuLabel>
       <DropdownMenuRadioGroup :model-value="preference" @update:model-value="(v) => setPreference(THEMES.find((x) => x === v) ?? 'system')">
         <DropdownMenuRadioItem v-for="th in THEMES" :key="th" :value="th" :data-testid="`theme-${th}`">{{ t(`theme.${th}`) }}</DropdownMenuRadioItem>
+      </DropdownMenuRadioGroup>
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel class="flex items-center gap-2 text-xs font-normal text-muted-foreground"><PenLine class="size-3.5" aria-hidden="true" />{{ t("editorMode.label") }}</DropdownMenuLabel>
+      <DropdownMenuRadioGroup :model-value="editorMode" @update:model-value="(v) => setEditorMode(EDITOR_MODES.find((x) => x === v) ?? 'block')">
+        <DropdownMenuRadioItem v-for="m in EDITOR_MODES" :key="m" :value="m" :data-testid="`editor-mode-${m}`">{{ t(`editorMode.${m}`) }}</DropdownMenuRadioItem>
       </DropdownMenuRadioGroup>
       <DropdownMenuSeparator />
       <DropdownMenuItem data-testid="logout" @select="logout"><LogOut aria-hidden="true" />{{ t("auth.logout") }}</DropdownMenuItem>
