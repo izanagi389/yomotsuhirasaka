@@ -123,6 +123,8 @@ export interface WorkspaceLlm {
   chatInputPrice?: number;
   chatOutputPrice?: number;
   embeddingModel?: string;
+  /** 画像を読むモデル（代替テキストの案に使う。2026-11-17）。なければ代替テキストの案は使えない。 */
+  visionModel?: string;
 }
 
 /** ワークスペースの埋め込みの作成の予算（トークン数）。null は上限なし（サーバー管理者の天井の範囲で）。 */
@@ -182,6 +184,26 @@ export interface EmbeddingSwitchStatus {
     estimatedTokens: number;
     state: EmbeddingSwitchState;
   }[];
+}
+
+/**
+ * 記事についての、ボタンで始める編集者向けのAI支援の種類（10-llm-and-budget.md「編集者向けのAI支援」）。
+ * - stale: 見直しの手がかり（M4）
+ * - structure: 構成の確認（論理の流れ・答えられなかった質問・近い記事との重なり。2026-11-17）
+ * - proofread: 校正（誤りと読みやすさ。2026-11-17）
+ * - summary / title: 要約とタイトルの案（スキーマの `assist` で指定した項目に当てる。2026-11-17）
+ * 矛盾の検知は公開の確認画面が始めるもので、startConflictCheck を使う。代替テキストの案は画像ごとで、startAltTextSuggestion を使う。
+ */
+export type EntryAssistKind = "stale" | "structure" | "proofread" | "summary" | "title";
+
+/**
+ * ボタンで始める支援の結果。状態の意味は ConflictCheck と同じ。
+ * items は提案・指摘・手がかりの数（中身の形は機能ごとに違い、約束のテストは数だけを見る）。
+ */
+export interface EntryAssistResult {
+  state: "notStarted" | "running" | "done" | "failed" | "disabled" | "budgetExhausted";
+  period?: "month" | "day";
+  items: number;
 }
 
 export type HeavyPermission = "viewQuestionLog" | "manageLlm" | "policySwitches" | "corrections" | "takeOverEditing" | "switchTemplate";
@@ -754,6 +776,16 @@ export interface YomiClient {
   startConflictCheck(session: Session, workspaceId: string, entryId: string): Promise<void>;
   /** いまの下書きについての、矛盾の検知の結果を1回読む（待たない）。 */
   conflictCheck(session: Session, workspaceId: string, entryId: string): Promise<ConflictCheck>;
+  /** いまの下書きについて、ボタンで始める支援を始める（記事の編集画面が行うこと。応答をそのまま返す）。 */
+  startEntryAssistRaw(auth: Auth, workspaceId: string, entryId: string, kind: EntryAssistKind): Promise<HttpResponse>;
+  startEntryAssist(session: Session, workspaceId: string, entryId: string, kind: EntryAssistKind): Promise<void>;
+  /** いまの下書きについての、ボタンで始める支援の結果を1回読む（待たない）。 */
+  entryAssist(session: Session, workspaceId: string, entryId: string, kind: EntryAssistKind): Promise<EntryAssistResult>;
+  /** いまの下書きの、本文の画像（mediaId）について、代替テキストの案を始める（応答をそのまま返す。2026-11-17）。 */
+  startAltTextSuggestionRaw(auth: Auth, workspaceId: string, entryId: string, mediaId: string): Promise<HttpResponse>;
+  startAltTextSuggestion(session: Session, workspaceId: string, entryId: string, mediaId: string): Promise<void>;
+  /** 代替テキストの案の結果を1回読む（待たない）。items は案の数。 */
+  altTextSuggestion(session: Session, workspaceId: string, entryId: string, mediaId: string): Promise<EntryAssistResult>;
   /** 埋め込みモデルの切り替えの見積もりと進み具合（サーバー管理者）。成功しなければ失敗する。 */
   embeddingSwitch(serverAdminSession: Session): Promise<EmbeddingSwitchStatus>;
   /**
@@ -997,6 +1029,8 @@ export interface ServerConfig {
     embeddingDimensions: number;
     /** 回答の生成に使うチャットのモデル（`[llm] chat_model`。M4）。なければ回答APIを使えない。 */
     chatModel?: string;
+    /** 画像を読むモデル（`[llm] vision_model`。2026-11-17）。なければ代替テキストの案を使えない。 */
+    visionModel?: string;
     /** ワークスペースが上書きで選べる接続先（`[[llm.allowed_endpoints]]`。M4、Q26）。 */
     allowedEndpoints?: { name: string; baseUrl: string }[];
     /** ワークスペースが上書きで選べる埋め込みのモデル（`[[llm.allowed_embedding_models]]`。M4）。 */

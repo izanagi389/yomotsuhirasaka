@@ -3,7 +3,7 @@
 
 import { randomUUID } from "node:crypto";
 import { asBearer, driver, type YomiClient, type Credentials, type IssuedSecret, type Member, type OperationTarget, type RegisteredQuery, type ServerConfig, type Session } from "./driver.js";
-import { SEARCHABLE_TEMPLATE } from "./template.js";
+import { SEARCHABLE_TEMPLATE, type TemplateSpec } from "./template.js";
 import { simpleBody } from "./body.js";
 import { env } from "./env.js";
 import { mockLlm } from "./mock-llm.js";
@@ -237,16 +237,21 @@ const LARGE_BUDGET = 10_000_000;
  * 各テストは、使い終わったら擬似LLMの障害と回答の組み立て方を元に戻す。
  */
 export async function createAnswerWorld(
-  options: Pick<ServerConfig, "answerRateLimits" | "loginHistoryRetention"> & { llm?: Partial<NonNullable<ServerConfig["llm"]>> } = {},
+  options: Pick<ServerConfig, "answerRateLimits" | "loginHistoryRetention"> & {
+    llm?: Partial<NonNullable<ServerConfig["llm"]>>;
+    /** デプロイするテンプレート（既定は SEARCHABLE_TEMPLATE。検索の対象のフィールドを持つこと）。 */
+    template?: TemplateSpec;
+  } = {},
 ): Promise<AnswerWorld> {
+  const { template = SEARCHABLE_TEMPLATE, ...serverOptions } = options;
   const llmKey = `inv-answer-${randomUUID().slice(0, 8)}`;
   const instance = await driver.createIsolatedInstance();
   // 舞台の準備のログインと招待の承諾は同じアドレスから続くので、テストの舞台のCMSと同じく回数制限を大きくする（global-setup.ts）
   const config: ServerConfig = {
     ...instance.config,
     loginAttemptsPerIpPerMinute: 100_000,
-    ...options,
-    llm: { ...mockLlm.connection(llmKey), chatModel: mockLlm.chatModel, ...options.llm },
+    ...serverOptions,
+    llm: { ...mockLlm.connection(llmKey), chatModel: mockLlm.chatModel, ...serverOptions.llm },
   };
   const started = await driver.startServer(config);
   if (started.outcome !== "ready") throw new Error(`擬似LLMにつないだサーバーが起動しない:\n${started.output}`);
@@ -254,8 +259,8 @@ export async function createAnswerWorld(
   const sa = await yomi.login(instance.serverAdmin);
   await yomi.reauthenticate(sa, instance.serverAdmin);
   const token = await yomi.deployToken(sa, instance.serverAdmin);
-  const res = await yomi.deployTemplateRaw(asBearer(token), SEARCHABLE_TEMPLATE);
-  if (res.status < 200 || res.status >= 300) throw new Error(`SEARCHABLE_TEMPLATE をデプロイできない（${res.status}）: ${res.text}`);
+  const res = await yomi.deployTemplateRaw(asBearer(token), template);
+  if (res.status < 200 || res.status >= 300) throw new Error(`${template.name} をデプロイできない（${res.status}）: ${res.text}`);
   return {
     yomi,
     llmKey,
@@ -263,7 +268,7 @@ export async function createAnswerWorld(
     serverAdmin: instance.serverAdmin,
     async workspace(label, options = {}) {
       await yomi.reauthenticate(sa, instance.serverAdmin);
-      const { id } = await yomi.createWorkspace(sa, `inv-${label}-${randomUUID().slice(0, 8)}`, { template: SEARCHABLE_TEMPLATE.name });
+      const { id } = await yomi.createWorkspace(sa, `inv-${label}-${randomUUID().slice(0, 8)}`, { template: template.name });
       const answer = options.answerCeiling ?? LARGE_BUDGET;
       await yomi.setWorkspaceLimits(sa, id, {
         embeddingTokensPerMonth: LARGE_BUDGET,

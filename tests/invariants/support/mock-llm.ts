@@ -113,6 +113,11 @@ const FORMAT = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tools/moc
   notAnswerableDeclaration: string;
   sourceSeparator: string;
   noConflict: string;
+  structureFinding: string;
+  proofreadSuggestion: string;
+  summarySuggestion: string;
+  titleSuggestion: string;
+  altSuggestion: string;
 };
 
 /** 回答の組み立て方 `fixed` に渡す回答（1行目が判定の先行宣言、2行目からが本文）。sources が空なら「答えられない」の宣言。 */
@@ -124,6 +129,38 @@ export function fixedAnswer(sources: readonly number[], body: string): string {
 
 /** 矛盾の検知（編集者向けのAI支援。M4）で、食い違いがないときの LLM の出力（format.json の noConflict）。 */
 export const noConflictOutput = (): string => FORMAT.noConflict;
+
+/** 構成の確認（2026-11-17）の LLM の出力: 論理の流れ・答えられなかった質問・近い記事との重なりの指摘を1つずつ。 */
+export function structureOutput(text: string): string {
+  return (["FLOW", "QUESTION", "OVERLAP"] as const).map((kind) => FORMAT.structureFinding.replace("{kind}", kind).replace("{text}", text)).join("\n");
+}
+
+/** 校正（2026-11-17）の LLM の出力: from を to に直す提案（kind は「誤り」か「読みやすさ」）。 */
+export function proofreadOutput(fixes: readonly { kind: "error" | "style"; from: string; to: string }[]): string {
+  return fixes.map((f) => FORMAT.proofreadSuggestion.replace("{kind}", f.kind).replace("{from}", f.from).replace("{to}", f.to)).join("\n");
+}
+
+/** 要約・タイトル・代替テキストの案（2026-11-17）の LLM の出力: 案を1行に1つ。 */
+export const summaryOutput = (...texts: string[]): string => texts.map((t) => FORMAT.summarySuggestion.replace("{text}", t)).join("\n");
+export const titleOutput = (...texts: string[]): string => texts.map((t) => FORMAT.titleSuggestion.replace("{text}", t)).join("\n");
+export const altTextOutput = (...texts: string[]): string => texts.map((t) => FORMAT.altSuggestion.replace("{text}", t)).join("\n");
+
+/**
+ * 受け取ったチャットのリクエストの、メッセージの文字（擬似LLMが入力のトークン数を数える単位。メッセージ1つにつき1つ）。
+ * 内容が部品の配列（文字と画像）のときは、文字の部品だけをつなぐ。
+ */
+export function chatMessageTexts(requests: readonly MockLlmRequest[]): string[] {
+  return chatRequests(requests).flatMap((r) => {
+    const messages = (r.body as { messages?: unknown } | undefined)?.messages;
+    if (!Array.isArray(messages)) return [];
+    return messages.map((m) => {
+      const content = (m as { content?: unknown } | null)?.content;
+      if (typeof content === "string") return content;
+      if (!Array.isArray(content)) return "";
+      return content.map((p) => ((p as { type?: unknown })?.type === "text" ? String((p as { text?: unknown }).text ?? "") : "")).join("");
+    });
+  });
+}
 
 /** 本文の中の引用記号（`[n]` の形。format.json の citation と同じ）。 */
 export const citation = (n: number): string => `[${n}]`;

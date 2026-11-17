@@ -73,6 +73,11 @@ export interface ContentTypeSpec {
   devNote?: string;
   /** 確認期限の既定値（M2、06-corrections-and-freshness.md）。最終確認日からの日数。 */
   review?: { intervalDays: number };
+  /**
+   * 執筆支援の項目の指定（2026-11-17、02-schema-and-delivery-api.md）。タイトルの案と要約の案を当てる、`text` 型の項目の名前。
+   * 指定がない項目の案は出さない。
+   */
+  assist?: { title?: string; summary?: string };
 }
 
 /** カスタムノードの属性の型。 */
@@ -167,4 +172,11 @@ export const SEARCHABLE_TEMPLATE: TemplateSpec = cloneTemplate("inv-searchable",
   for (const f of postType(t).fields) if (f.name === "body") f.searchable = true;
   // 回答の出典の確認期限（INV-QA-09）。最短の1日
   postType(t).review = { intervalDays: 1 };
+});
+
+/** 執筆支援の舞台のテンプレート: 検索の対象のテンプレートに、タイトルと要約の案を当てる項目の指定（`assist`）を加えたもの。 */
+export const WRITING_ASSIST_TEMPLATE: TemplateSpec = cloneTemplate("inv-writing-assist", (t) => {
+  for (const f of postType(t).fields) if (f.name === "body") f.searchable = true;
+  postType(t).review = { intervalDays: 1 };
+  postType(t).assist = { title: "title", summary: "summary" };
 });
