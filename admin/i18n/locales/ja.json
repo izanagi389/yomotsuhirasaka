@@ -334,6 +334,7 @@
     "imageField": "{field} の画像"
   },
   "entryTabs": {
+    "fields": "項目",
     "content": "内容",
     "preview": "プレビュー",
     "translations": "翻訳",
