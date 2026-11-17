@@ -647,6 +647,28 @@ export interface StructureCheck {
   estimate: { inputTokens: number; outputTokens: number };
 }
 
+/** 校正の提案（2026-11-17）。from・to は HTML にせず、文字のまま見せる。 */
+export interface ProofreadSuggestion {
+  /** error: 誤り（誤字脱字・表記ゆれ・文法）。style: 読みやすさ（文の書き換え）。 */
+  kind: "error" | "style";
+  /** 本文にそのまま見つかる元の語句。 */
+  from: string;
+  to: string;
+  /** 保存済みの下書きで当てられるか（元の語句が1か所だけで、書式を含まない）。当てる前に、編集中の本文でも確かめる。 */
+  applicable: boolean;
+}
+
+/** GET/POST /workspaces/{ws}/entries/{id}/assist/proofread。 */
+export interface ProofreadCheck {
+  state: AssistState;
+  period?: "month" | "day";
+  /** 提案（途中で予算が尽きた・失敗したときは、それまでの分）。 */
+  suggestions?: ProofreadSuggestion[];
+  /** 結果が、いまの下書きより前のリビジョンについてのものか。 */
+  outdated: boolean;
+  estimate: { inputTokens: number; outputTokens: number };
+}
+
 /** POST /workspaces/{ws}/answer-test（回答のテスト。M4、09-qa-chatbot.md「根拠と判定」）。 */
 export interface AnswerTestResult {
   /** マスクした後の質問文（LLM と埋め込みに送ったもの）。 */

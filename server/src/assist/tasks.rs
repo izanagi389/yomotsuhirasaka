@@ -8,6 +8,9 @@
 //! - **構成の確認**（`structure`。2026-11-17）: 記事の論理の流れ・答えられなかった質問・近い記事との重なりを指摘させる
 //!   （`assist::structure`）。結果は下書きのリビジョンごと。答えられなかった質問を含める回（質問ログの閲覧の権限がある人が
 //!   始めた回）は、含めない回と別の結果にする（対象の末尾に `:q`）。
+//! - **校正**（`proofread`。2026-11-17）: 見出しのセクションごとに LLM を呼び、誤りと読みやすさの提案を出させる
+//!   （`assist::proofread`）。結果は記事ごとで、どのリビジョンについての結果かを残す（提案を1つ当てるとリビジョンが進むが、
+//!   残りの提案は見せ続けるため）。同じリビジョンで終わった結果があれば、始め直さない。
 //! - どれも非同期のジョブで、「編集者向けの支援」の予算の範囲でだけ LLM を呼ぶ（`assist::llm`）。結果は
 //!   [`super::conflicts::KEEP_HOURS`] 時間で消す。ログには、本文・質問文・LLM の出力を書かない（原則7）。
 
@@ -22,6 +25,7 @@ use uuid::Uuid;
 use super::conflicts::KEEP_HOURS;
 use super::language;
 use super::llm::Called;
+use super::proofread::{self, Fix};
 use super::settings;
 use super::structure::{self, Finding, FindingKind};
 use crate::answer::format::FORMAT;
@@ -51,6 +55,7 @@ pub enum TaskKind {
     Stale,
     Outline,
     Structure,
+    Proofread,
 }
 
 impl TaskKind {
@@ -59,6 +64,7 @@ impl TaskKind {
             TaskKind::Stale => "stale",
             TaskKind::Outline => "outline",
             TaskKind::Structure => "structure",
+            TaskKind::Proofread => "proofread",
         }
     }
 }
@@ -80,6 +86,11 @@ struct Stored {
     outline: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     findings: Option<Vec<Finding>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fixes: Option<Vec<Fix>>,
+    /// 結果が対象とした下書きのリビジョン（校正）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    revision: Option<i64>,
 }
 
 /// 結果（管理APIの応答）。`state` は矛盾の検知と同じ（`notStarted`・`running`・`done`・`failed`・`disabled`・`budgetExhausted`）。
@@ -98,6 +109,13 @@ pub struct View {
     /// 構成の確認の指摘（`structure` で done のとき）。そのままは見せず、`structure::show` で照合してから見せる。
     #[serde(skip)]
     pub findings: Option<Vec<Finding>>,
+    /// 校正の提案（`proofread`。done のほか、途中で予算が尽きた・失敗したときも、それまでの分）。そのままは見せず、
+    /// いまの下書きで当てられるかを照合してから見せる。
+    #[serde(skip)]
+    pub fixes: Option<Vec<Fix>>,
+    /// 校正の結果が対象とした下書きのリビジョン。
+    #[serde(skip)]
+    pub revision: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -155,6 +173,14 @@ async fn subject_of(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result
                 .map(|r| stale_subject(entry_id, r)))
         }
         TaskKind::Outline => Ok(candidate_exists(conn, id).await?.then(|| id.to_owned())),
+        TaskKind::Proofread => {
+            let Ok(entry_id) = Uuid::parse_str(id) else {
+                return Ok(None);
+            };
+            Ok(revision(conn, entry_id)
+                .await?
+                .map(|_| entry_id.to_string()))
+        }
         TaskKind::Structure => {
             let (entry, q) = match id.strip_suffix(":q") {
                 Some(e) => (e, true),
@@ -192,6 +218,8 @@ pub async fn view(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result<O
             hints: None,
             outline: None,
             findings: None,
+            fixes: None,
+            revision: None,
         }));
     };
     let stored: Stored = serde_json::from_str(&result).unwrap_or_default();
@@ -201,6 +229,8 @@ pub async fn view(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result<O
         hints: stored.hints,
         outline: stored.outline,
         findings: stored.findings,
+        fixes: stored.fixes,
+        revision: stored.revision,
     }))
 }
 
@@ -220,15 +250,22 @@ pub async fn start(
         return Ok(None);
     };
     let enabled = settings::get(&mut tx).await?.enabled;
+    // 校正の結果は記事ごとなので、終わった結果を使い回すのは、同じリビジョンについてのものだけ
+    let current = match (kind, Uuid::parse_str(id)) {
+        (TaskKind::Proofread, Ok(entry_id)) => revision(&mut tx, entry_id).await?,
+        _ => None,
+    };
     let reusable: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM assist_tasks
            WHERE kind = $1 AND subject = $2 AND created_at > now() - make_interval(hours => $3)
-             AND (state = 'done' OR (state = 'running' AND created_at > now() - make_interval(mins => $4))))",
+             AND ((state = 'done' AND ($5::bigint IS NULL OR (result->>'revision')::bigint = $5))
+                  OR (state = 'running' AND created_at > now() - make_interval(mins => $4))))",
     )
     .bind(kind.as_str())
     .bind(&subject)
     .bind(KEEP_HOURS)
     .bind(STALE_RUNNING_MINUTES)
+    .bind(current)
     .fetch_one(&mut *tx)
     .await?;
     let start = enabled && !reusable;
@@ -423,6 +460,10 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
         tx.commit().await?;
         return finish(pool, db, p, "disabled", None, &none).await;
     }
+    if p.kind == TaskKind::Proofread {
+        tx.commit().await?;
+        return work_proofread(state, db, p).await;
+    }
     // 構成の確認の番号の対応（断片の番号 → 記事と版、質問の番号 → 候補のキー）
     #[allow(clippy::type_complexity)]
     let mut structure_context: Option<(Vec<(Uuid, Uuid)>, Option<Vec<String>>)> = None;
@@ -479,6 +520,7 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
             }
             (outline_messages(&locale, &questions), String::new(), locale)
         }
+        TaskKind::Proofread => unreachable!("proofreading runs in work_proofread"),
         TaskKind::Structure => {
             let mut parts = p.subject.split(':');
             let (Some(entry), Some(_), q) = (parts.next(), parts.next(), parts.next()) else {
@@ -558,6 +600,7 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
             outline: Some(clean_outline(text)),
             ..Stored::default()
         },
+        TaskKind::Proofread => Stored::default(),
         TaskKind::Structure => {
             let (fragments, keys) = structure_context.clone().unwrap_or_default();
             let found = structure::parse(text, fragments.len(), keys.as_ref().map(Vec::len));
@@ -628,6 +671,105 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
         return finish(pool, db, p, "failed", None, &none).await;
     }
     finish(pool, db, p, "done", None, &result).await
+}
+
+/// 校正: 見出しのセクションごとに LLM を呼ぶ（どの呼び出しも「編集者向けの支援」の予算から）。途中で予算が尽きたり
+/// 失敗したりしたら、それまでの提案を残して止める。言語の検査はセクションごとに行い、1回だけ取り直し、
+/// それでも違えばそのセクションの提案を捨てる。
+async fn work_proofread(
+    state: &AppState,
+    db: &workspace_db::WorkspaceDb,
+    p: &Payload,
+) -> Result<()> {
+    let pool = &state.pool;
+    let ws = p.workspace_id;
+    let none = Stored::default();
+    let entry_id = Uuid::parse_str(&p.subject)?;
+    let Some(applied) = applied_schema(pool, ws).await? else {
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    let mut tx = workspace_db::begin(pool, db).await?;
+    let (Some(rev), Some(draft)) = (
+        revision(&mut tx, entry_id).await?,
+        entries::draft(&mut tx, &applied.manifest, entry_id).await?,
+    ) else {
+        tx.commit().await?;
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    tx.commit().await?;
+    let Some(ct) = applied.manifest.content_type(&draft.content_type) else {
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    let docs: Vec<&Value> = publishing::rich_text_fields(ct, &draft.fields)
+        .into_iter()
+        .map(|(_, v)| v)
+        .collect();
+    let locale = draft.locale.clone();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut fixes: Vec<Fix> = Vec::new();
+    let so_far = |fixes: &[Fix]| Stored {
+        fixes: Some(fixes.to_vec()),
+        revision: Some(rev),
+        ..Stored::default()
+    };
+    let read = |text: &str, seen: &HashSet<String>| {
+        let mut seen = seen.clone();
+        proofread::parse(text, &docs, &mut seen)
+    };
+    let max = proofread::MAX_OUTPUT_TOKENS;
+    for section in proofread::sections(&docs) {
+        let msgs = proofread::messages(&section, &locale);
+        let mut got = match super::llm::call(state, ws, &msgs, max, MAX_REPLY_CHARS).await? {
+            Called::Reply(text) => read(&text, &seen),
+            Called::Exhausted(period) => {
+                let partial = so_far(&fixes);
+                return finish(
+                    pool,
+                    db,
+                    p,
+                    "budgetExhausted",
+                    Some(period.as_str()),
+                    &partial,
+                )
+                .await;
+            }
+            Called::Failed => return finish(pool, db, p, "failed", None, &so_far(&fixes)).await,
+        };
+        if !proofread::written_in(&locale, &got) {
+            let mut again = msgs.clone();
+            if let Some(user) = again.last_mut() {
+                user.content.push_str(&language::reminder(&locale));
+            }
+            match super::llm::call(state, ws, &again, max, MAX_REPLY_CHARS).await? {
+                Called::Reply(text) => got = read(&text, &seen),
+                Called::Exhausted(period) => {
+                    let partial = so_far(&fixes);
+                    return finish(
+                        pool,
+                        db,
+                        p,
+                        "budgetExhausted",
+                        Some(period.as_str()),
+                        &partial,
+                    )
+                    .await;
+                }
+                Called::Failed => {}
+            }
+            if !proofread::written_in(&locale, &got) {
+                got.clear();
+            }
+        }
+        for f in got {
+            seen.insert(f.from.clone());
+            fixes.push(f);
+        }
+        if fixes.len() >= proofread::MAX_SUGGESTIONS {
+            fixes.truncate(proofread::MAX_SUGGESTIONS);
+            break;
+        }
+    }
+    finish(pool, db, p, "done", None, &so_far(&fixes)).await
 }
 
 /// 結果がすべてロケールの言語で書かれているか（手がかりは理由ごと、構成案は全体）。

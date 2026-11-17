@@ -10,6 +10,8 @@
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/assist/stale | その結果 | 同上 |
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/assist/structure | いまの下書きについて、構成の確認を始める（ボタン。2026-11-17） | 同上（答えられなかった質問は、重い権限 viewQuestionLog と再認証がある人だけ） |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/assist/structure | その結果と、始める前の見積もり | 同上 |
+//! | POST | /api/admin/workspaces/{ws}/entries/{id}/assist/proofread | いまの下書きについて、校正を始める（ボタン。2026-11-17） | 記事を編集できる人 |
+//! | GET | /api/admin/workspaces/{ws}/entries/{id}/assist/proofread | その結果（いまの下書きで当てられるか）と、始める前の見積もり | 同上 |
 //! | POST | /api/admin/workspaces/{ws}/question-log/candidates/{id}/outline | 候補から、書くべき記事の構成案を作る（ボタン） | 重い権限 viewQuestionLog を持つ人（再認証） |
 //! | GET | /api/admin/workspaces/{ws}/question-log/candidates/{id}/outline | その結果 | 同上 |
 //!
@@ -18,6 +20,7 @@
 //! - 矛盾の検知は非同期（`assist::conflicts`）。公開はこの結果を待たず、見もしない（INV-BUD-02）。
 //! - 見直しの手がかりと構成案も非同期（`assist::tasks`）。構成案は質問文から作るので、質問ログの閲覧と同じく監査ログに残す。
 //! - 構成の確認も非同期（`assist::tasks`・`assist::structure`）。答えられなかった質問を含める回は、同じく監査ログに残す。
+//! - 校正も非同期（`assist::tasks`・`assist::proofread`）。
 //!   どの支援も提案を返すだけで、下書きは変えない（INV-EDIT-02）。
 
 use axum::Json;
@@ -342,4 +345,111 @@ pub async fn get_structure(
     Ok(Json(
         structure_view(&state, ws, id, &current, &access).await?,
     ))
+}
+
+/// 校正の提案（管理APIの応答）。`applicable` は、いまの保存済みの下書きで当てられるか（原則4。管理画面は、
+/// 当てる前に編集中の本文でも同じ規則で確かめる）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixView {
+    pub kind: crate::assist::proofread::FixKind,
+    pub from: String,
+    pub to: String,
+    pub applicable: bool,
+}
+
+/// 校正の結果（管理APIの応答）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProofreadView {
+    /// 矛盾の検知と同じ状態。途中で予算が尽きた・失敗したときも、それまでの提案を返す。
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub period: Option<String>,
+    /// 提案のうち、元の語句がいまの下書きにまだ見つかるものだけ（当てた・書き換えたものは出さない）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestions: Option<Vec<FixView>>,
+    /// 結果が、いまの下書きより前のリビジョンについてのものか。
+    pub outdated: bool,
+    /// 始める前に見せる、トークン数の上限の見積もり（入力・出力）。
+    pub estimate: Estimate,
+}
+
+/// いまの下書きの、校正の結果を組み立てる（いまの下書きで照合してから見せる。原則3・4）。
+async fn proofread_view(
+    state: &AppState,
+    ws: uuid::Uuid,
+    id: uuid::Uuid,
+) -> Result<ProofreadView, ApiError> {
+    use crate::assist::proofread;
+    let applied = crate::content::applied_schema(&state.pool, ws)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let db = db(state, ws).await?;
+    let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let draft = crate::content::entries::draft(&mut tx, &applied.manifest, id)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let view = tasks::view(&mut tx, TaskKind::Proofread, &id.to_string())
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    let ct = applied
+        .manifest
+        .content_type(&draft.content_type)
+        .ok_or_else(ApiError::not_found)?;
+    let docs: Vec<&serde_json::Value> =
+        crate::content::publishing::rich_text_fields(ct, &draft.fields)
+            .into_iter()
+            .map(|(_, v)| v)
+            .collect();
+    let (input_tokens, output_tokens) = proofread::estimate(&docs, &draft.locale);
+    let suggestions = view.fixes.map(|fixes| {
+        fixes
+            .into_iter()
+            .filter(|f| proofread::found(&docs, &f.from))
+            .map(|f| FixView {
+                applicable: proofread::applicable(&docs, &f.from),
+                kind: f.kind,
+                from: f.from,
+                to: f.to,
+            })
+            .collect()
+    });
+    Ok(ProofreadView {
+        state: view.state,
+        period: view.period,
+        suggestions,
+        outdated: view.revision.is_some_and(|r| r != draft.revision),
+        estimate: Estimate {
+            input_tokens,
+            output_tokens,
+        },
+    })
+}
+
+pub async fn start_proofread(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+) -> Result<(StatusCode, Json<ProofreadView>), ApiError> {
+    let (ws, id) = (parse(&ws)?, parse(&id)?);
+    editor(&state, &current, ws).await?;
+    tasks::start(&state, ws, TaskKind::Proofread, &id.to_string())
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(proofread_view(&state, ws, id).await?),
+    ))
+}
+
+pub async fn get_proofread(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+) -> Result<Json<ProofreadView>, ApiError> {
+    let (ws, id) = (parse(&ws)?, parse(&id)?);
+    editor(&state, &current, ws).await?;
+    Ok(Json(proofread_view(&state, ws, id).await?))
 }

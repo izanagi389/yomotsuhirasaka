@@ -5,9 +5,16 @@ import type { Editor } from "@tiptap/core";
 
 const active = shallowRef<Editor | null>(null);
 const tick = ref(0);
+// 開いている本文のエディタのすべて（「AI」タブの校正の提案を、元の語句のあるエディタに当てるため）
+const editors = shallowRef<Editor[]>([]);
 
 export function useBlockSelection() {
   return { active, tick };
+}
+
+/** 開いている本文のエディタのすべて。 */
+export function useBodyEditors() {
+  return editors;
 }
 
 /** エディタを登録する。戻り値で外す（エディタを壊す前に呼ぶ）。 */
@@ -22,7 +29,9 @@ export function trackBlockSelection(editor: Editor): () => void {
   editor.on("focus", take);
   editor.on("selectionUpdate", take);
   editor.on("transaction", touch);
+  editors.value = [...editors.value, editor];
   return () => {
+    editors.value = editors.value.filter((e) => e !== editor);
     editor.off("focus", take);
     editor.off("selectionUpdate", take);
     editor.off("transaction", touch);

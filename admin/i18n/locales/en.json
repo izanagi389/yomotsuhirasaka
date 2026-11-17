@@ -1304,7 +1304,19 @@
     "findingOverlap": "Overlap with similar articles",
     "noFindings": "No findings.",
     "structureNote": "Checked by AI. It may miss things or be wrong.",
-    "otherEntryUntitled": "(untitled)"
+    "otherEntryUntitled": "(untitled)",
+    "proofreadTitle": "Proofreading (AI)",
+    "proofreadHelp": "The AI reads the saved draft section by section and suggests fixes for errors (typos, inconsistent spellings, grammar) and readability.",
+    "proofreadStart": "Proofread",
+    "fixError": "Errors",
+    "fixStyle": "Readability",
+    "fixApply": "Apply",
+    "fixApplied": "Applied (undo it in the body if needed)",
+    "fixApplyFailed": "Could not apply this to the body you are editing: the original text is missing, appears more than once, or contains formatting.",
+    "fixNotApplicable": "The original text appears more than once or contains formatting, so it cannot be applied automatically. Fix it in the body.",
+    "noFixes": "No suggestions.",
+    "proofreadPartial": "These are partial suggestions (the remaining sections were not checked).",
+    "proofreadNote": "Suggestions by AI. Check that the meaning has not changed before applying them."
   },
   "answerTest": {
     "title": "Try an answer",

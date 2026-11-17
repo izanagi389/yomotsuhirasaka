@@ -23,6 +23,7 @@ struct Raw {
     no_conflict: String,
     stale_line: String,
     structure_line: String,
+    proofread_line: String,
 }
 
 pub struct Format {
@@ -44,6 +45,8 @@ pub struct Format {
     pub stale_line: Regex,
     /// 構成の確認（執筆支援）の出力の行。1つ目の組が種類（FLOW・QUESTION・OVERLAP）、2つ目が指摘。
     pub structure_line: Regex,
+    /// 校正（執筆支援）の出力の行。1つ目の組が種類（error・style）、2つ目が本文から引いた元の語句、3つ目が直した語句。
+    pub proofread_line: Regex,
 }
 
 pub static FORMAT: LazyLock<Format> = LazyLock::new(|| {
@@ -60,6 +63,7 @@ pub static FORMAT: LazyLock<Format> = LazyLock::new(|| {
         no_conflict: raw.no_conflict,
         stale_line: re(&raw.stale_line),
         structure_line: re(&raw.structure_line),
+        proofread_line: re(&raw.proofread_line),
     }
 });
 

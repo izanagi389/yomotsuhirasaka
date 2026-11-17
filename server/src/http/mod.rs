@@ -503,6 +503,10 @@ pub fn router(state: AppState) -> Router {
             get(admin_assist::get_structure).post(admin_assist::start_structure),
         )
         .route(
+            "/workspaces/{ws}/entries/{id}/assist/proofread",
+            get(admin_assist::get_proofread).post(admin_assist::start_proofread),
+        )
+        .route(
             "/workspaces/{ws}/question-log/candidates/{id}/outline",
             get(admin_assist::get_outline).post(admin_assist::start_outline),
         )

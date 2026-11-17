@@ -1304,7 +1304,19 @@
     "findingOverlap": "近い記事との重なり",
     "noFindings": "指摘はありませんでした。",
     "structureNote": "AIによる指摘です。見落としや誤りがありえます。",
-    "otherEntryUntitled": "（タイトルなし）"
+    "otherEntryUntitled": "（タイトルなし）",
+    "proofreadTitle": "校正（AI）",
+    "proofreadHelp": "保存済みの下書きを見出しごとにAIが読み、誤り（誤字脱字・表記ゆれ・文法）と読みやすさの提案を出します。",
+    "proofreadStart": "校正する",
+    "fixError": "誤り",
+    "fixStyle": "読みやすさ",
+    "fixApply": "当てる",
+    "fixApplied": "当てました（元に戻すには、本文で取り消してください）",
+    "fixApplyFailed": "編集中の本文では当てられませんでした。元の語句が見つからないか、2か所以上あるか、書式を含みます。",
+    "fixNotApplicable": "元の語句が2か所以上あるか、書式を含むため、自動では当てられません。本文で直してください。",
+    "noFixes": "提案はありませんでした。",
+    "proofreadPartial": "途中までの提案です（残りのセクションは見ていません）。",
+    "proofreadNote": "AIによる提案です。意味が変わっていないか確かめてから当ててください。"
   },
   "answerTest": {
     "title": "回答を試す",
