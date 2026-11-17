@@ -1250,6 +1250,7 @@
     "budgetExhaustedDay": "Today's limit has been reached.",
     "conflictsTitle": "Conflicts with other articles (AI)",
     "noConflicts": "No conflicts with similar articles were found.",
+    "explanationWithheld": "The AI explanation could not be shown (it was not written in the expected language).",
     "openOther": "Open the other article",
     "conflictsNote": "This is an AI check and may miss things or be wrong. You can publish without waiting for it.",
     "staleTitle": "Review hints (AI)",

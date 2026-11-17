@@ -236,18 +236,23 @@ impl Llm {
         model: &str,
         messages: &[ChatMessage],
         max_tokens: u32,
+        temperature: Option<f32>,
     ) -> Result<ChatStream, LlmError> {
         let messages: Vec<Value> = messages
             .iter()
             .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
             .collect();
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
             "stream": true,
             "stream_options": { "include_usage": true },
         });
+        // 判定のように揺れてほしくない呼び出しは、温度を決める（なければ相手の既定）
+        if let Some(t) = temperature {
+            body["temperature"] = serde_json::json!(t);
+        }
         let auth = HeaderValue::from_str(&format!("Bearer {}", self.config.api_key))
             .map_err(|_| LlmError::InvalidResponse)?;
         let inner = self
