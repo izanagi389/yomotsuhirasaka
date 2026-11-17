@@ -18,9 +18,9 @@
   },
   "dependencies": {
     "@yomotsuhirasaka/editor-schema": "1.0.0-rc.5",
-    "@tiptap/core": "3.33.0",
-    "@tiptap/pm": "3.33.0",
-    "@tiptap/starter-kit": "3.33.0",
+    "@tiptap/core": "3.34.0",
+    "@tiptap/pm": "3.34.0",
+    "@tiptap/starter-kit": "3.34.0",
     "esbuild": "0.28.2",
     "markdown-it": "15.0.3",
     "yaml": "2.9.1"
