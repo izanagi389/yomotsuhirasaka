@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, AnswerError, AnswerSettings, AssistBudget, AssistSettings, ConflictCheck, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, YomiClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TemplateMapping, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, AnswerError, AnswerSettings, AssistBudget, AssistSettings, ConflictCheck, EntryAssistKind, EntryAssistResult, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, YomiClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TemplateMapping, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -434,6 +434,20 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
   const setAssistSettingsRaw = (auth: Auth, workspaceId: string, settings: AssistSettings, extras?: RequestExtras): Promise<HttpResponse> =>
     request("PUT", `${ADMIN}/workspaces/${workspaceId}/assist-settings`, { auth, extras, body: settings });
   const conflictsPath = (workspaceId: string, entryId: string) => `${entriesPath(workspaceId)}/${entryId}/assist/conflicts`;
+  const assistPath = (workspaceId: string, entryId: string, kind: EntryAssistKind) => `${entriesPath(workspaceId)}/${entryId}/assist/${kind}`;
+  const altTextPath = (workspaceId: string, entryId: string, mediaId: string) =>
+    `${entriesPath(workspaceId)}/${entryId}/assist/alt-text/${encodeURIComponent(mediaId)}`;
+  /** 支援の結果の応答を読む。提案の一覧は、見直しの手がかりでは `hints`、ほかは `suggestions`（done でなければ無くてよい）。 */
+  const assistResult = (what: string, res: HttpResponse): EntryAssistResult => {
+    const r = JSON.parse(res.text) as { state?: unknown; period?: unknown; hints?: unknown; suggestions?: unknown };
+    if (typeof r.state !== "string") throw new SetupError(what, res);
+    const list = Array.isArray(r.hints) ? r.hints : Array.isArray(r.suggestions) ? r.suggestions : [];
+    return {
+      state: r.state as EntryAssistResult["state"],
+      ...(r.period === "month" || r.period === "day" ? { period: r.period } : {}),
+      items: list.length,
+    };
+  };
   // 操作の一覧で使う小さな画像（1×1のPNG）
   const TINY_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
@@ -1021,6 +1035,24 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
       const r = JSON.parse(res.text) as Partial<ConflictCheck>;
       if (typeof r.state !== "string" || !Array.isArray(r.conflicts)) throw new SetupError("矛盾の検知の結果の読み取り", res);
       return r as ConflictCheck;
+    },
+    startEntryAssistRaw: (auth: Auth, workspaceId: string, entryId: string, kind: EntryAssistKind) =>
+      request("POST", assistPath(workspaceId, entryId, kind), { auth }),
+    async startEntryAssist(s: Session, workspaceId: string, entryId: string, kind: EntryAssistKind): Promise<void> {
+      ensure(`支援（${kind}）の開始`, await request("POST", assistPath(workspaceId, entryId, kind), { auth: session(s) }));
+    },
+    async entryAssist(s: Session, workspaceId: string, entryId: string, kind: EntryAssistKind): Promise<EntryAssistResult> {
+      const what = `支援（${kind}）の結果の読み取り`;
+      return assistResult(what, ensure(what, await request("GET", assistPath(workspaceId, entryId, kind), { auth: session(s) })));
+    },
+    startAltTextSuggestionRaw: (auth: Auth, workspaceId: string, entryId: string, mediaId: string) =>
+      request("POST", altTextPath(workspaceId, entryId, mediaId), { auth }),
+    async startAltTextSuggestion(s: Session, workspaceId: string, entryId: string, mediaId: string): Promise<void> {
+      ensure("代替テキストの案の開始", await request("POST", altTextPath(workspaceId, entryId, mediaId), { auth: session(s) }));
+    },
+    async altTextSuggestion(s: Session, workspaceId: string, entryId: string, mediaId: string): Promise<EntryAssistResult> {
+      const what = "代替テキストの案の結果の読み取り";
+      return assistResult(what, ensure(what, await request("GET", altTextPath(workspaceId, entryId, mediaId), { auth: session(s) })));
     },
     async embeddingSwitch(s: Session): Promise<EmbeddingSwitchStatus> {
       const res = ensure("埋め込みモデルの切り替えの状態", await request("GET", `${ADMIN}/embedding-switch`, { auth: session(s) }));
