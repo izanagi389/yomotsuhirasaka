@@ -5,7 +5,10 @@
 //! - **書くべき記事の構成案**（`outline`）: 質問ログの「書くべき記事の候補」1つから、新しい記事の構成案（Markdown の文）を作る。
 //!   見せるだけで、記事は作らない。結果は候補ごと。候補が消えたら（削除・保存期間・質問ログを無効に）結果も消す
 //!   （質問文から作った文なので、質問ログより長く残さない。INV-LOG-01・02）。
-//! - どちらも非同期のジョブで、「編集者向けの支援」の予算の範囲でだけ LLM を呼ぶ（`assist::llm`）。結果は
+//! - **構成の確認**（`structure`。2026-11-17）: 記事の論理の流れ・答えられなかった質問・近い記事との重なりを指摘させる
+//!   （`assist::structure`）。結果は下書きのリビジョンごと。答えられなかった質問を含める回（質問ログの閲覧の権限がある人が
+//!   始めた回）は、含めない回と別の結果にする（対象の末尾に `:q`）。
+//! - どれも非同期のジョブで、「編集者向けの支援」の予算の範囲でだけ LLM を呼ぶ（`assist::llm`）。結果は
 //!   [`super::conflicts::KEEP_HOURS`] 時間で消す。ログには、本文・質問文・LLM の出力を書かない（原則7）。
 
 use std::collections::HashSet;
@@ -20,6 +23,7 @@ use super::conflicts::KEEP_HOURS;
 use super::language;
 use super::llm::Called;
 use super::settings;
+use super::structure::{self, Finding, FindingKind};
 use crate::answer::format::FORMAT;
 use crate::content::{applied_schema, entries, publishing, sections};
 use crate::http::AppState;
@@ -46,6 +50,7 @@ const STALE_RUNNING_MINUTES: i32 = 10;
 pub enum TaskKind {
     Stale,
     Outline,
+    Structure,
 }
 
 impl TaskKind {
@@ -53,6 +58,7 @@ impl TaskKind {
         match self {
             TaskKind::Stale => "stale",
             TaskKind::Outline => "outline",
+            TaskKind::Structure => "structure",
         }
     }
 }
@@ -72,6 +78,8 @@ struct Stored {
     hints: Option<Vec<Hint>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     outline: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    findings: Option<Vec<Finding>>,
 }
 
 /// 結果（管理APIの応答）。`state` は矛盾の検知と同じ（`notStarted`・`running`・`done`・`failed`・`disabled`・`budgetExhausted`）。
@@ -87,6 +95,9 @@ pub struct View {
     /// 構成案（Markdown の文。`outline` で done のとき）。管理画面は HTML にせず、文字として見せる。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outline: Option<String>,
+    /// 構成の確認の指摘（`structure` で done のとき）。そのままは見せず、`structure::show` で照合してから見せる。
+    #[serde(skip)]
+    pub findings: Option<Vec<Finding>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -109,6 +120,15 @@ async fn revision(conn: &mut PgConnection, entry_id: Uuid) -> Result<Option<i64>
 
 fn stale_subject(entry_id: Uuid, revision: i64) -> String {
     format!("{entry_id}:{revision}")
+}
+
+/// 構成の確認の対象を指す ID（記事の ID。答えられなかった質問を含める回は末尾に `:q`）。
+pub fn structure_id(entry_id: Uuid, with_questions: bool) -> String {
+    if with_questions {
+        format!("{entry_id}:q")
+    } else {
+        entry_id.to_string()
+    }
 }
 
 /// 候補（同じ質問の記録）が、保存期間の中に今もあるか。
@@ -135,6 +155,19 @@ async fn subject_of(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result
                 .map(|r| stale_subject(entry_id, r)))
         }
         TaskKind::Outline => Ok(candidate_exists(conn, id).await?.then(|| id.to_owned())),
+        TaskKind::Structure => {
+            let (entry, q) = match id.strip_suffix(":q") {
+                Some(e) => (e, true),
+                None => (id, false),
+            };
+            let Ok(entry_id) = Uuid::parse_str(entry) else {
+                return Ok(None);
+            };
+            Ok(revision(conn, entry_id).await?.map(|r| {
+                let base = stale_subject(entry_id, r);
+                if q { format!("{base}:q") } else { base }
+            }))
+        }
     }
 }
 
@@ -158,6 +191,7 @@ pub async fn view(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result<O
             period: None,
             hints: None,
             outline: None,
+            findings: None,
         }));
     };
     let stored: Stored = serde_json::from_str(&result).unwrap_or_default();
@@ -166,6 +200,7 @@ pub async fn view(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result<O
         period,
         hints: stored.hints,
         outline: stored.outline,
+        findings: stored.findings,
     }))
 }
 
@@ -388,6 +423,9 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
         tx.commit().await?;
         return finish(pool, db, p, "disabled", None, &none).await;
     }
+    // 構成の確認の番号の対応（断片の番号 → 記事と版、質問の番号 → 候補のキー）
+    #[allow(clippy::type_complexity)]
+    let mut structure_context: Option<(Vec<(Uuid, Uuid)>, Option<Vec<String>>)> = None;
     let (msgs, body, locale) = match p.kind {
         TaskKind::Stale => {
             let Some((entry, _)) = p.subject.split_once(':') else {
@@ -412,7 +450,7 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
             if body.is_empty() {
                 let empty = Stored {
                     hints: Some(Vec::new()),
-                    outline: None,
+                    ..Stored::default()
                 };
                 return finish(pool, db, p, "done", None, &empty).await;
             }
@@ -441,25 +479,125 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
             }
             (outline_messages(&locale, &questions), String::new(), locale)
         }
+        TaskKind::Structure => {
+            let mut parts = p.subject.split(':');
+            let (Some(entry), Some(_), q) = (parts.next(), parts.next(), parts.next()) else {
+                return finish(pool, db, p, "failed", None, &none).await;
+            };
+            let with_questions = q == Some("q");
+            let entry_id = Uuid::parse_str(entry)?;
+            tx.commit().await?;
+            let Some(applied) = applied_schema(pool, ws).await? else {
+                return finish(pool, db, p, "failed", None, &none).await;
+            };
+            let manifest = &applied.manifest;
+            let mut owned = workspace_db::begin_owned(pool, db).await?;
+            let Some(draft) = entries::draft(&mut owned, manifest, entry_id).await? else {
+                owned.commit().await?;
+                return finish(pool, db, p, "failed", None, &none).await;
+            };
+            let Some(ct) = manifest.content_type(&draft.content_type) else {
+                owned.commit().await?;
+                return finish(pool, db, p, "failed", None, &none).await;
+            };
+            let docs: Vec<&Value> = publishing::rich_text_fields(ct, &draft.fields)
+                .into_iter()
+                .map(|(_, v)| v)
+                .collect();
+            let article = structure::article_text(&docs);
+            if article.is_empty() {
+                owned.commit().await?;
+                let empty = Stored {
+                    findings: Some(Vec::new()),
+                    ..Stored::default()
+                };
+                return finish(pool, db, p, "done", None, &empty).await;
+            }
+            let locale = draft.locale.clone();
+            // 答えられなかった質問の候補（含める回だけ）と、意味の近い他の記事の断片
+            let candidates = if with_questions {
+                Some(structure::candidates(&mut owned, &locale).await?)
+            } else {
+                None
+            };
+            let sections = structure::search_sections(&docs);
+            let (owned, fragments) = super::conflicts::nearby(
+                state,
+                db,
+                owned,
+                manifest,
+                ws,
+                entry_id,
+                &locale,
+                &sections,
+                structure::PER_SECTION,
+            )
+            .await?;
+            owned.commit().await?;
+            let texts: Vec<String> = fragments.iter().map(|f| f.text.clone()).collect();
+            let questions: Option<Vec<String>> = candidates
+                .as_ref()
+                .map(|c| c.iter().map(|c| c.question.clone()).collect());
+            let msgs = structure::messages(&article, &texts, questions.as_deref(), &locale);
+            structure_context = Some((
+                fragments
+                    .iter()
+                    .map(|f| (f.entry_id, f.version_id))
+                    .collect(),
+                candidates.map(|c| c.into_iter().map(|c| c.key).collect()),
+            ));
+            (msgs, String::new(), locale)
+        }
     };
     let read = |text: &str| match p.kind {
         TaskKind::Stale => Stored {
             hints: Some(parse_stale(text, &body)),
-            outline: None,
+            ..Stored::default()
         },
         TaskKind::Outline => Stored {
-            hints: None,
             outline: Some(clean_outline(text)),
+            ..Stored::default()
         },
-    };
-    let mut result =
-        match super::llm::call(state, ws, &msgs, MAX_OUTPUT_TOKENS, MAX_REPLY_CHARS).await? {
-            Called::Reply(text) => read(&text),
-            Called::Exhausted(period) => {
-                return finish(pool, db, p, "budgetExhausted", Some(period.as_str()), &none).await;
+        TaskKind::Structure => {
+            let (fragments, keys) = structure_context.clone().unwrap_or_default();
+            let found = structure::parse(text, fragments.len(), keys.as_ref().map(Vec::len));
+            let findings = found
+                .into_iter()
+                .map(|(kind, n, text)| {
+                    let at = n.map(|n| n - 1);
+                    let fragment = at
+                        .filter(|_| kind == FindingKind::Overlap)
+                        .and_then(|i| fragments.get(i));
+                    let key = at
+                        .filter(|_| kind == FindingKind::Question)
+                        .and_then(|i| keys.as_ref()?.get(i).cloned());
+                    Finding {
+                        kind,
+                        text,
+                        entry_id: fragment.map(|f| f.0),
+                        version_id: fragment.map(|f| f.1),
+                        question_key: key,
+                    }
+                })
+                .collect();
+            Stored {
+                findings: Some(findings),
+                ..Stored::default()
             }
-            Called::Failed => return finish(pool, db, p, "failed", None, &none).await,
-        };
+        }
+    };
+    let max_tokens = if p.kind == TaskKind::Structure {
+        structure::MAX_OUTPUT_TOKENS
+    } else {
+        MAX_OUTPUT_TOKENS
+    };
+    let mut result = match super::llm::call(state, ws, &msgs, max_tokens, MAX_REPLY_CHARS).await? {
+        Called::Reply(text) => read(&text),
+        Called::Exhausted(period) => {
+            return finish(pool, db, p, "budgetExhausted", Some(period.as_str()), &none).await;
+        }
+        Called::Failed => return finish(pool, db, p, "failed", None, &none).await,
+    };
     // 出力が言語のロケールでなければ、1回だけ念押しして取り直す（原則4。取り直しも同じ予算から）。
     // 取り直せなければ（予算切れ・失敗）、最初の結果を使う
     if !written_in(&locale, &result) {
@@ -468,7 +606,7 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
             user.content.push_str(&language::reminder(&locale));
         }
         if let Called::Reply(text) =
-            super::llm::call(state, ws, &again, MAX_OUTPUT_TOKENS, MAX_REPLY_CHARS).await?
+            super::llm::call(state, ws, &again, max_tokens, MAX_REPLY_CHARS).await?
         {
             result = read(&text);
         }
@@ -503,7 +641,12 @@ fn written_in(locale: &str, result: &Stored) -> bool {
         .outline
         .as_deref()
         .is_none_or(|o| language::written_in(locale, o));
-    hints_ok && outline_ok
+    let findings_ok = result
+        .findings
+        .iter()
+        .flatten()
+        .all(|f| language::written_in(locale, &f.text));
+    hints_ok && outline_ok && findings_ok
 }
 
 /// 構成案を消す（候補を消したとき・質問ログを無効にしたとき。`key` が None ならすべて）。

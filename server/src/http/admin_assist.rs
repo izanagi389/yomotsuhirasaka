@@ -8,6 +8,8 @@
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/assist/conflicts | いまの下書きについての結果 | 同上 |
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/assist/stale | いまの下書きについて、見直しの手がかりを作る（ボタン） | 同上 |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/assist/stale | その結果 | 同上 |
+//! | POST | /api/admin/workspaces/{ws}/entries/{id}/assist/structure | いまの下書きについて、構成の確認を始める（ボタン。2026-11-17） | 同上（答えられなかった質問は、重い権限 viewQuestionLog と再認証がある人だけ） |
+//! | GET | /api/admin/workspaces/{ws}/entries/{id}/assist/structure | その結果と、始める前の見積もり | 同上 |
 //! | POST | /api/admin/workspaces/{ws}/question-log/candidates/{id}/outline | 候補から、書くべき記事の構成案を作る（ボタン） | 重い権限 viewQuestionLog を持つ人（再認証） |
 //! | GET | /api/admin/workspaces/{ws}/question-log/candidates/{id}/outline | その結果 | 同上 |
 //!
@@ -15,10 +17,13 @@
 //! - 変更は監査ログに残す（詳細は変えた後の値）。
 //! - 矛盾の検知は非同期（`assist::conflicts`）。公開はこの結果を待たず、見もしない（INV-BUD-02）。
 //! - 見直しの手がかりと構成案も非同期（`assist::tasks`）。構成案は質問文から作るので、質問ログの閲覧と同じく監査ログに残す。
+//! - 構成の確認も非同期（`assist::tasks`・`assist::structure`）。答えられなかった質問を含める回は、同じく監査ログに残す。
+//!   どの支援も提案を返すだけで、下書きは変えない（INV-EDIT-02）。
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use serde::Serialize;
 
 use super::AppState;
 use super::admin_entries::{db, editor, parse};
@@ -28,6 +33,7 @@ use super::extract::{AuthSession, JsonBody};
 use crate::access::Permission;
 use crate::assist::conflicts::{self, View};
 use crate::assist::settings::{self, Settings};
+use crate::assist::structure;
 use crate::assist::tasks::{self, TaskKind};
 use crate::audit::{self, action};
 use crate::workspace_db;
@@ -189,4 +195,151 @@ pub async fn get_outline(
         .ok_or_else(ApiError::not_found)?;
     tx.commit().await.map_err(anyhow::Error::from)?;
     Ok(Json(out))
+}
+
+/// 構成の確認の結果（管理APIの応答）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructureView {
+    /// 矛盾の検知と同じ状態（`notStarted`・`running`・`done`・`failed`・`disabled`・`budgetExhausted`）。
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub period: Option<String>,
+    /// 指摘（done のとき）。相手の記事や質問が今も見せてよいものだけ。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestions: Option<Vec<structure::FindingView>>,
+    /// 答えられなかった質問（c）を含めるか: `included`・`noPermission`（質問ログの閲覧の権限がない）・
+    /// `reauthRequired`（権限はあるが再認証が要る）・`logDisabled`（質問ログが無効）。
+    pub questions: &'static str,
+    /// 始める前に見せる、トークン数の上限の見積もり（入力・出力）。
+    pub estimate: Estimate,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Estimate {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+}
+
+/// 答えられなかった質問を含めるか（重い権限 viewQuestionLog と再認証があり、質問ログが有効なときだけ。2026-11-17）。
+async fn structure_questions(
+    tx: &mut sqlx::PgConnection,
+    access: &crate::access::Access,
+    current: &crate::auth::session::Current,
+) -> Result<&'static str, ApiError> {
+    if !access.has(Permission::ViewQuestionLog) {
+        return Ok("noPermission");
+    }
+    if !current.reauth_fresh {
+        return Ok("reauthRequired");
+    }
+    let enabled: bool = sqlx::query_scalar("SELECT enabled FROM question_log_settings")
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(anyhow::Error::from)?;
+    Ok(if enabled { "included" } else { "logDisabled" })
+}
+
+/// いまの下書きの、構成の確認の結果を組み立てる（照合してから見せる。原則3）。
+async fn structure_view(
+    state: &AppState,
+    ws: uuid::Uuid,
+    id: uuid::Uuid,
+    current: &crate::auth::session::Current,
+    access: &crate::access::Access,
+) -> Result<StructureView, ApiError> {
+    let applied = crate::content::applied_schema(&state.pool, ws)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let db = db(state, ws).await?;
+    let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let questions = structure_questions(&mut tx, access, current).await?;
+    let included = questions == "included";
+    let draft = crate::content::entries::draft(&mut tx, &applied.manifest, id)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let ct = applied
+        .manifest
+        .content_type(&draft.content_type)
+        .ok_or_else(ApiError::not_found)?;
+    let docs: Vec<&serde_json::Value> =
+        crate::content::publishing::rich_text_fields(ct, &draft.fields)
+            .into_iter()
+            .map(|(_, v)| v)
+            .collect();
+    let (input_tokens, output_tokens) = structure::estimate(&docs, included, &draft.locale);
+    let view = tasks::view(
+        &mut tx,
+        TaskKind::Structure,
+        &tasks::structure_id(id, included),
+    )
+    .await?
+    .ok_or_else(ApiError::not_found)?;
+    let suggestions = match &view.findings {
+        Some(f) => {
+            Some(structure::show(&mut tx, &applied.manifest, f, included, &draft.locale).await?)
+        }
+        None => None,
+    };
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    if included {
+        // 質問文を使う（見せる）ので、質問ログの閲覧と同じく監査ログに残す
+        audit::record(
+            &state.pool,
+            Some(ws),
+            Some(current.user_id),
+            action::QUESTION_LOG_VIEWED,
+            &[],
+        )
+        .await?;
+    }
+    Ok(StructureView {
+        state: view.state,
+        period: view.period,
+        suggestions,
+        questions,
+        estimate: Estimate {
+            input_tokens,
+            output_tokens,
+        },
+    })
+}
+
+pub async fn start_structure(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+) -> Result<(StatusCode, Json<StructureView>), ApiError> {
+    let (ws, id) = (parse(&ws)?, parse(&id)?);
+    let access = editor(&state, &current, ws).await?;
+    let included = {
+        let db = db(&state, ws).await?;
+        let mut tx = workspace_db::begin(&state.pool, &db).await?;
+        let q = structure_questions(&mut tx, &access, &current).await?;
+        tx.commit().await.map_err(anyhow::Error::from)?;
+        q == "included"
+    };
+    tasks::start(
+        &state,
+        ws,
+        TaskKind::Structure,
+        &tasks::structure_id(id, included),
+    )
+    .await?
+    .ok_or_else(ApiError::not_found)?;
+    let out = structure_view(&state, ws, id, &current, &access).await?;
+    Ok((StatusCode::ACCEPTED, Json(out)))
+}
+
+pub async fn get_structure(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+) -> Result<Json<StructureView>, ApiError> {
+    let (ws, id) = (parse(&ws)?, parse(&id)?);
+    let access = editor(&state, &current, ws).await?;
+    Ok(Json(
+        structure_view(&state, ws, id, &current, &access).await?,
+    ))
 }

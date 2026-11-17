@@ -14,6 +14,7 @@ import { NodeSelection } from "@tiptap/pm/state";
 import BlockSettings from "~/components/editor/BlockSettings.vue";
 import EntryField from "~/components/entry/EntryField.vue";
 import FreshnessPanel from "~/components/entry/FreshnessPanel.vue";
+import AiPanel from "~/components/assist/AiPanel.vue";
 import PreviewPanel from "~/components/entry/PreviewPanel.vue";
 import PublishDialog from "~/components/entry/PublishDialog.vue";
 import EditLockBanner from "~/components/entry/EditLockBanner.vue";
@@ -118,12 +119,14 @@ const titleField = computed(() => {
   return ct.fields.find((f) => f.name === ct.titleField && f.type === "text") ?? ct.fields.find((f) => f.type === "text");
 });
 const bodyFields = computed(() => (contentType.value?.fields ?? []).filter((f) => f.type === "richtext"));
+// 編集中の本文（見出しの形の検査が、書いている間ずっと見る）
+const bodyDocs = computed(() => bodyFields.value.map((f) => values[f.name]));
 const otherFields = computed(() => (contentType.value?.fields ?? []).filter((f) => f !== titleField.value && f.type !== "richtext"));
 
 // 中央は「本文」か「プレビュー」。本文のエディタは、プレビューを見ている間も状態を保つため残しておく
-// 右の欄は、項目・ブロック（ブロック型のエディタだけ）・レビュー・履歴（版とURL）・翻訳・鮮度・関連・設定を切り替える
+// 右の欄は、項目・ブロック（ブロック型のエディタだけ）・AI（見出しの形の検査と AI の支援）・レビュー・履歴（版とURL）・翻訳・鮮度・関連・設定を切り替える
 // ?tab=review などで、開く欄を選べる（「やること」の一覧から。前の形の名前も受け付ける）
-const SIDE_TABS = ["fields", "block", "review", "versions", "translations", "freshness", "related", "settings"];
+const SIDE_TABS = ["fields", "block", "ai", "review", "versions", "translations", "freshness", "related", "settings"];
 const view = ref<"content" | "preview">("content");
 const side = ref(otherFields.value.length > 0 ? "fields" : "review");
 // 右の欄を広げているか（版の差分など、幅のいる内容を見るとき）
@@ -387,6 +390,7 @@ onBeforeRouteLeave(async () => {
               <TabsList class="flex-1 flex-nowrap overflow-x-auto">
                 <TabsTrigger v-if="otherFields.length > 0" value="fields" data-testid="tab-fields">{{ t("entryTabs.fields") }}</TabsTrigger>
                 <TabsTrigger v-if="editorMode === 'block' && bodyFields.length > 0" value="block" data-testid="tab-block">{{ t("entryTabs.block") }}</TabsTrigger>
+                <TabsTrigger value="ai" data-testid="tab-ai">{{ t("entryTabs.ai") }}</TabsTrigger>
                 <TabsTrigger value="review" data-testid="tab-review">
                   {{ t("entryTabs.review") }}
                   <span v-if="review?.open" class="inline-block size-2 rounded-full bg-amber-500" :aria-label="t('review.waiting')" />
@@ -431,6 +435,9 @@ onBeforeRouteLeave(async () => {
               </TabsContent>
               <TabsContent v-if="editorMode === 'block' && bodyFields.length > 0" value="block">
                 <BlockSettings />
+              </TabsContent>
+              <TabsContent value="ai">
+                <AiPanel :workspace-id="ws" :entry-id="id" :docs="bodyDocs" :editable="canEdit(workspace)" :flush="autosave.flush" />
               </TabsContent>
               <TabsContent value="review">
                 <ReviewPanel :key="published" :workspace-id="ws" :entry-id="id" :can-edit="canEdit(workspace)" :can-publish="canPublish(workspace)" />

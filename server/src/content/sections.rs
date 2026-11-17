@@ -139,7 +139,7 @@ pub struct SectionChange {
 }
 
 /// ノードの列の文字列（見出しの文字列を取り出すため）。
-fn plain_text(v: &Value, out: &mut String) {
+pub(crate) fn plain_text(v: &Value, out: &mut String) {
     if let Some(t) = v.get("text").and_then(Value::as_str) {
         out.push_str(t);
     }

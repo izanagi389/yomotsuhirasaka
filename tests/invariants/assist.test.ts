@@ -7,11 +7,13 @@
 //   チャットの要求が届いたかどうかを、他のテストと混ざらずに確かめられる。
 // - 公開が「妨げられない」ことは、公開の応答が成功し、その記事が配信API（検索）に出ることで確かめる。
 // - 対照: 予算が残っていれば、矛盾の検知は LLM を呼んで終わる。
+// - ボタンで始める執筆支援（構成の確認。2026-11-17）も同じ予算で動く。予算が尽きたら LLM を呼ばずに予算切れになり、
+//   公開は妨げない。
 // - 検索語はマスク（10桁以上の数字の並び → [number]。Q169）で変わらないよう、数字を含めない。
 
 import { afterAll, expect } from "vitest";
 import { inv } from "./support/inv.js";
-import { asSession, type ConflictCheck } from "./support/driver.js";
+import { asSession, type ConflictCheck, type EntryAssistResult } from "./support/driver.js";
 import { expectSuccess } from "./support/assert.js";
 import { doc, paragraph } from "./support/body.js";
 import { chatRequests, mockLlm, noConflictOutput } from "./support/mock-llm.js";
@@ -119,6 +121,25 @@ inv(
     expect(month.result.period, "予算切れの期間が月でない").toBe("month");
     expect(month.chats, "月の予算が尽きたのに、LLM が呼ばれた").toBe(0);
     await expectPublished(ws, month.id, month.own, "月の予算が尽きたとき");
+
+    // 執筆支援（構成の確認）も、予算が尽きたら LLM を呼ばずに予算切れになり、公開は妨げない
+    {
+      await mockLlm.clearRequests(llmKey);
+      const own = wordMarker("bud02-structure");
+      const id = await draftAbout(ws, topic, own);
+      await yomi.startEntryAssist(ws.editorSession, ws.id, id, "structure");
+      const deadline = Date.now() + 180_000;
+      let r: EntryAssistResult;
+      for (;;) {
+        r = await yomi.entryAssist(ws.editorSession, ws.id, id, "structure");
+        if (r.state !== "running") break;
+        expect(Date.now() < deadline, "構成の確認が終わらない").toBe(true);
+        await sleep(1);
+      }
+      expect(r.state, "月の予算が尽きたのに、構成の確認の状態が予算切れでない").toBe("budgetExhausted");
+      expect(chatRequests(await mockLlm.waitUntilQuiet(llmKey, 3_000)).length, "月の予算が尽きたのに、構成の確認で LLM が呼ばれた").toBe(0);
+      await expectPublished(ws, id, own, "月の予算が尽きて構成の確認が止まったとき");
+    }
 
     // --- 2. 日の予算が尽きた ---
     await setBudget(ws, null, 1);

@@ -499,6 +499,10 @@ pub fn router(state: AppState) -> Router {
             get(admin_assist::get_stale).post(admin_assist::start_stale),
         )
         .route(
+            "/workspaces/{ws}/entries/{id}/assist/structure",
+            get(admin_assist::get_structure).post(admin_assist::start_structure),
+        )
+        .route(
             "/workspaces/{ws}/question-log/candidates/{id}/outline",
             get(admin_assist::get_outline).post(admin_assist::start_outline),
         )
