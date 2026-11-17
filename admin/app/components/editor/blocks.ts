@@ -130,3 +130,27 @@ export const blockKeys = Extension.create({
     return { "Alt-Shift-ArrowUp": move(-1), "Alt-Shift-ArrowDown": move(1) };
   },
 });
+
+/** 右の欄の「ブロック」タブで設定するノード（選んだノード。なければカーソルのある見出しかカスタム部品。なければ本文の直下のブロック）。 */
+export interface BlockTarget {
+  pos: number;
+  node: PmNode;
+}
+export function blockTarget(state: EditorState, isCustom: (name: string) => boolean): BlockTarget | null {
+  const { selection } = state;
+  if (selection instanceof NodeSelection) return { pos: selection.from, node: selection.node };
+  const $from = selection.$from;
+  for (let d = $from.depth; d > 0; d--) {
+    const n = $from.node(d);
+    if (n.type.name === "heading" || isCustom(n.type.name)) return { pos: $from.before(d), node: n };
+  }
+  return $from.depth >= 1 ? { pos: $from.before(1), node: $from.node(1) } : null;
+}
+
+/** ノードの属性を変える（ほかの属性はそのまま）。 */
+export function setBlockAttrs(editor: Editor, target: BlockTarget, attrs: Record<string, unknown>): void {
+  const { state, view } = editor;
+  const node = state.doc.nodeAt(target.pos);
+  if (!node || node.type !== target.node.type) return;
+  view.dispatch(state.tr.setNodeMarkup(target.pos, undefined, { ...node.attrs, ...attrs }));
+}

@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { NodeSelection } from "@tiptap/pm/state";
+import BlockSettings from "~/components/editor/BlockSettings.vue";
 import EntryField from "~/components/entry/EntryField.vue";
 import FreshnessPanel from "~/components/entry/FreshnessPanel.vue";
 import PreviewPanel from "~/components/entry/PreviewPanel.vue";
@@ -96,6 +98,16 @@ async function reload() {
 
 const statusText = computed(() => t(`entries.save.${autosave.status.value}`));
 const { mode: editorMode, setMode: setEditorMode } = useEditorMode();
+// ブロック型で、画像・埋め込み・カスタム部品を選んだら、右の欄を「ブロック」タブにする（入力はそこで行うため）。
+// 文字を打っている間はタブを変えない
+const { active: activeEditor, tick: blockTick } = useBlockSelection();
+watch(blockTick, () => {
+  const sel = activeEditor.value?.state.selection;
+  if (editorMode.value === "block" && sel instanceof NodeSelection && sel.node.type.name !== "horizontalRule") side.value = "block";
+});
+watch(editorMode, (m) => {
+  if (m === "classic" && side.value === "block") side.value = otherFields.value.length > 0 ? "fields" : "review";
+});
 const title = computed(() => (draft.value ? entryTitle(contentType.value, values) : null));
 // 中央にはタイトル（entryTitle と同じ規則: 最初のテキストの項目）と本文（リッチテキストの項目）だけを置き、
 // ほかの項目は右の欄の「項目」タブに置く（03-content-and-editing.md「本文のエディタ」）
@@ -104,9 +116,9 @@ const bodyFields = computed(() => (contentType.value?.fields ?? []).filter((f) =
 const otherFields = computed(() => (contentType.value?.fields ?? []).filter((f) => f !== titleField.value && f.type !== "richtext"));
 
 // 中央は「本文」か「プレビュー」。本文のエディタは、プレビューを見ている間も状態を保つため残しておく
-// 右の欄は、項目・レビュー・履歴（版とURL）・翻訳・鮮度・関連・設定を切り替える
+// 右の欄は、項目・ブロック（ブロック型のエディタだけ）・レビュー・履歴（版とURL）・翻訳・鮮度・関連・設定を切り替える
 // ?tab=review などで、開く欄を選べる（「やること」の一覧から。前の形の名前も受け付ける）
-const SIDE_TABS = ["fields", "review", "versions", "translations", "freshness", "related", "settings"];
+const SIDE_TABS = ["fields", "block", "review", "versions", "translations", "freshness", "related", "settings"];
 const view = ref<"content" | "preview">("content");
 const side = ref(otherFields.value.length > 0 ? "fields" : "review");
 // 右の欄を広げているか（版の差分など、幅のいる内容を見るとき）
@@ -366,8 +378,10 @@ onBeforeRouteLeave(async () => {
         >
           <Tabs v-model="side">
             <div class="sticky top-0 z-10 flex items-start gap-1 border-b bg-card px-3 pt-3 pb-2">
-              <TabsList class="flex-1">
+              <!-- タブが多いので、折り返さずに横に送れるようにする -->
+              <TabsList class="flex-1 flex-nowrap overflow-x-auto">
                 <TabsTrigger v-if="otherFields.length > 0" value="fields" data-testid="tab-fields">{{ t("entryTabs.fields") }}</TabsTrigger>
+                <TabsTrigger v-if="editorMode === 'block' && bodyFields.length > 0" value="block" data-testid="tab-block">{{ t("entryTabs.block") }}</TabsTrigger>
                 <TabsTrigger value="review" data-testid="tab-review">
                   {{ t("entryTabs.review") }}
                   <span v-if="review?.open" class="inline-block size-2 rounded-full bg-amber-500" :aria-label="t('review.waiting')" />
@@ -409,6 +423,9 @@ onBeforeRouteLeave(async () => {
                     @update:model-value="change(f.name, $event)"
                   />
                 </form>
+              </TabsContent>
+              <TabsContent v-if="editorMode === 'block' && bodyFields.length > 0" value="block">
+                <BlockSettings />
               </TabsContent>
               <TabsContent value="review">
                 <ReviewPanel :key="published" :workspace-id="ws" :entry-id="id" :can-edit="canEdit(workspace)" :can-publish="canPublish(workspace)" />

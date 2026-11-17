@@ -245,6 +245,15 @@
       "insert": "ブロックを入れる",
       "insertHint": "「/」でブロックを選ぶ",
       "noMatch": "当てはまるブロックがありません"
+    },
+    "blockSettings": {
+      "empty": "本文のブロックを選ぶと、ここにそのブロックの設定が出ます。",
+      "none": "このブロックには設定がありません。",
+      "level": "見出しの階層",
+      "image": "画像",
+      "embed": "埋め込み",
+      "embedChange": "URL を変えるときは、このブロックを消して入れ直します。",
+      "altMissing": "代替テキストなし"
     }
   },
   "entries": {
@@ -354,7 +363,8 @@
     "freshness": "鮮度",
     "review": "レビュー",
     "related": "関連記事",
-    "history": "履歴"
+    "history": "履歴",
+    "block": "ブロック"
   },
   "translations": {
     "source": "元の記事",
