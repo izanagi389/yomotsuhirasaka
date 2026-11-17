@@ -9,6 +9,8 @@
       "name": "post",
       "description": "ブログの記事",
       "urlTemplate": "https://example.com/{locale}/blog/{slug}",
+      "titleField": "title",
+      "summaryField": "summary",
       "listLimit": 50,
       "aiMarkdown": {
         "title": "title",

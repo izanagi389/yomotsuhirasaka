@@ -247,6 +247,13 @@
             "null"
           ]
         },
+        "summaryField": {
+          "description": "記事の要約のフィールド（text）。編集者向けの執筆支援の、要約の案を当てる先（2026-11-17、10-llm-and-budget.md）。\nタイトルの案は `titleField` に当てる。なければ、その案は出さない。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "review": {
           "description": "確認期限（06-corrections-and-freshness.md「鮮度」）。なければ期限なし。記事ごとに上書きできる。",
           "anyOf": [

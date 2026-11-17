@@ -77,6 +77,22 @@ test("only text and richtext fields can be searchable (same rule as the server)"
   ]);
 });
 
+test("titleField and summaryField must name different text fields", () => {
+  const fields = [
+    { name: "title", type: "text" },
+    { name: "summary", type: "text" },
+    { name: "slug", type: "slug" },
+  ];
+  assert.deepEqual(checkTemplateFunctions({ contentTypes: [{ fields, titleField: "title", summaryField: "summary" }] }), []);
+  assert.deepEqual(checkTemplateFunctions({ contentTypes: [{ fields, titleField: "slug", summaryField: "missing" }] }), [
+    "contentTypes[0].titleField: must name a text field",
+    "contentTypes[0].summaryField: must name a text field",
+  ]);
+  assert.deepEqual(checkTemplateFunctions({ contentTypes: [{ fields, titleField: "title", summaryField: "title" }] }), [
+    "contentTypes[0].summaryField: must not be the same field as titleField",
+  ]);
+});
+
 test("the CLI checks the same rules as the server", () => {
   assert.deepEqual(checkTemplateFunctions({ body: { customNodes: [{ name: "a", toMarkdown: { file: "./a.ts" } }] } }), []);
   const problems = checkTemplateFunctions({
