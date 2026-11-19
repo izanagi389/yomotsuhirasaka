@@ -120,6 +120,8 @@ const titleField = computed(() => {
 });
 const bodyFields = computed(() => (contentType.value?.fields ?? []).filter((f) => f.type === "richtext"));
 // 編集中の本文（見出しの形の検査が、書いている間ずっと見る）
+/** 「AI」タブの案を当てる先: コンテンツタイプの指定が、実在する text のフィールドを指すときだけ。 */
+const aiTextField = (name?: string) => (contentType.value?.fields ?? []).find((f) => f.name === name && f.type === "text")?.name;
 const bodyDocs = computed(() => bodyFields.value.map((f) => values[f.name]));
 const otherFields = computed(() => (contentType.value?.fields ?? []).filter((f) => f !== titleField.value && f.type !== "richtext"));
 
@@ -437,7 +439,17 @@ onBeforeRouteLeave(async () => {
                 <BlockSettings />
               </TabsContent>
               <TabsContent value="ai">
-                <AiPanel :workspace-id="ws" :entry-id="id" :docs="bodyDocs" :editable="canEdit(workspace)" :flush="autosave.flush" />
+                <AiPanel
+                  :workspace-id="ws"
+                  :entry-id="id"
+                  :docs="bodyDocs"
+                  :editable="canEdit(workspace)"
+                  :can-apply="editable"
+                  :flush="autosave.flush"
+                  :title-field="aiTextField(contentType?.titleField)"
+                  :summary-field="aiTextField(contentType?.summaryField)"
+                  @apply-field="change"
+                />
               </TabsContent>
               <TabsContent value="review">
                 <ReviewPanel :key="published" :workspace-id="ws" :entry-id="id" :can-edit="canEdit(workspace)" :can-publish="canPublish(workspace)" />

@@ -1316,7 +1316,14 @@
     "fixNotApplicable": "The original text appears more than once or contains formatting, so it cannot be applied automatically. Fix it in the body.",
     "noFixes": "No suggestions.",
     "proofreadPartial": "These are partial suggestions (the remaining sections were not checked).",
-    "proofreadNote": "Suggestions by AI. Check that the meaning has not changed before applying them."
+    "proofreadNote": "Suggestions by AI. Check that the meaning has not changed before applying them.",
+    "summaryTitle": "Summary suggestions (AI)",
+    "summaryStart": "Suggest summaries",
+    "titleTitle": "Title suggestions (AI)",
+    "titleStart": "Suggest titles",
+    "noCandidates": "No suggestions.",
+    "candidateApplied": "Applied (edit the field to change it back)",
+    "candidateNote": "Suggestions by AI. Check that they match the article before applying them."
   },
   "answerTest": {
     "title": "Try an answer",

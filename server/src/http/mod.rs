@@ -507,6 +507,14 @@ pub fn router(state: AppState) -> Router {
             get(admin_assist::get_proofread).post(admin_assist::start_proofread),
         )
         .route(
+            "/workspaces/{ws}/entries/{id}/assist/summary",
+            get(admin_assist::get_summary).post(admin_assist::start_summary),
+        )
+        .route(
+            "/workspaces/{ws}/entries/{id}/assist/title",
+            get(admin_assist::get_title).post(admin_assist::start_title),
+        )
+        .route(
             "/workspaces/{ws}/question-log/candidates/{id}/outline",
             get(admin_assist::get_outline).post(admin_assist::start_outline),
         )

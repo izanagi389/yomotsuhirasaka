@@ -11,6 +11,9 @@
 //! - **校正**（`proofread`。2026-11-17）: 見出しのセクションごとに LLM を呼び、誤りと読みやすさの提案を出させる
 //!   （`assist::proofread`）。結果は記事ごとで、どのリビジョンについての結果かを残す（提案を1つ当てるとリビジョンが進むが、
 //!   残りの提案は見せ続けるため）。同じリビジョンで終わった結果があれば、始め直さない。
+//! - **要約とタイトルの案**（`summary`・`title`。2026-11-17）: 記事の要約・タイトルの案をいくつか出させる
+//!   （`assist::drafting`）。コンテンツタイプに `summaryField`・`titleField` の指定がなければ出さない。結果の持ち方は校正と同じ
+//!   （記事ごと。どのリビジョンについての結果かを残す）。
 //! - どれも非同期のジョブで、「編集者向けの支援」の予算の範囲でだけ LLM を呼ぶ（`assist::llm`）。結果は
 //!   [`super::conflicts::KEEP_HOURS`] 時間で消す。ログには、本文・質問文・LLM の出力を書かない（原則7）。
 
@@ -23,6 +26,7 @@ use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 use super::conflicts::KEEP_HOURS;
+use super::drafting::{self, Target};
 use super::language;
 use super::llm::Called;
 use super::proofread::{self, Fix};
@@ -56,6 +60,8 @@ pub enum TaskKind {
     Outline,
     Structure,
     Proofread,
+    Summary,
+    Title,
 }
 
 impl TaskKind {
@@ -65,6 +71,8 @@ impl TaskKind {
             TaskKind::Outline => "outline",
             TaskKind::Structure => "structure",
             TaskKind::Proofread => "proofread",
+            TaskKind::Summary => "summary",
+            TaskKind::Title => "title",
         }
     }
 }
@@ -88,7 +96,9 @@ struct Stored {
     findings: Option<Vec<Finding>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     fixes: Option<Vec<Fix>>,
-    /// 結果が対象とした下書きのリビジョン（校正）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    candidates: Option<Vec<String>>,
+    /// 結果が対象とした下書きのリビジョン（校正・要約・タイトル）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     revision: Option<i64>,
 }
@@ -113,7 +123,10 @@ pub struct View {
     /// いまの下書きで当てられるかを照合してから見せる。
     #[serde(skip)]
     pub fixes: Option<Vec<Fix>>,
-    /// 校正の結果が対象とした下書きのリビジョン。
+    /// 要約・タイトルの案（`summary`・`title` で done のとき）。
+    #[serde(skip)]
+    pub candidates: Option<Vec<String>>,
+    /// 校正・要約・タイトルの結果が対象とした下書きのリビジョン。
     #[serde(skip)]
     pub revision: Option<i64>,
 }
@@ -173,7 +186,7 @@ async fn subject_of(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result
                 .map(|r| stale_subject(entry_id, r)))
         }
         TaskKind::Outline => Ok(candidate_exists(conn, id).await?.then(|| id.to_owned())),
-        TaskKind::Proofread => {
+        TaskKind::Proofread | TaskKind::Summary | TaskKind::Title => {
             let Ok(entry_id) = Uuid::parse_str(id) else {
                 return Ok(None);
             };
@@ -219,6 +232,7 @@ pub async fn view(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result<O
             outline: None,
             findings: None,
             fixes: None,
+            candidates: None,
             revision: None,
         }));
     };
@@ -230,6 +244,7 @@ pub async fn view(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result<O
         outline: stored.outline,
         findings: stored.findings,
         fixes: stored.fixes,
+        candidates: stored.candidates,
         revision: stored.revision,
     }))
 }
@@ -250,9 +265,11 @@ pub async fn start(
         return Ok(None);
     };
     let enabled = settings::get(&mut tx).await?.enabled;
-    // 校正の結果は記事ごとなので、終わった結果を使い回すのは、同じリビジョンについてのものだけ
+    // 校正・要約・タイトルの結果は記事ごとなので、終わった結果を使い回すのは、同じリビジョンについてのものだけ
     let current = match (kind, Uuid::parse_str(id)) {
-        (TaskKind::Proofread, Ok(entry_id)) => revision(&mut tx, entry_id).await?,
+        (TaskKind::Proofread | TaskKind::Summary | TaskKind::Title, Ok(entry_id)) => {
+            revision(&mut tx, entry_id).await?
+        }
         _ => None,
     };
     let reusable: bool = sqlx::query_scalar(
@@ -464,6 +481,10 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
         tx.commit().await?;
         return work_proofread(state, db, p).await;
     }
+    if let Some(target) = target_of(p.kind) {
+        tx.commit().await?;
+        return work_drafting(state, db, p, target).await;
+    }
     // 構成の確認の番号の対応（断片の番号 → 記事と版、質問の番号 → 候補のキー）
     #[allow(clippy::type_complexity)]
     let mut structure_context: Option<(Vec<(Uuid, Uuid)>, Option<Vec<String>>)> = None;
@@ -520,7 +541,9 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
             }
             (outline_messages(&locale, &questions), String::new(), locale)
         }
-        TaskKind::Proofread => unreachable!("proofreading runs in work_proofread"),
+        TaskKind::Proofread | TaskKind::Summary | TaskKind::Title => {
+            unreachable!("proofreading, summaries and titles run in their own functions")
+        }
         TaskKind::Structure => {
             let mut parts = p.subject.split(':');
             let (Some(entry), Some(_), q) = (parts.next(), parts.next(), parts.next()) else {
@@ -600,7 +623,7 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
             outline: Some(clean_outline(text)),
             ..Stored::default()
         },
-        TaskKind::Proofread => Stored::default(),
+        TaskKind::Proofread | TaskKind::Summary | TaskKind::Title => Stored::default(),
         TaskKind::Structure => {
             let (fragments, keys) = structure_context.clone().unwrap_or_default();
             let found = structure::parse(text, fragments.len(), keys.as_ref().map(Vec::len));
@@ -770,6 +793,91 @@ async fn work_proofread(
         }
     }
     finish(pool, db, p, "done", None, &so_far(&fixes)).await
+}
+
+/// 要約・タイトルの案を作る支援の対象。
+fn target_of(kind: TaskKind) -> Option<Target> {
+    match kind {
+        TaskKind::Summary => Some(Target::Summary),
+        TaskKind::Title => Some(Target::Title),
+        _ => None,
+    }
+}
+
+/// 要約・タイトルの案: 1回だけ LLM を呼ぶ。ロケールの言語でない案があれば1回だけ取り直し、それでも違う案は捨てる。
+/// コンテンツタイプに当てる先の指定（`summaryField`・`titleField`）がなければ失敗にする（API は始める前に断る）。
+async fn work_drafting(
+    state: &AppState,
+    db: &workspace_db::WorkspaceDb,
+    p: &Payload,
+    target: Target,
+) -> Result<()> {
+    let pool = &state.pool;
+    let ws = p.workspace_id;
+    let none = Stored::default();
+    let entry_id = Uuid::parse_str(&p.subject)?;
+    let Some(applied) = applied_schema(pool, ws).await? else {
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    let mut tx = workspace_db::begin(pool, db).await?;
+    let (Some(rev), Some(draft)) = (
+        revision(&mut tx, entry_id).await?,
+        entries::draft(&mut tx, &applied.manifest, entry_id).await?,
+    ) else {
+        tx.commit().await?;
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    tx.commit().await?;
+    let Some(ct) = applied.manifest.content_type(&draft.content_type) else {
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    if field_of(ct, target).is_none() {
+        return finish(pool, db, p, "failed", None, &none).await;
+    }
+    let docs: Vec<&Value> = publishing::rich_text_fields(ct, &draft.fields)
+        .into_iter()
+        .map(|(_, v)| v)
+        .collect();
+    let article = structure::article_text(&docs);
+    let result = |candidates: Vec<String>| Stored {
+        candidates: Some(candidates),
+        revision: Some(rev),
+        ..Stored::default()
+    };
+    if article.is_empty() {
+        return finish(pool, db, p, "done", None, &result(Vec::new())).await;
+    }
+    let locale = draft.locale.clone();
+    let msgs = drafting::messages(target, &article, &locale);
+    let max = drafting::MAX_OUTPUT_TOKENS;
+    let mut got = match super::llm::call(state, ws, &msgs, max, MAX_REPLY_CHARS).await? {
+        Called::Reply(text) => drafting::parse(target, &text),
+        Called::Exhausted(period) => {
+            return finish(pool, db, p, "budgetExhausted", Some(period.as_str()), &none).await;
+        }
+        Called::Failed => return finish(pool, db, p, "failed", None, &none).await,
+    };
+    if !got.iter().all(|c| language::written_in(&locale, c)) {
+        let mut again = msgs.clone();
+        if let Some(user) = again.last_mut() {
+            user.content.push_str(&language::reminder(&locale));
+        }
+        if let Called::Reply(text) =
+            super::llm::call(state, ws, &again, max, MAX_REPLY_CHARS).await?
+        {
+            got = drafting::parse(target, &text);
+        }
+        got.retain(|c| language::written_in(&locale, c));
+    }
+    finish(pool, db, p, "done", None, &result(got)).await
+}
+
+/// 案を当てる先のフィールドの名前（コンテンツタイプの `summaryField`・`titleField`）。
+pub fn field_of(ct: &crate::schema::manifest::ContentType, target: Target) -> Option<&str> {
+    match target {
+        Target::Summary => ct.summary_field.as_deref(),
+        Target::Title => ct.title_field.as_deref(),
+    }
 }
 
 /// 結果がすべてロケールの言語で書かれているか（手がかりは理由ごと、構成案は全体）。

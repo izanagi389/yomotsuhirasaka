@@ -12,6 +12,10 @@
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/assist/structure | その結果と、始める前の見積もり | 同上 |
 //! | POST | /api/admin/workspaces/{ws}/entries/{id}/assist/proofread | いまの下書きについて、校正を始める（ボタン。2026-11-17） | 記事を編集できる人 |
 //! | GET | /api/admin/workspaces/{ws}/entries/{id}/assist/proofread | その結果（いまの下書きで当てられるか）と、始める前の見積もり | 同上 |
+//! | POST | /api/admin/workspaces/{ws}/entries/{id}/assist/summary | いまの下書きについて、要約の案を作る（ボタン。2026-11-17。`summaryField` があるときだけ） | 記事を編集できる人 |
+//! | GET | /api/admin/workspaces/{ws}/entries/{id}/assist/summary | その結果と、当てる先のフィールドと、始める前の見積もり | 同上 |
+//! | POST | /api/admin/workspaces/{ws}/entries/{id}/assist/title | 同じく、タイトルの案（`titleField` があるときだけ） | 同上 |
+//! | GET | /api/admin/workspaces/{ws}/entries/{id}/assist/title | その結果 | 同上 |
 //! | POST | /api/admin/workspaces/{ws}/question-log/candidates/{id}/outline | 候補から、書くべき記事の構成案を作る（ボタン） | 重い権限 viewQuestionLog を持つ人（再認証） |
 //! | GET | /api/admin/workspaces/{ws}/question-log/candidates/{id}/outline | その結果 | 同上 |
 //!
@@ -20,7 +24,8 @@
 //! - 矛盾の検知は非同期（`assist::conflicts`）。公開はこの結果を待たず、見もしない（INV-BUD-02）。
 //! - 見直しの手がかりと構成案も非同期（`assist::tasks`）。構成案は質問文から作るので、質問ログの閲覧と同じく監査ログに残す。
 //! - 構成の確認も非同期（`assist::tasks`・`assist::structure`）。答えられなかった質問を含める回は、同じく監査ログに残す。
-//! - 校正も非同期（`assist::tasks`・`assist::proofread`）。
+//! - 校正も非同期（`assist::tasks`・`assist::proofread`）。要約・タイトルの案も同じく（`assist::drafting`）。当てる先の
+//!   フィールドの指定がなければ 409 `field_not_configured`。
 //!   どの支援も提案を返すだけで、下書きは変えない（INV-EDIT-02）。
 
 use axum::Json;
@@ -452,4 +457,178 @@ pub async fn get_proofread(
     let (ws, id) = (parse(&ws)?, parse(&id)?);
     editor(&state, &current, ws).await?;
     Ok(Json(proofread_view(&state, ws, id).await?))
+}
+
+/// 要約・タイトルの案の結果（管理APIの応答）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftingView {
+    /// 矛盾の検知と同じ状態。
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub period: Option<String>,
+    /// 案（done のとき）。管理画面は HTML にせず、文字のまま見せる。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestions: Option<Vec<String>>,
+    /// 案を当てる先のフィールドの名前（コンテンツタイプの `summaryField`・`titleField`）。
+    pub field: String,
+    /// 結果が、いまの下書きより前のリビジョンについてのものか。
+    pub outdated: bool,
+    /// 始める前に見せる、トークン数の上限の見積もり（入力・出力）。
+    pub estimate: Estimate,
+}
+
+fn field_not_configured() -> ApiError {
+    ApiError::new(
+        StatusCode::CONFLICT,
+        "field_not_configured",
+        "The content type of this entry has no summaryField or titleField for this suggestion.",
+    )
+}
+
+/// いまの下書きの、要約・タイトルの案の結果を組み立てる。当てる先のフィールドの指定がなければ 409。
+async fn drafting_view(
+    state: &AppState,
+    ws: uuid::Uuid,
+    id: uuid::Uuid,
+    target: crate::assist::drafting::Target,
+) -> Result<DraftingView, ApiError> {
+    use crate::assist::drafting;
+    let applied = crate::content::applied_schema(&state.pool, ws)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let db = db(state, ws).await?;
+    let mut tx = workspace_db::begin(&state.pool, &db).await?;
+    let draft = crate::content::entries::draft(&mut tx, &applied.manifest, id)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let kind = match target {
+        drafting::Target::Summary => TaskKind::Summary,
+        drafting::Target::Title => TaskKind::Title,
+    };
+    let view = tasks::view(&mut tx, kind, &id.to_string())
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    tx.commit().await.map_err(anyhow::Error::from)?;
+    let ct = applied
+        .manifest
+        .content_type(&draft.content_type)
+        .ok_or_else(ApiError::not_found)?;
+    let field = tasks::field_of(ct, target)
+        .ok_or_else(field_not_configured)?
+        .to_owned();
+    let docs: Vec<&serde_json::Value> =
+        crate::content::publishing::rich_text_fields(ct, &draft.fields)
+            .into_iter()
+            .map(|(_, v)| v)
+            .collect();
+    let article = structure::article_text(&docs);
+    let (input_tokens, output_tokens) = drafting::estimate(target, &article, &draft.locale);
+    Ok(DraftingView {
+        state: view.state,
+        period: view.period,
+        suggestions: view.candidates,
+        field,
+        outdated: view.revision.is_some_and(|r| r != draft.revision),
+        estimate: Estimate {
+            input_tokens,
+            output_tokens,
+        },
+    })
+}
+
+async fn start_drafting(
+    state: &AppState,
+    current: &crate::auth::session::Current,
+    ws: &str,
+    id: &str,
+    target: crate::assist::drafting::Target,
+) -> Result<(StatusCode, Json<DraftingView>), ApiError> {
+    let (ws, id) = (parse(ws)?, parse(id)?);
+    editor(state, current, ws).await?;
+    // 当てる先がなければ、お金をかける前に断る
+    drafting_view(state, ws, id, target).await?;
+    let kind = match target {
+        crate::assist::drafting::Target::Summary => TaskKind::Summary,
+        crate::assist::drafting::Target::Title => TaskKind::Title,
+    };
+    tasks::start(state, ws, kind, &id.to_string())
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(drafting_view(state, ws, id, target).await?),
+    ))
+}
+
+async fn get_drafting(
+    state: &AppState,
+    current: &crate::auth::session::Current,
+    ws: &str,
+    id: &str,
+    target: crate::assist::drafting::Target,
+) -> Result<Json<DraftingView>, ApiError> {
+    let (ws, id) = (parse(ws)?, parse(id)?);
+    editor(state, current, ws).await?;
+    Ok(Json(drafting_view(state, ws, id, target).await?))
+}
+
+pub async fn start_summary(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+) -> Result<(StatusCode, Json<DraftingView>), ApiError> {
+    start_drafting(
+        &state,
+        &current,
+        &ws,
+        &id,
+        crate::assist::drafting::Target::Summary,
+    )
+    .await
+}
+
+pub async fn get_summary(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+) -> Result<Json<DraftingView>, ApiError> {
+    get_drafting(
+        &state,
+        &current,
+        &ws,
+        &id,
+        crate::assist::drafting::Target::Summary,
+    )
+    .await
+}
+
+pub async fn start_title(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+) -> Result<(StatusCode, Json<DraftingView>), ApiError> {
+    start_drafting(
+        &state,
+        &current,
+        &ws,
+        &id,
+        crate::assist::drafting::Target::Title,
+    )
+    .await
+}
+
+pub async fn get_title(
+    State(state): State<AppState>,
+    AuthSession(current): AuthSession,
+    Path((ws, id)): Path<(String, String)>,
+) -> Result<Json<DraftingView>, ApiError> {
+    get_drafting(
+        &state,
+        &current,
+        &ws,
+        &id,
+        crate::assist::drafting::Target::Title,
+    )
+    .await
 }
