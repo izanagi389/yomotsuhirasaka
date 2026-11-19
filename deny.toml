@@ -13,7 +13,11 @@ targets = [
 
 [advisories]
 # 例外にするときは、ID と理由と見直す時期を書く（持ち主の承認）
-ignore = []
+ignore = [
+    # chrono の保守終了（脆弱性ではない）。oauth2 5.0.0（最新）が必須にしていて、サーバーは直接使わない。
+    # 移行先はない。持ち主の承認 2026-11-19。見直し: oauth2 の次の版が出たとき、遅くとも 2027-02 まで。
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained (not a vulnerability); only pulled in by oauth2 5.0.0, no alternative yet" },
+]
 
 [licenses]
 allow = [

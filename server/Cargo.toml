@@ -35,7 +35,7 @@ uuid = { version = "1.28.0", features = ["v4", "serde"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 totp-rs = "6.0"
 chacha20poly1305 = "0.11"
-lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
+lettre = { version = "0.11.24", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
 maxminddb = "0.33.0"
 webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
 # webauthn-rs の型（パスキー、途中の状態）をJSONでDBに保存する（axum・webauthn-rs が既に使っているもの）

@@ -13,6 +13,7 @@
     "tools/mock-llm"
   ],
   "overrides": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "readdir-glob": "4.0.0"
   }
 }
