@@ -493,14 +493,20 @@ async fn execute(
     let request = async_graphql::Request::new(query)
         .variables(async_graphql::Variables::from_json(variables))
         .data(data.clone());
-    // 全体の時間の上限。切れたらトランザクションは捨てる（接続は戻る）
-    let limit = Duration::from_secs(state.config.delivery.max_query_seconds);
-    let Ok(response) = tokio::time::timeout(limit, schema.execute(request)).await else {
-        return Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "query_timeout",
-            "The query took too long.",
-        ));
+    // 全体の時間の上限。切れたらトランザクションは捨てる（接続は戻る）。
+    // 上限の時刻を過ぎてから終わったものも時間切れにする（タイマーは 1 ミリ秒単位なので、`timeout` だけでは
+    // 上限を少し過ぎても結果が返ることがある）
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_secs(state.config.delivery.max_query_seconds);
+    let response = match tokio::time::timeout_at(deadline, schema.execute(request)).await {
+        Ok(r) if tokio::time::Instant::now() < deadline => r,
+        _ => {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "query_timeout",
+                "The query took too long.",
+            ));
+        }
     };
     if let Some(tx) = data.tx.lock().await.take() {
         tx.rollback().await.map_err(anyhow::Error::from)?;
