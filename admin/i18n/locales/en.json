@@ -1266,7 +1266,7 @@
   },
   "assist": {
     "settingsTitle": "AI assist for editors",
-    "settingsHelp": "Enables conflict detection on the publish screen, review hints for overdue articles and article outlines from the question log. It runs within the editor assist budget.",
+    "settingsHelp": "Enables the AI tab on the article screen (structure check, proofreading, summary and title suggestions, alt text suggestions, review hints), conflict detection on the publish screen and article outlines from the question log. It runs within the editor assist budget.",
     "egressNote": "When enabled, unpublished drafts (and images, for alt text suggestions) are sent to the external LLM provider. For sites with confidential content, we recommend a local LLM.",
     "enable": "Use AI assist",
     "disabled": "AI assist is disabled in this workspace.",
