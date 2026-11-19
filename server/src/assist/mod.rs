@@ -9,6 +9,7 @@
 pub mod conflicts;
 pub mod language;
 pub mod llm;
+pub mod proofread;
 pub mod settings;
 pub mod structure;
 pub mod tasks;
