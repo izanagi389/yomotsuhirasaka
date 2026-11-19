@@ -14,6 +14,8 @@
 //! - **要約とタイトルの案**（`summary`・`title`。2026-11-17）: 記事の要約・タイトルの案をいくつか出させる
 //!   （`assist::drafting`）。コンテンツタイプに `summaryField`・`titleField` の指定がなければ出さない。結果の持ち方は校正と同じ
 //!   （記事ごと。どのリビジョンについての結果かを残す）。
+//! - **代替テキストの案**（`alt_text`。2026-11-17）: 記事の本文の画像1枚について、画像を読むモデルに案を出させる
+//!   （`assist::alt_text`）。対象は `{記事}:{画像}`。結果の持ち方は校正と同じ（どのリビジョンについての結果かを残す）。
 //! - どれも非同期のジョブで、「編集者向けの支援」の予算の範囲でだけ LLM を呼ぶ（`assist::llm`）。結果は
 //!   [`super::conflicts::KEEP_HOURS`] 時間で消す。ログには、本文・質問文・LLM の出力を書かない（原則7）。
 
@@ -25,6 +27,7 @@ use serde_json::Value;
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
+use super::alt_text;
 use super::conflicts::KEEP_HOURS;
 use super::drafting::{self, Target};
 use super::language;
@@ -62,6 +65,7 @@ pub enum TaskKind {
     Proofread,
     Summary,
     Title,
+    AltText,
 }
 
 impl TaskKind {
@@ -73,6 +77,7 @@ impl TaskKind {
             TaskKind::Proofread => "proofread",
             TaskKind::Summary => "summary",
             TaskKind::Title => "title",
+            TaskKind::AltText => "alt_text",
         }
     }
 }
@@ -174,6 +179,24 @@ async fn candidate_exists(conn: &mut PgConnection, key: &str) -> Result<bool> {
     .await?)
 }
 
+/// 代替テキストの案の対象を指す ID（記事と画像）。
+pub fn alt_text_id(entry_id: Uuid, media_id: Uuid) -> String {
+    format!("{entry_id}:{media_id}")
+}
+
+/// 結果を記事ごとに持つ支援の、対象の記事（校正・要約・タイトルは ID そのもの、代替テキストの案は前半）。
+fn entry_of(kind: TaskKind, id: &str) -> Option<Uuid> {
+    match kind {
+        TaskKind::Proofread | TaskKind::Summary | TaskKind::Title => Uuid::parse_str(id).ok(),
+        TaskKind::AltText => {
+            let (entry, media) = id.split_once(':')?;
+            Uuid::parse_str(media).ok()?;
+            Uuid::parse_str(entry).ok()
+        }
+        _ => None,
+    }
+}
+
 /// 対象（記事のリビジョン・候補）がなければ None。
 async fn subject_of(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result<Option<String>> {
     match kind {
@@ -186,13 +209,11 @@ async fn subject_of(conn: &mut PgConnection, kind: TaskKind, id: &str) -> Result
                 .map(|r| stale_subject(entry_id, r)))
         }
         TaskKind::Outline => Ok(candidate_exists(conn, id).await?.then(|| id.to_owned())),
-        TaskKind::Proofread | TaskKind::Summary | TaskKind::Title => {
-            let Ok(entry_id) = Uuid::parse_str(id) else {
+        TaskKind::Proofread | TaskKind::Summary | TaskKind::Title | TaskKind::AltText => {
+            let Some(entry_id) = entry_of(kind, id) else {
                 return Ok(None);
             };
-            Ok(revision(conn, entry_id)
-                .await?
-                .map(|_| entry_id.to_string()))
+            Ok(revision(conn, entry_id).await?.map(|_| id.to_owned()))
         }
         TaskKind::Structure => {
             let (entry, q) = match id.strip_suffix(":q") {
@@ -266,11 +287,9 @@ pub async fn start(
     };
     let enabled = settings::get(&mut tx).await?.enabled;
     // 校正・要約・タイトルの結果は記事ごとなので、終わった結果を使い回すのは、同じリビジョンについてのものだけ
-    let current = match (kind, Uuid::parse_str(id)) {
-        (TaskKind::Proofread | TaskKind::Summary | TaskKind::Title, Ok(entry_id)) => {
-            revision(&mut tx, entry_id).await?
-        }
-        _ => None,
+    let current = match entry_of(kind, id) {
+        Some(entry_id) => revision(&mut tx, entry_id).await?,
+        None => None,
     };
     let reusable: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM assist_tasks
@@ -481,6 +500,10 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
         tx.commit().await?;
         return work_proofread(state, db, p).await;
     }
+    if p.kind == TaskKind::AltText {
+        tx.commit().await?;
+        return work_alt_text(state, db, p).await;
+    }
     if let Some(target) = target_of(p.kind) {
         tx.commit().await?;
         return work_drafting(state, db, p, target).await;
@@ -541,8 +564,8 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
             }
             (outline_messages(&locale, &questions), String::new(), locale)
         }
-        TaskKind::Proofread | TaskKind::Summary | TaskKind::Title => {
-            unreachable!("proofreading, summaries and titles run in their own functions")
+        TaskKind::Proofread | TaskKind::Summary | TaskKind::Title | TaskKind::AltText => {
+            unreachable!("proofreading, summaries, titles and alt texts run in their own functions")
         }
         TaskKind::Structure => {
             let mut parts = p.subject.split(':');
@@ -623,7 +646,9 @@ async fn work(state: &AppState, db: &workspace_db::WorkspaceDb, p: &Payload) -> 
             outline: Some(clean_outline(text)),
             ..Stored::default()
         },
-        TaskKind::Proofread | TaskKind::Summary | TaskKind::Title => Stored::default(),
+        TaskKind::Proofread | TaskKind::Summary | TaskKind::Title | TaskKind::AltText => {
+            Stored::default()
+        }
         TaskKind::Structure => {
             let (fragments, keys) = structure_context.clone().unwrap_or_default();
             let found = structure::parse(text, fragments.len(), keys.as_ref().map(Vec::len));
@@ -870,6 +895,81 @@ async fn work_drafting(
         got.retain(|c| language::written_in(&locale, c));
     }
     finish(pool, db, p, "done", None, &result(got)).await
+}
+
+/// 代替テキストの案: 画像を読むモデルで1回だけ呼ぶ（画像の入力も「編集者向けの支援」の予算から）。画像が本文にない・送れない・
+/// 画像を読むモデルがなければ失敗にする（API は始める前に断る）。言語の扱いは要約・タイトルの案と同じ。
+async fn work_alt_text(
+    state: &AppState,
+    db: &workspace_db::WorkspaceDb,
+    p: &Payload,
+) -> Result<()> {
+    let pool = &state.pool;
+    let ws = p.workspace_id;
+    let none = Stored::default();
+    let Some((entry, media)) = p.subject.split_once(':') else {
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    let (entry_id, media_id) = (Uuid::parse_str(entry)?, Uuid::parse_str(media)?);
+    let Some(applied) = applied_schema(pool, ws).await? else {
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    let mut tx = workspace_db::begin(pool, db).await?;
+    let (Some(rev), Some(draft), Some((file, format))) = (
+        revision(&mut tx, entry_id).await?,
+        entries::draft(&mut tx, &applied.manifest, entry_id).await?,
+        alt_text::sendable(&mut tx, media_id).await?,
+    ) else {
+        tx.commit().await?;
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    tx.commit().await?;
+    let Some(ct) = applied.manifest.content_type(&draft.content_type) else {
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    let docs: Vec<&Value> = publishing::rich_text_fields(ct, &draft.fields)
+        .into_iter()
+        .map(|(_, v)| v)
+        .collect();
+    // 使う瞬間に、画像がこの下書きの本文にあるかを照合する（ほかの記事の画像を送らない）
+    let Some((before, after)) = alt_text::context(&docs, media_id) else {
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    let media = &state.config.media;
+    let timeout = std::time::Duration::from_secs(u64::from(media.processing_timeout_seconds));
+    let Some(url) = alt_text::image_data_url(&media.root, ws, &file, format, timeout).await? else {
+        return finish(pool, db, p, "failed", None, &none).await;
+    };
+    let images = [url];
+    let locale = draft.locale.clone();
+    let msgs = alt_text::messages(&before, &after, &locale);
+    let max = alt_text::MAX_OUTPUT_TOKENS;
+    let mut got =
+        match super::llm::call_vision(state, ws, &msgs, &images, max, MAX_REPLY_CHARS).await? {
+            Called::Reply(text) => alt_text::parse(&text),
+            Called::Exhausted(period) => {
+                return finish(pool, db, p, "budgetExhausted", Some(period.as_str()), &none).await;
+            }
+            Called::Failed => return finish(pool, db, p, "failed", None, &none).await,
+        };
+    if !got.iter().all(|c| language::written_in(&locale, c)) {
+        let mut again = msgs.clone();
+        if let Some(user) = again.last_mut() {
+            user.content.push_str(&language::reminder(&locale));
+        }
+        if let Called::Reply(text) =
+            super::llm::call_vision(state, ws, &again, &images, max, MAX_REPLY_CHARS).await?
+        {
+            got = alt_text::parse(&text);
+        }
+        got.retain(|c| language::written_in(&locale, c));
+    }
+    let result = Stored {
+        candidates: Some(got),
+        revision: Some(rev),
+        ..Stored::default()
+    };
+    finish(pool, db, p, "done", None, &result).await
 }
 
 /// 案を当てる先のフィールドの名前（コンテンツタイプの `summaryField`・`titleField`）。

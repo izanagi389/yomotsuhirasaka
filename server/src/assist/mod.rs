@@ -6,6 +6,7 @@
 //!   尽きても公開は妨げない（INV-BUD-02）。公開の処理は、支援の設定・結果・状態を見ない。
 //! - 既定は無効。有効にするのは重い権限 manageLlm を持つ人（公開前の下書きが外部のLLMの提供会社に送られるため）。
 
+pub mod alt_text;
 pub mod conflicts;
 pub mod drafting;
 pub mod language;

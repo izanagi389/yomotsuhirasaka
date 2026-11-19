@@ -547,6 +547,8 @@ export interface WorkspaceLlmView {
     chatInputPrice: number | null;
     chatOutputPrice: number | null;
     embeddingModel: string | null;
+    /** 画像を読むモデル（代替テキストの案。なければサーバーの設定のモデル）。 */
+    visionModel: string | null;
     apiKeySet: boolean;
     apiKeyUpdatedAt: string;
   } | null;
@@ -678,6 +680,19 @@ export interface DraftingSuggestions {
   /** 案を当てる先のフィールド（コンテンツタイプの summaryField・titleField）。 */
   field: string;
   /** 結果が、いまの下書きより前のリビジョンについてのものか。 */
+  outdated: boolean;
+  estimate: { inputTokens: number; outputTokens: number };
+}
+
+/** GET/POST /workspaces/{ws}/entries/{id}/assist/alt-text/{media}（代替テキストの案。2026-11-17）。 */
+export interface AltTextSuggestions {
+  state: AssistState;
+  period?: "month" | "day";
+  /** 案（done のとき）。HTML にせず、文字のまま見せる。 */
+  suggestions?: string[];
+  /** 案を出せるか。出せないときは、その理由。 */
+  available: boolean;
+  reason?: "noVisionModel" | "notInDraft" | "notSendable";
   outdated: boolean;
   estimate: { inputTokens: number; outputTokens: number };
 }

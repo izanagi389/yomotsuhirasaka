@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 本文の画像。代替テキストと「装飾画像」の印をその場で編集する（Q75）。どちらもない画像は公開できない。
+// 代替テキストのない画像には、代替テキストの案（AI）のボタンを横に出す（2026-11-17）。
 // ブロック型のエディタでは、本文の中は画像だけにし、入力は右の欄の「ブロック」タブで行う（抜けは印で知らせる）。
 import { NodeViewWrapper, nodeViewProps } from "@tiptap/vue-3";
 
 import { mediaInfo } from "./media";
+import AltTextSuggest from "~/components/assist/AltTextSuggest.vue";
 import type { MediaInfo } from "~/utils/content";
 
 const props = defineProps(nodeViewProps);
@@ -77,6 +79,12 @@ const inputId = `alt-${Math.random().toString(36).slice(2)}`;
           {{ t("editor.image.decorative") }}
         </label>
         <p v-if="missing" class="text-destructive">{{ t("editor.image.missing") }}</p>
+        <AltTextSuggest
+          v-if="missing && typeof node.attrs.mediaId === 'string'"
+          :media-id="node.attrs.mediaId"
+          :can-apply="editable"
+          @apply="(text: string) => updateAttributes({ alt: text })"
+        />
       </div>
     </div>
   </NodeViewWrapper>

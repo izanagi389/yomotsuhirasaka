@@ -3,6 +3,8 @@
 //! - 接続先はワークスペースの上書きか、インスタンスの設定（Q26）。チャットのモデルがなければ呼ばない。
 //! - 呼ぶ前に、入力の見積もり（1文字＝1トークン）と出力の上限を確保する。足りなければ呼ばず、尽きた期間を返す
 //!   （期間ごとに1回、ワークスペースの管理者に知らせる）。呼んだあと、使用量（なければ文字数）で精算する。
+//! - 画像を読む呼び出し（代替テキストの案。2026-11-17）は、画像を読むモデル（[`call_vision`]）で行う。モデルがなければ呼ばない。
+//!   画像の入力は、1枚あたり [`IMAGE_INPUT_TOKENS`] トークンとして見積もって確保する（精算は相手の使用量で）。
 //! - 温度は [`TEMPERATURE`]。
 //! - 失敗の中身（相手の応答や送った文）はログに書かない。
 
@@ -28,10 +30,45 @@ pub enum Called {
     Failed,
 }
 
+/// 画像1枚の入力の見積もり（トークン数）。主な提供会社の、大きな画像1枚の上限ほどの値にする。
+pub const IMAGE_INPUT_TOKENS: i64 = 1600;
+
 pub async fn call(
     state: &AppState,
     ws: Uuid,
     messages: &[ChatMessage],
+    max_tokens: u32,
+    max_chars: usize,
+) -> Result<Called> {
+    call_inner(state, ws, messages, &[], max_tokens, max_chars).await
+}
+
+/// 画像（`data:` の URL）を付けて、画像を読むモデルで呼ぶ。
+pub async fn call_vision(
+    state: &AppState,
+    ws: Uuid,
+    messages: &[ChatMessage],
+    images: &[String],
+    max_tokens: u32,
+    max_chars: usize,
+) -> Result<Called> {
+    call_inner(state, ws, messages, images, max_tokens, max_chars).await
+}
+
+/// 画像を読むモデルが使えるか（ワークスペースの上書きか、インスタンスの設定にあるか）。
+pub async fn vision_available(state: &AppState, ws: Uuid) -> Result<bool> {
+    Ok(
+        crate::workspace_llm::effective(&state.pool, &state.keys, &state.config, ws)
+            .await?
+            .is_some_and(|(c, _)| c.vision_model.is_some()),
+    )
+}
+
+async fn call_inner(
+    state: &AppState,
+    ws: Uuid,
+    messages: &[ChatMessage],
+    images: &[String],
     max_tokens: u32,
     max_chars: usize,
 ) -> Result<Called> {
@@ -43,10 +80,18 @@ pub async fn call(
     ) else {
         return Ok(Called::Failed);
     };
-    let Some(model) = llm_config.chat_model.clone() else {
+    let model = if images.is_empty() {
+        llm_config.chat_model.clone()
+    } else {
+        llm_config.vision_model.clone()
+    };
+    let Some(model) = model else {
         return Ok(Called::Failed);
     };
-    let input_estimate = crate::answer::prompt::estimate_tokens(messages);
+    let image_tokens =
+        IMAGE_INPUT_TOKENS.saturating_mul(i64::try_from(images.len()).unwrap_or(i64::MAX));
+    let input_estimate =
+        crate::answer::prompt::estimate_tokens(messages).saturating_add(image_tokens);
     let exhausted = |first: bool, period: Period| async move {
         if first {
             audit::record(
@@ -78,7 +123,7 @@ pub async fn call(
     let llm = Llm::new(egress.clone(), llm_config);
     let reply = async {
         let mut stream = llm
-            .chat_stream(&model, messages, max_tokens, Some(TEMPERATURE))
+            .chat_stream_with_images(&model, messages, images, max_tokens, Some(TEMPERATURE))
             .await?;
         let mut text = String::new();
         while let Some(t) = stream.next_text().await? {

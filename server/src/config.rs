@@ -510,6 +510,10 @@ pub struct LlmConfig {
     /// 回答の生成に使うチャットのモデル名（M4、09-qa-chatbot.md）。なければ回答APIを使えない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_model: Option<String>,
+    /// 画像を読むモデル名（代替テキストの案に使う。2026-11-17、10-llm-and-budget.md「編集者向けのAI支援」の7）。
+    /// なければ（ワークスペースの上書きにもなければ）代替テキストの案を使えない。接続先はチャットと同じ。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vision_model: Option<String>,
     /// チャットの単価（100万トークンあたり、入力・出力。任意）。あれば費用も出す（Q138）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_input_price_per_million_tokens: Option<f64>,
@@ -659,6 +663,7 @@ impl std::fmt::Debug for LlmConfig {
                 &self.default_workspace_embedding_tokens_per_day,
             )
             .field("chat_model", &self.chat_model)
+            .field("vision_model", &self.vision_model)
             .field(
                 "chat_input_price_per_million_tokens",
                 &self.chat_input_price_per_million_tokens,

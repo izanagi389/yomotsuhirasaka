@@ -200,6 +200,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "workspace_crest",
         include_str!("../migrations/0041_workspace_crest.sql"),
     ),
+    (
+        42,
+        "workspace_vision_model",
+        include_str!("../migrations/0042_workspace_vision_model.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。

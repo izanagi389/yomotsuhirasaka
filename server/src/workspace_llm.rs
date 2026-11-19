@@ -6,7 +6,8 @@
 //!   送信は外部への送信の共通の仕組みを通る（IPアドレスの固定・内部の宛先の遮断）。
 //! - APIキーは暗号化の鍵で暗号化して持つ（AAD はワークスペースIDと用途。別の行に付け替えても復号できない）。
 //!   管理APIは「設定済みか」と「設定した日時」だけを返し、キーそのものは返さない。ログ・監査ログ・エラーにも出さない。
-//! - チャット（回答の生成）は、上書きの接続先・キー・モデル・単価で行う（[`effective`]）。
+//! - チャット（回答の生成）は、上書きの接続先・キー・モデル・単価で行う（[`effective`]）。画像を読むモデル（代替テキストの案。
+//!   2026-11-17）も、上書きの接続先・キーで、上書きのモデル（なければインスタンスの設定のモデル）を使う。
 //! - 埋め込みは、上書きでモデルを選んだときだけ、上書きの接続先・キーで作る（[`embedding`]）。モデルはサーバーの設定の
 //!   許可の一覧（`[[llm.allowed_embedding_models]]`）の中から選ぶ。モデルを変えたら、すべてのチャンクの埋め込みを作り直す
 //!   ので、manageLlm を持つ人が見積もりを見てから開始する（[`start_embedding_switch`]）。そろうまでは前のモデルで検索を
@@ -54,6 +55,7 @@ type Row = (
     Option<String>,
     Option<f64>,
     Option<f64>,
+    Option<String>,
 );
 
 /// ワークスペースで使う LLM の設定（上書きがあれば、インスタンスの設定に重ねたもの）と、接続先の名前（インスタンスなら空）。
@@ -73,13 +75,14 @@ pub async fn effective(
     }
     let row: Option<Row> = sqlx::query_as(crate::sql!(
         "SELECT endpoint, api_key, to_char(api_key_updated_at AT TIME ZONE 'UTC', {RFC3339}),
-                chat_model, chat_input_price, chat_output_price
+                chat_model, chat_input_price, chat_output_price, vision_model
          FROM yomi.workspace_llm WHERE workspace_id = $1"
     ))
     .bind(workspace)
     .fetch_optional(pool)
     .await?;
-    let Some((endpoint, sealed, _, chat_model, input_price, output_price)) = row else {
+    let Some((endpoint, sealed, _, chat_model, input_price, output_price, vision_model)) = row
+    else {
         return instance;
     };
     let Some(allowed) = base.allowed_endpoints.iter().find(|e| e.name == endpoint) else {
@@ -97,6 +100,7 @@ pub async fn effective(
             base_url: allowed.base_url.clone(),
             api_key: key,
             chat_model: chat_model.or_else(|| base.chat_model.clone()),
+            vision_model: vision_model.or_else(|| base.vision_model.clone()),
             chat_input_price_per_million_tokens: input_price,
             chat_output_price_per_million_tokens: output_price,
             ..base.current()
@@ -299,6 +303,8 @@ pub struct Settings {
     pub chat_output_price: Option<f64>,
     /// 埋め込みのモデル（なければインスタンスの設定のモデル）。
     pub embedding_model: Option<String>,
+    /// 画像を読むモデル（なければインスタンスの設定のモデル）。
+    pub vision_model: Option<String>,
     pub api_key_set: bool,
     pub api_key_updated_at: String,
 }
@@ -310,6 +316,7 @@ type ViewRow = (
     Option<String>,
     Option<f64>,
     Option<f64>,
+    Option<String>,
     Option<String>,
 );
 
@@ -326,7 +333,7 @@ pub async fn view(pool: &PgPool, config: &Config, workspace: Uuid) -> Result<Vie
         .collect();
     let row: Option<ViewRow> = sqlx::query_as(crate::sql!(
         "SELECT endpoint, api_key, to_char(api_key_updated_at AT TIME ZONE 'UTC', {RFC3339}),
-                chat_model, chat_input_price, chat_output_price, embedding_model
+                chat_model, chat_input_price, chat_output_price, embedding_model, vision_model
          FROM yomi.workspace_llm WHERE workspace_id = $1"
     ))
     .bind(workspace)
@@ -337,12 +344,22 @@ pub async fn view(pool: &PgPool, config: &Config, workspace: Uuid) -> Result<Vie
         endpoints,
         embedding_models,
         settings: row.map(
-            |(endpoint, sealed, updated, chat_model, input, output, embedding_model)| Settings {
+            |(
+                endpoint,
+                sealed,
+                updated,
+                chat_model,
+                input,
+                output,
+                embedding_model,
+                vision_model,
+            )| Settings {
                 endpoint,
                 chat_model,
                 chat_input_price: input,
                 chat_output_price: output,
                 embedding_model,
+                vision_model,
                 api_key_set: !sealed.is_empty(),
                 api_key_updated_at: updated,
             },
@@ -367,6 +384,9 @@ pub struct Change {
     /// 埋め込みのモデル（許可の一覧の名前）。項目がなければ変えない。null でインスタンスの設定のモデルに戻す。
     #[serde(default, deserialize_with = "present")]
     pub embedding_model: Option<Option<String>>,
+    /// 画像を読むモデル（代替テキストの案。なければインスタンスの設定のモデル）。チャットのモデルと同じく、送った値に置き換える。
+    #[serde(default)]
+    pub vision_model: Option<String>,
 }
 
 /// 項目が「ない」ことと「null」を区別する（ない: None、null: Some(None)）。
@@ -387,6 +407,7 @@ impl Change {
             (self.chat_input_price.is_some(), "chatInputPrice"),
             (self.chat_output_price.is_some(), "chatOutputPrice"),
             (self.embedding_model.is_some(), "embeddingModel"),
+            (self.vision_model.is_some(), "visionModel"),
         ] {
             if set {
                 out.push(name);
@@ -438,14 +459,19 @@ pub async fn save(
             "`apiKey` must be 1 to {MAX_KEY_CHARS} characters without control characters"
         ))));
     }
-    if let Some(m) = &change.chat_model
-        && (m.trim().is_empty()
-            || m.chars().count() > MAX_MODEL_CHARS
-            || m.chars().any(char::is_control))
-    {
-        return Ok(Err(Rejected::Invalid(format!(
-            "`chatModel` must be 1 to {MAX_MODEL_CHARS} characters without control characters"
-        ))));
+    for (name, model) in [
+        ("chatModel", &change.chat_model),
+        ("visionModel", &change.vision_model),
+    ] {
+        if let Some(m) = model
+            && (m.trim().is_empty()
+                || m.chars().count() > MAX_MODEL_CHARS
+                || m.chars().any(char::is_control))
+        {
+            return Ok(Err(Rejected::Invalid(format!(
+                "`{name}` must be 1 to {MAX_MODEL_CHARS} characters without control characters"
+            ))));
+        }
     }
     if [change.chat_input_price, change.chat_output_price]
         .iter()
@@ -504,15 +530,15 @@ pub async fn save(
            endpoint = $2,
            api_key = COALESCE($3, api_key),
            api_key_updated_at = CASE WHEN $3 IS NULL THEN api_key_updated_at ELSE now() END,
-           chat_model = $4, chat_input_price = $5, chat_output_price = $6,
+           chat_model = $4, chat_input_price = $5, chat_output_price = $6, vision_model = $11,
            embedding_model = CASE WHEN $8 THEN $9 ELSE embedding_model END,
            embedding_dimensions = CASE WHEN $8 THEN $10 ELSE embedding_dimensions END,
            updated_by = $7, updated_at = now()
          WHERE workspace_id = $1"
     } else {
         "INSERT INTO yomi.workspace_llm (workspace_id, endpoint, api_key, chat_model, chat_input_price, chat_output_price, updated_by,
-                                        embedding_model, embedding_dimensions)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 THEN $9 END, CASE WHEN $8 THEN $10 END)"
+                                        embedding_model, embedding_dimensions, vision_model)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 THEN $9 END, CASE WHEN $8 THEN $10 END, $11)"
     };
     let (set_embedding, embedding_model, embedding_dimensions) = match embedding {
         None => (false, None, None),
@@ -530,6 +556,7 @@ pub async fn save(
         .bind(set_embedding)
         .bind(embedding_model)
         .bind(embedding_dimensions)
+        .bind(change.vision_model.as_deref().map(str::trim))
         .execute(&mut *tx)
         .await?;
     crate::audit::record_full(
@@ -588,6 +615,7 @@ mod tests {
             default_workspace_embedding_tokens_per_month: None,
             default_workspace_embedding_tokens_per_day: None,
             chat_model: None,
+            vision_model: None,
             chat_input_price_per_million_tokens: None,
             chat_output_price_per_million_tokens: None,
             default_workspace_answer_input_tokens_per_month: None,
