@@ -31,6 +31,7 @@ async fn workspace_llm_api() {
             default_workspace_embedding_tokens_per_month: None,
             default_workspace_embedding_tokens_per_day: None,
             chat_model: Some("instance-chat".into()),
+            vision_model: None,
             chat_input_price_per_million_tokens: Some(1.0),
             chat_output_price_per_million_tokens: Some(2.0),
             default_workspace_answer_input_tokens_per_month: None,

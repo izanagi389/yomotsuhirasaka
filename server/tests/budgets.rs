@@ -33,6 +33,7 @@ fn llm(per_month: Option<u64>, per_day: Option<u64>) -> LlmConfig {
         default_workspace_embedding_tokens_per_month: per_month,
         default_workspace_embedding_tokens_per_day: per_day,
         chat_model: None,
+        vision_model: None,
         chat_input_price_per_million_tokens: None,
         chat_output_price_per_million_tokens: None,
         default_workspace_answer_input_tokens_per_month: None,

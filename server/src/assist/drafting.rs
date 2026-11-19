@@ -16,7 +16,7 @@ use crate::answer::format::FORMAT;
 use crate::llm::ChatMessage;
 
 /// 1回の呼び出しの出力のトークン数の上限。
-pub const MAX_OUTPUT_TOKENS: u32 = 512;
+pub const MAX_OUTPUT_TOKENS: u32 = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

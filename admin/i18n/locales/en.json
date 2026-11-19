@@ -1259,12 +1259,15 @@
     "estimate": "{chunks} chunks to rebuild, about {tokens} tokens.",
     "estimateCost": "Estimated cost: about {cost}.",
     "startSwitch": "Check the estimate and start the switch",
-    "apiKeyForNewEndpoint": "Enter the API key again when you change the endpoint (the saved key is never sent to another endpoint)."
+    "apiKeyForNewEndpoint": "Enter the API key again when you change the endpoint (the saved key is never sent to another endpoint).",
+    "visionModel": "Image model (optional)",
+    "visionModelPlaceholder": "Leave empty to use the server's model",
+    "visionModelHelp": "Used for alt text suggestions. If neither is set, alt text suggestions are unavailable. Uses the same endpoint and API key as the answer model."
   },
   "assist": {
     "settingsTitle": "AI assist for editors",
     "settingsHelp": "Enables conflict detection on the publish screen, review hints for overdue articles and article outlines from the question log. It runs within the editor assist budget.",
-    "egressNote": "When enabled, unpublished drafts are sent to the external LLM provider. For sites with confidential content, we recommend a local LLM.",
+    "egressNote": "When enabled, unpublished drafts (and images, for alt text suggestions) are sent to the external LLM provider. For sites with confidential content, we recommend a local LLM.",
     "enable": "Use AI assist",
     "disabled": "AI assist is disabled in this workspace.",
     "running": "The AI is checking…",
@@ -1284,7 +1287,7 @@
     "outlineNote": "This outline was written by AI. Check the facts when you write the article.",
     "copy": "Copy",
     "copied": "Copied.",
-    "aiTabNote": "Only when you press a button, the saved draft is sent to the external LLM provider. AI suggestions never change the entry until you apply them.",
+    "aiTabNote": "Only when you press a button, the saved draft (and the image, for alt text suggestions) is sent to the external LLM provider. AI suggestions never change the entry until you apply them.",
     "headingsTitle": "Heading structure",
     "headingsOk": "No problems found in the headings.",
     "headingsNone": "The body has no headings.",
@@ -1323,7 +1326,15 @@
     "titleStart": "Suggest titles",
     "noCandidates": "No suggestions.",
     "candidateApplied": "Applied (edit the field to change it back)",
-    "candidateNote": "Suggestions by AI. Check that they match the article before applying them."
+    "candidateNote": "Suggestions by AI. Check that they match the article before applying them.",
+    "altSuggest": "Suggest with AI",
+    "altSuggestTitle": "Alt text suggestions (AI)",
+    "altSuggestHelp": "These images have no alt text. Pressing the button sends the image and the paragraphs around it to the external LLM provider.",
+    "altNoVision": "No image model is configured, so alt text suggestions are unavailable.",
+    "altNotSendable": "This image cannot be sent (only raster images of 5 MB or less), so alt text suggestions are unavailable.",
+    "altApplied": "Applied to the alt text.",
+    "altImage": "Image {n}",
+    "altAllSet": "All images have alt text."
   },
   "answerTest": {
     "title": "Try an answer",

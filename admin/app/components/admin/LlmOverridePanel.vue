@@ -21,6 +21,8 @@ const { data, error, refresh } = await useAsyncData(`workspace-llm:${props.works
 const endpoint = ref("");
 const apiKey = ref("");
 const chatModel = ref("");
+// 画像を読むモデル（代替テキストの案。2026-11-17）
+const visionModel = ref("");
 const inputPrice = ref("");
 const outputPrice = ref("");
 const embeddingModel = ref("");
@@ -31,6 +33,7 @@ watch(
     endpoint.value = s?.endpoint ?? d?.endpoints[0] ?? "";
     apiKey.value = "";
     chatModel.value = s?.chatModel ?? "";
+    visionModel.value = s?.visionModel ?? "";
     inputPrice.value = s?.chatInputPrice == null ? "" : String(s.chatInputPrice);
     outputPrice.value = s?.chatOutputPrice == null ? "" : String(s.chatOutputPrice);
     embeddingModel.value = s?.embeddingModel ?? "";
@@ -66,6 +69,7 @@ function save() {
   const body: Record<string, unknown> = {
     endpoint: endpoint.value,
     chatModel: chatModel.value.trim() === "" ? undefined : chatModel.value.trim(),
+    visionModel: visionModel.value.trim() === "" ? undefined : visionModel.value.trim(),
     chatInputPrice: price(inputPrice.value),
     chatOutputPrice: price(outputPrice.value),
     embeddingModel: embeddingModel.value === "" ? null : embeddingModel.value,
@@ -126,6 +130,11 @@ const canStart = computed(() => {
         <div class="grid gap-1.5">
           <Label for="llm-chat-model">{{ t("llmOverride.chatModel") }}</Label>
           <Input id="llm-chat-model" v-model="chatModel" class="max-w-md" :disabled="busy" :placeholder="t('llmOverride.chatModelPlaceholder')" />
+        </div>
+        <div class="grid gap-1.5">
+          <Label for="llm-vision-model">{{ t("llmOverride.visionModel") }}</Label>
+          <Input id="llm-vision-model" v-model="visionModel" class="max-w-md" :disabled="busy" :placeholder="t('llmOverride.visionModelPlaceholder')" />
+          <p class="text-xs text-muted-foreground">{{ t("llmOverride.visionModelHelp") }}</p>
         </div>
         <div class="flex flex-wrap gap-3">
           <div class="grid gap-1.5">

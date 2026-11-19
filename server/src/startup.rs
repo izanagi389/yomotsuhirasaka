@@ -346,6 +346,13 @@ fn check_llm(llm: &crate::config::LlmConfig, exceptions: &[String]) -> Vec<Probl
     {
         problems.push(Problem::fatal("`llm.chat_model` is empty"));
     }
+    if llm
+        .vision_model
+        .as_deref()
+        .is_some_and(|m| m.trim().is_empty())
+    {
+        problems.push(Problem::fatal("`llm.vision_model` is empty"));
+    }
     for (name, price) in [
         (
             "chat_input_price_per_million_tokens",
@@ -714,6 +721,7 @@ mod tests {
             default_workspace_embedding_tokens_per_month: None,
             default_workspace_embedding_tokens_per_day: None,
             chat_model: None,
+            vision_model: None,
             chat_input_price_per_million_tokens: None,
             chat_output_price_per_million_tokens: None,
             default_workspace_answer_input_tokens_per_month: None,
@@ -809,6 +817,7 @@ mod tests {
             default_workspace_embedding_tokens_per_month: None,
             default_workspace_embedding_tokens_per_day: None,
             chat_model: None,
+            vision_model: None,
             chat_input_price_per_million_tokens: None,
             chat_output_price_per_million_tokens: None,
             default_workspace_answer_input_tokens_per_month: None,

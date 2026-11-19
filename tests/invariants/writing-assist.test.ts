@@ -257,7 +257,12 @@ inv(
         await setBudget(fresh, direction === "input" ? limited : open, direction === "output" ? limited : open);
         await mockLlm.clearRequests(llmKey);
         // 出力の上限を確かめるときは、1回の出力を長くして、上限に早く届くようにする
-        const content = direction === "output" ? Array.from({ length: 20 }, () => OUTPUT[kind]).join("\n") : OUTPUT[kind];
+        // （どの支援でも1回あたり約 OUTPUT_CHARS 文字にし、BURST 件の合計が LIMIT を確実に超えるようにする）
+        const OUTPUT_CHARS = 2_000;
+        const content =
+          direction === "output"
+            ? Array.from({ length: Math.ceil(OUTPUT_CHARS / (OUTPUT[kind].length + 1)) }, () => OUTPUT[kind]).join("\n")
+            : OUTPUT[kind];
         await mockLlm.setStrategy(llmKey, { kind: "fixed", content });
         const drafts = await Promise.all(
           Array.from({ length: BURST }, async (_, i) => {

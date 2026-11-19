@@ -26,6 +26,7 @@ struct Raw {
     proofread_line: String,
     summary_line: String,
     title_line: String,
+    alt_line: String,
 }
 
 pub struct Format {
@@ -53,6 +54,8 @@ pub struct Format {
     pub summary_line: Regex,
     /// タイトルの案（執筆支援）の出力の行。1つ目の組が案。
     pub title_line: Regex,
+    /// 代替テキストの案（執筆支援）の出力の行。1つ目の組が案。
+    pub alt_line: Regex,
 }
 
 pub static FORMAT: LazyLock<Format> = LazyLock::new(|| {
@@ -72,6 +75,7 @@ pub static FORMAT: LazyLock<Format> = LazyLock::new(|| {
         proofread_line: re(&raw.proofread_line),
         summary_line: re(&raw.summary_line),
         title_line: re(&raw.title_line),
+        alt_line: re(&raw.alt_line),
     }
 });
 

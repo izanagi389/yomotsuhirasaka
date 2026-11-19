@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { blockTarget, setBlockAttrs, type BlockTarget } from "./blocks";
 import { mediaInfo } from "./media";
+import AltTextSuggest from "~/components/assist/AltTextSuggest.vue";
 import type { MediaInfo } from "~/utils/content";
 
 const { t } = useI18n();
@@ -141,6 +142,12 @@ function setCustomNumber(a: CustomAttrDecl, v: string | number) {
           {{ t("editor.image.decorative") }}
         </label>
         <p v-if="altMissing" class="text-destructive">{{ t("editor.image.missing") }}</p>
+        <AltTextSuggest
+          v-if="altMissing && typeof attrs['mediaId'] === 'string'"
+          :media-id="attrs['mediaId']"
+          :can-apply="editable"
+          @apply="(text: string) => set({ alt: text })"
+        />
       </div>
 
       <div v-else-if="kind === 'embed'" class="grid gap-1">

@@ -238,9 +238,34 @@ impl Llm {
         max_tokens: u32,
         temperature: Option<f32>,
     ) -> Result<ChatStream, LlmError> {
+        self.chat_stream_with_images(model, messages, &[], max_tokens, temperature)
+            .await
+    }
+
+    /// 画像付きのチャット（代替テキストの案。2026-11-17）。画像（`data:` の URL）は、最後のユーザーのメッセージに
+    /// 文字の部品に続けて付ける（OpenAI 互換の `image_url` の部品）。画像がなければ [`Self::chat_stream`] と同じ。
+    pub async fn chat_stream_with_images(
+        &self,
+        model: &str,
+        messages: &[ChatMessage],
+        images: &[String],
+        max_tokens: u32,
+        temperature: Option<f32>,
+    ) -> Result<ChatStream, LlmError> {
+        let last_user = messages.iter().rposition(|m| m.role == "user");
         let messages: Vec<Value> = messages
             .iter()
-            .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+            .enumerate()
+            .map(|(i, m)| {
+                if images.is_empty() || Some(i) != last_user {
+                    return serde_json::json!({ "role": m.role, "content": m.content });
+                }
+                let mut parts = vec![serde_json::json!({ "type": "text", "text": m.content })];
+                parts.extend(images.iter().map(
+                    |url| serde_json::json!({ "type": "image_url", "image_url": { "url": url } }),
+                ));
+                serde_json::json!({ "role": m.role, "content": parts })
+            })
             .collect();
         let mut body = serde_json::json!({
             "model": model,

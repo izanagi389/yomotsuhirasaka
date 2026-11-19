@@ -515,6 +515,10 @@ pub fn router(state: AppState) -> Router {
             get(admin_assist::get_title).post(admin_assist::start_title),
         )
         .route(
+            "/workspaces/{ws}/entries/{id}/assist/alt-text/{media}",
+            get(admin_assist::get_alt_text).post(admin_assist::start_alt_text),
+        )
+        .route(
             "/workspaces/{ws}/question-log/candidates/{id}/outline",
             get(admin_assist::get_outline).post(admin_assist::start_outline),
         )
