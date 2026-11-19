@@ -117,6 +117,8 @@
 | `slug_taken` | 409 | 同じロケールの別の記事が同じ値を使っています |
 | `url_taken` | 409 | 公開中の別の記事が同じ URL を使っています |
 | `alt_text_missing` | 422 | 代替テキストも装飾画像の印もない画像があります |
+| `field_not_configured` | 409 | コンテンツタイプに要約やタイトルの項目（`summaryField`・`titleField`）がないため、AI の案を出せません |
+| `alt_text_unavailable` | 409 | 画像を読むモデルがないか、画像が下書きの本文にないか、送れない画像（5MB 超など）のため、代替テキストの案を出せません |
 | `url_function_failed` | 422 | URL生成関数に問題があります。開発者に直してもらいます |
 | `hook_failed` | 422 | 公開前のフックに問題があります。開発者に直してもらいます |
 | `publish_rejected_by_hook` | 422 | 公開前のフックが公開を止めました |
