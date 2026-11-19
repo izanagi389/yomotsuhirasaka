@@ -1,6 +1,6 @@
 {
   "name": "@yomotsuhirasaka/cli",
-  "version": "1.0.0-rc.5",
+  "version": "1.0.0-rc.6",
   "private": true,
   "description": "CMSのCLI（スキーマのデプロイ、カスタムノードの雛形、既存のブログからの取り込み）",
   "license": "Apache-2.0",
@@ -17,7 +17,7 @@
     "test": "npm run build && node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
-    "@yomotsuhirasaka/editor-schema": "1.0.0-rc.5",
+    "@yomotsuhirasaka/editor-schema": "1.0.0-rc.6",
     "@tiptap/core": "3.34.0",
     "@tiptap/pm": "3.34.0",
     "@tiptap/starter-kit": "3.34.0",
