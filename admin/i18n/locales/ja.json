@@ -1316,7 +1316,14 @@
     "fixNotApplicable": "元の語句が2か所以上あるか、書式を含むため、自動では当てられません。本文で直してください。",
     "noFixes": "提案はありませんでした。",
     "proofreadPartial": "途中までの提案です（残りのセクションは見ていません）。",
-    "proofreadNote": "AIによる提案です。意味が変わっていないか確かめてから当ててください。"
+    "proofreadNote": "AIによる提案です。意味が変わっていないか確かめてから当ててください。",
+    "summaryTitle": "要約の案（AI）",
+    "summaryStart": "要約の案を出す",
+    "titleTitle": "タイトルの案（AI）",
+    "titleStart": "タイトルの案を出す",
+    "noCandidates": "案は出ませんでした。",
+    "candidateApplied": "当てました（元に戻すには、項目の欄で書き直してください）",
+    "candidateNote": "AIによる案です。内容が記事と合っているか確かめてから当ててください。"
   },
   "answerTest": {
     "title": "回答を試す",

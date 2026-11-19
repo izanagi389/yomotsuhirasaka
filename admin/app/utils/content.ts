@@ -669,6 +669,19 @@ export interface ProofreadCheck {
   estimate: { inputTokens: number; outputTokens: number };
 }
 
+/** GET/POST /workspaces/{ws}/entries/{id}/assist/summary・title（要約とタイトルの案。2026-11-17）。 */
+export interface DraftingSuggestions {
+  state: AssistState;
+  period?: "month" | "day";
+  /** 案（done のとき）。HTML にせず、文字のまま見せる。 */
+  suggestions?: string[];
+  /** 案を当てる先のフィールド（コンテンツタイプの summaryField・titleField）。 */
+  field: string;
+  /** 結果が、いまの下書きより前のリビジョンについてのものか。 */
+  outdated: boolean;
+  estimate: { inputTokens: number; outputTokens: number };
+}
+
 /** POST /workspaces/{ws}/answer-test（回答のテスト。M4、09-qa-chatbot.md「根拠と判定」）。 */
 export interface AnswerTestResult {
   /** マスクした後の質問文（LLM と埋め込みに送ったもの）。 */
