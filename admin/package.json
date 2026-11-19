@@ -16,7 +16,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "@lucide/vue": "1.70.0",
+    "@lucide/vue": "1.73.0",
     "@yomotsuhirasaka/editor-schema": "1.0.0-rc.5",
     "@yomotsuhirasaka/preview": "1.0.0-rc.5",
     "@nuxtjs/i18n": "10.6.0",
@@ -39,8 +39,8 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.5",
-    "eslint": "10.14.0",
-    "eslint-plugin-vue": "10.12.0",
+    "eslint": "10.15.0",
+    "eslint-plugin-vue": "10.12.1",
     "tailwindcss": "4.3.5",
     "typescript": "7.0.2",
     "typescript-eslint": "8.72.2",
