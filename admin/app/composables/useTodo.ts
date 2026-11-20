@@ -3,5 +3,5 @@ import type { TodoItem } from "~/utils/content";
 
 export function useTodo(workspaceId: string) {
   const api = useApi();
-  return useAsyncData(`todo:${workspaceId}`, () => api.get<{ items: TodoItem[] }>(`/workspaces/${workspaceId}/todo`).then((r) => r.items));
+  return useFreshAsyncData(`todo:${workspaceId}`, () => api.get<{ items: TodoItem[] }>(`/workspaces/${workspaceId}/todo`).then((r) => r.items));
 }

@@ -4,7 +4,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { WorkspaceInfo } from "~/utils/content";
 
 interface TokenSummary {
   id: string;
@@ -21,7 +20,7 @@ const { t, locale } = useI18n();
 const api = useApi();
 const { me } = useAuth();
 const { data: tokens, error, refresh } = await useAsyncData("me:tokens", () => api.get<TokenSummary[]>("/me/tokens"));
-const { data: workspaces } = await useAsyncData("workspaces", () => api.get<WorkspaceInfo[]>("/workspaces"));
+const { data: workspaces } = await useWorkspaces();
 // 選べるのは所属しているワークスペースだけ（トークンでは、サーバー管理者としての全体の権限は使えない）
 const memberOf = computed(() => (workspaces.value ?? []).filter((w) => w.role !== null));
 const workspaceName = (id: string) => workspaces.value?.find((w) => w.id === id)?.name ?? id;
