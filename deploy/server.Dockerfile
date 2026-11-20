@@ -19,9 +19,16 @@ COPY admin ./admin
 WORKDIR /src/admin
 RUN npx nuxt prepare && npm run generate
 
-FROM rust:1.99-slim-trixie@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7 AS build
+# Rust のツールチェーン。リリースのビルドと、手元のチェック用のコンテナ（deploy/docker-compose.tools.yml）が同じものを使う
+FROM rust:1.99-slim-trixie@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7 AS toolchain
 # パスキーの照合（webauthn-rs）が OpenSSL を使う
 RUN apt-get update -q && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
+# 手元のチェック用（deploy/docker-compose.tools.yml）。slim のイメージには rustfmt と clippy が入っていないので足す。リリースのビルドは使わない
+FROM toolchain AS checks
+RUN rustup component add rustfmt clippy
+
+FROM toolchain AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY server ./server
