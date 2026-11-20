@@ -1,0 +1,2 @@
+# clippy の設定。doc_markdown（説明文のコード名にバッククォートを求める）が、固有名詞をコード名と誤認しないようにする
+doc-valid-idents = ["MaxMind", ".."]

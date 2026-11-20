@@ -243,11 +243,18 @@ async fn emergency_cli() {
 /// すべてのワークスペースのプレビュー用トークンも失効させる。配信APIのキーと承諾済みの所属には触れない。
 #[tokio::test]
 async fn emergency_revokes_links_already_handed_out() {
+    const RESETS: &str =
+        "SELECT count(*) FROM yomi.reset_tokens WHERE used_at IS NULL AND revoked_at IS NULL";
+    const INVITES: &str =
+        "SELECT count(*) FROM yomi.invitations WHERE accepted_at IS NULL AND revoked_at IS NULL";
+    const MEMBERS: &str = "SELECT count(*) FROM yomi.memberships";
     with_scratch(|app, migration| async move {
         let server = start(config(&app, &migration)).await;
         let (root, token) = root_with_deploy_token(&server).await;
         assert_eq!(
-            deploy(&server, &token, "blog", &blog_manifest(), "").await.status,
+            deploy(&server, &token, "blog", &blog_manifest(), "")
+                .await
+                .status,
             200
         );
         let a = workspace_with_template(&server, &root, "A", "blog").await;
@@ -257,7 +264,14 @@ async fn emergency_revokes_links_already_handed_out() {
         let user = user_id(&server, "user@example.test").await;
 
         // SMTPがないので、リンクはサーバー管理者の画面に出る（＝出回りうる）
-        let res = send(&server, "POST", &format!("/api/admin/users/{user}/password-reset"), &root, None).await;
+        let res = send(
+            &server,
+            "POST",
+            &format!("/api/admin/users/{user}/password-reset"),
+            &root,
+            None,
+        )
+        .await;
         assert_eq!(res.status, 201, "{}", res.body);
         let res = send(
             &server,
@@ -292,7 +306,12 @@ async fn emergency_revokes_links_already_handed_out() {
 
         let live = |sql: &'static str| {
             let pool = server.pool.clone();
-            async move { sqlx::query_scalar::<_, i64>(sql).fetch_one(&pool).await.unwrap() }
+            async move {
+                sqlx::query_scalar::<_, i64>(sql)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap()
+            }
         };
         let live_previews = || {
             let pool = server.pool.clone();
@@ -314,12 +333,9 @@ async fn emergency_revokes_links_already_handed_out() {
                 n
             }
         };
-        const RESETS: &str = "SELECT count(*) FROM yomi.reset_tokens WHERE used_at IS NULL AND revoked_at IS NULL";
-        const INVITES: &str = "SELECT count(*) FROM yomi.invitations WHERE accepted_at IS NULL AND revoked_at IS NULL";
         assert_eq!(live(RESETS).await, 1);
         assert_eq!(live(INVITES).await, 1);
         assert_eq!(live_previews().await, 2);
-        const MEMBERS: &str = "SELECT count(*) FROM yomi.memberships";
         let members = live(MEMBERS).await;
 
         let dir =
@@ -337,7 +353,11 @@ async fn emergency_revokes_links_already_handed_out() {
             .arg(&path)
             .output()
             .unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
             stdout.contains("1 reset links, 1 pending invitations and 2 preview links"),

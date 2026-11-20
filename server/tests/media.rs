@@ -21,10 +21,11 @@ fn error(res: &Resp) -> (u16, Option<String>) {
 }
 
 fn png(w: u32, h: u32, seed: u8) -> Vec<u8> {
+    // 座標の下位1バイトから色を作る（256 で一周するのは意図どおり）
     let img = RgbImage::from_fn(w, h, |x, y| {
         Rgb([
-            (x as u8).wrapping_mul(31) ^ seed,
-            (y as u8).wrapping_mul(17),
+            x.to_le_bytes()[0].wrapping_mul(31) ^ seed,
+            y.to_le_bytes()[0].wrapping_mul(17),
             seed,
         ])
     });

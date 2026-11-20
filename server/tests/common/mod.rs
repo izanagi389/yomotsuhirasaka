@@ -26,12 +26,11 @@ pub struct Scratch {
 
 /// `postgres://user:pw@host:port/db?...` から `host:port` を取り出す。
 fn host_port(url: &str) -> String {
-    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let authority = rest.split(['/', '?']).next().unwrap_or("");
     authority
         .rsplit_once('@')
-        .map(|(_, h)| h)
-        .unwrap_or(authority)
+        .map_or(authority, |(_, h)| h)
         .to_owned()
 }
 
@@ -134,7 +133,7 @@ where
     F: FnOnce(DatabaseConfig, DatabaseConfig) -> Fut,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
-    with_scratch_at("YOMI_TEST_PG_SUPERUSER_URL", &[], body).await
+    with_scratch_at("YOMI_TEST_PG_SUPERUSER_URL", &[], body).await;
 }
 
 /// [`with_scratch`] と同じ。スーパーユーザーの接続先を環境変数 `var` から読み（なければ飛ばす）、

@@ -14,7 +14,13 @@ use uuid::Uuid;
 use yomi_server::workspace_db::WorkspaceDb;
 
 fn png() -> Vec<u8> {
-    let img = RgbImage::from_fn(8, 8, |x, y| Rgb([x as u8 * 30, y as u8 * 30, 7]));
+    let img = RgbImage::from_fn(8, 8, |x, y| {
+        Rgb([
+            u8::try_from(x).unwrap() * 30,
+            u8::try_from(y).unwrap() * 30,
+            7,
+        ])
+    });
     let mut out = Cursor::new(Vec::new());
     DynamicImage::ImageRgb8(img)
         .write_to(&mut out, ImageFormat::Png)

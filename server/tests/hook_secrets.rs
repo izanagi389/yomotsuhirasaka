@@ -66,7 +66,7 @@ async fn secrets_are_write_only_and_reach_only_declared_async_hooks() {
 
         // 宣言した名前だけを復号する。他のワークスペースからは読めない
         let keys = &server.state.keys;
-        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let names = |n: &[&str]| n.iter().map(std::string::ToString::to_string).collect::<Vec<_>>();
         let loaded = hook_secrets::load(&server.pool, keys, ws, &names(&["API_KEY", "NONE"])).await.unwrap();
         assert_eq!(loaded.get("API_KEY").map(String::as_str), Some(VALUE));
         assert_eq!(loaded.len(), 1);

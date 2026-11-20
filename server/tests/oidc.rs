@@ -42,7 +42,7 @@ const JIT_DOMAIN: &str = "jit.example.test";
 #[derive(Clone)]
 struct Idp {
     issuer: String,
-    /// 認可コード → (IDトークンのクレーム, code_challenge)
+    /// 認可コード → (IDトークンのクレーム, `code_challenge`)
     codes: Arc<Mutex<HashMap<String, (Value, String)>>>,
 }
 
@@ -71,10 +71,11 @@ impl Idp {
 }
 
 fn chrono_now() -> i64 {
-    std::time::SystemTime::now()
+    let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64
+        .as_secs();
+    i64::try_from(secs).unwrap()
 }
 
 async fn token(
@@ -112,7 +113,7 @@ async fn start_idp() -> Idp {
     let issuer = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
     let idp = Idp {
         issuer: issuer.clone(),
-        codes: Default::default(),
+        codes: Arc::default(),
     };
     let key = idp_key();
     let mut jwk = jsonwebtoken::jwk::Jwk::from_encoding_key(&key, Algorithm::ES256).unwrap();

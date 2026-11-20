@@ -71,13 +71,16 @@ impl QuerySlots {
     fn new(total: u32) -> Self {
         Self {
             total: Arc::new(tokio::sync::Semaphore::new(total as usize)),
-            per_workspace: Default::default(),
+            per_workspace: std::sync::Mutex::default(),
         }
     }
 
     /// ワークスペースの実行枠。数はワークスペースの数までしか増えない。
     pub fn for_workspace(&self, ws: uuid::Uuid, limit: u32) -> Arc<tokio::sync::Semaphore> {
-        let mut map = self.per_workspace.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self
+            .per_workspace
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         map.entry(ws)
             .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(limit as usize)))
             .clone()
@@ -275,9 +278,9 @@ impl AppState {
             keys,
             geoip,
             passkeys,
-            graphql: Default::default(),
-            search_cache: Default::default(),
-            delivery_limiter: Default::default(),
+            graphql: crate::delivery::schema::Cache::default(),
+            search_cache: crate::search::query::Cache::default(),
+            delivery_limiter: crate::delivery::limiter::Limiter::default(),
         }))
     }
 }

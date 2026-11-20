@@ -375,7 +375,7 @@ struct Job {
     schedule_id: Uuid,
 }
 
-/// 予約の時刻に、予約版を公開する。公開できなければやり直し（Outcome::Retry）、24時間たったら失敗にする。
+/// 予約の時刻に、予約版を公開する。公開できなければやり直し（`Outcome::Retry`）、24時間たったら失敗にする。
 pub async fn run(state: &AppState, payload: &[u8], attempts: i32) -> anyhow::Result<Outcome> {
     let Ok(job) = serde_json::from_slice::<Job>(payload) else {
         return Ok(Outcome::Fail("invalid_payload"));

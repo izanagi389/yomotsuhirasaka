@@ -1,6 +1,6 @@
 //! キーワード検索の結合テスト（08-search-and-related.md、M3）。pg_bigm の入った PostgreSQL を使う。
 //!
-//! 環境変数 `YOMI_TEST_PG_BIGM_URL` に、pg_bigm と pgvector の入った PostgreSQL（`deploy/postgres.Dockerfile`）の
+//! 環境変数 `YOMI_TEST_PG_BIGM_URL` に、`pg_bigm` と pgvector の入った PostgreSQL（`deploy/postgres.Dockerfile`）の
 //! スーパーユーザーの接続先があるときだけ実行する。拡張がない環境の扱い（INV-SRC-05）は、約束のテストが確かめる。
 //! LLMの接続先は設定しない（キーワード検索は、埋め込みがなくても動く）。
 
@@ -41,8 +41,8 @@ fn matched(hit: &Value) -> Vec<String> {
         .iter()
         .map(|m| {
             let (s, l) = (
-                m["start"].as_u64().unwrap() as usize,
-                m["length"].as_u64().unwrap() as usize,
+                usize::try_from(m["start"].as_u64().unwrap()).unwrap(),
+                usize::try_from(m["length"].as_u64().unwrap()).unwrap(),
             );
             String::from_utf16(&units[s..s + l]).unwrap()
         })

@@ -12,6 +12,7 @@
 //! - ログには、本文・断片・LLM の出力を書かない（原則7）。
 
 use std::collections::HashSet;
+use std::fmt::Write as _;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -269,7 +270,7 @@ pub fn messages(sections: &[String], fragments: &[String], locale: &str) -> Vec<
     );
     let mut user = String::from("Draft sections:\n");
     for (i, s) in sections.iter().enumerate() {
-        user.push_str(&format!("({}) {}\n", i + 1, one_line(s)));
+        let _ = writeln!(user, "({}) {}", i + 1, one_line(s));
     }
     user.push_str("\nFragments of other articles:\n");
     for (i, f) in fragments.iter().enumerate() {

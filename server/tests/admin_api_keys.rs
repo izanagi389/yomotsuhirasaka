@@ -1,7 +1,7 @@
 //! 配信APIのキーの結合テスト（本物のPostgreSQLとHTTPを使う）。
 //!
 //! 環境変数 `YOMI_TEST_PG_SUPERUSER_URL` があるときだけ実行する。
-//! キーを使う配信APIは後の段階で作る。ここでは照合の関数（api_keys::authenticate）を直接確かめる。
+//! キーを使う配信APIは後の段階で作る。ここでは照合の関数（`api_keys::authenticate`）を直接確かめる。
 
 mod common;
 

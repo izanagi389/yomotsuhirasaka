@@ -438,6 +438,7 @@ async fn disabled_users_cannot_log_in_or_use_sessions() {
 
 #[tokio::test]
 async fn create_server_admin_cli() {
+    use std::io::Write as _;
     with_scratch(|app, migration| async move {
         let dir =
             std::env::temp_dir().join(format!("yomi-cli-test-{}", uuid::Uuid::new_v4().simple()));
@@ -460,7 +461,6 @@ async fn create_server_admin_cli() {
                 .stderr(std::process::Stdio::piped())
                 .spawn()
                 .unwrap();
-            use std::io::Write as _;
             child
                 .stdin
                 .take()
@@ -598,6 +598,7 @@ async fn me_reports_remaining_reauth_time() {
 /// 他の場所からの失敗が続いても、前にログインした端末からは入れる。その端末の失敗は端末ごとに数える（R9）。
 #[tokio::test]
 async fn known_devices_are_not_locked_out_by_failures_elsewhere() {
+    const WRONG: &str = "wrong-password-for-the-test";
     with_scratch(|app, migration| async move {
         let server = start(config(&app, &migration)).await;
         create_user(&server.pool, "bob@example.test", false).await;
@@ -614,7 +615,6 @@ async fn known_devices_are_not_locked_out_by_failures_elsewhere() {
                 request(server, "POST", "/api/admin/session", &headers, Some(&body)).await
             }
         };
-        const WRONG: &str = "wrong-password-for-the-test";
         // 端末のCookieを受け取る
         let first = attempt(PASSWORD, "198.18.3.1", None).await;
         assert_eq!(first.status, 200, "{}", first.body);

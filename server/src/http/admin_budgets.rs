@@ -95,6 +95,8 @@ async fn part(
         used_today: usage.day,
         exhausted_at: usage.exhausted_at,
         price_per_million_tokens: price,
+        // トークン数は 2^53 よりずっと小さいので、f64 にしても値は変わらない
+        #[allow(clippy::cast_precision_loss)]
         cost_this_month: price.map(|p| p * usage.month as f64 / 1_000_000.0),
     })
 }

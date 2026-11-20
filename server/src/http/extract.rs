@@ -228,6 +228,8 @@ pub struct ClientIp(pub IpAddr);
 impl FromRequestParts<AppState> for ClientIp {
     type Rejection = ApiError;
 
+    // トレイトが async fn の形を求める（中で待つ処理はない）
+    #[allow(clippy::unused_async_trait_impl)]
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
         let ConnectInfo(peer) = parts
             .extensions

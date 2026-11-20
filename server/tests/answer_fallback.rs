@@ -1,7 +1,7 @@
 //! 質問応答の根拠の、既定のロケールへのフォールバック（09-qa-chatbot.md、M4）の結合テスト。
 //! 断片の選び方（`search::query::fragments`）を、キーワード検索だけで確かめる（LLMの接続先は設定しない）。
 //!
-//! 環境変数 `YOMI_TEST_PG_BIGM_URL` に、pg_bigm の入った PostgreSQL（`deploy/postgres.Dockerfile`）の
+//! 環境変数 `YOMI_TEST_PG_BIGM_URL` に、`pg_bigm` の入った PostgreSQL（`deploy/postgres.Dockerfile`）の
 //! スーパーユーザーの接続先があるときだけ実行する。
 
 mod common;

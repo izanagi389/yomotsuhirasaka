@@ -707,7 +707,7 @@ fn set_disabled_main(config_path: &Path, email: &str, disabled: bool) -> ExitCod
         let changed = auth::users::set_disabled(&pool, user_id, disabled).await?;
         match (changed, disabled) {
             (true, true) => {
-                println!("{email} was stopped. All sessions and personal tokens were revoked.")
+                println!("{email} was stopped. All sessions and personal tokens were revoked.");
             }
             (true, false) => println!("{email} can sign in again."),
             (false, true) => println!("{email} was already stopped."),
@@ -1000,7 +1000,7 @@ async fn serve(config: Config) -> Result<()> {
         tracing::error!("cannot check the embedding models of workspaces: {e:#}");
     }
     yomi_server::http::realtime::spawn_listener(state.clone());
-    worker::spawn(state.clone());
+    worker::spawn(&state);
     worker::spawn_sweeper(state.clone());
     yomi_server::search::batch::spawn_scheduler(state.clone());
     yomi_server::audit_export::spawn(state.clone());

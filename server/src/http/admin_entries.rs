@@ -52,6 +52,8 @@ pub(super) fn not_deployed() -> ApiError {
     )
 }
 
+// 呼び出し側はその場で一覧を作って渡すので、所有権ごと受け取る
+#[allow(clippy::needless_pass_by_value)]
 pub(super) fn invalid(problems: Vec<String>) -> ApiError {
     ApiError::new(
         StatusCode::UNPROCESSABLE_ENTITY,

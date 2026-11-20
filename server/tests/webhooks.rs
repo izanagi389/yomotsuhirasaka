@@ -146,7 +146,7 @@ async fn webhooks_are_signed_and_carry_no_content() {
         let t = parts.iter().find(|p| p.0 == "t").unwrap().1;
         let event_id = parts.iter().find(|p| p.0 == "id").unwrap().1;
         let v1 = parts.iter().find(|p| p.0 == "v1").unwrap().1;
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let now = i64::try_from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()).unwrap();
         assert!((t.parse::<i64>().unwrap() - now).abs() < 300);
         let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(format!("{t}.{event_id}.{payload}").as_bytes());
