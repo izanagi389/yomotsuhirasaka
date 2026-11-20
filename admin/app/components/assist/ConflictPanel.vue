@@ -18,7 +18,7 @@ onMounted(start);
     <template v-if="result.state === 'done'">
       <p v-if="result.conflicts.length === 0" class="text-muted-foreground">{{ t("assist.noConflicts") }}</p>
       <ul v-else class="grid gap-2">
-        <li v-for="c in result.conflicts" :key="`${c.entryId}:${c.explanation}`" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3">
+        <li v-for="c in result.conflicts" :key="`${c.entryId}:${c.explanation}`" class="rounded-md border border-warning/50 bg-warning/10 p-3">
           <p v-if="c.explanation">{{ c.explanation }}</p>
           <p v-else class="text-muted-foreground">{{ t("assist.explanationWithheld") }}</p>
           <NuxtLink :to="`/w/${workspaceId}/entries/${c.entryId}`" target="_blank" class="text-primary underline">{{ t("assist.openOther") }}</NuxtLink>

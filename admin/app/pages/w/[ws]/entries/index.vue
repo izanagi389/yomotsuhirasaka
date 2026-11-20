@@ -21,6 +21,17 @@ const typeFilter = ref("");
 const localeFilter = ref("");
 const statusFilter = ref<"all" | "published" | "draft">("all");
 const query = ref("");
+// 状態の絞り込みは選択肢の組（radiogroup）なので、Tab では1つにだけ止まり、矢印キーで選び直す（WAI-ARIA の作法）
+const STATUSES = ["all", "published", "draft"] as const;
+function moveStatus(e: KeyboardEvent) {
+  const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+  if (step === 0) return;
+  e.preventDefault();
+  const group = e.currentTarget as HTMLElement;
+  const next = STATUSES[(STATUSES.indexOf(statusFilter.value) + step + STATUSES.length) % STATUSES.length]!;
+  statusFilter.value = next;
+  void nextTick(() => group.querySelector<HTMLElement>(`[data-status="${next}"]`)?.focus());
+}
 const contentType = (name: string) => manifest.value?.contentTypes.find((c) => c.name === name);
 const titleOf = (e: EntrySummary) => entryTitle(contentType(e.contentType), e.fields);
 const shown = computed(() => {
@@ -82,7 +93,7 @@ async function create() {
     </PageHeader>
     <FormError :error="error ?? listError ?? (createOpen ? null : createError)" />
     <p v-if="schema && !manifest" class="text-muted-foreground">{{ t("entries.noSchema") }}</p>
-    <p v-if="schema?.state === 'pending'" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">
+    <p v-if="schema?.state === 'pending'" class="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status">
       {{ t("entries.migrationPending") }}
     </p>
 
@@ -93,13 +104,15 @@ async function create() {
         </Button>
       </EmptyState>
       <div v-else class="flex flex-wrap items-center gap-2.5 text-sm">
-        <div role="radiogroup" :aria-label="t('entries.status')" class="flex rounded-[9px] bg-muted p-[3px]">
+        <div role="radiogroup" :aria-label="t('entries.status')" class="flex rounded-[9px] bg-muted p-[3px]" @keydown="moveStatus">
           <button
-            v-for="f in (['all', 'published', 'draft'] as const)"
+            v-for="f in STATUSES"
             :key="f"
             type="button"
             role="radio"
             :aria-checked="statusFilter === f"
+            :tabindex="statusFilter === f ? 0 : -1"
+            :data-status="f"
             class="h-8 rounded-[7px] px-3 text-[13px]"
             :class="statusFilter === f ? 'bg-card font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground'"
             @click="statusFilter = f"
@@ -142,7 +155,7 @@ async function create() {
                 </NuxtLink>
               </td>
               <td class="px-3 py-3">
-                <span class="inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap" :class="e.published ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'">
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap" :class="e.published ? 'text-success-text' : 'text-muted-foreground'">
                   <svg aria-hidden="true" width="10" height="10" viewBox="0 0 12 12"><path d="M6 0.8L11.2 6L6 11.2L0.8 6Z" fill="currentColor" /></svg>
                   {{ e.published ? t("entries.published") : t("entries.draft") }}
                 </span>

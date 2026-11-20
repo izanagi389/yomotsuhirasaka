@@ -41,7 +41,7 @@ function sectionName(s: { anchor: string | null; title: string | null; field?: s
 }
 // 文字の色は変えず、背景と左の線で示す（明るい・暗いテーマのどちらでも読めるように）
 const lineClass = (kind: string) =>
-  kind === "removed" ? "border-l-2 border-destructive bg-destructive/15" : kind === "added" ? "border-l-2 border-emerald-500 bg-emerald-500/15" : "border-l-2 border-transparent";
+  kind === "removed" ? "border-l-2 border-destructive bg-destructive/15" : kind === "added" ? "border-l-2 border-success bg-success/15" : "border-l-2 border-transparent";
 
 const reflecting = ref(false);
 async function reflect() {

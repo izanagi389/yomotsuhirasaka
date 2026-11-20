@@ -55,6 +55,8 @@ pub(super) struct Me {
     email: String,
     is_server_admin: bool,
     mfa_enabled: bool,
+    /// 認証アプリ（TOTP）を設定済みか（管理画面が、設定を始めるボタンを出すかの判断にだけ使う）。
+    totp_enabled: bool,
     /// 外部のOIDC/SSOでログインしたセッションか。
     sso: bool,
     /// 管理操作の前に、CMS側のパスキーの登録が必要か（SSOでログインした管理者で、パスキーがない。Q131）。
@@ -84,6 +86,7 @@ impl Me {
             email: c.email.clone(),
             is_server_admin: c.is_server_admin,
             mfa_enabled: c.mfa_enabled,
+            totp_enabled: false,
             sso: c.sso,
             passkey_required: c.sso && c.admin_anywhere && !c.has_passkey,
             second_factor_reauth: c.sso && c.mfa_enabled && !c.has_passkey,
@@ -100,16 +103,17 @@ impl Me {
     /// 表示名も読んで作る（応答に使うのはこちら）。
     pub(super) async fn load(state: &AppState, c: &session::Current) -> Result<Self, ApiError> {
         let mut me = Self::new(state, c);
-        let names: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-            "SELECT display_name, display_name_suggestion FROM yomi.users WHERE id = $1",
+        let names: Option<(Option<String>, Option<String>, bool)> = sqlx::query_as(
+            "SELECT display_name, display_name_suggestion, totp_enabled_at IS NOT NULL FROM yomi.users WHERE id = $1",
         )
         .bind(c.user_id)
         .fetch_optional(&state.pool)
         .await
         .map_err(anyhow::Error::from)?;
-        if let Some((name, suggestion)) = names {
+        if let Some((name, suggestion, totp)) = names {
             me.display_name = name;
             me.display_name_suggestion = suggestion;
+            me.totp_enabled = totp;
         }
         Ok(me)
     }

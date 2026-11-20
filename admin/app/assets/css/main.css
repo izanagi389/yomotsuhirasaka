@@ -34,6 +34,12 @@
   --color-shu: var(--shu);
   --color-shu-foreground: var(--shu-foreground);
   --color-kin: var(--kin);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-highlight: var(--highlight);
+  --color-success: var(--success);
+  --color-success-text: var(--success-text);
+  --color-info: var(--info);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-strong: var(--sidebar-strong);
@@ -71,6 +77,13 @@
   --shu: #c0462b;
   --shu-foreground: #ffffff;
   --kin: #e7c873;
+  /* 状態の色（注意・成功・お知らせ）。枠と地は薄めて使い、文字は地に対して読める濃さにする */
+  --warning: #f59e0b;
+  --warning-text: #b45309;
+  --highlight: #fde68a;
+  --success: #10b981;
+  --success-text: #047857;
+  --info: #0ea5e9;
   --sidebar: #14243b;
   --sidebar-foreground: #c3cedd;
   --sidebar-strong: #ffffff;
@@ -103,6 +116,9 @@
   --ring: #6fa0db;
   --shu: #e8775c;
   --shu-foreground: #10161f;
+  --warning-text: #fbbf24;
+  --highlight: rgb(245 158 11 / 40%);
+  --success-text: #34d399;
   --sidebar: #0a1019;
   --sidebar-foreground: #b6c1d0;
   --sidebar-strong: #f2f4f7;
@@ -125,5 +141,17 @@
   input[type="checkbox"],
   input[type="radio"] {
     accent-color: var(--primary);
+  }
+}
+
+/* 動きを減らす設定の端末では、ダイアログやメニューの出入りなどのアニメーションと移り変わりを止める */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

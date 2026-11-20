@@ -9,7 +9,7 @@ const { t } = useI18n();
 
 <template>
   <p v-if="state === 'running'" class="text-muted-foreground" role="status" data-testid="assist-running">{{ t("assist.running") }}</p>
-  <p v-else-if="state === 'budgetExhausted'" class="text-amber-700 dark:text-amber-400" role="status" data-testid="assist-budget-exhausted">
+  <p v-else-if="state === 'budgetExhausted'" class="text-warning-text" role="status" data-testid="assist-budget-exhausted">
     {{ period === "day" ? t("assist.budgetExhaustedDay") : t("assist.budgetExhaustedMonth") }}
   </p>
   <p v-else-if="state === 'failed'" class="text-muted-foreground" role="status" data-testid="assist-failed">{{ t("assist.failed") }}</p>

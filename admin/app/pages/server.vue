@@ -92,7 +92,7 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
                   <NuxtLink :to="`/w/${w.id}`" class="flex items-center gap-2.5 font-medium hover:underline"><Kamon :id="w.id" :crest="w.crest" :size="24" />{{ w.name }}</NuxtLink>
                 </td>
                 <td class="px-3 py-2.5">{{ w.template }}</td>
-                <td class="px-3 py-2.5" :class="w.schemaState === 'ok' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'">{{ t(`workspaces.schema.${w.schemaState}`) }}</td>
+                <td class="px-3 py-2.5" :class="w.schemaState === 'ok' ? 'text-muted-foreground' : 'text-warning-text'">{{ t(`workspaces.schema.${w.schemaState}`) }}</td>
                 <td class="px-3 py-2.5 text-muted-foreground">{{ w.role ? t(`roles.${w.role}`) : t("roles.serverAdmin") }}</td>
                 <td class="px-3 py-1.5 text-right"><WorkspaceActions :workspace="w" /></td>
               </tr>

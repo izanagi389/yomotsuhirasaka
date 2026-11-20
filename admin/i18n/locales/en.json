@@ -122,7 +122,8 @@
     "identitiesDescription": "Link your {name} account to sign in with it.",
     "identityLink": "Link your {name} account",
     "identityLinkedAt": "Linked {at}",
-    "identityUnlink": "Unlink"
+    "identityUnlink": "Unlink",
+    "totpEnabled": "The authenticator app is set up. You use its 6-digit code each time you sign in."
   },
   "errors": {
     "generic": "The request could not be completed ({status}).",
@@ -811,7 +812,8 @@
       "help": "The name other members see when choosing a reviewer and in review history. 1 to 50 characters; you can change it at any time.",
       "required": "Choose a display name before using the admin UI.",
       "saved": "Display name saved."
-    }
+    },
+    "title": "Account"
   },
   "sso": {
     "or": "or",
@@ -1410,14 +1412,15 @@
     "ready": "No problems found.",
     "deploy": "Deploy",
     "confirmTitle": "Deploy {name}",
-    "confirmDescription": "The schema of the workspaces that use this template will change. You will be asked to confirm your identity first.",
+    "confirmDescription": "The schema of the {n} workspace(s) using this template will change. You will be asked to confirm your identity before deploying.",
     "done": "Deployed version {version} of {name}.",
     "doneUnchanged": "{name} stays at version {version}.",
     "migrated": "Migrated",
     "pending": "Migration pending ({reason})",
     "siteUrl": "Site of the public entry URLs",
     "siteUrlHelp": "In the form https://example.com (no path; http://localhost only for trying it out locally). It replaces the site part of the sample entry URLs (such as https://example.com/en/blog/entry-slug). Changing it later changes the URLs; the history and redirects are kept.",
-    "siteUrlUsed": "Site: {url}"
+    "siteUrlUsed": "Site: {url}",
+    "confirmDescriptionUnused": "No workspace uses this template yet. After deploying, you can choose it when creating a workspace. You will be asked to confirm your identity before deploying."
   },
   "templateSwitch": {
     "title": "Switch template",

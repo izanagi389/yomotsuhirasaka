@@ -92,7 +92,8 @@ function removeReference(group: string) {
 
     <template v-else-if="field.type === 'slug'">
       <Input :id="id" :model-value="text" :readonly="!editable" autocomplete="off" spellcheck="false" @update:model-value="setText" />
-      <p class="text-xs text-muted-foreground">{{ t("entries.slugHint") }}</p>
+      <!-- テンプレートに説明があれば、上にそれが出ているので、同じ注意を重ねない -->
+      <p v-if="!field.description" class="text-xs text-muted-foreground">{{ t("entries.slugHint") }}</p>
     </template>
 
     <RichTextEditor

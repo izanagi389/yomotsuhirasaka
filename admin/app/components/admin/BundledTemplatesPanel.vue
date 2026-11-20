@@ -54,6 +54,8 @@ async function runCheck(name: string) {
 const allowDestructive = ref(false);
 const allowBrokenQueries = ref(false);
 const confirming = ref(false);
+// 確認の文は、そのテンプレートを使うワークスペースがあるかで変える（0件なら、スキーマが変わるワークスペースはない）
+const usedBy = (name: string | undefined) => data.value?.find((b) => b.name === name)?.workspaces ?? 0;
 const busy = ref(false);
 const deployError = ref<unknown>(null);
 const done = ref<{ name: string; outcome: Outcome } | null>(null);
@@ -151,7 +153,7 @@ async function deploy() {
     <ConfirmDialog
       v-model:open="confirming"
       :title="t('bundledTemplates.confirmTitle', { name: check?.name ?? '' })"
-      :description="t('bundledTemplates.confirmDescription')"
+      :description="usedBy(check?.name) > 0 ? t('bundledTemplates.confirmDescription', { n: usedBy(check?.name) }) : t('bundledTemplates.confirmDescriptionUnused')"
       :confirm-label="t('bundledTemplates.deploy')"
       :busy="busy"
       :error="deployError"

@@ -13,7 +13,7 @@ const problems = computed(() => headingProblems(props.docs));
     <h3 class="font-medium">{{ t("assist.headingsTitle") }}</h3>
     <p v-if="count === 0" class="text-muted-foreground">{{ t("assist.headingsNone") }}</p>
     <p v-else-if="problems.length === 0" class="text-muted-foreground">{{ t("assist.headingsOk") }}</p>
-    <ul v-else class="grid list-disc gap-1 pl-5 text-amber-700 dark:text-amber-400">
+    <ul v-else class="grid list-disc gap-1 pl-5 text-warning-text">
       <li v-for="(p, i) in problems" :key="i" data-testid="heading-problem">
         <template v-if="p.kind === 'empty'">{{ t("assist.headingEmpty") }}</template>
         <template v-else-if="p.kind === 'skip'">{{ t("assist.headingSkip", { text: p.text, from: p.from, to: p.to }) }}</template>

@@ -49,11 +49,11 @@ defineExpose({ refresh });
 <template>
   <div v-if="open || notice || error || actionError" class="grid gap-2">
     <FormError :error="error ?? actionError" />
-    <div v-if="open" class="flex flex-wrap items-center gap-3 rounded-md border border-sky-500/50 bg-sky-500/10 p-3 text-sm" role="status" data-testid="schedule-open">
+    <div v-if="open" class="flex flex-wrap items-center gap-3 rounded-md border border-info/50 bg-info/10 p-3 text-sm" role="status" data-testid="schedule-open">
       <span class="flex-1">
         {{ t("schedule.pending", { at: formatDateTime(open.publishAt, locale), who: personLabel(open.scheduledByPerson, t("review.otherMember")) }) }}
         <template v-if="open.draftChanged">
-          <br /><span class="text-amber-700 dark:text-amber-400" data-testid="schedule-draft-changed">{{ t("schedule.draftChanged") }}</span>
+          <br /><span class="text-warning-text" data-testid="schedule-draft-changed">{{ t("schedule.draftChanged") }}</span>
         </template>
         <template v-if="open.lastError">
           <br /><span class="text-destructive" data-testid="schedule-retrying">
@@ -66,7 +66,7 @@ defineExpose({ refresh });
         <Button size="sm" variant="outline" class="text-destructive hover:text-destructive" :disabled="busy" data-testid="schedule-cancel" @click="cancel">{{ t("schedule.cancel") }}</Button>
       </template>
     </div>
-    <p v-else-if="notice" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status" data-testid="schedule-notice">
+    <p v-else-if="notice" class="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status" data-testid="schedule-notice">
       {{
         notice.state === "failed"
           ? t("schedule.failed", { at: formatDateTime(notice.publishAt, locale), reason: errorText(notice.lastError) })
