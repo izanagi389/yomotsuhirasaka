@@ -8,8 +8,9 @@ export function useFreshAsyncData<T>(key: string, handler: () => Promise<T>) {
   const cached = nuxtApp._asyncData[key]?.status.value === "success";
   const result = useAsyncData(key, handler);
   if (!cached) return result;
-  return Object.assign(
-    Promise.all([result, result.refresh()]).then(([r]) => r),
-    result,
-  ) as typeof result;
+  // useAsyncData が返す Promise には、元の Promise にひも付いた then / catch / finally が自前のプロパティとして付いている。
+  // それごと写すと、<script setup> の await（返り値の catch を使う）が取り直しを待たなくなるので、データの項目だけを写す。
+  const { data, pending, status, error, refresh, execute, clear } = result;
+  const fresh = Promise.all([result, refresh()]).then(([r]) => r);
+  return Object.assign(fresh, { data, pending, status, error, refresh, execute, clear }) as typeof result;
 }
