@@ -241,8 +241,8 @@ onBeforeRouteLeave(async () => {
           <svg aria-hidden="true" width="10" height="10" viewBox="0 0 12 12"><path d="M6 0.8L11.2 6L6 11.2L0.8 6Z" fill="currentColor" /></svg>
           {{ draft.publishedVersionId ? t("entries.published") : t("entries.draft") }}
         </span>
-        <Badge variant="outline" class="font-normal">{{ draft.contentType }}</Badge>
-        <Badge variant="outline" class="font-normal">{{ draft.locale }}</Badge>
+        <Badge variant="outline" class="font-normal">{{ typeLabel(draft.contentType, locale, manifest) }}</Badge>
+        <Badge variant="outline" class="font-normal">{{ localeName(draft.locale, locale) }}</Badge>
         <span v-if="hookFailure" class="text-xs text-destructive" data-testid="hook-failure">{{ t("entries.hookFailure") }}</span>
 
         <div class="ml-auto flex flex-wrap items-center gap-2">
@@ -388,8 +388,8 @@ onBeforeRouteLeave(async () => {
         >
           <Tabs v-model="side">
             <div class="sticky top-0 z-10 flex items-start gap-1 border-b bg-card px-3 pt-3 pb-2">
-              <!-- タブが多いので、折り返さずに横に送れるようにする -->
-              <TabsList class="flex-1 flex-nowrap overflow-x-auto">
+              <!-- タブが多いので、欄の幅に収まらないときは折り返して、すべてのタブを見えるようにする（横に送る形だと、端のタブが隠れて気づけない） -->
+              <TabsList class="flex-1">
                 <TabsTrigger v-if="otherFields.length > 0" value="fields" data-testid="tab-fields">{{ t("entryTabs.fields") }}</TabsTrigger>
                 <TabsTrigger v-if="editorMode === 'block' && bodyFields.length > 0" value="block" data-testid="tab-block">{{ t("entryTabs.block") }}</TabsTrigger>
                 <TabsTrigger value="ai" data-testid="tab-ai">{{ t("entryTabs.ai") }}</TabsTrigger>

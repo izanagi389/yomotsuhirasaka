@@ -8,7 +8,8 @@
     "save": "Save",
     "remove": "Remove",
     "home": "Home",
-    "close": "Close"
+    "close": "Close",
+    "setUpMfa": "Set up multi-factor authentication"
   },
   "auth": {
     "loginTitle": "Sign in",
@@ -79,7 +80,9 @@
     "templateLabel": "Template {name}",
     "schemaColumn": "Schema",
     "yourRole": "Your role",
-    "actionsColumn": "Actions"
+    "actionsColumn": "Actions",
+    "emptyHelp": "Create your first workspace.",
+    "emptyMember": "Workspaces appear here once a workspace admin invites you."
   },
   "roles": {
     "admin": "Admin",
@@ -258,12 +261,12 @@
   },
   "entries": {
     "new": "New entry",
-    "newDescription": "Choose the content type and locale. Translations are created from the original entry.",
+    "newDescription": "Choose the type and language. Translations are created from the original entry's Translations tab.",
     "create": "Create",
     "noSchema": "No schema has been applied to this workspace yet.",
     "migrationPending": "Editing and publishing are paused while the schema migration is pending. They resume once it completes.",
-    "contentType": "Content type",
-    "locale": "Locale",
+    "contentType": "Type",
+    "locale": "Language",
     "all": "All",
     "empty": "No entries yet.",
     "title": "Title",
@@ -315,7 +318,9 @@
       "upload": "Upload",
       "remove": "Remove",
       "pick": "Choose this image ({w}×{h})"
-    }
+    },
+    "newDescriptionLocale": "Choose the language of the new entry. Translations are created from the original entry's Translations tab.",
+    "emptyHelp": "Write your first entry."
   },
   "publish": {
     "button": "Publish",
@@ -749,7 +754,10 @@
     "users": "Users",
     "disabled": "Disabled",
     "cliOnly": "Server administrators are recovered with the server CLI",
-    "workspacesHelp": "Every workspace on this server. Only server administrators can delete them."
+    "workspacesHelp": "Every workspace on this server. Only server administrators can delete them.",
+    "workspacesEmpty": "No workspaces yet.",
+    "workspacesEmptyHelp": "Create one from the Workspaces page.",
+    "openWorkspaces": "Open the workspace list"
   },
   "account": {
     "nav": {
@@ -1340,7 +1348,7 @@
     "title": "Try an answer",
     "help": "Ask a test question to see the fragments found and their scores, the AI's verdict and the answer. It uses the tone you are editing above, even before you save it.",
     "question": "Question (up to {max} characters)",
-    "locale": "Locale",
+    "locale": "Language",
     "run": "Try",
     "running": "Writing the answer…",
     "note": "This uses the visitor answer budget. The answer cache is not used and nothing is written to the question log. Refused words and masking apply as in production.",

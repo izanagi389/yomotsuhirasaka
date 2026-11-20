@@ -288,6 +288,17 @@
             "$ref": "#/$defs/Field"
           }
         },
+        "label": {
+          "description": "管理画面に出す名前（管理画面の言語ごと。2026-11-21）。その言語の名前がなければ `name` を出す。",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Label"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "description": {
           "description": "編集者向けの説明（管理画面に表示する。Q51）。",
           "type": [
@@ -449,6 +460,17 @@
           "type": "boolean",
           "default": false
         },
+        "label": {
+          "description": "管理画面に出す名前（管理画面の言語ごと。2026-11-21）。その言語の名前がなければ `name` を出す。",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Label"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "description": {
           "description": "編集者向けの説明（Q51）。",
           "type": [
@@ -503,6 +525,27 @@
           "const": "image"
         }
       ]
+    },
+    "Label": {
+      "description": "管理画面に出す名前（2026-11-21、02-schema-and-delivery-api.md「表示名」）。キーは管理画面の言語（`ja`・`en`）だけで、\nほかのキーは読み込みで拒否する。名前は、管理画面のその言語の表示にだけ使う（配信APIには出さない）。",
+      "type": "object",
+      "properties": {
+        "ja": {
+          "description": "日本語の管理画面に出す名前。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "en": {
+          "description": "英語の管理画面に出す名前。",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

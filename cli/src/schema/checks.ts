@@ -6,6 +6,31 @@ const isObject = (v: unknown): v is Json => typeof v === "object" && v !== null 
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
 const SYNC_HOOKS = ["beforeSave", "beforePublish"];
+/** 表示名（label）に書ける言語（管理画面の言語）と、名前の長さの上限。 */
+const LABEL_LANGUAGES = ["ja", "en"];
+const MAX_LABEL_CHARS = 50;
+
+/** 表示名の検査（server/src/schema/manifest.rs の check_label と同じ規則）。 */
+function checkLabel(path: string, label: unknown, problems: string[]): void {
+  if (label === undefined) return;
+  if (!isObject(label)) {
+    problems.push(`${path}: write an object such as { "ja": "...", "en": "..." }`);
+    return;
+  }
+  const keys = Object.keys(label);
+  for (const k of keys.filter((k) => !LABEL_LANGUAGES.includes(k))) {
+    problems.push(`${path}.${k}: only ${LABEL_LANGUAGES.join(" and ")} can be written`);
+  }
+  if (!keys.some((k) => LABEL_LANGUAGES.includes(k))) problems.push(`${path}: write at least one of ${LABEL_LANGUAGES.join(" and ")}`);
+  for (const k of LABEL_LANGUAGES) {
+    const v = label[k];
+    if (v === undefined) continue;
+    // eslint-disable-next-line no-control-regex
+    if (typeof v !== "string" || v.trim() === "" || [...v].length > MAX_LABEL_CHARS || /[\u0000-\u001f\u007f-\u009f]/.test(v)) {
+      problems.push(`${path}.${k}: use 1 to ${MAX_LABEL_CHARS} characters without line breaks`);
+    }
+  }
+}
 const ASYNC_HOOKS = ["afterSave", "afterPublish", "afterUnpublish"];
 
 /** 関数の宣言の検査。kind は、外部への送信を許すか（非同期のフック）と、ホスト関数を使えるか（変換関数は使えない）。 */
@@ -47,6 +72,10 @@ export function checkTemplateFunctions(template: Json): string[] {
   }
   for (const [i, ct] of list(template["contentTypes"]).entries()) {
     if (!isObject(ct)) continue;
+    checkLabel(`contentTypes[${i}].label`, ct["label"], problems);
+    for (const [j, f] of list(ct["fields"]).entries()) {
+      if (isObject(f)) checkLabel(`contentTypes[${i}].fields[${j}].label`, f["label"], problems);
+    }
     // 検索・質問応答の対象にできるのは text と richtext だけ（server/src/schema/manifest.rs と同じ規則）
     for (const [j, f] of list(ct["fields"]).entries()) {
       if (isObject(f) && f["searchable"] === true && f["type"] !== "text" && f["type"] !== "richtext") {

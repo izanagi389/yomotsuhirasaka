@@ -30,8 +30,11 @@ const otherName = ref("");
 const template = computed(() => (choice.value === OTHER ? otherName.value.trim() : choice.value));
 const busy = ref(false);
 const createError = ref<unknown>(null);
+// 多要素認証を設定していないと作れない。そのときは、作成のボタンを押せなくし、設定の画面への道だけを示す
+const blockedByMfa = computed(() => createError.value instanceof ApiError && (createError.value.code === "mfa_required" || createError.value.code === "mfa_setup_required"));
 watch(createOpen, async (open) => {
   if (!open || !me.value?.isServerAdmin) return;
+  createError.value = null;
   try {
     templates.value = await api.get<TemplateOption[]>("/templates");
   } catch (e) {
@@ -56,12 +59,14 @@ async function create() {
 <template>
   <div class="grid gap-6">
     <PageHeader :title="t('workspaces.title')">
-      <template v-if="me?.isServerAdmin" #actions>
+      <template v-if="me?.isServerAdmin && workspaces && workspaces.length > 0" #actions>
         <Button @click="createOpen = true"><Plus class="size-4" />{{ t("workspaces.new") }}</Button>
       </template>
     </PageHeader>
     <FormError :error="error" />
-    <EmptyState v-if="workspaces && workspaces.length === 0" :title="t('workspaces.empty')" />
+    <EmptyState v-if="workspaces && workspaces.length === 0" :title="t('workspaces.empty')" :description="me?.isServerAdmin ? t('workspaces.emptyHelp') : t('workspaces.emptyMember')">
+      <Button v-if="me?.isServerAdmin" @click="createOpen = true"><Plus class="size-4" />{{ t("workspaces.new") }}</Button>
+    </EmptyState>
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Card v-for="w in workspaces ?? []" :key="w.id" class="relative h-full transition-colors hover:bg-muted/40" data-testid="workspace-card">
         <CardHeader class="flex flex-row items-start gap-3">
@@ -108,7 +113,7 @@ async function create() {
           <FormError :error="createError" />
           <DialogFooter>
             <Button type="button" variant="outline" @click="createOpen = false">{{ t("common.cancel") }}</Button>
-            <Button type="submit" :disabled="busy || !name.trim()">{{ t("entries.create") }}</Button>
+            <Button type="submit" :disabled="busy || !name.trim() || blockedByMfa">{{ t("entries.create") }}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

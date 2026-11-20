@@ -28,6 +28,7 @@ CLI の入れ方は [最初のサイトを作るまでの流れ](getting-started
   "contentTypes": [
     {
       "name": "post",
+      "label": { "ja": "記事", "en": "Post" },
       "urlTemplate": "https://example.com/{locale}/blog/{slug}",
       "titleField": "title",
       "summaryField": "summary",
@@ -35,7 +36,7 @@ CLI の入れ方は [最初のサイトを作るまでの流れ](getting-started
       "review": { "intervalDays": 365 },
       "aiMarkdown": { "title": "title", "meta": ["summary"], "fields": ["body"], "relations": ["related"] },
       "fields": [
-        { "name": "title", "type": "text", "required": true, "searchable": true, "description": "記事のタイトル" },
+        { "name": "title", "label": { "ja": "タイトル", "en": "Title" }, "type": "text", "required": true, "searchable": true, "description": "記事のタイトル" },
         { "name": "slug", "type": "slug", "required": true },
         { "name": "summary", "type": "text" },
         { "name": "body", "type": "richtext", "required": true, "searchable": true },
@@ -71,6 +72,7 @@ CLI の入れ方は [最初のサイトを作るまでの流れ](getting-started
 | `review.intervalDays` | 確認期限の既定（1〜3650日）。なければ期限なし。記事ごとに変えられます |
 | `aiMarkdown` | AI 向けの Markdown 版に載せるもの。挙げていないフィールドは載せません。なければ、このタイプの記事は AI 向けの素材になりません |
 | `listLimit` | 一覧で1回に取得できる件数の上限 |
+| `label` | 管理画面に出す名前。管理画面の言語ごとに `{ "ja": "記事", "en": "Post" }` と書きます（書けるのは `ja` と `en` だけ、50文字まで、1行）。管理画面の言語の名前がなければ `name` がそのまま出ます |
 | `description` | 編集者向けの説明（管理画面に出ます） |
 | `devNote` | 開発者向けのメモ。**どの API にも出ません** |
 
@@ -83,7 +85,7 @@ CLI の入れ方は [最初のサイトを作るまでの流れ](getting-started
 | `required` | 公開に必須か（スラッグは常に必須） |
 | `referenceTo`、`multiple` | 参照先のコンテンツタイプ、複数の値を持つか（参照フィールドだけ） |
 | `searchable` | 検索と質問応答の対象か。**既定は対象外**です。使えるのは `text` と `richtext` だけです |
-| `description`、`devNote` | コンテンツタイプと同じ |
+| `label`、`description`、`devNote` | コンテンツタイプと同じ。`label` は入力欄の名前になります |
 
 多言語は記事ごとです。ロケールごとに、すべてのフィールドを持つ独立した記事を作り、翻訳グループで結びます。参照フィールドは翻訳グループを指し、配信のときに同じロケールの公開中の記事に解決します（なければ返しません）。
 
