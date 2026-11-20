@@ -4,8 +4,15 @@ import type { ManifestBody } from "@yomotsuhirasaka/editor-schema";
 
 export type FieldType = "text" | "slug" | "richtext" | "reference" | "image";
 
+/** 管理画面に出す名前（管理画面の言語ごと。02-schema-and-delivery-api.md「表示名」）。 */
+export interface Label {
+  ja?: string;
+  en?: string;
+}
+
 export interface Field {
   name: string;
+  label?: Label;
   type: FieldType;
   required: boolean;
   referenceTo?: string;
@@ -15,6 +22,7 @@ export interface Field {
 
 export interface ContentType {
   name: string;
+  label?: Label;
   urlTemplate: string;
   description?: string;
   fields: Field[];

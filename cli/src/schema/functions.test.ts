@@ -77,6 +77,25 @@ test("only text and richtext fields can be searchable (same rule as the server)"
   ]);
 });
 
+test("labels are written only for the admin's languages (ja, en), short and on one line", () => {
+  const ok = { label: { ja: "記事", en: "Post" }, fields: [{ name: "title", type: "text", label: { ja: "タイトル" } }] };
+  assert.deepEqual(checkTemplateFunctions({ contentTypes: [ok] }), []);
+  const bad = {
+    label: { fr: "Article" },
+    fields: [
+      { name: "title", type: "text", label: { ja: " ", en: "a\nb" } },
+      { name: "slug", type: "slug", label: { ja: "あ".repeat(51) } },
+    ],
+  };
+  assert.deepEqual(checkTemplateFunctions({ contentTypes: [bad] }), [
+    "contentTypes[0].label.fr: only ja and en can be written",
+    "contentTypes[0].label: write at least one of ja and en",
+    "contentTypes[0].fields[0].label.ja: use 1 to 50 characters without line breaks",
+    "contentTypes[0].fields[0].label.en: use 1 to 50 characters without line breaks",
+    "contentTypes[0].fields[1].label.ja: use 1 to 50 characters without line breaks",
+  ]);
+});
+
 test("titleField and summaryField must name different text fields", () => {
   const fields = [
     { name: "title", type: "text" },

@@ -72,7 +72,10 @@ async function issueReset(u: UserInfo, kind: "password" | "mfa") {
       <TabsContent value="workspaces" class="mt-4 grid gap-4" data-testid="server-workspaces">
         <FormError :error="workspacesError" />
         <p class="text-sm text-muted-foreground">{{ t("server.workspacesHelp") }}</p>
-        <div class="overflow-x-auto rounded-lg border bg-card">
+        <EmptyState v-if="workspaces && workspaces.length === 0" :title="t('server.workspacesEmpty')" :description="t('server.workspacesEmptyHelp')">
+          <Button as-child variant="outline"><NuxtLink to="/">{{ t("server.openWorkspaces") }}</NuxtLink></Button>
+        </EmptyState>
+        <div v-else class="overflow-x-auto rounded-lg border bg-card">
           <table class="w-full min-w-[560px] text-sm">
             <thead class="bg-muted/50 text-left text-xs text-muted-foreground">
               <tr>

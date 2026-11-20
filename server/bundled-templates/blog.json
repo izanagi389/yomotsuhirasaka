@@ -7,6 +7,10 @@
   "contentTypes": [
     {
       "name": "post",
+      "label": {
+        "ja": "記事",
+        "en": "Post"
+      },
       "description": "ブログの記事",
       "urlTemplate": "https://example.com/{locale}/blog/{slug}",
       "titleField": "title",
@@ -27,6 +31,10 @@
       "fields": [
         {
           "name": "title",
+          "label": {
+            "ja": "タイトル",
+            "en": "Title"
+          },
           "type": "text",
           "required": true,
           "searchable": true,
@@ -34,23 +42,39 @@
         },
         {
           "name": "slug",
+          "label": {
+            "ja": "スラッグ",
+            "en": "Slug"
+          },
           "type": "slug",
           "required": true,
           "description": "URLに使う名前（英小文字・数字・ハイフン）"
         },
         {
           "name": "summary",
+          "label": {
+            "ja": "要約",
+            "en": "Summary"
+          },
           "type": "text",
           "description": "一覧や検索結果に出す短い説明"
         },
         {
           "name": "body",
+          "label": {
+            "ja": "本文",
+            "en": "Body"
+          },
           "type": "richtext",
           "required": true,
           "searchable": true
         },
         {
           "name": "related",
+          "label": {
+            "ja": "関連記事",
+            "en": "Related entries"
+          },
           "type": "reference",
           "referenceTo": "post",
           "multiple": true,
@@ -58,6 +82,10 @@
         },
         {
           "name": "thumbnail",
+          "label": {
+            "ja": "サムネイル",
+            "en": "Thumbnail"
+          },
           "type": "image",
           "description": "一覧やSNSでの共有に使う画像"
         }

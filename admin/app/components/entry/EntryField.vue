@@ -21,7 +21,8 @@ const props = defineProps<{
   variant?: "default" | "title";
 }>();
 const emit = defineEmits<{ "update:modelValue": [value: FieldValue] }>();
-const { t } = useI18n();
+const { t, locale: uiLocale } = useI18n();
+const label = computed(() => fieldLabel(props.field, uiLocale.value));
 const id = `field-${props.field.name}`;
 
 const text = computed(() => (typeof props.modelValue === "string" ? props.modelValue : ""));
@@ -71,7 +72,7 @@ function removeReference(group: string) {
 <template>
   <div class="grid gap-2">
     <Label :for="id" :class="variant === 'title' ? 'sr-only' : ''">
-      {{ field.name }}
+      {{ label }}
       <span v-if="field.required || field.type === 'slug'" class="text-destructive" :title="t('entries.requiredToPublish')">*</span>
     </Label>
     <p v-if="field.description && variant !== 'title'" class="text-sm text-muted-foreground">{{ field.description }}</p>
@@ -81,7 +82,7 @@ function removeReference(group: string) {
       :id="id"
       :model-value="text"
       :readonly="!editable"
-      :placeholder="field.name"
+      :placeholder="label"
       :aria-description="field.description"
       class="h-auto rounded-none border-0 border-b bg-transparent px-0 py-2 font-mincho text-2xl font-semibold shadow-none focus-visible:border-primary focus-visible:ring-0 md:text-3xl dark:bg-transparent"
       data-testid="entry-title-input"
@@ -100,7 +101,7 @@ function removeReference(group: string) {
       :body="manifest.body"
       :workspace-id="workspaceId"
       :editable="editable"
-      :label="field.name"
+      :label="label"
       @update:model-value="emit('update:modelValue', $event)"
     />
 

@@ -136,8 +136,8 @@ pub fn breaking_changes(old: Option<&Manifest>, new: &Manifest) -> Vec<Breaking>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::manifest::FieldType;
     use crate::schema::manifest::tests::sample;
+    use crate::schema::manifest::{FieldType, Label};
 
     #[test]
     fn additions_are_not_breaking() {
@@ -149,12 +149,17 @@ mod tests {
             required: false,
             reference_to: None,
             multiple: false,
+            label: None,
             description: None,
             dev_note: None,
             searchable: false,
         });
         new.locales.push("fr".into());
         new.content_types[0].description = Some("changed".into());
+        new.content_types[0].label = Some(Label {
+            ja: Some("記事".into()),
+            en: None,
+        });
         new.content_types[0].list_limit = 5;
         assert!(breaking_changes(Some(&old), &new).is_empty());
         assert!(breaking_changes(None, &new).is_empty());
@@ -178,6 +183,7 @@ mod tests {
             required: true,
             reference_to: None,
             multiple: false,
+            label: None,
             description: None,
             dev_note: None,
             searchable: false,

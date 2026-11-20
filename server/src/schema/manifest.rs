@@ -21,6 +21,8 @@ const MAX_DECLARED_SECRETS: usize = 20;
 const MAX_CUSTOM_ATTRS: usize = 50;
 const MAX_BODY_NODES: usize = 100;
 const MAX_TEXT_CHARS: usize = 2000;
+/// 表示名の長さの上限（文字数）。
+const MAX_LABEL_CHARS: usize = 50;
 /// 一覧のフィールドで1回に取得できる件数の上限の、さらに上限。
 pub const MAX_LIST_LIMIT: u32 = 1000;
 
@@ -56,6 +58,9 @@ pub struct Field {
     /// 複数の値を持つか（参照フィールドだけ）。
     #[serde(default)]
     pub multiple: bool,
+    /// 管理画面に出す名前（管理画面の言語ごと。2026-11-21）。その言語の名前がなければ `name` を出す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<Label>,
     /// 編集者向けの説明（Q51）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -102,12 +107,28 @@ pub struct ContentType<F = crate::script::Script> {
     /// 一覧のフィールドで1回に取得できる件数の上限。
     pub list_limit: u32,
     pub fields: Vec<Field>,
+    /// 管理画面に出す名前（管理画面の言語ごと。2026-11-21）。その言語の名前がなければ `name` を出す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<Label>,
     /// 編集者向けの説明（管理画面に表示する。Q51）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// 開発者向けのメモ。どのAPIにも出さない（Q51、INV-SCH-01）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dev_note: Option<String>,
+}
+
+/// 管理画面に出す名前（2026-11-21、02-schema-and-delivery-api.md「表示名」）。キーは管理画面の言語（`ja`・`en`）だけで、
+/// ほかのキーは読み込みで拒否する。名前は、管理画面のその言語の表示にだけ使う（配信APIには出さない）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Label {
+    /// 日本語の管理画面に出す名前。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ja: Option<String>,
+    /// 英語の管理画面に出す名前。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub en: Option<String>,
 }
 
 /// AI向けのMarkdown版の中身（07-ai-delivery.md）。CMSは、ここに挙げたものに加えて、URL・ロケール・更新日・最終確認日・
@@ -531,6 +552,23 @@ fn check_text(problems: &mut Vec<String>, path: &str, value: &Option<String>) {
     }
 }
 
+/// 表示名の検査: 少なくとも1つの言語を書き、どれも空でなく、改行などの制御文字を含まず、長すぎないこと。
+fn check_label(problems: &mut Vec<String>, path: &str, label: &Option<Label>) {
+    let Some(l) = label else { return };
+    if l.ja.is_none() && l.en.is_none() {
+        problems.push(format!("{path}: write at least one of ja and en"));
+    }
+    for (lang, v) in [("ja", &l.ja), ("en", &l.en)] {
+        let Some(v) = v else { continue };
+        let n = v.chars().count();
+        if v.trim().is_empty() || n > MAX_LABEL_CHARS || v.chars().any(char::is_control) {
+            problems.push(format!(
+                "{path}.{lang}: use 1 to {MAX_LABEL_CHARS} characters without line breaks"
+            ));
+        }
+    }
+}
+
 /// 関数の形の検査（読み込めるかは、デプロイのときに組み込みJSで確かめる）。
 /// 外部への送信（`http.fetch`）は非同期のフックにだけ許し、宛先の宣言を必須にする（INV-HOOK-01、Q12）。
 fn script_problems(path: &str, s: &crate::script::Script, is_async: bool) -> Vec<String> {
@@ -860,6 +898,7 @@ pub fn validate(m: &Manifest) -> Vec<String> {
         if !(1..=MAX_LIST_LIMIT).contains(&ct.list_limit) {
             problems.push(format!("{path}.listLimit: must be 1 to {MAX_LIST_LIMIT}"));
         }
+        check_label(&mut problems, &format!("{path}.label"), &ct.label);
         check_text(
             &mut problems,
             &format!("{path}.description"),
@@ -900,6 +939,7 @@ pub fn validate(m: &Manifest) -> Vec<String> {
                     "{fpath}.searchable: only text and richtext fields can be searchable"
                 ));
             }
+            check_label(&mut problems, &format!("{fpath}.label"), &f.label);
             check_text(
                 &mut problems,
                 &format!("{fpath}.description"),
@@ -1098,6 +1138,42 @@ pub(crate) mod tests {
         assert!(!validate(&m).iter().any(|p| p.contains(".searchable")));
     }
 
+    /// 表示名は管理画面の言語（ja・en）だけを書け、空・長すぎる・改行を含むものはデプロイを止める。
+    #[test]
+    fn labels_are_checked() {
+        let mut v = serde_json::to_value(sample()).unwrap();
+        v["contentTypes"][0]["label"] = serde_json::json!({"ja": "記事", "en": "Post"});
+        v["contentTypes"][0]["fields"][0]["label"] = serde_json::json!({"ja": "タイトル"});
+        let m: Manifest = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(validate(&m), Vec::<String>::new());
+        // 管理画面の言語でないキーは読み込めない
+        let mut bad = v.clone();
+        bad["contentTypes"][0]["label"] = serde_json::json!({"fr": "Article"});
+        assert!(serde_json::from_value::<Manifest>(bad).is_err());
+        let mut m: Manifest = serde_json::from_value(v).unwrap();
+        m.content_types[0].label = Some(Label::default());
+        m.content_types[0].fields[0].label = Some(Label {
+            ja: Some(" ".into()),
+            en: Some("a\nb".into()),
+        });
+        m.content_types[0].fields[1].label = Some(Label {
+            ja: Some("あ".repeat(MAX_LABEL_CHARS + 1)),
+            en: None,
+        });
+        let problems = validate(&m);
+        for needle in [
+            "contentTypes[0].label: write at least one",
+            "fields[0].label.ja",
+            "fields[0].label.en",
+            "fields[1].label.ja",
+        ] {
+            assert!(
+                problems.iter().any(|p| p.contains(needle)),
+                "{needle}: {problems:?}"
+            );
+        }
+    }
+
     /// 執筆支援の当て先（titleField・summaryField）は、そのタイプの text のフィールドで、同じフィールドではないこと。
     #[test]
     fn title_and_summary_fields_name_text_fields() {
@@ -1147,6 +1223,7 @@ pub(crate) mod tests {
             required: false,
             reference_to: Some("post".into()),
             multiple: true,
+            label: None,
             description: None,
             dev_note: None,
             searchable: false,

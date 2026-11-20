@@ -19,7 +19,7 @@ const props = defineProps<{
   /** 未保存の変更を保存する（複製の前に）。 */
   flush: () => Promise<boolean>;
 }>();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const api = useApi();
 const base = computed(() => `/workspaces/${props.workspaceId}/entries/${props.entryId}`);
 
@@ -29,13 +29,13 @@ const missing = computed(() => props.locales.filter((l) => !info.value?.members.
 
 const creating = ref<string | null>(null);
 const createError = ref<unknown>(null);
-async function create(locale: string) {
-  creating.value = locale;
+async function create(target: string) {
+  creating.value = target;
   createError.value = null;
   try {
     // 複製するのはサーバーの下書きなので、先に保存しておく
     if (!(await props.flush())) throw new Error("notSaved");
-    const draft = await api.post<Draft>(`${base.value}/translations`, { locale });
+    const draft = await api.post<Draft>(`${base.value}/translations`, { locale: target });
     await navigateTo(`/w/${props.workspaceId}/entries/${draft.id}`);
   } catch (e) {
     createError.value = e;
@@ -65,7 +65,10 @@ async function setSource() {
     settingSource.value = false;
   }
 }
-const localeOf = (id: string) => info.value?.members.find((m) => m.entryId === id)?.locale ?? id;
+const localeOf = (id: string) => {
+  const code = info.value?.members.find((m) => m.entryId === id)?.locale;
+  return code ? localeName(code, locale.value) : id;
+};
 </script>
 
 <template>
@@ -91,7 +94,7 @@ const localeOf = (id: string) => info.value?.members.find((m) => m.entryId === i
             <Label for="translation-source">{{ t("translations.setSource") }}</Label>
             <select id="translation-source" v-model="newSource" class="h-9 rounded-md border bg-background px-3" data-testid="translation-source">
               <option value="" disabled>{{ t("translations.chooseSource") }}</option>
-              <option v-for="m in candidates" :key="m.entryId" :value="m.entryId">{{ m.locale }}</option>
+              <option v-for="m in candidates" :key="m.entryId" :value="m.entryId">{{ localeName(m.locale, locale) }}</option>
             </select>
           </div>
           <Button size="sm" variant="outline" :disabled="!newSource" @click="confirmSource = true">{{ t("translations.setSourceButton") }}</Button>
@@ -103,7 +106,7 @@ const localeOf = (id: string) => info.value?.members.find((m) => m.entryId === i
         <h2 class="font-medium">{{ t("translations.members") }}</h2>
         <ul class="grid gap-1">
           <li v-for="m in info.members" :key="m.entryId" class="flex items-center gap-2">
-            <Badge variant="outline">{{ m.locale }}</Badge>
+            <Badge variant="outline">{{ localeName(m.locale, locale) }}</Badge>
             <span v-if="m.entryId === entryId" class="text-muted-foreground">{{ t("translations.thisEntry") }}</span>
             <NuxtLink v-else :to="`/w/${workspaceId}/entries/${m.entryId}`" class="underline">{{ t("translations.open") }}</NuxtLink>
             <Badge :variant="m.published ? 'default' : 'secondary'">{{ m.published ? t("entries.published") : t("entries.draft") }}</Badge>
@@ -116,7 +119,7 @@ const localeOf = (id: string) => info.value?.members.find((m) => m.entryId === i
         <p class="text-muted-foreground">{{ t("translations.createHelp") }}</p>
         <div class="flex flex-wrap gap-2">
           <Button v-for="l in missing" :key="l" variant="outline" size="sm" :disabled="creating !== null" @click="create(l)">
-            {{ t("translations.createFor", { locale: l }) }}
+            {{ t("translations.createFor", { locale: localeName(l, locale) }) }}
           </Button>
         </div>
       </section>

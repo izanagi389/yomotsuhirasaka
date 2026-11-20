@@ -15,6 +15,8 @@ const unwrapped = computed<unknown>(() => {
   if (e && typeof e === "object" && !(e instanceof ApiError) && "cause" in e && e.cause instanceof ApiError) return e.cause;
   return e;
 });
+// 多要素認証の設定が要る操作では、設定の画面への道を示す
+const needsMfa = computed(() => unwrapped.value instanceof ApiError && (unwrapped.value.code === "mfa_required" || unwrapped.value.code === "mfa_setup_required"));
 const detail = computed(() => (unwrapped.value instanceof ApiError && DETAILED.has(unwrapped.value.code) ? unwrapped.value.message : null));
 
 const message = computed(() => {
@@ -34,6 +36,7 @@ const message = computed(() => {
     <AlertDescription>
       {{ message }}
       <span v-if="detail" class="mt-1 block break-words text-xs opacity-80">{{ detail }}</span>
+      <NuxtLink v-if="needsMfa" to="/account/security" class="mt-1 block font-medium underline" data-testid="mfa-setup-link">{{ t("common.setUpMfa") }}</NuxtLink>
     </AlertDescription>
   </Alert>
 </template>

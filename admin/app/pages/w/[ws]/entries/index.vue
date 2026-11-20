@@ -32,6 +32,7 @@ const shown = computed(() => {
     .filter((e) => !q || (titleOf(e) ?? "").toLowerCase().includes(q))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 });
+const canCreate = computed(() => !!manifest.value && canEdit(workspace.value) && schema.value?.state === "ok");
 const counts = computed(() => {
   const all = entries.value ?? [];
   return { all: all.length, published: all.filter((e) => e.published).length, draft: all.filter((e) => !e.published).length };
@@ -43,10 +44,17 @@ const newType = ref("");
 const newLocale = ref("");
 const creating = ref(false);
 const createError = ref<unknown>(null);
+// 選ぶものが1つしかない欄は聞かない。種類も言語も1つなら、画面を挟まずにすぐ作る
+const manyTypes = computed(() => (manifest.value?.contentTypes.length ?? 0) > 1);
+const manyLocales = computed(() => (manifest.value?.locales.length ?? 0) > 1);
 function openCreate() {
   newType.value = manifest.value?.contentTypes[0]?.name ?? "";
   newLocale.value = manifest.value?.defaultLocale ?? "";
   createError.value = null;
+  if (!manyTypes.value && !manyLocales.value) {
+    void create();
+    return;
+  }
   createOpen.value = true;
 }
 async function create() {
@@ -66,20 +74,25 @@ async function create() {
 <template>
   <div class="grid gap-6">
     <PageHeader :title="t('nav.entries')" :description="manifest ? t('entries.count', { n: counts.all }) : workspace?.name">
-      <template v-if="manifest && canEdit(workspace) && schema?.state === 'ok'" #actions>
-        <Button @click="openCreate">
+      <template v-if="canCreate && counts.all > 0" #actions>
+        <Button :disabled="creating" @click="openCreate">
           <Plus class="size-4" />{{ t("entries.new") }}
         </Button>
       </template>
     </PageHeader>
-    <FormError :error="error ?? listError" />
+    <FormError :error="error ?? listError ?? (createOpen ? null : createError)" />
     <p v-if="schema && !manifest" class="text-muted-foreground">{{ t("entries.noSchema") }}</p>
     <p v-if="schema?.state === 'pending'" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">
       {{ t("entries.migrationPending") }}
     </p>
 
     <template v-if="manifest">
-      <div class="flex flex-wrap items-center gap-2.5 text-sm">
+      <EmptyState v-if="counts.all === 0" :title="t('entries.empty')" :description="canCreate ? t('entries.emptyHelp') : undefined">
+        <Button v-if="canCreate" :disabled="creating" @click="openCreate">
+          <Plus class="size-4" />{{ t("entries.new") }}
+        </Button>
+      </EmptyState>
+      <div v-else class="flex flex-wrap items-center gap-2.5 text-sm">
         <div role="radiogroup" :aria-label="t('entries.status')" class="flex rounded-[9px] bg-muted p-[3px]">
           <button
             v-for="f in (['all', 'published', 'draft'] as const)"
@@ -101,16 +114,16 @@ async function create() {
         </label>
         <select v-if="manifest.contentTypes.length > 1" v-model="typeFilter" class="h-9 px-2" :aria-label="t('entries.contentType')">
           <option value="">{{ t("entries.contentType") }}: {{ t("entries.all") }}</option>
-          <option v-for="c in manifest.contentTypes" :key="c.name" :value="c.name">{{ c.name }}</option>
+          <option v-for="c in manifest.contentTypes" :key="c.name" :value="c.name">{{ typeLabel(c, locale) }}</option>
         </select>
         <select v-if="manifest.locales.length > 1" v-model="localeFilter" class="h-9 px-2" :aria-label="t('entries.locale')">
           <option value="">{{ t("entries.locale") }}: {{ t("entries.all") }}</option>
-          <option v-for="l in manifest.locales" :key="l" :value="l">{{ l }}</option>
+          <option v-for="l in manifest.locales" :key="l" :value="l">{{ localeName(l, locale) }}</option>
         </select>
       </div>
 
-      <EmptyState v-if="shown.length === 0" :title="counts.all === 0 ? t('entries.empty') : t('entries.noMatch')" />
-      <div v-else class="overflow-x-auto rounded-xl border bg-card">
+      <EmptyState v-if="counts.all > 0 && shown.length === 0" :title="t('entries.noMatch')" />
+      <div v-else-if="counts.all > 0" class="overflow-x-auto rounded-xl border bg-card">
         <table class="w-full min-w-[640px] text-sm">
           <thead class="bg-muted/50 text-left text-xs text-muted-foreground">
             <tr>
@@ -134,8 +147,8 @@ async function create() {
                   {{ e.published ? t("entries.published") : t("entries.draft") }}
                 </span>
               </td>
-              <td v-if="manifest.contentTypes.length > 1" class="px-3 py-3 text-muted-foreground">{{ e.contentType }}</td>
-              <td v-if="manifest.locales.length > 1" class="px-3 py-3 text-muted-foreground">{{ e.locale }}</td>
+              <td v-if="manifest.contentTypes.length > 1" class="px-3 py-3 text-muted-foreground">{{ typeLabel(e.contentType, locale, manifest) }}</td>
+              <td v-if="manifest.locales.length > 1" class="px-3 py-3 whitespace-nowrap text-muted-foreground">{{ localeName(e.locale, locale) }}</td>
               <td class="px-3 py-3 whitespace-nowrap text-muted-foreground">{{ formatDateTime(e.updatedAt, locale) }}</td>
             </tr>
           </tbody>
@@ -147,19 +160,19 @@ async function create() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{{ t("entries.new") }}</DialogTitle>
-          <DialogDescription>{{ t("entries.newDescription") }}</DialogDescription>
+          <DialogDescription>{{ manyTypes ? t("entries.newDescription") : t("entries.newDescriptionLocale") }}</DialogDescription>
         </DialogHeader>
         <form class="grid gap-4" @submit.prevent="create">
-          <div class="grid gap-2">
+          <div v-if="manyTypes" class="grid gap-2">
             <Label for="new-type">{{ t("entries.contentType") }}</Label>
             <select id="new-type" v-model="newType" class="h-9 rounded-md border bg-background px-3">
-              <option v-for="c in manifest?.contentTypes ?? []" :key="c.name" :value="c.name">{{ c.name }}</option>
+              <option v-for="c in manifest?.contentTypes ?? []" :key="c.name" :value="c.name">{{ typeLabel(c, locale) }}</option>
             </select>
           </div>
-          <div class="grid gap-2">
+          <div v-if="manyLocales" class="grid gap-2">
             <Label for="new-locale">{{ t("entries.locale") }}</Label>
             <select id="new-locale" v-model="newLocale" class="h-9 rounded-md border bg-background px-3">
-              <option v-for="l in manifest?.locales ?? []" :key="l" :value="l">{{ l }}</option>
+              <option v-for="l in manifest?.locales ?? []" :key="l" :value="l">{{ localeName(l, locale) }}</option>
             </select>
           </div>
           <FormError :error="createError" />

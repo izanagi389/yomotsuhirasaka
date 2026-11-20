@@ -148,7 +148,7 @@ const richFields = computed(() => props.contentType.fields.filter((f) => f.type 
       </div>
       <dl class="grid gap-2">
         <template v-for="f in textFields" :key="f.name">
-          <dt class="text-muted-foreground">{{ f.name }}</dt>
+          <dt class="text-muted-foreground">{{ fieldLabel(f, locale) }}</dt>
           <dd>{{ viewing.fields[f.name] ?? "" }}</dd>
         </template>
       </dl>
@@ -157,7 +157,7 @@ const richFields = computed(() => props.contentType.fields.filter((f) => f.type 
           v-if="viewing.fields[f.name] && typeof viewing.fields[f.name] === 'object'"
           :doc="viewing.fields[f.name] as never"
           :workspace-id="workspaceId"
-          :label="f.name"
+          :label="fieldLabel(f, locale)"
           :custom-nodes="customNodes"
         />
       </template>
