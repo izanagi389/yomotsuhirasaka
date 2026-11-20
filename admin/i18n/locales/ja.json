@@ -122,7 +122,8 @@
     "identitiesDescription": "{name} のアカウントをひも付けると、そのアカウントでログインできます。",
     "identityLink": "{name} のアカウントをひも付ける",
     "identityLinkedAt": "{at} にひも付け",
-    "identityUnlink": "解除する"
+    "identityUnlink": "解除する",
+    "totpEnabled": "認証アプリは設定済みです。ログインのたびに、認証アプリの6桁のコードを使います。"
   },
   "errors": {
     "generic": "処理できませんでした（{status}）。",
@@ -811,7 +812,8 @@
       "help": "レビューを頼む相手を選ぶ画面や、レビューの履歴で、ほかの所属者に見える名前です。1〜50文字で、いつでも変えられます。",
       "required": "管理画面を使う前に、表示名を決めてください。",
       "saved": "表示名を保存しました。"
-    }
+    },
+    "title": "アカウント"
   },
   "sso": {
     "or": "または",
@@ -1410,14 +1412,15 @@
     "ready": "問題はありません。",
     "deploy": "デプロイする",
     "confirmTitle": "{name} をデプロイします",
-    "confirmDescription": "このテンプレートを使うワークスペースのスキーマが変わります。デプロイの前に、本人の確認を求めます。",
+    "confirmDescription": "このテンプレートを使う {n} 件のワークスペースのスキーマが変わります。デプロイの前に、本人の確認を求めます。",
     "done": "{name} の第{version}版をデプロイしました。",
     "doneUnchanged": "{name} は第{version}版のままです。",
     "migrated": "移行しました",
     "pending": "移行待ち（{reason}）",
     "siteUrl": "記事の公開URLのサイト",
     "siteUrlHelp": "https://example.com の形で（パスは付けません。手元で試すときだけ http://localhost も使えます）。見本の記事のURL（例: https://example.com/ja/blog/記事のスラッグ）のサイトの部分を、これに置き換えます。後で変えるとURLが変わり、変更の履歴とリダイレクトが残ります。",
-    "siteUrlUsed": "サイト: {url}"
+    "siteUrlUsed": "サイト: {url}",
+    "confirmDescriptionUnused": "このテンプレートを使うワークスペースはまだありません。デプロイすると、ワークスペースを作るときに選べるようになります。デプロイの前に、本人の確認を求めます。"
   },
   "templateSwitch": {
     "title": "テンプレートの切り替え",

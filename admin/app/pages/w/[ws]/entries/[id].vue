@@ -237,7 +237,7 @@ onBeforeRouteLeave(async () => {
         </NuxtLink>
         <span aria-hidden="true" class="text-border">／</span>
         <h1 class="min-w-0 max-w-[40ch] truncate text-sm font-medium">{{ title ?? t("entries.untitled") }}</h1>
-        <span class="inline-flex items-center gap-1.5 text-xs font-medium" :class="draft.publishedVersionId ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'">
+        <span class="inline-flex items-center gap-1.5 text-xs font-medium" :class="draft.publishedVersionId ? 'text-success-text' : 'text-muted-foreground'">
           <svg aria-hidden="true" width="10" height="10" viewBox="0 0 12 12"><path d="M6 0.8L11.2 6L6 11.2L0.8 6Z" fill="currentColor" /></svg>
           {{ draft.publishedVersionId ? t("entries.published") : t("entries.draft") }}
         </span>
@@ -326,7 +326,7 @@ onBeforeRouteLeave(async () => {
             <ScheduleNotice :key="published" :workspace-id="ws" :entry-id="id" :can-publish="canPublish(workspace)" @reschedule="openPublish(false, true)" />
             <SourceUpdateNotice :workspace-id="ws" :entry-id="id" @show-diff="sourceDiffOpen = true" />
             <EntryTodoNotice v-if="hasPermission(workspace, 'corrections')" :key="published" :workspace-id="ws" :entry-id="id" @open-tab="openTab" />
-            <p v-if="schema?.state === 'pending'" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">
+            <p v-if="schema?.state === 'pending'" class="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status">
               {{ t("entries.migrationPending") }}
             </p>
             <p v-if="lastPublished" class="rounded-md border p-3 text-sm" role="status">
@@ -395,12 +395,12 @@ onBeforeRouteLeave(async () => {
                 <TabsTrigger value="ai" data-testid="tab-ai">{{ t("entryTabs.ai") }}</TabsTrigger>
                 <TabsTrigger value="review" data-testid="tab-review">
                   {{ t("entryTabs.review") }}
-                  <span v-if="review?.open" class="inline-block size-2 rounded-full bg-amber-500" :aria-label="t('review.waiting')" />
+                  <span v-if="review?.open" class="inline-block size-2 rounded-full bg-warning" :aria-label="t('review.waiting')" />
                 </TabsTrigger>
                 <TabsTrigger value="versions">{{ t("entryTabs.history") }}</TabsTrigger>
                 <TabsTrigger value="translations" data-testid="tab-translations">
                   {{ t("entryTabs.translations") }}
-                  <span v-if="translation?.sourceUpdate" class="inline-block size-2 rounded-full bg-amber-500" :aria-label="t('sourceUpdate.updated')" />
+                  <span v-if="translation?.sourceUpdate" class="inline-block size-2 rounded-full bg-warning" :aria-label="t('sourceUpdate.updated')" />
                 </TabsTrigger>
                 <TabsTrigger value="freshness">{{ t("entryTabs.freshness") }}</TabsTrigger>
                 <TabsTrigger value="related" data-testid="tab-related">{{ t("entryTabs.related") }}</TabsTrigger>

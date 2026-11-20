@@ -79,7 +79,7 @@ async function create() {
               {{ t("workspaces.templateLabel", { name: w.template }) }} ·
               {{ w.role ? t(`roles.${w.role}`) : t("roles.serverAdmin") }}
             </CardDescription>
-            <span class="text-xs" :class="w.schemaState === 'ok' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'">{{ t(`workspaces.schema.${w.schemaState}`) }}</span>
+            <span class="text-xs" :class="w.schemaState === 'ok' ? 'text-muted-foreground' : 'text-warning-text'">{{ t(`workspaces.schema.${w.schemaState}`) }}</span>
           </div>
           <div class="relative z-10 -mt-1 -mr-2">
             <WorkspaceActions :workspace="w" />

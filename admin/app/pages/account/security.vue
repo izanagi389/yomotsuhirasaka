@@ -28,6 +28,14 @@ const { me, refresh } = useAuth();
 
 const error = ref<unknown>(null);
 const recoveryCodes = ref<string[]>([]);
+// 復旧コードはこの画面でだけ出すので、出たらそこへ移り、見落とさないようにする
+const recoveryBox = ref<HTMLElement | null>(null);
+watch(recoveryCodes, async (codes) => {
+  if (codes.length === 0) return;
+  await nextTick();
+  recoveryBox.value?.scrollIntoView({ block: "start" });
+  recoveryBox.value?.focus({ preventScroll: true });
+});
 
 // --- 認証アプリ（TOTP） ---
 const totp = ref<{ secret: string; otpauthUrl: string } | null>(null);
@@ -175,7 +183,7 @@ onMounted(() => {
 
 <template>
   <div class="grid max-w-2xl gap-6">
-    <PageHeader :title="t('account.nav.security')" :description="t('security.title')" />
+    <PageHeader :title="t('account.title')" />
     <AccountNav />
     <Alert v-if="me?.mfaSetupRequired">
       <AlertTitle>{{ t("security.requiredTitle") }}</AlertTitle>
@@ -187,25 +195,27 @@ onMounted(() => {
     </Alert>
     <FormError :error="error" />
 
-    <Card v-if="recoveryCodes.length > 0">
-      <CardHeader>
-        <CardTitle>{{ t("security.recoveryCodesTitle") }}</CardTitle>
-        <CardDescription>{{ t("security.recoveryCodesDescription") }}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ul class="grid grid-cols-2 gap-2 font-mono text-sm">
-          <li v-for="c in recoveryCodes" :key="c">{{ c }}</li>
-        </ul>
-      </CardContent>
-    </Card>
+    <div v-if="recoveryCodes.length > 0" ref="recoveryBox" tabindex="-1" class="scroll-mt-4 outline-none" data-testid="recovery-codes">
+      <Card>
+        <CardHeader>
+          <CardTitle>{{ t("security.recoveryCodesTitle") }}</CardTitle>
+          <CardDescription>{{ t("security.recoveryCodesDescription") }}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ul class="grid grid-cols-2 gap-2 font-mono text-sm">
+            <li v-for="c in recoveryCodes" :key="c">{{ c }}</li>
+          </ul>
+        </CardContent>
+      </Card>
+    </div>
 
     <!-- SSOのセッションでは、多要素認証はIdPに任せ、本人の確認はパスキーで行う（Q131）。認証アプリとパスワードは出さない -->
     <Card v-if="!me?.sso">
       <CardHeader>
         <CardTitle>{{ t("security.totpTitle") }}</CardTitle>
-        <CardDescription>{{ me?.mfaEnabled ? t("security.mfaEnabled") : t("security.totpDescription") }}</CardDescription>
+        <CardDescription>{{ me?.totpEnabled ? t("security.totpEnabled") : me?.mfaEnabled ? t("security.mfaEnabled") : t("security.totpDescription") }}</CardDescription>
       </CardHeader>
-      <CardContent class="grid gap-4">
+      <CardContent v-if="!me?.totpEnabled" class="grid gap-4">
         <Button v-if="!totp" variant="outline" class="justify-self-start" @click="beginTotp">{{ t("security.totpBegin") }}</Button>
         <form v-else class="grid gap-4" @submit.prevent="confirmTotp">
           <p class="text-sm">{{ t("security.totpScan") }}</p>

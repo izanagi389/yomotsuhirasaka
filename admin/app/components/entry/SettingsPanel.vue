@@ -42,7 +42,7 @@ async function set(key: keyof PublishSettings, value: boolean) {
           <label :for="`setting-${k}`" class="grid gap-0.5">
             <span class="font-medium">{{ t(`settings.${k}.label`) }}</span>
             <span class="text-muted-foreground">{{ t(`settings.${k}.help`) }}</span>
-            <span class="text-xs text-amber-700 dark:text-amber-400">{{ t("settings.changedFromDefault") }}</span>
+            <span class="text-xs text-warning-text">{{ t("settings.changedFromDefault") }}</span>
           </label>
         </li>
       </ul>

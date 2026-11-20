@@ -206,7 +206,7 @@ function sectionName(s: { anchor: string | null; title: string | null; field: st
         </section>
         <p v-else class="text-muted-foreground">{{ t("publish.firstTime") }}</p>
 
-        <section v-if="check.sourceUpdate" class="grid gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3" data-testid="publish-source-update">
+        <section v-if="check.sourceUpdate" class="grid gap-2 rounded-md border border-warning/50 bg-warning/10 p-3" data-testid="publish-source-update">
           <p>{{ check.sourceUpdate.corrected ? t("sourceUpdate.publishCorrected") : t("sourceUpdate.publishUpdated") }}</p>
           <div>
             <Button size="sm" variant="outline" @click="diffOpen = true">{{ t("sourceUpdate.showDiff") }}</Button>

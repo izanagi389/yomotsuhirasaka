@@ -25,7 +25,7 @@ const who = computed(() => props.holder?.name ?? t("review.otherMember"));
 <template>
   <div
     v-if="status === 'held' || status === 'lost'"
-    class="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm"
+    class="flex flex-wrap items-center gap-3 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm"
     role="status"
     data-testid="edit-lock"
   >

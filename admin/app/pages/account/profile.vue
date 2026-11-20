@@ -41,9 +41,9 @@ async function save() {
 
 <template>
   <div class="grid max-w-3xl gap-6 text-sm">
-    <PageHeader :title="t('account.nav.profile')" :description="t('security.title')" />
+    <PageHeader :title="t('account.title')" />
     <AccountNav />
-    <p v-if="required" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3" role="status" data-testid="display-name-required">
+    <p v-if="required" class="rounded-md border border-warning/50 bg-warning/10 p-3" role="status" data-testid="display-name-required">
       {{ t("account.profile.required") }}
     </p>
     <form class="grid max-w-md gap-2" @submit.prevent="save">

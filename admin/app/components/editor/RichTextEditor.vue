@@ -335,7 +335,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="grid gap-2">
-    <div v-if="unknown.length > 0 || !narrowed.editable" class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">
+    <div v-if="unknown.length > 0 || !narrowed.editable" class="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status">
       {{ t("editor.readonlyUnknown", { names: (unknown.length > 0 ? unknown : narrowed.unsupported).join(", ") || "paragraph" }) }}
     </div>
     <div class="yomi-editor rounded-md border" :class="blockMode ? 'border-transparent' : ''">

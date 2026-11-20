@@ -20,11 +20,11 @@ const unwritten = computed(() => (versions.value ?? []).filter((v) => v.isCorrec
 
 <template>
   <div v-if="expired || unwritten > 0" class="grid gap-2">
-    <div v-if="expired" class="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status" data-testid="notice-expired">
+    <div v-if="expired" class="flex flex-wrap items-center gap-3 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status" data-testid="notice-expired">
       <span class="flex-1">{{ t("todo.notice.expired") }}</span>
       <Button size="sm" variant="outline" @click="emit('openTab', 'freshness')">{{ t("todo.notice.openFreshness") }}</Button>
     </div>
-    <div v-if="unwritten > 0" class="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status" data-testid="notice-unwritten">
+    <div v-if="unwritten > 0" class="flex flex-wrap items-center gap-3 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status" data-testid="notice-unwritten">
       <span class="flex-1">{{ t("todo.notice.unwritten", { n: unwritten }) }}</span>
       <Button size="sm" variant="outline" @click="emit('openTab', 'versions')">{{ t("todo.notice.openVersions") }}</Button>
     </div>

@@ -83,7 +83,7 @@ const localeOf = (id: string) => {
         </p>
         <p v-else class="text-muted-foreground">{{ t("translations.noSource") }}</p>
         <div v-if="info.sourceEntryId" class="flex flex-wrap items-center gap-3">
-          <span v-if="info.sourceUpdate" class="text-amber-700 dark:text-amber-400" data-testid="translations-source-update">
+          <span v-if="info.sourceUpdate" class="text-warning-text" data-testid="translations-source-update">
             {{ info.sourceUpdate.corrected ? t("sourceUpdate.corrected") : t("sourceUpdate.updated") }}
           </span>
           <span v-else class="text-muted-foreground">{{ t("sourceUpdate.upToDate") }}</span>

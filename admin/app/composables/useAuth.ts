@@ -5,6 +5,8 @@ export interface Me {
   email: string;
   isServerAdmin: boolean;
   mfaEnabled: boolean;
+  /** 認証アプリ（TOTP）を設定済みか。 */
+  totpEnabled: boolean;
   /** 多要素認証の設定が済むまで、他の操作ができない（Q197）。 */
   mfaSetupRequired: boolean;
   locale: "ja" | "en" | null;

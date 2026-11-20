@@ -25,7 +25,7 @@ onMounted(load);
       <p v-if="(result.hints ?? []).length === 0" class="text-muted-foreground">{{ t("assist.noHints") }}</p>
       <ul v-else class="grid gap-2">
         <li v-for="h in result.hints" :key="h.quote" class="grid gap-1">
-          <mark class="w-fit rounded bg-amber-200 px-1 text-foreground dark:bg-amber-500/40">{{ h.quote }}</mark>
+          <mark class="w-fit rounded bg-highlight px-1 text-foreground">{{ h.quote }}</mark>
           <span class="text-muted-foreground">{{ h.reason || t("assist.explanationWithheld") }}</span>
         </li>
       </ul>

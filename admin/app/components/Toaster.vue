@@ -14,7 +14,7 @@ const { toasts, dismiss } = useToast();
       :class="toast.kind === 'error' ? 'border-destructive/40' : ''"
       :data-testid="`toast-${toast.kind}`"
     >
-      <CircleCheck v-if="toast.kind === 'success'" class="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+      <CircleCheck v-if="toast.kind === 'success'" class="mt-0.5 size-4 shrink-0 text-success-text" aria-hidden="true" />
       <CircleAlert v-else-if="toast.kind === 'error'" class="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
       <Info v-else class="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
       <span class="flex-1">{{ toast.message }}</span>

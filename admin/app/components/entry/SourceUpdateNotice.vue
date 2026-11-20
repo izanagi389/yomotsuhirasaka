@@ -11,7 +11,7 @@ const update = computed(() => data.value?.sourceUpdate ?? null);
 </script>
 
 <template>
-  <div v-if="update" class="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status" data-testid="source-update">
+  <div v-if="update" class="flex flex-wrap items-center gap-3 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status" data-testid="source-update">
     <span class="flex-1">{{ update.corrected ? t("sourceUpdate.corrected") : t("sourceUpdate.updated") }}</span>
     <Button size="sm" variant="outline" data-testid="show-source-diff" @click="emit('showDiff')">{{ t("sourceUpdate.showDiff") }}</Button>
   </div>
