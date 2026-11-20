@@ -11,5 +11,5 @@ export interface WorkspaceSummary {
 
 export function useWorkspaces() {
   const api = useApi();
-  return useAsyncData("workspaces", () => api.get<WorkspaceSummary[]>("/workspaces"));
+  return useFreshAsyncData("workspaces", () => api.get<WorkspaceSummary[]>("/workspaces"));
 }

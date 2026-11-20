@@ -13,9 +13,7 @@ const ws = route.params.ws as string;
 const { t, locale } = useI18n();
 const api = useApi();
 const { workspace, manifest, schema, error } = await useWorkspace(ws);
-const { data: entries, error: listError } = await useAsyncData(`entries:${ws}`, () =>
-  schema.value?.manifest ? api.get<EntrySummary[]>(`/workspaces/${ws}/entries`) : Promise.resolve([] as EntrySummary[]),
-);
+const { data: entries, error: listError } = await useEntrySummaries(ws, schema);
 
 const typeFilter = ref("");
 const localeFilter = ref("");

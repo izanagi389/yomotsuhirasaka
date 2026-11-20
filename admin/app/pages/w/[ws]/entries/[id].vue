@@ -28,7 +28,7 @@ import SettingsPanel from "~/components/entry/SettingsPanel.vue";
 import TranslationsPanel from "~/components/entry/TranslationsPanel.vue";
 import UrlHistoryPanel from "~/components/entry/UrlHistoryPanel.vue";
 import VersionsPanel from "~/components/entry/VersionsPanel.vue";
-import type { Draft, EntryReview, EntrySummary, FieldValue, Published, SavedDraft } from "~/utils/content";
+import type { Draft, EntryReview, FieldValue, Published, SavedDraft } from "~/utils/content";
 
 const route = useRoute();
 const ws = route.params.ws as string;
@@ -40,7 +40,7 @@ const base = `/workspaces/${ws}/entries/${id}`;
 const { workspace, manifest, schema, error: wsError } = await useWorkspace(ws);
 const { data: draft, error: draftError, refresh: refreshDraft } = await useAsyncData(`draft:${id}`, () => api.get<Draft>(base));
 // 参照フィールドの候補
-const { data: entries } = await useAsyncData(`entries:${ws}`, () => api.get<EntrySummary[]>(`/workspaces/${ws}/entries`));
+const { data: entries } = await useEntrySummaries(ws, schema);
 
 const contentType = computed(() => manifest.value?.contentTypes.find((c) => c.name === draft.value?.contentType));
 const values = reactive<Record<string, FieldValue>>({ ...(draft.value?.fields ?? {}) });

@@ -25,7 +25,7 @@ async function save(changes: Record<string, unknown>): Promise<boolean> {
   try {
     await api.patch(`/workspaces/${props.workspaceId}/settings`, changes);
     await refresh();
-    await refreshNuxtData(`workspace:${props.workspaceId}`);
+    await refreshNuxtData([`workspace:${props.workspaceId}`, `ws-nav:${props.workspaceId}`, "workspaces"]);
     toast.show(t("workspaceSettings.saved"));
     return true;
   } catch (e) {

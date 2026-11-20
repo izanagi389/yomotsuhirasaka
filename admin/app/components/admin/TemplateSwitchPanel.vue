@@ -142,7 +142,7 @@ async function run() {
     result.value = null;
     target.value = "";
     await refresh();
-    await refreshNuxtData(`workspace:${props.workspaceId}`);
+    await refreshNuxtData([`workspace:${props.workspaceId}`, "workspaces"]);
   } catch (e) {
     switchError.value = e;
   } finally {

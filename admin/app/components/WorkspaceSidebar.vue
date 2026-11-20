@@ -40,7 +40,15 @@ const api = useApi();
 
 const { data: workspace } = useAsyncData(`ws-nav:${props.workspaceId}`, () => api.get<WorkspaceInfo>(`/workspaces/${props.workspaceId}`));
 const { data: workspaces } = useWorkspaces();
-const { data: todo } = useTodo(props.workspaceId);
+const { data: todo, refresh: refreshTodo } = useTodo(props.workspaceId);
+// サイドバーは画面を移っても残るので、「やること」の件数は画面を移るたびに取り直す（記事の公開やレビューで変わる）。
+// 「やること」の画面は自分で取り直すので、ここでは取らない
+watch(
+  () => route.path,
+  (path) => {
+    if (path !== base.value) void refreshTodo();
+  },
+);
 
 const base = computed(() => `/w/${props.workspaceId}`);
 const main = computed(() => [

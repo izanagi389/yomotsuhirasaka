@@ -3,7 +3,7 @@ import type { SchemaInfo, WorkspaceInfo } from "~/utils/content";
 
 export async function useWorkspace(id: string) {
   const api = useApi();
-  const { data, error, refresh } = await useAsyncData(`workspace:${id}`, async () => {
+  const { data, error, refresh } = await useFreshAsyncData(`workspace:${id}`, async () => {
     const [workspace, schema] = await Promise.all([
       api.get<WorkspaceInfo>(`/workspaces/${id}`),
       api.get<SchemaInfo>(`/workspaces/${id}/schema`),
