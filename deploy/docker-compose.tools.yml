@@ -1,0 +1,32 @@
+# 手元で Rust のチェック（fmt・clippy・test）を動かすためのコンテナ。本番では使わない。
+# このマシンに Rust を入れずに、リリースのビルドと同じツールチェーン（server.Dockerfile の toolchain に rustfmt と clippy を足した checks）を使う。
+#
+#   scripts/cargo.sh clippy --all-targets -- -D warnings
+#
+# - 起動したまま待たせておき、コマンドは `docker compose exec` で送る（毎回コンテナを作るより速い）。
+# - ビルドの結果（target）と依存のキャッシュは名前付きボリュームに置く。ホストの target/ には触れない。
+# - ネットワークは依存の取得（crates.io）にだけ使う。CMS や DB のネットワークにはつながない。
+
+name: yomi-tools
+
+services:
+  rust:
+    build:
+      context: ..
+      dockerfile: deploy/server.Dockerfile
+      target: checks
+    image: yomotsuhirasaka/rust-toolchain:local
+    command: ["sleep", "infinity"]
+    init: true
+    working_dir: /src
+    environment:
+      CARGO_TARGET_DIR: /cargo-target
+    volumes:
+      - ..:/src
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/cargo-target
+    restart: unless-stopped
+
+volumes:
+  cargo-registry:
+  cargo-target:
