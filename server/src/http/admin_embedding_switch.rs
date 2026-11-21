@@ -52,7 +52,7 @@ pub struct SwitchView {
 
 async fn view(state: &AppState) -> Result<SwitchView, ApiError> {
     let llm = state.config.llm.as_ref();
-    let next = llm.and_then(|l| l.next());
+    let next = llm.and_then(crate::config::LlmConfig::next);
     let started = switch::started(&state.pool).await?;
     let mut workspaces = Vec::new();
     if llm.is_some() {
@@ -111,7 +111,12 @@ pub async fn start(
     if !current.reauth_fresh {
         return Err(ApiError::reauth_required());
     }
-    let Some(next) = state.config.llm.as_ref().and_then(|l| l.next()) else {
+    let Some(next) = state
+        .config
+        .llm
+        .as_ref()
+        .and_then(crate::config::LlmConfig::next)
+    else {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
             "no_next_embedding",

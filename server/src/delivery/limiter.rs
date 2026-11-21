@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::config::AnswerConfig;
 
 const MINUTE: Duration = Duration::from_secs(60);
-const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+const DAY: Duration = Duration::from_hours(24);
 /// 記録の数がこれを超えたら、期限の切れた記録を捨てる（捨てた後に残った数の2倍になるまでは、次の掃除をしない）。
 const PRUNE_THRESHOLD: usize = 50_000;
 /// ワークスペースごとの、訪問者の記録の数の上限。1日の記録は長く残るので、識別子を変え続けるリクエストでメモリと掃除の手間が
@@ -153,7 +153,10 @@ impl Limiter {
     pub fn check(&self, subject: Subject, limit: u32) -> Result<(), u64> {
         let now = Instant::now();
         let window = subject.window();
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let state = &mut *state;
         let counters = match subject {
             Subject::Visitor { workspace, .. } => state

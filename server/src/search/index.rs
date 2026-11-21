@@ -7,7 +7,7 @@
 //!      どのチャンクにも使われなくなった埋め込みも消す（本文を抹消した版の埋め込みを含む。Q134）。
 //!   2. 公開中の版のチャンクがない・古い記事のチャンクを作り直す。チャンク（本文）は、LLMの接続先がなくても、予算が尽きていても作る
 //!      （キーワード検索に使うため）。
-//!   3. LLMの接続先があれば、今のモデルの埋め込みがないテキストの埋め込みを作る。埋め込みはテキスト（content_hash）と
+//!   3. LLMの接続先があれば、今のモデルの埋め込みがないテキストの埋め込みを作る。埋め込みはテキスト（`content_hash`）と
 //!      モデルごとに1つで、同じテキストのチャンクは使い回す（Q58。`search_embeddings`）。埋め込みは予算の範囲でだけ作る
 //!      （`budget::embed`。INV-BUD-01）。足りなければ、ここで止めて15分後にやり直す（上限が変われば、すぐにやり直す）。
 //!   4. 記事全体のベクトルを作り直し、作り直した記事の関連記事を計算する（`related`）。
@@ -45,7 +45,7 @@ const PAGE: i64 = 50;
 /// 1回の埋め込みの呼び出しに入れるチャンクの数。
 const INPUTS_PER_CALL: usize = 32;
 /// チャンクの決まりの版（`chunk.rs` の出力が変わる変更をしたら上げる）。
-/// 2: チャンクに「検索の対象のフィールド」の決め方の要約（fields_key）を残すようにした（既にある行を書き直すため）。
+/// 2: チャンクに「検索の対象のフィールド」の決め方の要約（`fields_key`）を残すようにした（既にある行を書き直すため）。
 const CHUNKER_VERSION: &str = "2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,7 +315,7 @@ async fn index_entry(
                 .and_then(Value::as_str);
             match markdown {
                 Some(md) if c.rendered_with.as_deref() == Some(CONVERTER_VERSION) => {
-                    sources.push(Source::Markdown(md))
+                    sources.push(Source::Markdown(md));
                 }
                 _ => return Ok(false),
             }

@@ -82,7 +82,7 @@ fn arguments(field: Field) -> Field {
         .argument(visitor_arg())
 }
 
-/// 訪問者の識別子の引数。回数制限は、実行の前に配信APIの入口（http::delivery）で数える。ここでは値を使わない。
+/// 訪問者の識別子の引数。回数制限は、実行の前に配信APIの入口（`http::delivery`）で数える。ここでは値を使わない。
 fn visitor_arg() -> InputValue {
     InputValue::new(VISITOR_ID_ARG, TypeRef::named(TypeRef::STRING)).description(
         "An opaque identifier of the visitor (hash it on your relay server), up to 128 characters. \

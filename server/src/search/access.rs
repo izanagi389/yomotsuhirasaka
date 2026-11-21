@@ -66,7 +66,7 @@ pub fn current_keys(manifest: &Manifest) -> (Vec<String>, Vec<String>) {
         .unzip()
 }
 
-/// 見せてよいチャンクの条件。`c` は search_chunks、`e` は entries。
+/// 見せてよいチャンクの条件。`c` は `search_chunks`、`e` は `entries`。
 /// 引数: `{types}`・`{keys}` に今のスキーマの並び（[`current_keys`]）、`{locale}` にロケールのパラメーターの番号を入れて使う。
 /// キーワード検索はこれだけを使い、ベクトル検索は [`visible_embedded`] を使う。
 pub fn visible(types: usize, keys: usize, locale: usize) -> String {
@@ -82,7 +82,7 @@ pub fn visible(types: usize, keys: usize, locale: usize) -> String {
 }
 
 /// [`visible`] に加えて、チャンクのテキストの、今の埋め込みのモデルと次元数（`{model}`・`{dims}` のパラメーターの番号）の
-/// 埋め込み。`x` は search_embeddings。
+/// 埋め込み。`x` は `search_embeddings`。
 pub fn visible_embedded(
     types: usize,
     keys: usize,

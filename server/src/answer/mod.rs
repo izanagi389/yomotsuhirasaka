@@ -279,6 +279,8 @@ impl Grounds {
     }
 }
 
+// `.map_err(internal)` で使うので、値で受け取る
+#[allow(clippy::needless_pass_by_value)]
 fn internal(e: anyhow::Error) -> Refusal {
     tracing::error!("answer failed: {e:#}");
     Refusal::Internal

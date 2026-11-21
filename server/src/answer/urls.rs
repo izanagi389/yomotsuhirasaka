@@ -353,6 +353,8 @@ fn destination(b: &[u8], k: usize, parens: bool, end: bool) -> Result<(usize, us
 }
 
 /// `[文](宛先 "題")`・`![代替](宛先)`・`[名]: 宛先`。`rest` は `[` か `![` から。
+// バイト単位の字句解析で、位置（`j` など）は短い名前のほうが追いやすい
+#[allow(clippy::many_single_char_names)]
 fn link(rest: &str, image: bool, line_start: bool, end: bool, policy: &mut Policy<'_>) -> Parsed {
     let b = rest.as_bytes();
     let open = if image { 2 } else { 1 };
@@ -599,7 +601,7 @@ fn bare_rest(rest: &str, end: bool, policy: &mut Policy<'_>, www: bool) -> Parse
         let run = &rest[..e];
         match run.as_bytes().last() {
             Some(b'?' | b'!' | b'.' | b',' | b':' | b'*' | b'_' | b'~' | b'\'' | b'"' | b';') => {
-                e -= 1
+                e -= 1;
             }
             Some(b')') if run.matches('(').count() < run.matches(')').count() => e -= 1,
             _ => break,

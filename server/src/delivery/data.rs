@@ -402,20 +402,6 @@ pub async fn with_media(
     workspace_id: Uuid,
     mut doc: Value,
 ) -> Result<Value> {
-    let ids = crate::content::body::media_ids(&doc);
-    if ids.is_empty() {
-        return Ok(doc);
-    }
-    let rows: Vec<(Uuid, String, i32, i32)> = sqlx::query_as(
-        "SELECT id, file, width, height FROM media WHERE id = ANY($1) AND deleted_at IS NULL",
-    )
-    .bind(&ids)
-    .fetch_all(conn)
-    .await?;
-    let found: HashMap<Uuid, (String, i32, i32)> = rows
-        .into_iter()
-        .map(|(id, f, w, h)| (id, (f, w, h)))
-        .collect();
     fn walk(v: &mut Value, found: &HashMap<Uuid, (String, i32, i32)>, base: &str, ws: Uuid) {
         if let Some(children) = v.get_mut("content").and_then(Value::as_array_mut) {
             children.retain(|c| {
@@ -449,6 +435,20 @@ pub async fn with_media(
             }
         }
     }
+    let ids = crate::content::body::media_ids(&doc);
+    if ids.is_empty() {
+        return Ok(doc);
+    }
+    let rows: Vec<(Uuid, String, i32, i32)> = sqlx::query_as(
+        "SELECT id, file, width, height FROM media WHERE id = ANY($1) AND deleted_at IS NULL",
+    )
+    .bind(&ids)
+    .fetch_all(conn)
+    .await?;
+    let found: HashMap<Uuid, (String, i32, i32)> = rows
+        .into_iter()
+        .map(|(id, f, w, h)| (id, (f, w, h)))
+        .collect();
     walk(&mut doc, &found, media_base, workspace_id);
     Ok(doc)
 }

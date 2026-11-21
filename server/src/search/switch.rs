@@ -250,6 +250,8 @@ pub async fn status(
         desired: p.desired.clone(),
         chunks_to_embed: chunks,
         estimated_tokens: tokens,
+        // 費用は目安なので、トークン数を f64 にしたときの丸めは問題にならない
+        #[allow(clippy::cast_precision_loss)]
         estimated_cost: price.map(|pr| pr * tokens as f64 / 1_000_000.0),
     })
 }
