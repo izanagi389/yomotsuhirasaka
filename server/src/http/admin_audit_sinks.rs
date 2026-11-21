@@ -8,7 +8,7 @@
 //! | POST | /api/admin/workspaces/{ws}/audit-sinks/{id}/resume | 停止したものを再開する（続きから送る） |
 //!
 //! - そのワークスペースの管理者とサーバー管理者だけ。変更は再認証が要り、監査ログに残る。
-//! - 届くのは、そのワークスペースの記録だけ（作った時点より後のもの。INV-AUD-03）。送るのは audit_export.rs。
+//! - 届くのは、そのワークスペースの記録だけ（作った時点より後のもの。INV-AUD-03）。送るのは `audit_export.rs`。
 //! - 宛先は記事の Webhook と同じく、登録の時点と送るたびに外部への送信の仕組み（egress）で確かめる。
 
 use axum::Json;
@@ -67,8 +67,6 @@ pub async fn list(
     AuthSession(current): AuthSession,
     Path(ws): Path<String>,
 ) -> Result<Json<Vec<Sink>>, ApiError> {
-    let ws = parse_id(&ws)?;
-    admin(&state, &current, ws, false).await?;
     type Row = (
         Uuid,
         String,
@@ -77,6 +75,8 @@ pub async fn list(
         Option<String>,
         Option<String>,
     );
+    let ws = parse_id(&ws)?;
+    admin(&state, &current, ws, false).await?;
     let rows: Vec<Row> = sqlx::query_as(crate::sql!(
         "SELECT id, url, to_char(created_at AT TIME ZONE 'UTC', {RFC3339}),
                 to_char(failing_since AT TIME ZONE 'UTC', {RFC3339}), last_error,

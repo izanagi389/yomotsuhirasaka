@@ -114,8 +114,10 @@ async fn read(
     let (before, limit) = page_params(q)?;
     // 1件多く読み、続きがあるかを知る
     let mut entries = audit::list(&state.pool, scope, &filter, before, limit + 1).await?;
-    let more = entries.len() as i64 > limit;
-    entries.truncate(limit as usize);
+    // limit は page_params で 1〜MAX_LIMIT に絞ってあるので、変換は失敗しない
+    let limit = usize::try_from(limit).map_err(anyhow::Error::from)?;
+    let more = entries.len() > limit;
+    entries.truncate(limit);
     let next_before = if more {
         entries.last().map(|e| e.id)
     } else {
@@ -127,6 +129,8 @@ async fn read(
     }))
 }
 
+// axum の Query が作る HashMap をそのまま受け取る。ハッシュの種類を選ぶ必要はない
+#[allow(clippy::implicit_hasher)]
 pub async fn workspace(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
@@ -138,6 +142,8 @@ pub async fn workspace(
     read(&state, Scope::Workspace(ws), &q).await
 }
 
+// axum の Query が作る HashMap をそのまま受け取る。ハッシュの種類を選ぶ必要はない
+#[allow(clippy::implicit_hasher)]
 pub async fn instance(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
@@ -179,6 +185,8 @@ async fn export(
     Ok(res)
 }
 
+// axum の Query が作る HashMap をそのまま受け取る。ハッシュの種類を選ぶ必要はない
+#[allow(clippy::implicit_hasher)]
 pub async fn workspace_export(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,
@@ -190,6 +198,8 @@ pub async fn workspace_export(
     export(&state, Scope::Workspace(ws), &q).await
 }
 
+// axum の Query が作る HashMap をそのまま受け取る。ハッシュの種類を選ぶ必要はない
+#[allow(clippy::implicit_hasher)]
 pub async fn instance_export(
     State(state): State<AppState>,
     AuthSession(current): AuthSession,

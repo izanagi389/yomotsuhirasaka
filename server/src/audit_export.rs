@@ -58,7 +58,7 @@ enum Target<'a> {
     },
 }
 
-/// 進み具合の行（インスタンスのものは sink_key、ワークスペースのものは書き出し先のID）。
+/// 進み具合の行（インスタンスのものは `sink_key`、ワークスペースのものは書き出し先のID）。
 enum Cursor<'a> {
     Instance(&'a str),
     Workspace(Uuid),
@@ -74,13 +74,13 @@ async fn next_batch(
     cursor: &CursorRow,
 ) -> Result<Vec<Entry>> {
     let rows: Vec<audit::Row> = sqlx::query_as(crate::sql!(
-        r#"SELECT {}
+        r"SELECT {}
            FROM yomi.audit_log a
            WHERE ($1::uuid IS NULL OR a.workspace_id = $1)
              AND (a.created_at, a.id) > ($2::timestamptz, $3)
              AND a.created_at < now() - interval '5 seconds'
            ORDER BY a.created_at, a.id
-           LIMIT $4"#,
+           LIMIT $4",
         audit::COLUMNS
     ))
     .bind(workspace)
@@ -349,7 +349,7 @@ async fn drain(
             tracing::warn!(error = %code, "audit export: a destination did not accept records");
             return Ok(());
         }
-        if (entries.len() as i64) < BATCH {
+        if i64::try_from(entries.len()).is_ok_and(|count| count < BATCH) {
             return Ok(());
         }
     }
