@@ -31,6 +31,18 @@ services:
 - 受け取ったリクエストを記録し、テストから確認できるようにする（`devNote` がプロンプトに含まれないことの確認などに使う）。
 - CMSのプロンプトの形式と密接に結びつくため、CMSと同じリポジトリでバージョン管理する。
 
+## 手元でのRustのチェック
+
+- 開発するマシンに Rust を入れなくてよいように、fmt・clippy・test はチェック用のコンテナ（`deploy/docker-compose.tools.yml`）の中で動かす。コマンドは `scripts/cargo.sh`（例: `scripts/cargo.sh clippy --locked --all-targets -- -D warnings`）。
+- ツールチェーンは、リリースのビルド（`deploy/server.Dockerfile` の `toolchain` の段階）と同じものを使う。チェック用の段階（`checks`）は、それに rustfmt と clippy を足しただけのもの。
+- 版は CI に合わせて最新の stable にする。CI は毎回最新の stable を入れるので、新しい stable が出たら `server.Dockerfile` の版と digest も上げる。
+- ビルドの結果と依存のキャッシュは名前付きのボリュームに置き、ホストの `target/` には触れない。
+- サーバーの結合テスト（`server/tests/`）のうち DB を使うものは、`scripts/cargo-db-test.sh` で動かす。チェック用のコンテナに、テスト専用の PostgreSQL（CI と同じイメージ。pgvector 入りの16と、pg_bigm 入りの18）をプロファイル `db` で起動して、接続先を渡す。
+  - データは tmpfs に置き、ホストにポートを公開しない。CMS の DB とは別のコンテナで、記事のデータには触れない（テストは毎回、使い捨ての DB とロールを作って消す）。
+  - DB のコンテナは rust のコンテナとネットワークを共有し、CI と同じ `127.0.0.1:5432` / `5434` で待ち受ける。起動時の検査はループバック以外の接続先に `sslmode` を求めるが、テストは接続先を組み立て直すときに `sslmode` を落とすため。
+  - リンクのメモリが足りなくならないよう、デバッグ情報は行番号だけにし、並列のビルドは既定で1にする（CI と同じ考え方）。
+- ファイルを編集したあとの整形は、Claude Code の hooks（`.claude/settings.json`）が、このコンテナの rustfmt で行う。
+
 ## テスト
 
 - 約束のテストの規則は `CLAUDE.md` の「約束のテスト」を参照。
