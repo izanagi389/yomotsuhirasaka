@@ -292,6 +292,9 @@ pub async fn rotate_secret(
     let sealed = state
         .keys
         .encrypt(secret.as_bytes(), &webhooks::secret_aad(id))?;
+    // 定数（古い秘密を残す秒数）は小さいので、f64 で正確に表せる
+    #[allow(clippy::cast_precision_loss)]
+    let previous_secret_seconds = webhooks::PREVIOUS_SECRET_SECONDS as f64;
     let until: String = sqlx::query_scalar(crate::sql!(
         "UPDATE yomi.webhooks
          SET previous_secret_enc = $2, previous_secret_until = now() + make_interval(secs => $3),
@@ -301,7 +304,7 @@ pub async fn rotate_secret(
     ))
     .bind(id)
     .bind(old)
-    .bind(webhooks::PREVIOUS_SECRET_SECONDS as f64)
+    .bind(previous_secret_seconds)
     .bind(sealed)
     .fetch_one(&mut *tx)
     .await

@@ -175,13 +175,11 @@ impl ChatStream {
                     }
                 }
             }
-            match self.inner.next_chunk().await.map_err(LlmError::Egress)? {
-                Some(bytes) => self.buf.extend_from_slice(&bytes),
-                None => {
-                    self.done = true;
-                    return Err(LlmError::InvalidResponse);
-                }
-            }
+            let Some(bytes) = self.inner.next_chunk().await.map_err(LlmError::Egress)? else {
+                self.done = true;
+                return Err(LlmError::InvalidResponse);
+            };
+            self.buf.extend_from_slice(&bytes);
         }
     }
 
@@ -313,7 +311,7 @@ impl Llm {
     }
 }
 
-/// `<base_url>/<path>`（base_url の末尾の / は1つにまとめる）。
+/// `<base_url>/<path>`（`base_url` の末尾の / は1つにまとめる）。
 fn endpoint(base_url: &str, path: &str) -> String {
     format!("{}/{path}", base_url.trim_end_matches('/'))
 }
@@ -343,6 +341,8 @@ fn parse_embeddings(body: &[u8], inputs: &[String], dims: usize) -> Result<Embed
         if values.len() != dims {
             return Err(LlmError::DimensionMismatch);
         }
+        // 埋め込みは f32 で持つ。f32 に収まらない値は無限大になり、is_finite で弾く
+        #[allow(clippy::cast_possible_truncation)]
         let vector = values
             .iter()
             .map(|v| v.as_f64().map(|x| x as f32).filter(|x| x.is_finite()))

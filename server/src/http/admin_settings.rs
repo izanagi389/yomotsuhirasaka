@@ -1,4 +1,4 @@
-//! 管理API: ワークスペースの設定（yomi.workspace_settings。行がなければ既定の値）。
+//! 管理API: ワークスペースの設定（`yomi.workspace_settings`。行がなければ既定の値）。
 //!
 //! | メソッド | パス | 内容 | 誰が |
 //! |---|---|---|---|
@@ -12,7 +12,7 @@
 //!   `/` で始まり、英数字と `-` `_` `.` `/` だけ（`//` と `..` は受け付けない）。最大100文字。
 //! - ワークスペースの紋（`{motif, color}`。`null` で選ぶのをやめ、管理画面が ID から決める既定に戻す）: 管理画面で
 //!   ワークスペースを見分けるための飾り。形は [`CREST_MOTIFS`]、色は [`CREST_COLORS`] から選ぶ。
-//! - 変更は監査ログに残す。値は1件の取得（admin_workspaces.rs）で所属者に返す（紋は一覧でも返す）。
+//! - 変更は監査ログに残す。値は1件の取得（`admin_workspaces.rs`）で所属者に返す（紋は一覧でも返す）。
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -43,6 +43,7 @@ pub struct Crest {
 }
 
 /// 送られていない（None）と、null（Some(None)）を分けて受け取る。
+#[allow(clippy::option_option)] // 「項目なし」と null を区別するため
 fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<Crest>>, D::Error> {
     Option::<Crest>::deserialize(d).map(Some)
 }
@@ -143,6 +144,8 @@ pub struct Settings {
     preview_path: Option<String>,
     /// ワークスペースの紋（`null` で既定に戻す）。
     #[serde(default, deserialize_with = "present")]
+    #[allow(clippy::option_option)]
+    // 「項目なし」（変えない）と null（既定に戻す）を区別するため
     crest: Option<Option<Crest>>,
 }
 
