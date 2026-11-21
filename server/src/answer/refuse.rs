@@ -88,7 +88,7 @@ fn digit_runs(text: &str) -> Vec<Vec<u8>> {
     for c in text.chars() {
         let digit = match c {
             '0'..='9' => Some(c as u8 - b'0'),
-            '０'..='９' => Some((c as u32 - '０' as u32) as u8),
+            '０'..='９' => u8::try_from(u32::from(c) - u32::from('０')).ok(),
             _ => None,
         };
         match digit {
@@ -137,7 +137,8 @@ fn my_number(digits: &[u8]) -> bool {
         .rev()
         .enumerate()
         .map(|(i, &p)| {
-            let n = i as u32 + 1;
+            // 上位11桁だけなので、位置は u32 に収まる
+            let n = u32::try_from(i).unwrap_or(u32::MAX).saturating_add(1);
             let q = if n <= 6 { n + 1 } else { n - 5 };
             u32::from(p) * q
         })

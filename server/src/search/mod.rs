@@ -2,10 +2,10 @@
 //!
 //! - 検索用データ（チャンクと埋め込み）は、ワークスペースのスキーマの `search_chunks` に置く。作るのは [`index`] のジョブ。
 //! - ベクトルの比べ方には pgvector を使う。拡張はスーパーユーザーが前もって作る（CMSは作らない。ロールがスーパーユーザーでないため）。
-//!   ワークスペースの SQL は search_path がそのワークスペースのスキーマだけなので、型と演算子は拡張のスキーマの名前を付けて書く。
-//! - 日本語のキーワード検索には pg_bigm を使う（M3。PGroonga は使わない）。これもスーパーユーザーが前もって作る。
+//!   ワークスペースの SQL は `search_path` がそのワークスペースのスキーマだけなので、型と演算子は拡張のスキーマの名前を付けて書く。
+//! - 日本語のキーワード検索には `pg_bigm` を使う（M3。PGroonga は使わない）。これもスーパーユーザーが前もって作る。
 //!   なければ、キーワード検索だけを無効にする（INV-SRC-05）。あれば、CMSが移行用の接続で、各ワークスペースの本文に
-//!   GIN の索引（gin_bigm_ops）を作る（起動のときと、ワークスペースを作ったとき）。
+//!   GIN の索引（`gin_bigm_ops`）を作る（起動のときと、ワークスペースを作ったとき）。
 //! - 埋め込みには、ワークスペース・モデルごとに HNSW の部分索引を作る（[`ensure_vector_index`]。これも移行用の接続で、
 //!   起動のときと、ワークスペースを作ったとき）。
 
@@ -52,7 +52,7 @@ pub async fn vector_schema<'e>(executor: impl PgExecutor<'e>) -> Result<Option<I
     extension_schema(executor, "vector").await
 }
 
-/// pg_bigm の拡張 `pg_bigm` のあるスキーマ。拡張がない、またはそのスキーマをどのロールも使えるのでなければ None
+/// `pg_bigm` の拡張 `pg_bigm` のあるスキーマ。拡張がない、またはそのスキーマをどのロールも使えるのでなければ None
 /// （キーワード検索は無効）。
 pub async fn keyword_schema(conn: &mut PgConnection) -> Result<Option<Ident>> {
     let Some(schema) = extension_schema(&mut *conn, "pg_bigm").await? else {
@@ -63,7 +63,7 @@ pub async fn keyword_schema(conn: &mut PgConnection) -> Result<Option<Ident>> {
         .then_some(schema))
 }
 
-/// pg_bigm があれば、ワークスペースのチャンクの本文に GIN の索引を作る（既にあれば何もしない）。移行・ロールの作成用の接続で呼ぶ。
+/// `pg_bigm` があれば、ワークスペースのチャンクの本文に GIN の索引を作る（既にあれば何もしない）。移行・ロールの作成用の接続で呼ぶ。
 /// 大文字・小文字を区別せずに探すため、索引は `lower(content)` に作る（検索の側も同じ式を使う。`query.rs`）。
 pub async fn ensure_keyword_index(conn: &mut PgConnection, db: &WorkspaceDb) -> Result<()> {
     let Some(bs) = keyword_schema(&mut *conn).await? else {
@@ -79,7 +79,7 @@ pub async fn ensure_keyword_index(conn: &mut PgConnection, db: &WorkspaceDb) -> 
     Ok(())
 }
 
-/// すべてのワークスペースに [`ensure_keyword_index`] を行う（サーバーの起動時。後から pg_bigm を入れた環境のため）。
+/// すべてのワークスペースに [`ensure_keyword_index`] を行う（サーバーの起動時。後から `pg_bigm` を入れた環境のため）。
 pub async fn ensure_keyword_indexes(migration: &PgPool) -> Result<()> {
     let mut conn = migration.acquire().await?;
     if keyword_schema(&mut conn).await?.is_none() {

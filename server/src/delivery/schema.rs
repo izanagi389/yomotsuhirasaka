@@ -85,6 +85,8 @@ pub struct QueryLimits {
     pub complexity: usize,
 }
 
+// `.map_err(internal)` で使うので、値で受け取る
+#[allow(clippy::needless_pass_by_value)]
 pub(super) fn internal(e: anyhow::Error) -> async_graphql::Error {
     tracing::error!("delivery resolver failed: {e:#}");
     async_graphql::Error::new("internal error")
@@ -172,8 +174,6 @@ fn image_type() -> Object {
 }
 
 fn alternate_type() -> Object {
-    let t = Object::new(ALTERNATE_TYPE)
-        .description("A published entry of the same translation group in another locale.");
     fn text<F>(name: &str, ty: TypeRef, get: F) -> Field
     where
         F: Fn(&Entry) -> String + Send + Sync + 'static,
@@ -183,6 +183,8 @@ fn alternate_type() -> Object {
             FieldFuture::new(async move { Ok(Some(GqlValue::from(v?))) })
         })
     }
+    let t = Object::new(ALTERNATE_TYPE)
+        .description("A published entry of the same translation group in another locale.");
     t.field(text("id", TypeRef::named_nn(TypeRef::ID), |e| {
         e.id.to_string()
     }))
@@ -206,10 +208,8 @@ where
     })
 }
 
-fn sections_value(sections: &[String]) -> Option<GqlValue> {
-    Some(GqlValue::List(
-        sections.iter().cloned().map(GqlValue::from).collect(),
-    ))
+fn sections_value(sections: &[String]) -> GqlValue {
+    GqlValue::List(sections.iter().cloned().map(GqlValue::from).collect())
 }
 
 /// 訂正履歴の1件の型（Q63）。説明の編集履歴と編集日時は出さない（INV-COR-04）。
@@ -231,7 +231,7 @@ fn correction_type() -> Object {
         .field(value_field::<Correction, _>(
             "sections",
             TypeRef::named_nn_list_nn(TypeRef::STRING),
-            |c| sections_value(&c.sections),
+            |c| Some(sections_value(&c.sections)),
         ))
 }
 
@@ -287,7 +287,7 @@ fn correction_feed_item_type() -> Object {
         .field(value_field::<FeedItem, _>(
             "sections",
             TypeRef::named_nn_list_nn(TypeRef::STRING),
-            |i| sections_value(&i.sections),
+            |i| Some(sections_value(&i.sections)),
         ))
 }
 
@@ -618,7 +618,7 @@ fn search_hit_type() -> Object {
         .field(value_field::<Hit, _>(
             "breadcrumb",
             TypeRef::named_nn_list_nn(TypeRef::STRING),
-            |h| sections_value(&h.breadcrumb),
+            |h| Some(sections_value(&h.breadcrumb)),
         ))
         .field(value_field::<Hit, _>(
             "excerpt",

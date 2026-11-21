@@ -11,10 +11,10 @@
 //! - 検索語の埋め込みは、メモリの中に10分だけ持つ。キーは（ワークスペース、モデル、マスクした検索語）の SHA-256 で、
 //!   検索語そのものは持たない（原則7）。持つ数には上限がある。
 //! - 見せてよいチャンクは、共通の層（`access`）の条件で、検索のたびに今の状態と照合して選ぶ。
-//! - キーワード検索は、検索語を空白で区切った語（8個まで）を、すべて含むチャンクだけを返す（pg_bigm の索引を使う LIKE。
-//!   大文字・小文字は区別しない）。並びは pg_bigm の類似度の順。
+//! - キーワード検索は、検索語を空白で区切った語（8個まで）を、すべて含むチャンクだけを返す（`pg_bigm` の索引を使う LIKE。
+//!   大文字・小文字は区別しない）。並びは `pg_bigm` の類似度の順。
 //! - 1つの記事からは、いちばん合うチャンクを1件だけ返す。類似度の足切りはしない（サイトに任せる）。
-//! - `score` の意味は方法ごとに違う（混ぜたとき RRF の点、ベクトル検索はコサイン類似度、キーワード検索は pg_bigm の類似度）。
+//! - `score` の意味は方法ごとに違う（混ぜたとき RRF の点、ベクトル検索はコサイン類似度、キーワード検索は `pg_bigm` の類似度）。
 //!   同じ応答の中で並びを比べるのにだけ使える。
 //! - 抜粋は、チャンクの本文（検索の対象のフィールドから作ったもの）をプレーンテキストにして200文字まで。HTMLは返さない。
 //!   キーワードで当たったチャンクは、最初に一致した箇所のまわりを切り出し、一致した箇所の位置（UTF-16 の単位）を返す。
@@ -51,7 +51,7 @@ const RRF_K: f64 = 60.0;
 const MIN_CANDIDATES: i64 = 50;
 /// 抜粋で、最初に一致した箇所の前に残す文字数。
 const CONTEXT_BEFORE: usize = 60;
-const CACHE_TTL: Duration = Duration::from_secs(10 * 60);
+const CACHE_TTL: Duration = Duration::from_mins(10);
 const CACHE_MAX: usize = 1000;
 
 /// キャッシュの1件（入れた時刻と、検索語の埋め込み）。
@@ -447,6 +447,8 @@ struct Fused {
 fn fuse_chunks(vector: Vec<HitRow>, keyword: Vec<HitRow>, k: usize) -> Vec<Fused> {
     type Key = (Uuid, Option<String>, String);
     let mut scores: HashMap<Key, Fused> = HashMap::new();
+    // 順位は件数の上限より小さいので、f64 で正確に表せる
+    #[allow(clippy::cast_precision_loss)]
     let rrf = |rank: usize| 1.0 / (RRF_K + rank as f64);
     for (is_vector, rows) in [(true, vector), (false, keyword)] {
         let r = ranks(&rows);
@@ -639,7 +641,7 @@ async fn vector_candidates(
     Ok(rows)
 }
 
-/// キーワード検索の候補（すべての語を含むチャンク。点数は pg_bigm の類似度）。
+/// キーワード検索の候補（すべての語を含むチャンク。点数は `pg_bigm` の類似度）。
 async fn keyword_candidates(
     tx: &mut Transaction<'static, Postgres>,
     t: &Target<'_>,
@@ -713,6 +715,8 @@ fn ranks(rows: &[HitRow]) -> Vec<usize> {
     let mut out = Vec::with_capacity(rows.len());
     for (i, row) in rows.iter().enumerate() {
         let rank = match (i.checked_sub(1), out.last()) {
+            // 同じ点数（DB が返した同じ値）だけを同じ順位にするので、誤差を許さずに比べる
+            #[allow(clippy::float_cmp)]
             (Some(prev), Some(&r)) if rows[prev].5 == row.5 => r,
             _ => i + 1,
         };
@@ -724,6 +728,8 @@ fn ranks(rows: &[HitRow]) -> Vec<usize> {
 /// RRF で2つの並びを混ぜる（`1 / (k + 順位)` の和の順。同じ点なら記事のIDの順）。
 fn fuse(vector: Vec<HitRow>, keyword: Vec<HitRow>, first: usize) -> Vec<(f64, Source)> {
     let mut scores: HashMap<Uuid, (f64, Option<Source>)> = HashMap::new();
+    // 順位は件数の上限より小さいので、f64 で正確に表せる
+    #[allow(clippy::cast_precision_loss)]
     let rrf = |rank: usize| 1.0 / (RRF_K + rank as f64);
     let keyword_ranks = ranks(&keyword);
     for (rank, row) in keyword_ranks.into_iter().zip(keyword) {
@@ -930,7 +936,7 @@ fn strip_inline(line: &str) -> String {
             }
         }
         match c {
-            '\\' if chars.get(i + 1).is_some_and(|n| n.is_ascii_punctuation()) => {
+            '\\' if chars.get(i + 1).is_some_and(char::is_ascii_punctuation) => {
                 out.push(chars[i + 1]);
                 i += 2;
                 continue;

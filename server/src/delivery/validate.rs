@@ -34,7 +34,7 @@ fn placeholder(ty: &Type) -> Value {
     }
 }
 
-/// 実行する文の形（http::delivery が、スコープとメソッドを確かめるのに使う）。
+/// 実行する文の形（`http::delivery` が、スコープとメソッドを確かめるのに使う）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shape {
     pub subscription: bool,
@@ -189,7 +189,7 @@ fn collect_roots(
                 }
             }
             Selection::InlineFragment(f) => {
-                collect_roots(doc, &f.node.selection_set.node, out, visited, depth + 1)?
+                collect_roots(doc, &f.node.selection_set.node, out, visited, depth + 1)?;
             }
             Selection::FragmentSpread(s) => {
                 // 定義のないフラグメントは、中身を数えられないので拒否する
@@ -258,7 +258,7 @@ pub async fn check(schema: &Schema, query: &str) -> Result<(), Vec<String>> {
         preview: None,
         app: None,
         db: None,
-        resolved: Default::default(),
+        resolved: std::sync::atomic::AtomicUsize::default(),
         max_resolved: usize::MAX,
     });
     let request = async_graphql::Request::new(query.to_owned())
@@ -284,6 +284,8 @@ pub async fn check(schema: &Schema, query: &str) -> Result<(), Vec<String>> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
+
     use super::*;
 
     #[test]
@@ -313,7 +315,7 @@ mod tests {
         // 33段より深いフラグメント（奥のフィールドを数えられない）
         let mut q = String::from("query { ...F0 }");
         for i in 0..40 {
-            q.push_str(&format!(" fragment F{i} on Query {{ ...F{} }}", i + 1));
+            let _ = write!(q, " fragment F{i} on Query {{ ...F{} }}", i + 1);
         }
         q.push_str(" fragment F40 on Query { redirects { from } }");
         assert_eq!(shape(&q), None);
@@ -322,10 +324,11 @@ mod tests {
         // 同じフラグメントを2回ずつ使って、たどる数を倍々に増やす文
         let mut q = String::from("query { ...G0 }");
         for i in 0..30 {
-            q.push_str(&format!(
+            let _ = write!(
+                q,
                 " fragment G{i} on Query {{ ...G{n} ...G{n} }}",
                 n = i + 1
-            ));
+            );
         }
         q.push_str(" fragment G30 on Query { redirects { from } }");
         assert_eq!(shape(&q), None);

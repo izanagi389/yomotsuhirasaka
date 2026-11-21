@@ -52,7 +52,7 @@ enum Phase {
 /// LLMの回答を、届いた順に検査する。
 #[derive(Debug)]
 pub struct Checker {
-    /// プロンプトに入れた断片ごとの、許すURLの手がかり（番号は 1..=grounds.len()）。
+    /// プロンプトに入れた断片ごとの、許すURLの手がかり（番号は `1..=grounds.len()`）。
     grounds: Vec<Ground>,
     /// 本文のURLの絞り込み（宣言を確かめた後に、宣言した出典で作る）。
     filter: Option<Filter>,
@@ -93,16 +93,13 @@ impl Checker {
                 if let Some(pos) = self.head.find('\n') {
                     let rest = self.head.split_off(pos + 1);
                     let line = std::mem::take(&mut self.head);
-                    match self.declare(&line) {
-                        Some(step) => {
-                            out.push(step);
-                            self.phase = Phase::Body;
-                            out.extend(self.push(&rest));
-                        }
-                        None => {
-                            out.push(Step::Refused);
-                            self.phase = Phase::Done;
-                        }
+                    if let Some(step) = self.declare(&line) {
+                        out.push(step);
+                        self.phase = Phase::Body;
+                        out.extend(self.push(&rest));
+                    } else {
+                        out.push(Step::Refused);
+                        self.phase = Phase::Done;
                     }
                 } else if self.head.chars().count() > MAX_DECLARATION_CHARS {
                     out.push(Step::Refused);
@@ -137,7 +134,7 @@ impl Checker {
         }
     }
 
-    /// 宣言の行を確かめる。答えられるなら Step::Answerable、そうでなければ None。
+    /// 宣言の行を確かめる。答えられるなら `Step::Answerable`、そうでなければ None。
     fn declare(&mut self, line: &str) -> Option<Step> {
         let sources = format::parse_declaration(line)?;
         if sources.is_empty() || sources.iter().any(|&n| n == 0 || n > self.grounds.len()) {
@@ -146,7 +143,7 @@ impl Checker {
         self.filter = Some(Filter::new(Allowed::new(
             sources.iter().map(|&n| &self.grounds[n - 1]),
         )));
-        self.declared = sources.clone();
+        self.declared.clone_from(&sources);
         Some(Step::Answerable(sources))
     }
 
@@ -312,7 +309,7 @@ mod tests {
         assert!(c.push("more").is_empty());
         match c.finish().1 {
             Verdict::Answered { text, .. } => assert!(text.chars().count() <= MAX_ANSWER_CHARS),
-            other => panic!("{other:?}"),
+            other @ Verdict::NoInformation => panic!("{other:?}"),
         }
     }
 
@@ -324,7 +321,7 @@ mod tests {
         c.push(&format!("{filler}[1] [1"));
         match c.finish().1 {
             Verdict::Answered { text, .. } => assert!(text.ends_with('い'), "{text}"),
-            other => panic!("{other:?}"),
+            other @ Verdict::NoInformation => panic!("{other:?}"),
         }
     }
 

@@ -7,6 +7,7 @@
 //! - 冒頭のメタデータ（front matter）の値は、JSONの書き方で書く（JSONはYAMLとしても読める。エスケープを自分で書かない）。
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use anyhow::Result;
 use serde::Serialize;
@@ -42,6 +43,8 @@ pub fn reading_time(ct: &ContentType, rendered: &Map<String, Value>) -> i32 {
         cjk += c;
         words += w;
     }
+    // 文字数と語数は f64 で十分に表せ、分は i32 に収まらなければ飽和する（読むのにかかる時間の目安）
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     let minutes = (cjk as f64 / 500.0 + words as f64 / 200.0).ceil() as i32;
     minutes.max(1)
 }
@@ -260,7 +263,7 @@ pub async fn markdown(
 
     let mut out = String::from("---\n");
     for (k, v) in &front {
-        out.push_str(&format!("{k}: {}\n", front_value(v)));
+        let _ = writeln!(out, "{k}: {}", front_value(v));
     }
     out.push_str("---\n\n# ");
     out.push_str(&escape_markdown(title));

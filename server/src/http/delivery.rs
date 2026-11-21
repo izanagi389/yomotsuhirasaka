@@ -217,6 +217,8 @@ async fn schema_for(state: &AppState, ws: Uuid) -> Result<Arc<Schema>, ApiError>
     )?)
 }
 
+// `.map_err(invalid_query)` で使うので、値で受け取る
+#[allow(clippy::needless_pass_by_value)]
 fn invalid_query(messages: Vec<String>) -> ApiError {
     ApiError::new(
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -308,6 +310,8 @@ fn batch_refused() -> ApiError {
     )
 }
 
+// axum の Query が作る HashMap をそのまま受け取る。ハッシュの種類を選ぶ必要はない
+#[allow(clippy::implicit_hasher)]
 pub async fn get(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
@@ -487,7 +491,7 @@ async fn execute(
         preview,
         app: Some(state.clone()),
         db: Some(db.clone()),
-        resolved: Default::default(),
+        resolved: std::sync::atomic::AtomicUsize::default(),
         max_resolved: state.config.delivery.max_resolved_entries,
     });
     let request = async_graphql::Request::new(query)
@@ -610,7 +614,7 @@ fn answer_stream(
         preview: None,
         app: Some(state.clone()),
         db: None,
-        resolved: Default::default(),
+        resolved: std::sync::atomic::AtomicUsize::default(),
         max_resolved: usize::MAX,
     });
     let request = async_graphql::Request::new(query)
