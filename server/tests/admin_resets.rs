@@ -393,6 +393,7 @@ async fn admins_issue_resets_within_their_scope() {
 
 #[tokio::test]
 async fn server_admins_recover_with_the_cli() {
+    use std::io::Write as _;
     with_scratch(|app, migration| async move {
         let server = start(config(&app, &migration)).await;
         let (_, root) = user(&server, "root@example.test", true, true).await;
@@ -415,7 +416,6 @@ async fn server_admins_recover_with_the_cli() {
                 .stderr(std::process::Stdio::piped())
                 .spawn()
                 .unwrap();
-            use std::io::Write as _;
             child
                 .stdin
                 .take()

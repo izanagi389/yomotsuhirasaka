@@ -1,12 +1,13 @@
 //! 結合テストの部品: テスト用のサーバーの起動と、最小限のHTTP/1.1のクライアント（依存を増やさないため）。
 
+use std::fmt::Write as _;
 use std::net::SocketAddr;
 
 use sqlx::PgPool;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use totp_rs::{Builder, Secret};
 use yomi_server::auth::{password, users};
-use yomi_server::config::{AuthConfig, Config, DatabaseConfig, LimitsConfig, SessionConfig};
+use yomi_server::config::{self, AuthConfig, Config, DatabaseConfig, LimitsConfig, SessionConfig};
 use yomi_server::{db, http, keys, migrate};
 
 pub const PASSWORD: &str = "correct horse battery staple";
@@ -36,20 +37,20 @@ pub fn config(app: &DatabaseConfig, migration: &DatabaseConfig) -> Config {
             oidc: None,
         },
         smtp: None,
-        login_history: Default::default(),
-        media: yomi_server::config::MediaConfig::at(
+        login_history: config::LoginHistoryConfig::default(),
+        media: config::MediaConfig::at(
             std::env::temp_dir().join(format!("yomi-test-media-{}", uuid::Uuid::new_v4().simple())),
         ),
-        delivery: Default::default(),
-        answer: Default::default(),
-        egress: Default::default(),
+        delivery: config::DeliveryConfig::default(),
+        answer: config::AnswerConfig::default(),
+        egress: config::EgressConfig::default(),
         llm: None,
-        admin: Default::default(),
-        scripts: Default::default(),
-        audit_export: Default::default(),
-        audit: Default::default(),
-        alerts: Default::default(),
-        search: Default::default(),
+        admin: config::AdminConfig::default(),
+        scripts: config::ScriptsConfig::default(),
+        audit_export: config::AuditExportConfig::default(),
+        audit: config::AuditConfig::default(),
+        alerts: config::AlertsConfig::default(),
+        search: config::SearchConfig::default(),
     }
 }
 
@@ -146,13 +147,14 @@ pub async fn request(
     let mut req =
         format!("{method} {path} HTTP/1.1\r\nHost: yomi.example.test\r\nConnection: close\r\n");
     for (k, v) in headers {
-        req.push_str(&format!("{k}: {v}\r\n"));
+        let _ = write!(req, "{k}: {v}\r\n");
     }
     if let Some(b) = body {
-        req.push_str(&format!(
+        let _ = write!(
+            req,
             "Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{b}",
             b.len()
-        ));
+        );
     } else {
         req.push_str("Content-Length: 0\r\n\r\n");
     }
@@ -406,20 +408,18 @@ pub async fn request_bytes(
     let mut req =
         format!("{method} {path} HTTP/1.1\r\nHost: yomi.example.test\r\nConnection: close\r\n");
     for (k, v) in headers {
-        req.push_str(&format!("{k}: {v}\r\n"));
+        let _ = write!(req, "{k}: {v}\r\n");
     }
-    let payload: &[u8] = match body {
-        Some((content_type, b)) => {
-            req.push_str(&format!(
-                "Content-Type: {content_type}\r\nContent-Length: {}\r\n\r\n",
-                b.len()
-            ));
-            b
-        }
-        None => {
-            req.push_str("Content-Length: 0\r\n\r\n");
-            &[]
-        }
+    let payload: &[u8] = if let Some((content_type, b)) = body {
+        let _ = write!(
+            req,
+            "Content-Type: {content_type}\r\nContent-Length: {}\r\n\r\n",
+            b.len()
+        );
+        b
+    } else {
+        req.push_str("Content-Length: 0\r\n\r\n");
+        &[]
     };
     stream.write_all(req.as_bytes()).await.unwrap();
     // 大きすぎる本文は、サーバーが途中で接続を閉じることがある

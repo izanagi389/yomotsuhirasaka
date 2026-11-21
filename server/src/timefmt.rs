@@ -1,5 +1,5 @@
 //! 時刻の文字列の形の検査。時刻の解釈と比較はPostgreSQLで行うが、
-//! PostgreSQLは `tomorrow` や `infinity` のような特別な値も受け付けるので、先に RFC 3339 の形に限る。
+//! PostgreSQL は `tomorrow` や `infinity` のような特別な値も受け付けるので、先に RFC 3339 の形に限る。
 
 /// `YYYY-MM-DDTHH:MM:SS(.fraction)?(Z|±HH:MM)` の形か。
 pub fn is_rfc3339(s: &str) -> bool {

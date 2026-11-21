@@ -3,8 +3,8 @@
 //! - 数えるもの: ログインの失敗（パスワードと2段目）と、回数制限への到達（429）。
 //! - 攻撃のたびに DB へ書かないよう、プロセスのメモリでまとめて数え、10秒ごとに1分単位の件数として DB（`yomi.alert_events`）に足す。
 //!   サーバーが複数でも、件数は DB で合わせて数える。
-//! - 直近 window_seconds の件数がしきい値以上なら、インスタンス単位の通知（`alert.*`）を監査ログに残す。同じ種類は
-//!   cooldown_seconds に1回まで（複数のサーバーで二重に残さないよう、アドバイザリーロックの中で判断する）。
+//! - 直近 `window_seconds` の件数がしきい値以上なら、インスタンス単位の通知（`alert.*`）を監査ログに残す。同じ種類は
+//!   `cooldown_seconds` に1回まで（複数のサーバーで二重に残さないよう、アドバイザリーロックの中で判断する）。
 //! - 通知の詳細には、件数・期間と、件数の多い順に最大10件ずつのIPアドレス・利用者のID・メールアドレスを入れる。
 //!   メールアドレスは存在するアカウントのものだけ（入力された任意の文字列は流さない）。インスタンス単位なので、
 //!   サーバー管理者とインスタンス全体の書き出し先にだけ出る（ワークスペースをまたぐ情報のため。Q101）。
@@ -106,7 +106,9 @@ async fn check(pool: &PgPool, config: &AlertsConfig, kind: Kind) -> Result<()> {
         .bind(kind.name())
         .execute(&mut *tx)
         .await?;
-    let window = config.window_seconds as f64;
+    // 秒数は設定の小さな値（2^53 よりずっと小さい）なので、f64 にしても値は変わらない
+    #[allow(clippy::cast_precision_loss)]
+    let (window, cooldown) = (config.window_seconds as f64, config.cooldown_seconds as f64);
     let total: i64 = sqlx::query_scalar(
         "SELECT coalesce(sum(count), 0)::bigint FROM yomi.alert_events
          WHERE kind = $1 AND bucket_at > now() - make_interval(secs => $2)",
@@ -123,7 +125,7 @@ async fn check(pool: &PgPool, config: &AlertsConfig, kind: Kind) -> Result<()> {
                         AND created_at > now() - make_interval(secs => $2))",
     )
     .bind(kind.action())
-    .bind(config.cooldown_seconds as f64)
+    .bind(cooldown)
     .fetch_one(&mut *tx)
     .await?;
     if recent {

@@ -32,10 +32,14 @@ scripts/cargo.sh test --locked
 ## clippy
 
 - CI は `-D warnings`（標準の lint）。
-- 新しく書くコードは、`clippy::pedantic` でも警告が出ないように書く。ただし `missing_errors_doc`、`missing_panics_doc`、`must_use_candidate` の3つは対象外。確かめるときは次を実行し、変更したファイルの警告がないことを見る。
+- 新しく書くコードは、`clippy::pedantic` でも警告が出ないように書く。ただし次の7つは対象外（直すとかえって読みにくくなる、または lint の修正では済まない大きな分割になるため）。
+  - 説明文と属性: `missing_errors_doc`、`missing_panics_doc`、`must_use_candidate`
+  - 読みやすさを下げるもの: `too_many_lines`、`assert_is_empty`、`format_collect`、`similar_names`
+- 対象外でも、関数は短く保つ（`code-quality` の「小さく保つ」）。`too_many_lines` を外したのは、既存の長い関数の分割を lint の修正と混ぜないため。
+- 確かめるときは次を実行し、変更したファイルの警告がないことを見る。
 
 ```bash
-scripts/cargo.sh clippy --locked --all-targets --message-format=short -- -W clippy::pedantic -A clippy::missing_errors_doc -A clippy::missing_panics_doc -A clippy::must_use_candidate
+scripts/cargo.sh clippy --locked --all-targets --message-format=short -- -W clippy::pedantic -A clippy::missing_errors_doc -A clippy::missing_panics_doc -A clippy::must_use_candidate -A clippy::too_many_lines -A clippy::assert_is_empty -A clippy::format_collect -A clippy::similar_names
 ```
 
 - 数値の型変換（`as`）は、切り捨てやあふれが起きないことが明らかな場合を除き、`try_from` などで失敗を扱う。

@@ -26,8 +26,8 @@ async fn expect_denied<'c, E: Executor<'c, Database = sqlx::Postgres>>(
         .unwrap_or_else(|| panic!("{what}: should be denied but succeeded: {sql}"));
     let code = err
         .as_database_error()
-        .and_then(|e| e.code())
-        .map(|c| c.into_owned());
+        .and_then(sqlx::error::DatabaseError::code)
+        .map(std::borrow::Cow::into_owned);
     assert_eq!(
         code.as_deref(),
         Some("42501"),

@@ -10,7 +10,7 @@ use common::with_scratch;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-fn entry_body(fields: Value) -> String {
+fn entry_body(fields: &Value) -> String {
     json!({"contentType": "post", "fields": fields}).to_string()
 }
 
@@ -18,7 +18,7 @@ fn para(text: &str) -> Value {
     json!({"type": "paragraph", "content": [{"type": "text", "text": text}]})
 }
 
-fn doc(nodes: Vec<Value>) -> Value {
+fn doc(nodes: &[Value]) -> Value {
     json!({"type": "doc", "content": nodes})
 }
 
@@ -33,7 +33,7 @@ async fn creating_reading_and_saving_drafts() {
         let (root, token) = root_with_deploy_token(&server).await;
         // テンプレートをまだデプロイしていないワークスペース
         let none = workspace_with_template(&server, &root, "none", "blog").await;
-        let res = send(&server, "POST", &format!("/api/admin/workspaces/{none}/entries"), &root, Some(&entry_body(json!({})))).await;
+        let res = send(&server, "POST", &format!("/api/admin/workspaces/{none}/entries"), &root, Some(&entry_body(&json!({})))).await;
         assert_eq!((res.status, res.json_str("error").as_deref()), (409, Some("schema_not_deployed")), "{}", res.body);
         assert_eq!(deploy(&server, &token, "blog", &blog_manifest(), "").await.status, 200);
         let ws = workspace_with_template(&server, &root, "A", "blog").await;
@@ -52,13 +52,13 @@ async fn creating_reading_and_saving_drafts() {
         let entries = format!("/api/admin/workspaces/{ws}/entries");
 
         // 作成: 執筆者はできる。閲覧者・他のワークスペースの人はできない
-        let body = doc(vec![
+        let body = doc(&[
             json!({"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "はじめに"}]}),
             para("本文"),
             json!({"type": "heading", "attrs": {"level": 2, "id": "dup"}, "content": [{"type": "text", "text": "a"}]}),
             json!({"type": "heading", "attrs": {"level": 2, "id": "dup"}, "content": [{"type": "text", "text": "b"}]}),
         ]);
-        let first = entry_body(json!({"title": "最初の記事", "slug": "first", "body": body}));
+        let first = entry_body(&json!({"title": "最初の記事", "slug": "first", "body": body}));
         assert_eq!(send(&server, "POST", &entries, &viewer, Some(&first)).await.status, 403);
         assert_eq!(send(&server, "POST", &entries, &outsider, Some(&first)).await.status, 404);
         let res = send(&server, "POST", &entries, &author, Some(&first)).await;
@@ -94,13 +94,13 @@ async fn creating_reading_and_saving_drafts() {
         for (bad, status) in [
             (json!({"contentType": "page", "fields": {}}).to_string(), 422),
             (json!({"contentType": "post", "locale": "fr", "fields": {}}).to_string(), 422),
-            (entry_body(json!({"slug": "Bad Slug"})), 422),
-            (entry_body(json!({"nope": "x"})), 422),
-            (entry_body(json!({"body": doc(vec![json!({"type": "script"})])})), 422),
-            (entry_body(json!({"body": doc(vec![json!({"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": [{"type": "link", "attrs": {"href": "javascript:alert(1)"}}]}]})])})), 422),
-            (entry_body(json!({"body": doc(vec![json!({"type": "embed", "attrs": {"src": "https://evil.example/embed"}})])})), 422),
-            (entry_body(json!({"related": [Uuid::new_v4().to_string()]})), 422),
-            (entry_body(json!({"slug": "first"})), 409),
+            (entry_body(&json!({"slug": "Bad Slug"})), 422),
+            (entry_body(&json!({"nope": "x"})), 422),
+            (entry_body(&json!({"body": doc(&[json!({"type": "script"})])})), 422),
+            (entry_body(&json!({"body": doc(&[json!({"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": [{"type": "link", "attrs": {"href": "javascript:alert(1)"}}]}]})])})), 422),
+            (entry_body(&json!({"body": doc(&[json!({"type": "embed", "attrs": {"src": "https://evil.example/embed"}})])})), 422),
+            (entry_body(&json!({"related": [Uuid::new_v4().to_string()]})), 422),
+            (entry_body(&json!({"slug": "first"})), 409),
             ("{\"contentType\":\"post\",\"fields\":{},\"sql\":1}".to_owned(), 400),
         ] {
             let res = send(&server, "POST", &entries, &editor, Some(&bad)).await;
@@ -123,7 +123,7 @@ async fn creating_reading_and_saving_drafts() {
         assert_eq!((res.status, res.json_str("error").as_deref()), (409, Some("revision_conflict")));
         assert_eq!(parse(&get(&server, &path, &editor).await)["fields"]["subtitle"], "副題");
         // 不正な本文の保存は拒否され、リビジョン番号も変わらない
-        let res = send(&server, "PUT", &draft_path, &editor, Some(&save(2, json!({"body": doc(vec![json!({"type": "text", "text": "x"})])})))).await;
+        let res = send(&server, "PUT", &draft_path, &editor, Some(&save(2, json!({"body": doc(&[json!({"type": "text", "text": "x"})])})))).await;
         assert_eq!(res.status, 422);
         assert_eq!(parse(&get(&server, &path, &editor).await)["revision"], 2);
         assert_eq!(send(&server, "PUT", &draft_path, &viewer, Some(&save(2, json!({"subtitle": "x"})))).await.status, 403);
@@ -148,14 +148,14 @@ async fn creating_reading_and_saving_drafts() {
             let server = &server;
             let entries = entries.clone();
             async move {
-                request(server, "POST", &entries, &[("Authorization", &format!("Bearer {t}"))], Some(&entry_body(json!({"slug": slug})))).await.status
+                request(server, "POST", &entries, &[("Authorization", &format!("Bearer {t}"))], Some(&entry_body(&json!({"slug": slug})))).await.status
             }
         };
         assert_eq!(by_token(rw, "by-token").await, 201);
         assert_eq!(by_token(ro, "by-token-2").await, 403);
 
         // 所属していないサーバー管理者の作成は、監査ログに残る（Q122）
-        let res = send(&server, "POST", &entries, &root, Some(&entry_body(json!({"slug": "by-root"})))).await;
+        let res = send(&server, "POST", &entries, &root, Some(&entry_body(&json!({"slug": "by-root"})))).await;
         assert_eq!(res.status, 201, "{}", res.body);
         let n: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE workspace_id = $1 AND action = 'entry.created'")
             .bind(ws)
@@ -170,7 +170,7 @@ async fn creating_reading_and_saving_drafts() {
             .execute(&server.state.migration)
             .await
             .unwrap();
-        let res = send(&server, "POST", &entries, &editor, Some(&entry_body(json!({"slug": "while-pending"})))).await;
+        let res = send(&server, "POST", &entries, &editor, Some(&entry_body(&json!({"slug": "while-pending"})))).await;
         assert_eq!((res.status, res.json_str("error").as_deref()), (409, Some("schema_migration_pending")));
         let rev = parse(&get(&server, &path, &editor).await)["revision"].as_i64().unwrap();
         let res = send(&server, "PUT", &draft_path, &editor, Some(&save(rev, json!({"subtitle": "x"})))).await;

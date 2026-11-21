@@ -11,11 +11,12 @@ const EMPTY: u32 = u32::MAX;
 const DATA_FLAG: u32 = 1 << 31;
 
 fn control(kind: u8, size: usize) -> Vec<u8> {
+    let size = u8::try_from(size).unwrap();
     assert!(size < 29);
     if kind <= 7 {
-        vec![(kind << 5) | size as u8]
+        vec![(kind << 5) | size]
     } else {
-        vec![size as u8, kind - 7]
+        vec![size, kind - 7]
     }
 }
 
@@ -41,7 +42,7 @@ pub fn write(networks: &[(Ipv4Addr, u8, &str)]) -> PathBuf {
     let mut data = Vec::new();
     let mut offsets = Vec::new();
     for (_, _, code) in networks {
-        offsets.push(data.len() as u32);
+        offsets.push(u32::try_from(data.len()).unwrap());
         data.extend(map(1));
         data.extend(string("country"));
         data.extend(map(1));
@@ -61,13 +62,13 @@ pub fn write(networks: &[(Ipv4Addr, u8, &str)]) -> PathBuf {
             } else {
                 if nodes[node][bit] == EMPTY {
                     nodes.push([EMPTY, EMPTY]);
-                    nodes[node][bit] = (nodes.len() - 1) as u32;
+                    nodes[node][bit] = u32::try_from(nodes.len() - 1).unwrap();
                 }
                 node = nodes[node][bit] as usize;
             }
         }
     }
-    let count = nodes.len() as u32;
+    let count = u32::try_from(nodes.len()).unwrap();
     let mut out = Vec::new();
     for node in &nodes {
         for &record in node {

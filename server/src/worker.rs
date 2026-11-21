@@ -127,7 +127,7 @@ pub async fn run_once(state: &AppState) -> Result<bool> {
 }
 
 /// 常駐の処理を始める。
-pub fn spawn(state: AppState) -> Vec<tokio::task::JoinHandle<()>> {
+pub fn spawn(state: &AppState) -> Vec<tokio::task::JoinHandle<()>> {
     (0..WORKERS)
         .map(|_| {
             let state = state.clone();
