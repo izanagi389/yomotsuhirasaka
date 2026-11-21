@@ -59,7 +59,8 @@ pub async fn versions_in_use(pool: &PgPool) -> Result<BTreeMap<u32, u64>> {
     let mut out = BTreeMap::new();
     for (v, n) in rows {
         if let Some(version) = version_of(&v) {
-            *out.entry(version).or_default() += n as u64;
+            // count(*) の値なので負にならない
+            *out.entry(version).or_default() += u64::try_from(n).unwrap_or(0);
         }
     }
     Ok(out)

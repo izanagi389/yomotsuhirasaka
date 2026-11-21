@@ -318,7 +318,7 @@ fn check_audit_export(
         }
         match std::fs::read_to_string(&hook.secret_file) {
             Ok(secret) => {
-                problems.extend(check_secret(&format!("{name}.secret_file"), secret.trim()))
+                problems.extend(check_secret(&format!("{name}.secret_file"), secret.trim()));
             }
             Err(_) => problems.push(Problem::fatal(format!(
                 "`{name}.secret_file` cannot be read"
@@ -380,7 +380,7 @@ fn check_llm(llm: &crate::config::LlmConfig, exceptions: &[String]) -> Vec<Probl
                  (the current API key is never sent to another endpoint)"
             ))),
             (None, Some(key)) if key.trim().is_empty() => {
-                problems.push(Problem::fatal(format!("`{P}.api_key` is empty")))
+                problems.push(Problem::fatal(format!("`{P}.api_key` is empty")));
             }
             _ => {}
         }
@@ -460,7 +460,7 @@ fn check_base_url(prefix: &str, base_url: &str, exceptions: &[String]) -> Vec<Pr
     let mut problems = Vec::new();
     match url::Url::parse(base_url) {
         Ok(u) if u.host_str().is_none() => {
-            problems.push(Problem::fatal(format!("`{prefix}.base_url` has no host")))
+            problems.push(Problem::fatal(format!("`{prefix}.base_url` has no host")));
         }
         Ok(u) if u.scheme() == "https" => {}
         Ok(u)
@@ -820,7 +820,7 @@ mod tests {
                 ..next.clone()
             },
             NextEmbeddingConfig {
-                model: "".into(),
+                model: String::new(),
                 ..next.clone()
             },
             NextEmbeddingConfig {
@@ -882,7 +882,7 @@ mod tests {
         assert_eq!(problems.len(), 1);
         assert!(!problems[0].fatal, "本番の設定でだけ起動を止める");
         assert!(check_llm(&mock, &["MOCK-LLM".to_owned()]).is_empty());
-        assert!(check_llm(&mock, &["other".to_owned()]).len() == 1);
+        assert_eq!(check_llm(&mock, &["other".to_owned()]).len(), 1);
         // 致命的なもの（設定によらず起動を止める）
         for bad in [
             LlmConfig {
@@ -894,7 +894,7 @@ mod tests {
                 ..ok.clone()
             },
             LlmConfig {
-                embedding_model: "".into(),
+                embedding_model: String::new(),
                 ..ok.clone()
             },
             LlmConfig {

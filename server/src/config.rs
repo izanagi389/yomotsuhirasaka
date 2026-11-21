@@ -87,7 +87,7 @@ pub struct Config {
     pub alerts: AlertsConfig,
 }
 
-/// 急増のしきい値。window_seconds の間の件数が、しきい値以上になったら知らせる。同じ種類は cooldown_seconds に1回まで。
+/// 急増のしきい値。`window_seconds` の間の件数が、しきい値以上になったら知らせる。同じ種類は `cooldown_seconds` に1回まで。
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct AlertsConfig {
@@ -449,11 +449,11 @@ impl Default for AuthConfig {
 }
 
 /// 外部のOIDC/SSOの接続先（13-security.md「OIDC/SSO」）。IdPの設定の取得も、外部への送信の共通の仕組みを通る
-/// （社内のIdPなら、`[egress]` の内部宛先の例外に加える）。
+/// （社内の IdP なら、`[egress]` の内部宛先の例外に加える）。
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OidcConfig {
-    /// IdPの発行者（`iss`）。`<issuer>/.well-known/openid-configuration` から設定を取る。
+    /// IdP の発行者（`iss`）。`<issuer>/.well-known/openid-configuration` から設定を取る。
     pub issuer: String,
     pub client_id: String,
     /// クライアントの秘密（秘密の値）。
@@ -608,6 +608,7 @@ impl std::fmt::Debug for NextEmbeddingConfig {
 
 impl LlmConfig {
     /// 今のモデルの接続先（切り替え先を外したもの）。
+    #[must_use]
     pub fn current(&self) -> LlmConfig {
         LlmConfig {
             next_embedding: None,
@@ -705,7 +706,8 @@ impl std::fmt::Debug for LlmConfig {
                 &self.default_workspace_assist_output_tokens_per_day,
             )
             .field("next_embedding", &self.next_embedding)
-            .finish()
+            // 許可リスト（allowed_endpoints、allowed_embedding_models）は長いので出さない。出していない項目があることを示す
+            .finish_non_exhaustive()
     }
 }
 

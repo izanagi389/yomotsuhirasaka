@@ -313,11 +313,11 @@ impl Exceptions {
     }
 }
 
-/// IPv4射影のIPv6アドレスはIPv4に直して比べる。
+/// IPv4 射影の IPv6 アドレスは IPv4 に直して比べる。
 fn canonical_ip(ip: IpAddr) -> IpAddr {
     match ip {
         IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
-        v4 => v4,
+        v4 @ IpAddr::V4(_) => v4,
     }
 }
 
@@ -443,6 +443,7 @@ impl Egress {
 
     /// ワークスペースの管理者が決めた宛先へ送るときに使う。サーバー管理者がLLMなどのために開けた例外は、効かない
     /// （ワークスペースの管理者が、その宛先の内部のポートを調べられないように）。
+    #[must_use]
     pub fn for_workspace_destinations(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -679,7 +680,7 @@ async fn proxy_connect(stream: &mut TcpStream, target: &str) -> Result<(), Egres
 }
 
 /// 接続の上でHTTP/1.1のリクエストを1つ送り、応答の先頭を受け取る。本文は呼び出し側が読む。
-/// 返す JoinHandle は接続を動かすタスクで、読み終えたら止める。
+/// 返す `JoinHandle` は接続を動かすタスクで、読み終えたら止める。
 /// `absolute_target` はプロキシ経由のHTTP（CONNECTを使わない中継）のときの宛先（既定では検査したIPアドレス）。
 async fn exchange(
     io: Box<dyn Io>,
@@ -729,12 +730,11 @@ async fn exchange(
     let req = builder
         .body(Full::new(Bytes::from(request.body)))
         .map_err(|_| EgressError::InvalidUrl)?;
-    match sender.send_request(req).await {
-        Ok(res) => Ok((res, conn)),
-        Err(_) => {
-            conn.abort();
-            Err(EgressError::HttpFailed)
-        }
+    if let Ok(res) = sender.send_request(req).await {
+        Ok((res, conn))
+    } else {
+        conn.abort();
+        Err(EgressError::HttpFailed)
     }
 }
 
@@ -744,7 +744,7 @@ mod tests {
 
     fn egress(exceptions: &[&str]) -> Egress {
         Egress::from_config(&EgressConfig {
-            internal_destination_exceptions: exceptions.iter().map(|s| s.to_string()).collect(),
+            internal_destination_exceptions: exceptions.iter().map(ToString::to_string).collect(),
             ..Default::default()
         })
         .unwrap()

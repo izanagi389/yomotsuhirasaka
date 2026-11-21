@@ -91,13 +91,11 @@ pub async fn deliver(smtp: Option<&SmtpConfig>, hello_name: &str, payload: &[u8]
     let Ok(mail) = Mail::decode(payload) else {
         return Outcome::Fail("invalid_payload");
     };
-    let message = match build_message(smtp, &mail) {
-        Ok(m) => m,
-        Err(_) => return Outcome::Fail("invalid_message"),
+    let Ok(message) = build_message(smtp, &mail) else {
+        return Outcome::Fail("invalid_message");
     };
-    let transport = match transport(smtp, hello_name) {
-        Ok(t) => t,
-        Err(_) => return Outcome::Fail("invalid_smtp_settings"),
+    let Ok(transport) = transport(smtp, hello_name) else {
+        return Outcome::Fail("invalid_smtp_settings");
     };
     match transport.send(message).await {
         Ok(_) => Outcome::Done,
@@ -140,6 +138,8 @@ fn transport(smtp: &SmtpConfig, hello_name: &str) -> Result<AsyncSmtpTransport<T
 
 /// 本人への通知（13-security.md「本人への通知」、INV-AUD-06）。秘密の値は本文に含めない。
 pub mod notify {
+    use std::fmt::Write as _;
+
     use super::Mail;
     use crate::locale::Locale;
 
@@ -303,7 +303,7 @@ pub mod notify {
         };
         let mut details = format!("{ip_label}: {ip}\n{browser_label}: {browser}");
         if let Some(c) = country {
-            details.push_str(&format!("\n{country_label}: {c}"));
+            let _ = write!(details, "\n{country_label}: {c}");
         }
         mail_with(to, site, event, locale, Some(&details))
     }

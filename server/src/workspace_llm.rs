@@ -390,6 +390,7 @@ pub struct Change {
 }
 
 /// 項目が「ない」ことと「null」を区別する（ない: None、null: Some(None)）。
+#[allow(clippy::option_option)] // 「項目なし」と null を区別するため
 fn present<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
 where
     D: serde::Deserializer<'de>,
