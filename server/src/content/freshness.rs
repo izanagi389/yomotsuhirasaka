@@ -62,6 +62,12 @@ fn default_interval(manifest: &Manifest, content_type: &str) -> Option<u32> {
         .map(|r| r.interval_days)
 }
 
+/// テンプレートの見直しの間隔（日）を DB の型に合わせる。テンプレートの検査で 1〜3650 に限っているので、
+/// 収まらないことはないが、万一のときは最も長い間隔として扱う。
+fn days_as_i32(days: u32) -> i32 {
+    i32::try_from(days).unwrap_or(i32::MAX)
+}
+
 /// 記事の鮮度と上書きの状態を、現在時刻で求める。削除済みなら None。
 async fn compute(
     conn: &mut PgConnection,
@@ -81,7 +87,7 @@ async fn compute(
     let days: Option<i32> = if disabled {
         None
     } else {
-        override_days.or(default.map(|d| d as i32))
+        override_days.or(default.map(days_as_i32))
     };
     let (last, due, expired): (Option<String>, Option<String>, Option<bool>) = sqlx::query_as(crate::sql!(
         "WITH base AS (
@@ -218,7 +224,7 @@ pub struct Expired {
 pub async fn expired(conn: &mut PgConnection, manifest: &Manifest) -> Result<Vec<Expired>> {
     let mut out = Vec::new();
     for ct in &manifest.content_types {
-        let default = ct.review.as_ref().map(|r| r.interval_days as i32);
+        let default = ct.review.as_ref().map(|r| days_as_i32(r.interval_days));
         let rows: Vec<(Uuid, String, String, Option<String>)> = sqlx::query_as(crate::sql!(
             "WITH base AS (
                  SELECT e.id, e.locale, cur.fields,

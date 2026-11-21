@@ -229,7 +229,7 @@ fn missing_alt(ct: &ContentType, draft: &Draft) -> Vec<String> {
             ),
             // 画像のフィールドも、本文の画像と同じ規則（INV-IMG-01）
             FieldType::Image if !sections::has_alt(value) => {
-                missing.push(format!("fields.{}", f.name))
+                missing.push(format!("fields.{}", f.name));
             }
             _ => {}
         }

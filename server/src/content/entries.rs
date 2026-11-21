@@ -214,7 +214,7 @@ pub async fn groups_exist(
     .bind(content_type)
     .fetch_one(conn)
     .await?;
-    Ok(found == unique.len() as i64)
+    Ok(found == i64::try_from(unique.len())?)
 }
 
 async fn write_columns(
@@ -249,7 +249,9 @@ pub async fn room_for(conn: &mut PgConnection, limit: u32, adding: usize) -> Res
         .bind(i64::from(limit))
         .fetch_one(conn)
         .await?;
-    Ok(count.saturating_add(adding as i64) <= i64::from(limit))
+    // 数えきれないほど多ければ、上限を超えるものとして扱う
+    let adding = i64::try_from(adding).unwrap_or(i64::MAX);
+    Ok(count.saturating_add(adding) <= i64::from(limit))
 }
 
 /// 記事を作る（下書き）。

@@ -206,7 +206,9 @@ pub async fn upload(
         let mut tx = workspace_db::begin(&state.pool, &db).await?;
         store::lock_uploads(&mut tx).await?;
         let used = store::used_bytes(&mut tx).await?;
-        if used.saturating_add(processed.bytes.len() as i64) > quota {
+        // 数えきれないほど大きければ、上限を超えるものとして扱う
+        let adding = i64::try_from(processed.bytes.len()).unwrap_or(i64::MAX);
+        if used.saturating_add(adding) > quota {
             return Ok(None);
         }
         let info =
@@ -393,6 +395,8 @@ pub async fn get_limits(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+// 項目が「ない」（変えない）と「null」（既定値に戻す）を区別するため、Option<Option<_>> を使う
+#[allow(clippy::option_option)]
 pub struct SetLimits {
     /// メディアの容量の上限（バイト）。null で設定の既定値に戻す。項目がなければ変えない（天井だけを変えるときのため）。
     #[serde(default, deserialize_with = "present")]
@@ -426,6 +430,7 @@ pub struct SetLimits {
 }
 
 /// 項目が「ない」ことと「null」を区別する（ない: None、null: Some(None)）。
+#[allow(clippy::option_option)] // SetLimits と同じ理由
 fn present<'de, D>(d: D) -> Result<Option<Option<i64>>, D::Error>
 where
     D: serde::Deserializer<'de>,

@@ -49,6 +49,9 @@ pub async fn issue(
     .await?;
     let token = format!("{PREFIX}{}", token::generate());
     let id = Uuid::new_v4();
+    // 1〜MAX_TTL_SECONDS（600）に収めるので、f64 で正確に表せる
+    #[allow(clippy::cast_precision_loss)]
+    let ttl_seconds = ttl_seconds.clamp(1, MAX_TTL_SECONDS) as f64;
     let expires_at: String = sqlx::query_scalar(crate::sql!(
         "INSERT INTO preview_tokens (id, entry_id, token_hash, created_by, expires_at)
          VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5))
@@ -58,7 +61,7 @@ pub async fn issue(
     .bind(entry_id)
     .bind(token::digest(&token))
     .bind(created_by)
-    .bind(ttl_seconds.clamp(1, MAX_TTL_SECONDS) as f64)
+    .bind(ttl_seconds)
     .fetch_one(conn)
     .await?;
     Ok(Some(Issued {

@@ -288,7 +288,7 @@ pub struct SourceDiff {
     pub to_version_id: Option<Uuid>,
     /// 差分。比べる版がない、または版の本文が抹消されていれば null（理由は `unavailable`）。
     pub diff: Option<Diff>,
-    /// 差分を出せない理由（"no_source"、"not_reflected"、"no_version"、"erased"）。
+    /// 差分を出せない理由（`no_source`、`not_reflected`、`no_version`、`erased`）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<&'static str>,
 }

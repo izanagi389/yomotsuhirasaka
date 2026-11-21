@@ -9,7 +9,7 @@
 //! - 向き（EXIFの Orientation）は画素に反映してから捨てる。色の情報（ICCプロファイル）も捨てる。プロファイルには任意のバイト列を
 //!   入れられ、エンコードし直しによる無害化に穴が開くため（第三者の確認の R25）。広色域の写真は、色が少し地味に見えることがある。
 //! - 保存の形式: JPEG（画質90）、PNG、GIF（アニメーションを保つ）、WebP（劣化なし。Rustだけのエンコーダーは劣化なしだけのため）。
-//!   WebPのアニメーションは最初のフレームだけになる。
+//!   WebP のアニメーションは最初のフレームだけになる。
 //!
 //! この処理は時間がかかるので、呼ぶ側が別のスレッドで、時間の上限を付けて動かす。
 
@@ -214,7 +214,7 @@ mod tests {
     use super::*;
     use image::{ImageEncoder as _, Rgb, RgbImage, Rgba, RgbaImage};
 
-    fn encode(img: DynamicImage, format: ImageFormat) -> Vec<u8> {
+    fn encode(img: &DynamicImage, format: ImageFormat) -> Vec<u8> {
         let mut out = Cursor::new(Vec::new());
         img.write_to(&mut out, format).unwrap();
         out.into_inner()
@@ -222,7 +222,7 @@ mod tests {
 
     fn png(w: u32, h: u32) -> Vec<u8> {
         encode(
-            DynamicImage::ImageRgb8(RgbImage::from_pixel(w, h, Rgb([10, 20, 30]))),
+            &DynamicImage::ImageRgb8(RgbImage::from_pixel(w, h, Rgb([10, 20, 30]))),
             ImageFormat::Png,
         )
     }
@@ -231,7 +231,7 @@ mod tests {
     fn with_exif_chunk(mut png: Vec<u8>, payload: &[u8]) -> Vec<u8> {
         let iend = png.len() - 12;
         let mut chunk = Vec::new();
-        chunk.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        chunk.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
         let mut body = b"eXIf".to_vec();
         body.extend_from_slice(payload);
         chunk.extend_from_slice(&body);
@@ -263,13 +263,13 @@ mod tests {
             (png(4, 3), Format::Png),
             (
                 encode(
-                    DynamicImage::ImageRgb8(RgbImage::new(4, 3)),
+                    &DynamicImage::ImageRgb8(RgbImage::new(4, 3)),
                     ImageFormat::Jpeg,
                 ),
                 Format::Jpeg,
             ),
-            (encode(rgba.clone(), ImageFormat::Gif), Format::Gif),
-            (encode(rgba, ImageFormat::WebP), Format::Webp),
+            (encode(&rgba, ImageFormat::Gif), Format::Gif),
+            (encode(&rgba, ImageFormat::WebP), Format::Webp),
         ] {
             let p = process(&bytes, 1_000).unwrap();
             assert_eq!((p.format, p.width, p.height), (format, 4, 3));

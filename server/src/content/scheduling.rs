@@ -93,7 +93,7 @@ pub enum TimeCheck {
     OutOfRange,
 }
 
-/// 予約の時刻を、DBの時計で確かめる（PostgreSQL 16 の pg_input_is_valid で、例外を出さずに解釈できるかを見る）。
+/// 予約の時刻を、DBの時計で確かめる（PostgreSQL 16 の `pg_input_is_valid` で、例外を出さずに解釈できるかを見る）。
 /// 形の正しい時刻を渡す。
 pub async fn check_time(conn: &mut PgConnection, publish_at: &str) -> Result<TimeCheck> {
     let valid: bool = sqlx::query_scalar("SELECT pg_input_is_valid($1, 'timestamptz')")
@@ -103,11 +103,14 @@ pub async fn check_time(conn: &mut PgConnection, publish_at: &str) -> Result<Tim
     if !valid {
         return Ok(TimeCheck::Invalid);
     }
+    // 定数は約3千万秒なので、f64 で正確に表せる
+    #[allow(clippy::cast_precision_loss)]
+    let max_ahead_seconds = MAX_AHEAD_SECONDS as f64;
     let in_range: bool = sqlx::query_scalar(
         "SELECT $1::timestamptz > now() AND $1::timestamptz <= now() + make_interval(secs => $2)",
     )
     .bind(publish_at)
-    .bind(MAX_AHEAD_SECONDS as f64)
+    .bind(max_ahead_seconds)
     .fetch_one(conn)
     .await?;
     Ok(if in_range {
@@ -304,12 +307,15 @@ pub async fn take_due(
     let Some((entry_id, schema_version, by, Some(prepared), elapsed)) = row else {
         return Ok(None);
     };
+    // 秒の小数は切り捨てる。経った秒数は小さいので i64 に収まる
+    #[allow(clippy::cast_possible_truncation)]
+    let elapsed = elapsed as i64;
     Ok(Some((
         entry_id,
         schema_version,
         by,
         serde_json::from_str(&prepared)?,
-        elapsed as i64,
+        elapsed,
     )))
 }
 

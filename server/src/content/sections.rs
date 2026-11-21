@@ -29,12 +29,6 @@ fn anchor_of(node: &Value) -> Option<&str> {
 
 /// 本文が空か（空白でない文字も、子を持たないノード（画像・埋め込みなど）もない）。
 pub fn is_blank(doc: &Value, body: &Body) -> bool {
-    let leaves: BTreeSet<&str> = body
-        .nodes
-        .iter()
-        .filter(|n| n.children.is_empty() && n.name != "text")
-        .map(|n| n.name.as_str())
-        .collect();
     fn has_content(v: &Value, leaves: &BTreeSet<&str>) -> bool {
         match v.get("type").and_then(Value::as_str) {
             Some("text") => v
@@ -46,6 +40,12 @@ pub fn is_blank(doc: &Value, body: &Body) -> bool {
             None => false,
         }
     }
+    let leaves: BTreeSet<&str> = body
+        .nodes
+        .iter()
+        .filter(|n| n.children.is_empty() && n.name != "text")
+        .map(|n| n.name.as_str())
+        .collect();
     !has_content(doc, &leaves)
 }
 
@@ -334,7 +334,7 @@ mod tests {
     fn h(t: &str, id: &str) -> Value {
         json!({"type": "heading", "attrs": {"level": 2, "id": id}, "content": [{"type": "text", "text": t}]})
     }
-    fn doc(nodes: Vec<Value>) -> Value {
+    fn doc(nodes: &[Value]) -> Value {
         json!({"type": "doc", "content": nodes})
     }
 
@@ -352,14 +352,14 @@ mod tests {
         }))
         .unwrap();
         let empty_heading = json!({"type": "heading", "attrs": {"level": 2, "id": "a"}});
-        assert!(is_blank(&doc(vec![]), &body));
+        assert!(is_blank(&doc(&[]), &body));
         assert!(is_blank(
-            &doc(vec![json!({"type": "paragraph"}), p("  "), empty_heading]),
+            &doc(&[json!({"type": "paragraph"}), p("  "), empty_heading]),
             &body
         ));
-        assert!(!is_blank(&doc(vec![p("x")]), &body));
+        assert!(!is_blank(&doc(&[p("x")]), &body));
         assert!(!is_blank(
-            &doc(vec![json!({"type": "image", "attrs": {"mediaId": "m"}})]),
+            &doc(&[json!({"type": "image", "attrs": {"mediaId": "m"}})]),
             &body
         ));
     }
@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn images_need_alt_or_decorative() {
         let img = |attrs: Value| json!({"type": "image", "attrs": attrs});
-        let d = doc(vec![
+        let d = doc(&[
             img(json!({"mediaId": "m", "alt": "説明"})),
             img(json!({"mediaId": "m", "decorative": true})),
             img(json!({"mediaId": "m"})),
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn affected_sections() {
-        let before = doc(vec![
+        let before = doc(&[
             p("導入"),
             h("A", "a"),
             p("1"),
@@ -395,7 +395,7 @@ mod tests {
             h("C", "c"),
         ]);
         // a は変わらない、b は本文が変わる、c は消える、d は増える。導入は変わらない
-        let after = doc(vec![
+        let after = doc(&[
             p("導入"),
             h("A", "a"),
             p("1"),
@@ -407,7 +407,7 @@ mod tests {
         assert_eq!(a.anchors.into_iter().collect::<Vec<_>>(), ["b", "c", "d"]);
         assert!(!a.lead);
         // 見出しの文字だけが変わってもそのセクションは影響したとみなす。導入の変更は lead
-        let after2 = doc(vec![
+        let after2 = doc(&[
             p("導入を直した"),
             h("A2", "a"),
             p("1"),
@@ -424,8 +424,8 @@ mod tests {
 
     #[test]
     fn text_of_a_section() {
-        let before = doc(vec![p("導入"), h("A", "a"), p("前の文"), p("2つめ")]);
-        let after = doc(vec![
+        let before = doc(&[p("導入"), h("A", "a"), p("前の文"), p("2つめ")]);
+        let after = doc(&[
             p("導入"),
             h("A", "a"),
             p("今の文"),
@@ -456,7 +456,7 @@ mod tests {
     #[test]
     fn section_changes_for_the_publish_check() {
         let link = |t: &str, href: &str| json!({"type": "paragraph", "content": [{"type": "text", "text": t, "marks": [{"type": "link", "attrs": {"href": href}}]}]});
-        let before = doc(vec![
+        let before = doc(&[
             p("導入"),
             h("価格", "a"),
             p("月額 1,000 円です"),
@@ -466,7 +466,7 @@ mod tests {
             p("とても良い"),
             h("消える", "d"),
         ]);
-        let after = doc(vec![
+        let after = doc(&[
             p("導入"),
             h("新しい", "e"),
             h("価格", "a"),
@@ -499,8 +499,8 @@ mod tests {
             ]
         );
         // 全角の数字は半角と同じに扱う（表記だけの変更ではヒントを出さない）
-        let half = doc(vec![p("2026年10月15日")]);
-        let full = doc(vec![p("２０２６年１０月１５日に")]);
+        let half = doc(&[p("2026年10月15日")]);
+        let full = doc(&[p("２０２６年１０月１５日に")]);
         let c = compare(&[&half], &[&full]);
         assert_eq!(c.len(), 1);
         assert_eq!(

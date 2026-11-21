@@ -206,7 +206,7 @@ impl Engine {
         docs: &Map<String, Value>,
     ) -> Result<std::collections::BTreeMap<String, Rendered>, Failure> {
         if docs.is_empty() {
-            return Ok(Default::default());
+            return Ok(std::collections::BTreeMap::default());
         }
         let _permit = self
             .running
@@ -468,7 +468,7 @@ fn classify(ctx: &Ctx<'_>, e: &rquickjs::Error) -> Failure {
             let thrown = ctx.catch();
             let out_of_memory = thrown
                 .as_exception()
-                .and_then(|x| x.message())
+                .and_then(rquickjs::Exception::message)
                 .is_some_and(|m| m == "out of memory");
             if out_of_memory {
                 Failure::MemoryLimit

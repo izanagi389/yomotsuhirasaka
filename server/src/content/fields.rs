@@ -66,7 +66,7 @@ fn convert(
     };
     let path = format!("fields.{name}");
     let column = match (field.kind, value) {
-        (FieldType::Text, Value::Null) | (FieldType::Slug, Value::Null) => Column::Text(None),
+        (FieldType::Text | FieldType::Slug, Value::Null) => Column::Text(None),
         (FieldType::Text, Value::String(s)) => {
             if !valid_text(s) {
                 problems.push(format!(
@@ -85,7 +85,7 @@ fn convert(
             }
             Column::Text(Some(s.clone()))
         }
-        (FieldType::Richtext, Value::Null) => Column::Json(None),
+        (FieldType::Richtext | FieldType::Image, Value::Null) => Column::Json(None),
         (FieldType::Richtext, doc) => match body::validate(doc, &manifest.body) {
             Ok(normalized) => Column::Json(Some(normalized.to_string())),
             Err(found) => {
@@ -99,13 +99,13 @@ fn convert(
         },
         (FieldType::Reference, Value::Null) if field.multiple => Column::Uuids(None),
         (FieldType::Reference, Value::Null) => Column::Uuid(None),
-        (FieldType::Reference, Value::String(s)) if !field.multiple => match Uuid::parse_str(s) {
-            Ok(id) => Column::Uuid(Some(id)),
-            Err(_) => {
+        (FieldType::Reference, Value::String(s)) if !field.multiple => {
+            let Ok(id) = Uuid::parse_str(s) else {
                 problems.push(format!("{path}: must be a translation group ID"));
                 return None;
-            }
-        },
+            };
+            Column::Uuid(Some(id))
+        }
         (FieldType::Reference, Value::Array(items)) if field.multiple => {
             let ids: Option<Vec<Uuid>> = items
                 .iter()
@@ -121,7 +121,6 @@ fn convert(
                 }
             }
         }
-        (FieldType::Image, Value::Null) => Column::Json(None),
         (FieldType::Image, Value::Object(obj)) => match image_value(obj) {
             Ok(v) => Column::Json(Some(v.to_string())),
             Err(why) => {
@@ -161,7 +160,7 @@ fn image_value(obj: &Map<String, Value>) -> Result<Value, &'static str> {
         Some(_) => return Err("alt must be text without control characters"),
     }
     match obj.get("decorative") {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => {}
+        None | Some(Value::Null | Value::Bool(false)) => {}
         Some(Value::Bool(true)) => {
             out.insert("decorative".into(), Value::Bool(true));
         }
@@ -213,7 +212,7 @@ mod tests {
     use crate::schema::manifest::tests::sample;
     use serde_json::json;
 
-    fn conv(v: Value) -> Result<Vec<(String, Column)>, Vec<String>> {
+    fn conv(v: &Value) -> Result<Vec<(String, Column)>, Vec<String>> {
         let m = sample();
         let ct = m.content_types[0].clone();
         convert_all(&m, &ct, v.as_object().unwrap())
@@ -222,7 +221,7 @@ mod tests {
     #[test]
     fn converts_values() {
         let id = Uuid::new_v4();
-        let out = conv(json!({
+        let out = conv(&json!({
             "title": "t",
             "slug": "hello-world-2",
             "related": [id.to_string()],
@@ -231,7 +230,7 @@ mod tests {
         .unwrap();
         assert!(out.contains(&("title".into(), Column::Text(Some("t".into())))));
         assert!(out.contains(&("related".into(), Column::Uuids(Some(vec![id])))));
-        assert!(conv(json!({"title": null, "related": null})).is_ok());
+        assert!(conv(&json!({"title": null, "related": null})).is_ok());
     }
 
     #[test]
@@ -275,7 +274,7 @@ mod tests {
             json!({"related": ["SECRET-VALUE"]}),
             json!({"body": {"type": "doc", "content": [{"type": "script"}]}}),
         ] {
-            let problems = conv(bad.clone()).unwrap_err();
+            let problems = conv(&bad).unwrap_err();
             assert!(!problems.is_empty(), "{bad}");
             assert!(problems.iter().all(|p| !p.contains("SECRET-VALUE")));
         }

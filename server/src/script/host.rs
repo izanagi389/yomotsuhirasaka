@@ -67,6 +67,7 @@ impl Host {
     }
 
     /// 読んだ記事を新しく数え始める写し（1回の関数の実行の依存を集めるため）。
+    #[must_use]
     pub fn tracking(&self) -> Self {
         Self {
             reads: Arc::default(),
@@ -83,6 +84,7 @@ impl Host {
     }
 
     /// 外部へ送る手段を付ける（非同期のフック用）。宛先は `allowed_hosts` に限る。
+    #[must_use]
     pub fn with_fetch(self, egress: Egress, allowed_hosts: &[String]) -> Self {
         Self {
             fetch: Some(Fetch {
@@ -94,6 +96,7 @@ impl Host {
     }
 
     /// 秘密を付ける（非同期のフック用）。
+    #[must_use]
     pub fn with_secrets(self, secrets: HashMap<String, String>) -> Self {
         Self {
             secrets: Some(Arc::new(secrets)),
@@ -329,7 +332,7 @@ mod tests {
     #[test]
     fn hosts_are_compared_exactly() {
         let f = |hosts: &[&str]| Fetch {
-            egress: Egress::from_config(&Default::default()).unwrap(),
+            egress: Egress::from_config(&crate::config::EgressConfig::default()).unwrap(),
             allowed_hosts: hosts.iter().map(|h| normalize_host(h)).collect(),
         };
         let fetch = f(&["API.example.com", "127.0.0.1", "[::1]"]);
