@@ -295,7 +295,7 @@ fn renamed_old(old: &Manifest, plan: &Plan) -> Manifest {
             let tp = plan.content_types.iter().find(|t| t.from == oct.name)?;
             let to = tp.to.as_ref()?;
             let mut ct = oct.clone();
-            ct.name = to.clone();
+            ct.name.clone_from(to);
             ct.fields = oct
                 .fields
                 .iter()

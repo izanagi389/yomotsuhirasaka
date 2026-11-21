@@ -305,7 +305,7 @@ async fn run_locked(conn: &mut sqlx::PgConnection) -> Result<Vec<i32>> {
     .fetch_all(&mut *conn)
     .await?;
     if let Some(&latest) = applied.last()
-        && latest > MIGRATIONS.last().map(|m| m.0).unwrap_or(0)
+        && latest > MIGRATIONS.last().map_or(0, |m| m.0)
     {
         bail!(
             "the database schema (version {latest}) is newer than this server; upgrade the server"
@@ -460,7 +460,7 @@ async fn apply_audit_purge(migration: &PgPool, app_role: &Ident) -> Result<()> {
     .await?;
     // 中身は固定（引数なし）。search_path を固定し、SECURITY DEFINER で持ち主（専用のロール）として動く
     sqlx::query(crate::sql!(
-        r#"CREATE OR REPLACE FUNCTION {schema}.purge_audit_log() RETURNS bigint
+        r"CREATE OR REPLACE FUNCTION {schema}.purge_audit_log() RETURNS bigint
            LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
            DECLARE
              retention_days integer;
@@ -483,7 +483,7 @@ async fn apply_audit_purge(migration: &PgPool, app_role: &Ident) -> Result<()> {
              GET DIAGNOSTICS deleted = ROW_COUNT;
              RETURN deleted;
            END
-           $fn$"#
+           $fn$"
     ))
     .execute(&mut *tx)
     .await?;
