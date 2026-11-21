@@ -27,8 +27,8 @@ use crate::config::OidcConfig;
 use crate::egress::{Egress, EgressError, EgressRequest};
 
 /// IdPの設定と鍵を持っておく時間。鍵が見つからなければ、この時間内でも取り直す。
-const CACHE_TTL: Duration = Duration::from_secs(10 * 60);
-/// IdPの応答の本文の上限。
+const CACHE_TTL: Duration = Duration::from_mins(10);
+/// IdP の応答の本文の上限。
 const MAX_BODY: usize = 256 * 1024;
 /// 時計のずれの許容（秒）。
 const LEEWAY: u64 = 60;
@@ -359,7 +359,7 @@ impl Oidc {
         }
         if let Some(since) = authenticated_since {
             let leeway = i64::try_from(LEEWAY).unwrap_or(60);
-            if !claims.auth_time.is_some_and(|t| t + leeway >= since) {
+            if claims.auth_time.is_none_or(|t| t + leeway < since) {
                 return Err(OidcError::InvalidIdToken);
             }
         }

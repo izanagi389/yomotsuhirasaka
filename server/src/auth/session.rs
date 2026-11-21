@@ -26,6 +26,8 @@ pub struct Issued {
 
 /// 照合できた、有効なセッション。
 #[derive(Debug, Clone)]
+// 照合した時点の状態の印を、そのまま項目として持つ（まとめると、どの印かが読み取りにくくなる）
+#[allow(clippy::struct_excessive_bools)]
 pub struct Current {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -233,8 +235,8 @@ pub async fn resolve_mfa_pending(pool: &PgPool, presented: &str) -> Result<Optio
     .await?)
 }
 
-/// (id, user_id, email, is_server_admin, mfa_enabled, locale, csrf_hash, authenticated_recently, stale,
-///  reauth_seconds_left, has_passkey, sso, reauth_method, admin_anywhere)
+/// `(id, user_id, email, is_server_admin, mfa_enabled, locale, csrf_hash, authenticated_recently, stale,`
+/// ` reauth_seconds_left, has_passkey, sso, reauth_method, admin_anywhere)`
 type ResolvedRow = (
     Uuid,
     Uuid,

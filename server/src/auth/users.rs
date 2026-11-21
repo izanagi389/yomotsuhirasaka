@@ -28,6 +28,8 @@ pub fn normalize_display_name(raw: &str) -> Option<String> {
 }
 
 /// ログインの照合に使う情報。
+// DB の印をそのまま項目として持つ（まとめると、どの印かが読み取りにくくなる）
+#[allow(clippy::struct_excessive_bools)]
 pub struct LoginRecord {
     pub id: Uuid,
     pub password_hash: Option<String>,
@@ -40,7 +42,7 @@ pub struct LoginRecord {
     pub mfa_enabled: bool,
 }
 
-/// (id, password_hash, disabled, blocked, second_factor_blocked, mfa_enabled)
+/// `(id, password_hash, disabled, blocked, second_factor_blocked, mfa_enabled)`
 type LoginRow = (Uuid, Option<String>, bool, bool, bool, bool);
 
 /// 多要素認証の有無は [`super::mfa::MFA_ENABLED_U`]（TOTPかパスキー）で判定する。

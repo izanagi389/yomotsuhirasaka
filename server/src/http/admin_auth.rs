@@ -50,6 +50,8 @@ struct LoginResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+// 管理画面に返す状態の印を、そのまま項目として持つ（API の形に合わせる）
+#[allow(clippy::struct_excessive_bools)]
 pub(super) struct Me {
     id: Uuid,
     email: String,
@@ -507,12 +509,15 @@ pub async fn me(
 pub struct UpdateMe {
     /// 言語。null で未設定に戻す（インスタンスの既定の言語を使う）。項目がなければ変えない。
     #[serde(default, deserialize_with = "present")]
+    #[allow(clippy::option_option)]
+    // 「項目なし」（変えない）と null（未設定に戻す）を区別するため
     locale: Option<Option<String>>,
     /// 表示名（1〜50文字、制御文字なし。前後の空白は除く）。未設定には戻せない。
     display_name: Option<String>,
 }
 
 /// 項目が「ない」ことと「null」を区別する（ない: None、null: Some(None)）。
+#[allow(clippy::option_option)] // UpdateMe と同じ理由
 fn present<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
 where
     D: serde::Deserializer<'de>,

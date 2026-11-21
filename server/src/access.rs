@@ -147,6 +147,7 @@ impl Grants {
         self.0 & p.bit() != 0
     }
 
+    #[must_use]
     pub fn with(self, p: Permission, on: bool) -> Self {
         Grants(if on {
             self.0 | p.bit()

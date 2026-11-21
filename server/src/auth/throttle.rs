@@ -26,7 +26,7 @@ pub const BASE_DELAY_SECONDS: f64 = 15.0;
 pub const MAX_DELAY_SECONDS: f64 = 15.0 * 60.0;
 
 /// 失敗を記録し、必要なら待ち時間を設定する（1つの文で行い、同時の失敗を取りこぼさない）。
-/// 待ち時間は、FREE_FAILURES 回目の失敗で BASE_DELAY_SECONDS、以後2倍ずつ、上限 MAX_DELAY_SECONDS。
+/// 待ち時間は、`FREE_FAILURES` 回目の失敗で `BASE_DELAY_SECONDS`、以後2倍ずつ、上限 `MAX_DELAY_SECONDS`。
 pub async fn record_failure(pool: &PgPool, user_id: Uuid) -> Result<()> {
     sqlx::query(
         "UPDATE yomi.users SET
@@ -150,7 +150,10 @@ impl IpLimiter {
     /// すでに上限に達しているか（数えない）。
     pub fn exceeded(&self, ip: IpAddr) -> bool {
         let now = Instant::now();
-        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.get(&limit_key(ip)).is_some_and(|(start, count)| {
             now.duration_since(*start) < self.window && *count >= self.per_window
         })
@@ -160,7 +163,10 @@ impl IpLimiter {
     pub fn check(&self, ip: IpAddr) -> Result<(), u64> {
         let key = limit_key(ip);
         let now = Instant::now();
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.len() >= PRUNE_THRESHOLD {
             let window = self.window;
             state.retain(|_, (start, _)| now.duration_since(*start) < window);
@@ -182,13 +188,14 @@ impl IpLimiter {
 fn limit_key(ip: IpAddr) -> IpAddr {
     match ip {
         IpAddr::V4(_) => ip,
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
-            Some(v4) => IpAddr::V4(v4),
-            None => {
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                IpAddr::V4(v4)
+            } else {
                 let s = v6.segments();
                 IpAddr::V6(Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
             }
-        },
+        }
     }
 }
 

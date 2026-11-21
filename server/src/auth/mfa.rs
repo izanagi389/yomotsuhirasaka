@@ -5,6 +5,8 @@
 //! - 同じ時間の区切りのコードは二度受け付けない（RFC 6238 5.2）。
 //! - 復旧コードは10個。80ビットのランダムな値で、一度だけ使える。DBにはハッシュだけを保存する。
 
+use std::fmt::Write as _;
+
 use anyhow::{Context, Result, anyhow};
 use sqlx::{PgExecutor, PgPool, Postgres, Transaction};
 use totp_rs::{Builder, Secret, Totp};
@@ -55,7 +57,7 @@ fn percent_encode(s: &str) -> String {
         if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
             out.push(char::from(b));
         } else {
-            out.push_str(&format!("%{b:02X}"));
+            let _ = write!(out, "%{b:02X}");
         }
     }
     out

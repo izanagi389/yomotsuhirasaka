@@ -80,7 +80,7 @@ pub async fn check_expiry<'e>(
         // 22007: invalid_datetime_format、22008: datetime_field_overflow
         Err(e)
             if e.as_database_error()
-                .and_then(|d| d.code())
+                .and_then(sqlx::error::DatabaseError::code)
                 .is_some_and(|c| c == "22007" || c == "22008") =>
         {
             Ok(Err(ExpiryError::Invalid))

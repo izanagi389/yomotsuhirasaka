@@ -141,7 +141,8 @@ pub async fn begin_registration(
     name: &str,
 ) -> Result<Result<CreationChallengeResponse, Refused>> {
     let existing = credentials(pool, user_id).await?;
-    if existing.len() as i64 >= MAX_PER_USER {
+    // 数えきれないほど多ければ、上限を超えたものとして扱う
+    if i64::try_from(existing.len()).unwrap_or(i64::MAX) >= MAX_PER_USER {
         return Ok(Err(Refused::TooMany));
     }
     let exclude = existing.iter().map(|p| p.cred_id().clone()).collect();
