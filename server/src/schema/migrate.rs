@@ -135,8 +135,8 @@ async fn body_node_in_use(
     old: &Manifest,
     node: &str,
 ) -> Result<bool> {
-    let schema = &db.schema;
     const PATH: &str = "'$.** ? (@.type == $n)'";
+    let schema = &db.schema;
     let used: bool = sqlx::query_scalar(crate::sql!(
         "SELECT EXISTS (
              SELECT 1 FROM {schema}.entries e JOIN {schema}.versions v ON v.id = e.published_version_id
