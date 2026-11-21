@@ -6,6 +6,10 @@
 # - 起動したまま待たせておき、コマンドは `docker compose exec` で送る（毎回コンテナを作るより速い）。
 # - ビルドの結果（target）と依存のキャッシュは名前付きボリュームに置く。ホストの target/ には触れない。
 # - ネットワークは依存の取得（crates.io）にだけ使う。CMS や DB のネットワークにはつながない。
+# - DB の結合テスト（server/tests/）用に、テスト専用の PostgreSQL を2つ用意する（プロファイル db。scripts/cargo-db-test.sh が起動する）。
+#   CI（.github/workflows/ci.yml）と同じイメージ。データは tmpfs に置き、ホストにポートを公開しない。CMS の DB とは別物で、記事のデータは入っていない。
+#   rust のコンテナとネットワークを共有し、CI と同じ 127.0.0.1:5432 / 5434 で待ち受ける（起動時の検査は、ループバック以外の
+#   接続先に sslmode を求めるが、テストは接続先の URL を組み立て直すときに sslmode を落とすため）。
 
 name: yomi-tools
 
@@ -26,6 +30,41 @@ services:
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/cargo-target
     restart: unless-stopped
+
+  # pgvector 入りの PostgreSQL 16（CI の pg16 と同じイメージ）。YOMI_TEST_PG_SUPERUSER_URL の接続先
+  pg16:
+    profiles: ["db"]
+    image: pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
+    network_mode: "service:rust"
+    environment:
+      POSTGRES_PASSWORD: local-test-only-pw-16
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # pg_bigm と pgvector の入った PostgreSQL 18（deploy/postgres.Dockerfile。CI の pg-bigm と同じ）。YOMI_TEST_PG_BIGM_URL の接続先
+  pg-bigm:
+    profiles: ["db"]
+    build:
+      context: .
+      dockerfile: postgres.Dockerfile
+    image: yomotsuhirasaka/postgres:18-local
+    network_mode: "service:rust"
+    # pg16 と同じネットワークなので、CI と同じ 5434 で待ち受ける
+    command: ["postgres", "-p", "5434"]
+    environment:
+      POSTGRES_PASSWORD: local-test-only-pw-bigm
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "5434", "-U", "postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
 
 volumes:
   cargo-registry:
