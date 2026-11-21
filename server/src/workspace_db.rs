@@ -127,7 +127,7 @@ pub async fn destroy(conn: &mut PgConnection, workspace_id: Uuid) -> Result<bool
 }
 
 /// ワークスペースのスキーマの土台のテーブルの移行（版, SQL）。版の昇順に並べる。
-/// SQLは、search_path をそのワークスペースのスキーマにした中で実行する。
+/// SQLは、`search_path` をそのワークスペースのスキーマにした中で実行する。
 pub const BASE_MIGRATIONS: &[(i32, &str)] = &[
     (1, include_str!("../migrations/workspace/0001_entries.sql")),
     (

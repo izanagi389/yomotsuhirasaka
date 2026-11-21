@@ -204,7 +204,7 @@ async fn run_deploy(
             "destructive_change",
             format!(
                 "The deployment contains destructive changes. Add a field, migrate the data and remove the old one in separate deployments, or allow destructive changes explicitly: {}",
-                report(changes.iter().map(|c| c.describe()))
+                report(changes.iter().map(crate::schema::diff::Breaking::describe))
             ),
         )),
     }

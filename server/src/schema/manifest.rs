@@ -1,7 +1,7 @@
 //! テンプレートのマニフェスト（デプロイのAPIが受け取るJSON）と、その検査（02-schema-and-delivery-api.md、Q49, Q57, Q92, Q102）。
 //!
 //! CLIでも同じ検査を行うが、サーバーでも必ずやり直す（13-security.md「デプロイ」）。
-//! ここを通った名前だけが、DBの識別子（`ct_<名前>`, `f_<名前>`）とGraphQLの名前の元になる。
+//! ここを通った名前だけが、DBの識別子（`ct_<名前>`, `f_<名前>`）と GraphQL の名前の元になる。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -46,6 +46,8 @@ pub enum FieldType {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Field {
     /// フィールドの名前（英小文字で始まる英小文字・数字・`_`）。DBとGraphQLの名前の元になる。
+    // この説明文はテンプレートの JSON Schema（cli/schema/template.schema.json）に出るので、文の書き方を変えない
+    #[allow(clippy::doc_markdown)]
     pub name: String,
     #[serde(rename = "type")]
     pub kind: FieldType,
@@ -80,6 +82,8 @@ pub struct Field {
 #[serde(bound(deserialize = "F: Deserialize<'de>", serialize = "F: Serialize"))]
 pub struct ContentType<F = crate::script::Script> {
     /// コンテンツタイプの名前（英小文字で始まる英小文字・数字・`_`）。DBとGraphQLの名前の元になる。
+    // この説明文はテンプレートの JSON Schema（cli/schema/template.schema.json）に出るので、文の書き方を変えない
+    #[allow(clippy::doc_markdown)]
     pub name: String,
     /// ロケールごとの公開URLのテンプレート。使える差し込みは `{locale}` と `{slug}`（Q82）。
     pub url_template: String,
@@ -416,6 +420,7 @@ impl Manifest {
 
     /// スキーマ情報のAPIで所属者に返す写し: `devNote`（INV-SCH-01）と、関数のソースを除く。
     /// 関数（URL生成関数・フック・変換関数）のソースには、送信先の認証情報などが書かれうるため、所属者には見せない。
+    #[must_use]
     pub fn for_members(&self) -> Self {
         let mut m = self.without_dev_notes();
         let clear = |s: &mut Option<crate::script::Script>| {
@@ -444,6 +449,7 @@ impl Manifest {
     }
 
     /// `devNote` を除いた写し（スキーマ情報のAPIで返す。INV-SCH-01）。
+    #[must_use]
     pub fn without_dev_notes(&self) -> Self {
         let mut m = self.clone();
         for ct in &mut m.content_types {
@@ -542,7 +548,7 @@ fn valid_url_template(t: &str) -> bool {
     placeholders.iter().all(|p| *p == "locale" || *p == "slug") && placeholders.contains(&"slug")
 }
 
-fn check_text(problems: &mut Vec<String>, path: &str, value: &Option<String>) {
+fn check_text(problems: &mut Vec<String>, path: &str, value: Option<&str>) {
     if let Some(v) = value
         && v.chars().count() > MAX_TEXT_CHARS
     {
@@ -553,7 +559,7 @@ fn check_text(problems: &mut Vec<String>, path: &str, value: &Option<String>) {
 }
 
 /// 表示名の検査: 少なくとも1つの言語を書き、どれも空でなく、改行などの制御文字を含まず、長すぎないこと。
-fn check_label(problems: &mut Vec<String>, path: &str, label: &Option<Label>) {
+fn check_label(problems: &mut Vec<String>, path: &str, label: Option<&Label>) {
     let Some(l) = label else { return };
     if l.ja.is_none() && l.en.is_none() {
         problems.push(format!("{path}: write at least one of ja and en"));
@@ -738,14 +744,14 @@ pub fn validate(m: &Manifest) -> Vec<String> {
         check_text(
             &mut problems,
             &format!("{path}.description"),
-            &c.description,
+            c.description.as_deref(),
         );
         let mut seen = BTreeSet::new();
         for (j, a) in c.attrs.iter().enumerate() {
             check_text(
                 &mut problems,
                 &format!("{path}.attrs[{j}].description"),
-                &a.description,
+                a.description.as_deref(),
             );
             if !valid_node_name(&a.name) {
                 problems.push(format!("{path}.attrs[{j}].name: invalid attribute name"));
@@ -898,13 +904,17 @@ pub fn validate(m: &Manifest) -> Vec<String> {
         if !(1..=MAX_LIST_LIMIT).contains(&ct.list_limit) {
             problems.push(format!("{path}.listLimit: must be 1 to {MAX_LIST_LIMIT}"));
         }
-        check_label(&mut problems, &format!("{path}.label"), &ct.label);
+        check_label(&mut problems, &format!("{path}.label"), ct.label.as_ref());
         check_text(
             &mut problems,
             &format!("{path}.description"),
-            &ct.description,
+            ct.description.as_deref(),
         );
-        check_text(&mut problems, &format!("{path}.devNote"), &ct.dev_note);
+        check_text(
+            &mut problems,
+            &format!("{path}.devNote"),
+            ct.dev_note.as_deref(),
+        );
         if ct.fields.len() > MAX_FIELDS {
             problems.push(format!("{path}.fields: at most {MAX_FIELDS}"));
         }
@@ -922,7 +932,7 @@ pub fn validate(m: &Manifest) -> Vec<String> {
             match (f.kind, &f.reference_to) {
                 (FieldType::Reference, Some(to)) if type_names.contains(to.as_str()) => {}
                 (FieldType::Reference, _) => {
-                    problems.push(format!("{fpath}.referenceTo: must name a content type"))
+                    problems.push(format!("{fpath}.referenceTo: must name a content type"));
                 }
                 (_, Some(_)) => problems.push(format!(
                     "{fpath}.referenceTo: only reference fields can have it"
@@ -939,13 +949,17 @@ pub fn validate(m: &Manifest) -> Vec<String> {
                     "{fpath}.searchable: only text and richtext fields can be searchable"
                 ));
             }
-            check_label(&mut problems, &format!("{fpath}.label"), &f.label);
+            check_label(&mut problems, &format!("{fpath}.label"), f.label.as_ref());
             check_text(
                 &mut problems,
                 &format!("{fpath}.description"),
-                &f.description,
+                f.description.as_deref(),
             );
-            check_text(&mut problems, &format!("{fpath}.devNote"), &f.dev_note);
+            check_text(
+                &mut problems,
+                &format!("{fpath}.devNote"),
+                f.dev_note.as_deref(),
+            );
         }
         // URLを作るためのスラッグ
         let slugs = ct
