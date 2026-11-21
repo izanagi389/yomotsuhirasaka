@@ -56,7 +56,7 @@ fn is_scalar(v: &Value) -> bool {
 }
 
 fn has_control(s: &str) -> bool {
-    s.chars().any(|c| c.is_control())
+    s.chars().any(char::is_control)
 }
 
 /// リンクの `href` として許すか。
@@ -315,7 +315,7 @@ fn check_node(
             .get("attrs")
             .and_then(|a| a.get("mediaId"))
             .and_then(Value::as_str);
-        if !media.is_some_and(|m| uuid::Uuid::parse_str(m).is_ok()) {
+        if media.is_none_or(|m| uuid::Uuid::parse_str(m).is_err()) {
             ctx.problem(&format!("{path}.attrs.mediaId"), "image needs a media ID");
         }
     }
@@ -430,7 +430,6 @@ fn assign_anchors(doc: &mut Value, headings: &[Vec<usize>]) {
 
 /// 本文の中で使われているメディアのID（画像）。
 pub fn media_ids(doc: &Value) -> Vec<uuid::Uuid> {
-    let mut out = Vec::new();
     fn walk(v: &Value, out: &mut Vec<uuid::Uuid>) {
         if v.get("type").and_then(Value::as_str) == Some(IMAGE)
             && let Some(id) = v
@@ -447,6 +446,7 @@ pub fn media_ids(doc: &Value) -> Vec<uuid::Uuid> {
             }
         }
     }
+    let mut out = Vec::new();
     walk(doc, &mut out);
     out
 }
@@ -499,7 +499,7 @@ mod tests {
         }
     }
 
-    fn doc(nodes: Vec<Value>) -> Value {
+    fn doc(nodes: &[Value]) -> Value {
         json!({"type": "doc", "content": nodes})
     }
 
@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn accepts_valid_bodies() {
-        let d = doc(vec![
+        let d = doc(&[
             p("a"),
             json!({"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": [{"type": "bold"}, {"type": "link", "attrs": {"href": "https://example.com"}}]}]}),
             json!({"type": "bulletList", "content": [{"type": "listItem", "content": [p("i")]}]}),
@@ -585,7 +585,7 @@ mod tests {
                 json!({"type": "image", "attrs": {"alt": "a"}}),
             ),
         ] {
-            assert!(validate(&doc(vec![bad]), &body()).is_err(), "{label}");
+            assert!(validate(&doc(&[bad]), &body()).is_err(), "{label}");
         }
         assert!(validate(&json!({"type": "paragraph"}), &body()).is_err());
         assert!(validate(&json!("doc"), &body()).is_err());
@@ -652,7 +652,7 @@ mod tests {
     #[test]
     fn anchors_are_assigned_and_deduplicated() {
         let out = validate(
-            &doc(vec![
+            &doc(&[
                 h("a", None),
                 h("b", Some("keep-me")),
                 h("c", Some("keep-me")),
@@ -675,7 +675,7 @@ mod tests {
     #[test]
     fn problems_do_not_contain_content() {
         let secret = "SECRET-BODY-TEXT";
-        let bad = doc(vec![
+        let bad = doc(&[
             json!({"type": "paragraph", "content": [{"type": "text", "text": secret, "marks": [{"type": "link", "attrs": {"href": format!("javascript:{secret}")}}]}]}),
         ]);
         let problems = validate(&bad, &body()).unwrap_err();
@@ -685,7 +685,7 @@ mod tests {
 
     #[test]
     fn finds_media() {
-        let d = doc(vec![
+        let d = doc(&[
             json!({"type": "image", "attrs": {"mediaId": "0123456789abcdef0123456789abcdef"}}),
         ]);
         assert_eq!(media_ids(&d).len(), 1);

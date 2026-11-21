@@ -222,7 +222,7 @@ pub async fn replace_templates(conn: &mut PgConnection, list: &[Template]) -> Re
         .bind(&t.locale)
         .bind(&t.kind)
         .bind(t.text.trim())
-        .bind(i as i32)
+        .bind(i32::try_from(i)?)
         .execute(&mut *conn)
         .await?;
     }

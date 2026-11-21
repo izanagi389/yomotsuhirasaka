@@ -204,9 +204,9 @@ pub async fn insert(
     .bind(id)
     .bind(file)
     .bind(processed.format.content_type())
-    .bind(processed.bytes.len() as i64)
-    .bind(processed.width as i32)
-    .bind(processed.height as i32)
+    .bind(i64::try_from(processed.bytes.len())?)
+    .bind(i32::try_from(processed.width)?)
+    .bind(i32::try_from(processed.height)?)
     .bind(created_by)
     .execute(&mut *conn)
     .await?;
@@ -269,7 +269,7 @@ pub async fn usage(
     media_id: Uuid,
 ) -> Result<Vec<Usage>> {
     let needle = format!("%{}%", media_id.hyphenated());
-    let mut found: std::collections::BTreeMap<Uuid, Usage> = Default::default();
+    let mut found = std::collections::BTreeMap::<Uuid, Usage>::default();
     for ct in &manifest.content_types {
         let table = table_name(&ct.name)?;
         // 本文のフィールドの画像と、画像のフィールド（どちらもメディアのIDは小文字・ハイフン区切り）

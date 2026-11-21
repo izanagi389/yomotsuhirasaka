@@ -10,6 +10,7 @@
 //!   「プレビューを許すサイト」のオリジンを足す（ライブプレビューの iframe。計画の13番）。足すのは、Cookie のセッションが
 //!   そのワークスペースの所属者（かサーバー管理者）のときだけ（他のワークスペースのサイトを見せないため。原則6）。
 
+use std::fmt::Write as _;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context as _, Result};
@@ -70,10 +71,11 @@ fn csp_for(scripts: &[&str], media_origin: Option<&str>) -> String {
     let mut script_src = String::from("'self'");
     for s in scripts {
         let digest = Sha256::digest(s.as_bytes());
-        script_src.push_str(&format!(
+        let _ = write!(
+            script_src,
             " 'sha256-{}'",
             base64::engine::general_purpose::STANDARD.encode(digest)
-        ));
+        );
     }
     let mut img_src = String::from("'self' data: blob:");
     if let Some(origin) = media_origin {

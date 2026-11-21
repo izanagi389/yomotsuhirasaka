@@ -226,7 +226,7 @@ pub async fn close(
     by: Uuid,
     comment: Option<&str>,
 ) -> Result<Option<Request>> {
-    debug_assert!(state != State::Open);
+    debug_assert_ne!(state, State::Open);
     let id: Option<Uuid> = sqlx::query_scalar(
         "UPDATE review_requests SET state = $2, comment = $3, closed_at = now(), closed_by = $4
          WHERE entry_id = $1 AND state = 'open'
