@@ -8,6 +8,20 @@ license = "Apache-2.0"
 rust-version = "1.94"
 publish = false
 
+# clippy の基準（.claude/skills/rust-server/SKILL.md）。CI は `cargo clippy -- -D warnings` なので、警告は CI で止まる。
+# pedantic を有効にし、次の7つだけを対象外にする（直すとかえって読みにくくなる、または lint の修正では済まない大きな分割になるため）。
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# 説明文と属性
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+# 読みやすさを下げるもの
+too_many_lines = "allow"
+assert_is_empty = "allow"
+format_collect = "allow"
+similar_names = "allow"
+
 # テスト（開発ビルド）でもパスワードのハッシュの計算を速くする（最適化なしだと1回に数秒かかることがある）
 [profile.dev.package.argon2]
 opt-level = 3
