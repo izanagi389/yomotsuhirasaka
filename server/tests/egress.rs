@@ -42,8 +42,8 @@ async fn peer(response: &'static str) -> (u16, Arc<Mutex<Vec<String>>>) {
     (port, seen)
 }
 
-fn egress(config: EgressConfig) -> Egress {
-    Egress::from_config(&config).unwrap()
+fn egress(config: &EgressConfig) -> Egress {
+    Egress::from_config(config).unwrap()
 }
 
 fn allow_local() -> EgressConfig {
@@ -70,7 +70,7 @@ fn post(url: String, read_body_limit: Option<usize>) -> EgressRequest {
 async fn sends_to_excepted_destination_and_reads_status_only() {
     let (port, seen) =
         peer("HTTP/1.1 202 Accepted\r\ncontent-length: 5\r\nconnection: close\r\n\r\nhello").await;
-    let res = egress(allow_local())
+    let res = egress(&allow_local())
         .send(post(format!("http://127.0.0.1:{port}/hook?x=1"), None))
         .await
         .unwrap();
@@ -89,7 +89,7 @@ async fn sends_to_excepted_destination_and_reads_status_only() {
 async fn body_is_read_only_within_the_limit() {
     let (port, _) =
         peer("HTTP/1.1 200 OK\r\ncontent-length: 5\r\nconnection: close\r\n\r\nhello").await;
-    let e = egress(allow_local());
+    let e = egress(&allow_local());
     let ok = e
         .send(post(format!("http://127.0.0.1:{port}/"), Some(5)))
         .await
@@ -110,7 +110,7 @@ async fn redirects_are_not_followed() {
             .into_boxed_str(),
     );
     let (port, _) = peer(location).await;
-    let res = egress(allow_local())
+    let res = egress(&allow_local())
         .send(post(format!("http://127.0.0.1:{port}/"), None))
         .await
         .unwrap();
@@ -123,7 +123,7 @@ async fn redirects_are_not_followed() {
 async fn internal_destinations_are_not_contacted() {
     let (port, seen) = peer("HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n").await;
     // 例外がなければ、HTTPSでもHTTPでも送らない
-    let e = egress(EgressConfig::default());
+    let e = egress(&EgressConfig::default());
     for url in [
         format!("https://127.0.0.1:{port}/"),
         format!("http://127.0.0.1:{port}/"),
@@ -154,7 +154,7 @@ async fn proxy_is_asked_for_the_checked_ip_address() {
         }),
         ..Default::default()
     };
-    let e = egress(config(ProxyConnectBy::Ip));
+    let e = egress(&config(ProxyConnectBy::Ip));
     let err = e
         .send(post("https://localhost:4443/x".to_owned(), None))
         .await
@@ -179,7 +179,7 @@ async fn proxy_is_asked_for_the_checked_ip_address() {
     );
 
     // ホスト名の方式に切り替えたときだけ、ホスト名で依頼する
-    let e = egress(config(ProxyConnectBy::Hostname));
+    let e = egress(&config(ProxyConnectBy::Hostname));
     let _ = e
         .send(post("https://localhost:4443/x".to_owned(), None))
         .await;
@@ -193,7 +193,7 @@ async fn proxy_is_asked_for_the_checked_ip_address() {
 #[tokio::test]
 async fn internal_destinations_are_checked_before_the_proxy() {
     let (proxy_port, proxy_seen) = peer("HTTP/1.1 200 Connection Established\r\n\r\n").await;
-    let e = egress(EgressConfig {
+    let e = egress(&EgressConfig {
         proxy: Some(EgressProxyConfig {
             url: format!("http://127.0.0.1:{proxy_port}"),
             connect_by: ProxyConnectBy::Ip,
@@ -294,7 +294,7 @@ async fn streaming_returns_chunks_as_they_arrive() {
         ],
     )
     .await;
-    let mut stream = egress(allow_local())
+    let mut stream = egress(&allow_local())
         .send_streaming(
             post(format!("http://127.0.0.1:{port}/v1/chat"), None),
             limits(),
@@ -313,7 +313,7 @@ async fn streaming_returns_chunks_as_they_arrive() {
 async fn streaming_stops_when_the_first_byte_is_late() {
     let ms = Duration::from_millis;
     let port = streaming_peer(ms(800), vec![(ms(0), "data: a\n\n")]).await;
-    let err = egress(allow_local())
+    let err = egress(&allow_local())
         .send_streaming(
             post(format!("http://127.0.0.1:{port}/"), None),
             StreamLimits {
@@ -335,7 +335,7 @@ async fn streaming_stops_when_data_stops_arriving() {
         vec![(ms(0), "data: a\n\n"), (ms(800), "data: b\n\n")],
     )
     .await;
-    let mut stream = egress(allow_local())
+    let mut stream = egress(&allow_local())
         .send_streaming(
             post(format!("http://127.0.0.1:{port}/"), None),
             StreamLimits {
@@ -357,7 +357,7 @@ async fn streaming_stops_at_the_total_time_limit() {
     let ms = Duration::from_millis;
     // データは途切れずに来続けるが、全体の時間の上限で止まる
     let port = streaming_peer(ms(0), (0..30).map(|_| (ms(100), "data: x\n\n")).collect()).await;
-    let mut stream = egress(allow_local())
+    let mut stream = egress(&allow_local())
         .send_streaming(
             post(format!("http://127.0.0.1:{port}/"), None),
             StreamLimits {
@@ -379,7 +379,7 @@ async fn streaming_stops_at_the_total_time_limit() {
 async fn streaming_stops_when_the_body_is_too_large() {
     let ms = Duration::from_millis;
     let port = streaming_peer(ms(0), vec![(ms(0), "abc"), (ms(50), "def")]).await;
-    let mut stream = egress(allow_local())
+    let mut stream = egress(&allow_local())
         .send_streaming(
             post(format!("http://127.0.0.1:{port}/"), None),
             StreamLimits {
@@ -399,7 +399,7 @@ async fn streaming_checks_the_destination_like_send() {
     let ms = Duration::from_millis;
     let port = streaming_peer(ms(0), vec![(ms(0), "data: a\n\n")]).await;
     // 例外がなければ、内部向けの宛先にもHTTPにも送らない
-    let e = egress(EgressConfig::default());
+    let e = egress(&EgressConfig::default());
     for url in [
         format!("http://127.0.0.1:{port}/"),
         format!("https://127.0.0.1:{port}/"),
@@ -427,7 +427,7 @@ async fn streaming_does_not_follow_redirects() {
             .into_boxed_str(),
     );
     let (port, _) = peer(location).await;
-    let mut stream = egress(allow_local())
+    let mut stream = egress(&allow_local())
         .send_streaming(post(format!("http://127.0.0.1:{port}/"), None), limits())
         .await
         .unwrap();

@@ -235,7 +235,11 @@ pub fn applicable(docs: &[&Value], from: &str) -> bool {
 /// 1つのセクションの LLM の出力を検査する（原則4）。形に合う行だけを読み、元の語句が本文にそのまま見つかり、
 /// 置き換えが元と違うものだけを認める（同じ元の語句は1回まで。`seen` は全体で共有する）。語句は制御文字を除き、
 /// 長すぎるものは捨てる。
-pub fn parse(reply: &str, docs: &[&Value], seen: &mut HashSet<String>) -> Vec<Fix> {
+pub fn parse<S: std::hash::BuildHasher>(
+    reply: &str,
+    docs: &[&Value],
+    seen: &mut HashSet<String, S>,
+) -> Vec<Fix> {
     let clean = |s: &str| -> String {
         let s: String = s.chars().filter(|c| !c.is_control()).collect();
         s.trim().to_owned()
@@ -300,7 +304,7 @@ mod tests {
         json!({"type": "text", "text": t, "marks": [{"type": "bold"}]})
     }
 
-    fn para(children: Vec<Value>) -> Value {
+    fn para(children: &[Value]) -> Value {
         json!({"type": "paragraph", "content": children})
     }
 
@@ -308,18 +312,18 @@ mod tests {
         json!({"type": "heading", "attrs": {"level": 2}, "content": [text(t)]})
     }
 
-    fn doc(nodes: Vec<Value>) -> Value {
+    fn doc(nodes: &[Value]) -> Value {
         json!({"type": "doc", "content": nodes})
     }
 
     #[test]
     fn sections_split_at_headings_and_skip_code() {
-        let d = doc(vec![
-            para(vec![text("導入です。")]),
+        let d = doc(&[
+            para(&[text("導入です。")]),
             heading("手順"),
-            para(vec![text("まず"), bold("インストール"), text("します。")]),
+            para(&[text("まず"), bold("インストール"), text("します。")]),
             json!({"type": "codeBlock", "content": [text("npm install")]}),
-            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [para(vec![text("項目")])]}]}),
+            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [para(&[text("項目")])]}]}),
             heading("空"),
         ]);
         let s = sections(&[&d]);
@@ -335,13 +339,13 @@ mod tests {
 
     #[test]
     fn applicable_needs_one_plain_occurrence() {
-        let d = doc(vec![
-            para(vec![text("料金をせつめいしま。"), bold("太字の部分")]),
-            para(vec![text("同じ語。同じ語。")]),
-            para(vec![text("ここは"), bold("太字"), text("です")]),
-            para(vec![text("一つ目の語")]),
-            para(vec![text("一つ目の語")]),
-            para(vec![text("ああああ")]),
+        let d = doc(&[
+            para(&[text("料金をせつめいしま。"), bold("太字の部分")]),
+            para(&[text("同じ語。同じ語。")]),
+            para(&[text("ここは"), bold("太字"), text("です")]),
+            para(&[text("一つ目の語")]),
+            para(&[text("一つ目の語")]),
+            para(&[text("ああああ")]),
         ]);
         let docs = [&d];
         assert!(applicable(&docs, "せつめいしま"));
@@ -363,7 +367,7 @@ mod tests {
 
     #[test]
     fn parse_accepts_only_quotes_found_in_the_body() {
-        let d = doc(vec![para(vec![text("料金をせつめいしま。")])]);
+        let d = doc(&[para(&[text("料金をせつめいしま。")])]);
         let docs = [&d];
         let reply = "FIX: error | せつめいしま | 説明します\n\
                      FIX: error | せつめいしま | 二度目\n\
@@ -399,7 +403,7 @@ mod tests {
         assert!(m[0].content.contains("Japanese"));
         assert!(m[0].content.contains("FIX: (error|style)"));
         assert!(m[1].content.contains("本文"));
-        let d = doc(vec![heading("a"), para(vec![text("b")]), heading("c")]);
+        let d = doc(&[heading("a"), para(&[text("b")]), heading("c")]);
         let (input, output) = estimate(&[&d], "ja");
         assert!(input > 0);
         assert_eq!(output, 2 * i64::from(MAX_OUTPUT_TOKENS));

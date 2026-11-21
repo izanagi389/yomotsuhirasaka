@@ -20,11 +20,11 @@ fn heading(text: &str, id: &str) -> Value {
     json!({"type": "heading", "attrs": {"level": 2, "id": id}, "content": [{"type": "text", "text": text}]})
 }
 
-fn image(attrs: Value) -> Value {
+fn image(attrs: &Value) -> Value {
     json!({"type": "image", "attrs": attrs})
 }
 
-fn doc(nodes: Vec<Value>) -> Value {
+fn doc(nodes: &[Value]) -> Value {
     json!({"type": "doc", "content": nodes})
 }
 
@@ -70,13 +70,13 @@ async fn publishing_versions_and_url_history() {
         let entries = format!("/api/admin/workspaces/{ws}/entries");
 
         // 執筆者が書いた記事。画像に代替テキストがない
-        let body = doc(vec![
+        let body = doc(&[
             para("導入"),
             heading("A", "sec-a"),
             para("Aの本文"),
             heading("B", "sec-b"),
             para("Bの本文"),
-            image(json!({"mediaId": Uuid::new_v4().to_string()})),
+            image(&json!({"mediaId": Uuid::new_v4().to_string()})),
         ]);
         let create = json!({"contentType": "post", "fields": {"title": "記事", "slug": "first", "body": body}}).to_string();
         let res = send(&server, "POST", &entries, &author, Some(&create)).await;
@@ -104,13 +104,13 @@ async fn publishing_versions_and_url_history() {
         // 必須のフィールドが空でも公開できない
         let save = |rev: i64, fields: Value| json!({"revision": rev, "fields": fields}).to_string();
         let draft_path = format!("{path}/draft");
-        let fixed = doc(vec![
+        let fixed = doc(&[
             para("導入"),
             heading("A", "sec-a"),
             para("Aの本文"),
             heading("B", "sec-b"),
             para("Bの本文"),
-            image(json!({"mediaId": Uuid::new_v4().to_string(), "decorative": true})),
+            image(&json!({"mediaId": Uuid::new_v4().to_string(), "decorative": true})),
         ]);
         let res = send(&server, "PUT", &draft_path, &author, Some(&save(1, json!({"title": null, "body": fixed})))).await;
         assert_eq!(res.status, 200, "{}", res.body);
@@ -143,7 +143,7 @@ async fn publishing_versions_and_url_history() {
         assert_eq!(pairs, [(&*format!("{URL_BASE}/first"), &*format!("{URL_BASE}/second"))]);
 
         // 前の公開URLは、別の記事が下書きでスラッグに使えるが、公開中の記事のURLは使えない
-        let other = json!({"contentType": "post", "fields": {"title": "別の記事", "slug": "second-copy", "body": doc(vec![para("x")])}}).to_string();
+        let other = json!({"contentType": "post", "fields": {"title": "別の記事", "slug": "second-copy", "body": doc(&[para("x")])}}).to_string();
         let other_id = parse(&send(&server, "POST", &entries, &editor, Some(&other)).await)["id"].as_str().unwrap().to_owned();
         let other_path = format!("{entries}/{other_id}");
         assert_eq!(send(&server, "PUT", &format!("{other_path}/draft"), &editor, Some(&save(1, json!({"slug": "first"})))).await.status, 200);
@@ -157,7 +157,7 @@ async fn publishing_versions_and_url_history() {
         assert_eq!(send(&server, "PUT", &format!("{other_path}/draft"), &editor, Some(&save(3, json!({"slug": "other"})))).await.status, 200);
 
         // 訂正として公開: セクションBを直し、セクションAを消す（INV-COR-01）
-        let corrected = doc(vec![para("導入"), heading("B", "sec-b"), para("Bの本文（訂正）"), image(json!({"mediaId": Uuid::new_v4().to_string(), "alt": "図"}))]);
+        let corrected = doc(&[para("導入"), heading("B", "sec-b"), para("Bの本文（訂正）"), image(&json!({"mediaId": Uuid::new_v4().to_string(), "alt": "図"}))]);
         let rev = revision(&server, &path, &editor).await;
         assert_eq!(send(&server, "PUT", &draft_path, &editor, Some(&save(rev, json!({"slug": "second", "body": corrected})))).await.status, 200);
         let res = send(&server, "POST", &publish_path, &editor, Some(&publish(rev + 1, true))).await;
@@ -264,9 +264,9 @@ async fn publish_check_reports_what_publishing_would_record() {
         let entries = format!("/api/admin/workspaces/{ws}/entries");
 
         // 公開前: 必須の欠け、代替テキストのない画像、URLなし、比べる版なし
-        let body = doc(vec![
+        let body = doc(&[
             para("導入"),
-            image(json!({"mediaId": Uuid::new_v4().to_string()})),
+            image(&json!({"mediaId": Uuid::new_v4().to_string()})),
         ]);
         let create =
             json!({"contentType": "post", "fields": {"title": "記事", "body": body}}).to_string();
@@ -289,7 +289,7 @@ async fn publish_check_reports_what_publishing_would_record() {
         assert!(c["sections"].is_null());
 
         // 公開する
-        let body = doc(vec![
+        let body = doc(&[
             para("導入"),
             heading("価格", "price"),
             para("月額 1000 円"),
@@ -328,7 +328,7 @@ async fn publish_check_reports_what_publishing_would_record() {
         );
 
         // 下書きを直す: 価格の数値が変わる（ヒントあり）、説明は文だけ、新しいセクション、スラッグの変更
-        let body = doc(vec![
+        let body = doc(&[
             para("導入"),
             heading("価格", "price"),
             para("月額 1200 円"),
