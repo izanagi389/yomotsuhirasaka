@@ -6,6 +6,9 @@ license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[lints]
+workspace = true
+
 [lib]
 name = "yomi_server"
 path = "src/lib.rs"

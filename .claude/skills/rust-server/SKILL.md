@@ -38,16 +38,13 @@ scripts/cargo-db-test.sh --test admin_auth   # 一部だけ
 
 ## clippy
 
-- CI は `-D warnings`（標準の lint）。
-- 新しく書くコードは、`clippy::pedantic` でも警告が出ないように書く。ただし次の7つは対象外（直すとかえって読みにくくなる、または lint の修正では済まない大きな分割になるため）。
+- `clippy::pedantic` を有効にしている（ルートの `Cargo.toml` の `[workspace.lints.clippy]`）。CI は `-D warnings` なので、pedantic の警告も CI で止まる。確かめるのは上の `scripts/cargo.sh clippy --locked --all-targets -- -D warnings` だけでよい。
+- 次の7つは対象外（直すとかえって読みにくくなる、または lint の修正では済まない大きな分割になるため）。対象を変えるときは `Cargo.toml` を直し、利用者の承認を受ける。
   - 説明文と属性: `missing_errors_doc`、`missing_panics_doc`、`must_use_candidate`
   - 読みやすさを下げるもの: `too_many_lines`、`assert_is_empty`、`format_collect`、`similar_names`
 - 対象外でも、関数は短く保つ（`code-quality` の「小さく保つ」）。`too_many_lines` を外したのは、既存の長い関数の分割を lint の修正と混ぜないため。
-- 確かめるときは次を実行し、変更したファイルの警告がないことを見る。
-
-```bash
-scripts/cargo.sh clippy --locked --all-targets --message-format=short -- -W clippy::pedantic -A clippy::missing_errors_doc -A clippy::missing_panics_doc -A clippy::must_use_candidate -A clippy::too_many_lines -A clippy::assert_is_empty -A clippy::format_collect -A clippy::similar_names
-```
+- 説明文の固有名詞（`MaxMind`、`IdP` など）を `doc_markdown` がコード名と誤認するときは、バッククォートで囲まずに `clippy.toml` の `doc-valid-idents` に足す。日本語に続けて書くと1語と見なされるので、前後に空白を入れる。
+- `schema::manifest` の型の説明文は、テンプレートの JSON Schema（`cli/schema/template.schema.json`）に出る。lint のために文を変えず、理由を書いた `#[allow]` にする。
 
 - 数値の型変換（`as`）は、切り捨てやあふれが起きないことが明らかな場合を除き、`try_from` などで失敗を扱う。
 - lint を `#[allow(...)]` で黙らせるときは、理由をコメントに書く。
