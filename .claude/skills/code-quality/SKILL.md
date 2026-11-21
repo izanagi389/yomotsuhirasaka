@@ -49,7 +49,7 @@ CLAUDE.md の禁止事項・設計の原則・約束のテストが常に優先�
 
 | 範囲 | コマンド |
 |---|---|
-| `server/` | `scripts/cargo.sh fmt --check` / `scripts/cargo.sh clippy --locked --all-targets -- -D warnings` / `scripts/cargo.sh test --locked` |
+| `server/` | `scripts/cargo.sh fmt --check` / `scripts/cargo.sh clippy --locked --all-targets -- -D warnings` / `scripts/cargo-db-test.sh`（DB のテストを含む） |
 | `admin/` | `npm run lint -w @yomotsuhirasaka/admin` / `npm run typecheck -w @yomotsuhirasaka/admin` |
 | 約束 | 関係する `tests/invariants/` のテスト（環境は `tests/invariants/README.md`） |
 

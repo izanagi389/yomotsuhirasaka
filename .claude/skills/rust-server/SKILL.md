@@ -19,6 +19,13 @@ scripts/cargo.sh test --locked
 
 ツールチェーンは `deploy/server.Dockerfile` の `toolchain` の段階と同じ版。
 
+`scripts/cargo.sh test` では、DB を使う結合テスト（`server/tests/`）が飛ばされる（`skipped:` と出る）。DB のテストも通すときは次を使う。テスト専用の PostgreSQL（CI と同じイメージ）を起動して接続先を渡す。テストは使い捨ての DB を作って消すので、CMS の DB には触れない。
+
+```bash
+scripts/cargo-db-test.sh                     # すべてのテスト（DB のテストを含む）
+scripts/cargo-db-test.sh --test admin_auth   # 一部だけ
+```
+
 ## エラー処理
 
 - エラーは `anyhow` で扱い、`.context()` / `.with_context()` で「何をしていたときの失敗か」を付ける。`thiserror` などの新しい依存は追加しない。
