@@ -11,7 +11,7 @@ use std::time::Duration;
 use sqlx::postgres::{PgConnectOptions, PgConnection};
 use sqlx::{ConnectOptions as _, Connection as _};
 
-use crate::config::{Config, DatabaseConfig};
+use crate::config::{AlertsConfig, Config, DatabaseConfig};
 use crate::keys::KeyRing;
 
 pub const MIN_POSTGRES_VERSION_NUM: i32 = 160_000;
@@ -191,6 +191,7 @@ pub fn check_config(config: &Config) -> Report {
             "`scripts.async_time_limit_ms` must be between 10 and 240000",
         ));
     }
+    report.problems.extend(check_alerts(&config.alerts));
     if let Some(smtp) = &config.smtp {
         report.problems.extend(check_smtp(smtp));
     }
@@ -674,6 +675,21 @@ async fn check_vector_extension(db: &DatabaseConfig) -> Vec<Problem> {
     }
 }
 
+/// 急増の通知（`[alerts]`）のしきい値と期間。0 以下だと、期間が空で通知が黙って止まる、
+/// または毎回通知されるので、起動を止める。
+fn check_alerts(alerts: &AlertsConfig) -> Vec<Problem> {
+    [
+        ("alerts.login_failures", alerts.login_failures),
+        ("alerts.rate_limited", alerts.rate_limited),
+        ("alerts.window_seconds", alerts.window_seconds),
+        ("alerts.cooldown_seconds", alerts.cooldown_seconds),
+    ]
+    .into_iter()
+    .filter(|&(_, value)| value <= 0)
+    .map(|(name, _)| Problem::fatal(format!("`{name}` must be greater than 0")))
+    .collect()
+}
+
 /// DBのエラーを、秘密の値を含まない短い文にする。
 fn describe_db_error(e: &sqlx::Error) -> String {
     match e {
@@ -700,6 +716,29 @@ mod tests {
         // 問題の文に値が含まれない
         let p = check_secret("database.password", "abc123").unwrap();
         assert!(!p.message.contains("abc123"));
+    }
+
+    #[test]
+    fn alerts_need_positive_values() {
+        assert!(check_alerts(&AlertsConfig::default()).is_empty());
+        let zero_window = AlertsConfig {
+            window_seconds: 0,
+            ..AlertsConfig::default()
+        };
+        let problems = check_alerts(&zero_window);
+        assert!(problems.len() == 1 && problems[0].fatal, "{problems:?}");
+        assert!(problems[0].message.contains("alerts.window_seconds"));
+        let negative = AlertsConfig {
+            login_failures: -1,
+            rate_limited: -1,
+            window_seconds: -300,
+            cooldown_seconds: -1,
+        };
+        let problems = check_alerts(&negative);
+        assert!(
+            problems.len() == 4 && problems.iter().all(|p| p.fatal),
+            "{problems:?}"
+        );
     }
 
     #[test]
