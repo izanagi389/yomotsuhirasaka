@@ -365,7 +365,7 @@ pub async fn list(
         Scope::Instance => None,
     };
     let rows: Vec<Row> = sqlx::query_as(crate::sql!(
-        r#"SELECT {COLUMNS}
+        r"SELECT {COLUMNS}
            FROM yomi.audit_log a
            WHERE a.workspace_id IS NOT DISTINCT FROM $1
              AND ($2::uuid IS NULL OR (a.created_at, a.id) < (
@@ -376,7 +376,7 @@ pub async fn list(
              AND ($6::timestamptz IS NULL OR a.created_at >= $6::timestamptz)
              AND ($7::timestamptz IS NULL OR a.created_at < $7::timestamptz)
            ORDER BY a.created_at DESC, a.id DESC
-           LIMIT $3"#
+           LIMIT $3"
     ))
     .bind(workspace)
     .bind(before)
