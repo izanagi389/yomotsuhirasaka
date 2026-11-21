@@ -19,8 +19,9 @@ COPY admin ./admin
 WORKDIR /src/admin
 RUN npx nuxt prepare && npm run generate
 
-# Rust のツールチェーン。リリースのビルドと、手元のチェック用のコンテナ（deploy/docker-compose.tools.yml）が同じものを使う
-FROM rust:1.99-slim-trixie@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7 AS toolchain
+# Rust のツールチェーン。リリースのビルドと、手元のチェック用のコンテナ（deploy/docker-compose.tools.yml）が同じものを使う。
+# CI は最新の stable を使うので、新しい stable が出たらこの版も上げる。digest は 1.100-slim-trixie のタグの、マルチアーキテクチャの一覧の digest
+FROM rust:1.100-slim-trixie@sha256:6f14b2b4b278ec0d50aa1d69541c304ce0f95e0f6268487aa9924af1c2e9aebe AS toolchain
 # パスキーの照合（webauthn-rs）が OpenSSL を使う
 RUN apt-get update -q && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
