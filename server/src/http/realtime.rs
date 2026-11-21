@@ -226,7 +226,7 @@ async fn run(state: AppState, current: Current, mut socket: WebSocket) {
         tokio::select! {
             incoming = socket.recv() => match incoming {
                 // 画面からのメッセージは読まない（ping/pong は下の層が返す）
-                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return,
+                Some(Ok(Message::Close(_)) | Err(_)) | None => return,
                 Some(Ok(_)) => {}
             },
             event = rx.recv() => match event {
@@ -244,12 +244,13 @@ async fn run(state: AppState, current: Current, mut socket: WebSocket) {
                 Err(broadcast::error::RecvError::Closed) => return,
             },
             _ = check.tick() => {
-                match session::is_active(&state.pool, current.id, current.user_id).await {
-                    Ok(true) => {}
-                    _ => {
-                        close(socket, 4401, "session ended").await;
-                        return;
-                    }
+                // 確かめられなかったとき（DB のエラー）も、終わったものとして閉じる
+                if !matches!(
+                    session::is_active(&state.pool, current.id, current.user_id).await,
+                    Ok(true)
+                ) {
+                    close(socket, 4401, "session ended").await;
+                    return;
                 }
             }
         }

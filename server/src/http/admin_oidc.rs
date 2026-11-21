@@ -6,7 +6,7 @@
 //! | POST | /api/admin/session/oidc/start | ログイン（`invitationToken` があれば招待の承諾）を始める |
 //! | POST | /api/admin/me/identities/oidc/start | ログイン中の本人が、IdPのアカウントをひも付ける（再認証が必要） |
 //! | POST | /api/admin/session/reauth/oidc | IdPでの再ログインによる再認証を始める（SSOのセッションで、管理者でない人だけ） |
-//! | GET | /api/admin/session/oidc/callback | IdPからの戻り先 |
+//! | GET | /api/admin/session/oidc/callback | IdP からの戻り先 |
 //! | POST | /api/admin/session/oidc/complete | SSOでログインした画面が、CSRFトークンを一度だけ受け取る |
 //!
 //! - 始めるときに、`state`・`nonce`・PKCE の値をサーバーに保存し、ブラウザには短命のCookie（SameSite=Lax）だけを渡す。
@@ -469,7 +469,9 @@ fn redirect(location: &str) -> Response {
     res
 }
 
-/// IdPからの戻り先。結果は管理画面へのリダイレクトで伝える。
+/// IdP からの戻り先。結果は管理画面へのリダイレクトで伝える。
+// axum の Query が作る HashMap をそのまま受け取る。ハッシュの種類を選ぶ必要はない
+#[allow(clippy::implicit_hasher)]
 pub async fn callback(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
