@@ -99,8 +99,8 @@ async function deploy() {
       <li v-for="b in data ?? []" :key="b.name" class="flex flex-wrap items-center gap-2 rounded-md border p-3">
         <span class="font-medium">{{ b.name }}</span>
         <Badge v-if="b.deployedVersion === null" variant="outline">{{ t("bundledTemplates.notDeployed") }}</Badge>
-        <Badge v-else-if="b.upToDate" variant="secondary">{{ t("bundledTemplates.upToDate", { version: b.deployedVersion }) }}</Badge>
-        <Badge v-else variant="destructive">{{ t("bundledTemplates.differs", { version: b.deployedVersion }) }}</Badge>
+        <Badge v-else-if="b.upToDate" variant="secondary">{{ t("bundledTemplates.upToDate") }}</Badge>
+        <Badge v-else variant="destructive">{{ t("bundledTemplates.differs") }}</Badge>
         <span class="text-muted-foreground">{{ t("bundledTemplates.workspaces", { n: b.workspaces }) }}</span>
         <span v-if="b.siteUrl" class="text-muted-foreground">{{ b.siteUrl }}</span>
         <Button class="ml-auto" size="sm" variant="outline" :disabled="checking !== null || !siteUrl.trim()" @click="runCheck(b.name)">
@@ -142,7 +142,7 @@ async function deploy() {
     </section>
 
     <section v-if="done" class="grid gap-1 rounded-md border p-4" role="status">
-      <p>{{ t(done.outcome.unchanged ? "bundledTemplates.doneUnchanged" : "bundledTemplates.done", { name: done.name, version: done.outcome.version }) }}</p>
+      <p>{{ t(done.outcome.unchanged ? "bundledTemplates.doneUnchanged" : "bundledTemplates.done", { name: done.name }) }}</p>
       <ul class="list-disc pl-5">
         <li v-for="w in done.outcome.workspaces" :key="w.workspaceId">
           {{ w.workspaceId }}: {{ w.state === "ok" ? t("bundledTemplates.migrated") : t("bundledTemplates.pending", { reason: w.error ?? "" }) }}
