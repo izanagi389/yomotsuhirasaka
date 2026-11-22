@@ -29,7 +29,7 @@ const templates = ref<TemplateOption[]>([]);
 const loadingTemplates = ref(false);
 const choice = ref("");
 const otherName = ref("");
-const deployed = computed(() => templates.value.filter((o): o is TemplateOption & { version: number } => o.version !== null));
+const deployed = computed(() => templates.value.filter((o) => o.version !== null));
 const onlyTemplate = computed(() => (deployed.value.length === 1 ? deployed.value[0] : undefined));
 const template = computed(() => {
   if (onlyTemplate.value) return onlyTemplate.value.name;
@@ -104,7 +104,7 @@ async function create() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{{ t("workspaces.new") }}</DialogTitle>
-          <DialogDescription>{{ t("workspaces.newDescription") }}</DialogDescription>
+          <DialogDescription>{{ t(onlyTemplate ? "workspaces.newDescriptionFixed" : "workspaces.newDescription") }}</DialogDescription>
         </DialogHeader>
         <form class="grid gap-4" @submit.prevent="create">
           <div class="grid gap-2">
@@ -113,7 +113,7 @@ async function create() {
           </div>
           <div v-if="onlyTemplate" class="grid gap-2" data-testid="ws-template-fixed">
             <span class="text-sm font-medium">{{ t("workspaces.template") }}</span>
-            <p class="text-sm">{{ t("workspaces.templateVersion", { name: onlyTemplate.name, version: onlyTemplate.version }) }}</p>
+            <p class="text-sm">{{ onlyTemplate.name }}</p>
             <p class="text-xs text-muted-foreground">{{ t("workspaces.templateFixedHelp") }}</p>
           </div>
           <div v-else-if="!loadingTemplates" class="grid gap-2">
