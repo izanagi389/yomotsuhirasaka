@@ -1,0 +1,36 @@
+# 検索の精度の評価用の環境（tools/search-eval/README.md）。普段の CMS（deploy/）とは別のプロジェクトで、
+# データはすべて ./work に置く（捨ててよい）。公開ポートはループバックだけ。
+#
+# 埋め込みはホストの Ollama で作る。CMS から Ollama へは host.docker.internal で届き、
+# 外部への送信の内部宛先の例外には、この評価用の設定でだけ入れる（init.sh）。
+
+name: yomi-eval
+
+services:
+  yomi:
+    image: yomotsuhirasaka/server:eval
+    user: "${YOMI_UID:-10001}:${YOMI_GID:-10001}"
+    command: ["serve", "--config", "/data/config.toml"]
+    ports:
+      - "127.0.0.1:${YOMI_EVAL_PORT:-8090}:8080"
+    volumes:
+      - ./work/yomi:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: yomotsuhirasaka/postgres:18-local
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/yomi-init/postgres-password
+    volumes:
+      - ./work/db-init:/docker-entrypoint-initdb.d:ro
+      - ./work/postgres-password:/run/yomi-init/postgres-password:ro
+    # 評価のたびに作り直すので、DB のデータは残さない
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d yomi"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

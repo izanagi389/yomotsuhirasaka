@@ -1,0 +1,9 @@
+{
+  "name": "yomi-search-eval",
+  "private": true,
+  "type": "module",
+  "description": "検索の精度の評価（README.md）。依存はなく、Node の型の除去で TypeScript をそのまま動かす",
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
