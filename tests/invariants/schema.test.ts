@@ -105,7 +105,36 @@ inv("inv_sch_02", "破壊的なスキーマ変更（フィールドの削除、�
   );
 });
 
-inv("inv_sch_03", "登録済みのPersisted Queryを壊すスキーマ変更は、明示的な指定がない限り、そのクエリを持つワークスペースには適用されない（ほかのワークスペースには適用される）。CLIを通さずにデプロイのAPIを直接呼んだ場合も同じ", async () => {
+// --- INV-SCH-03, 04, 05, 07: デプロイは、テンプレートを使うすべてのワークスペースに、全部適用するか、全部やめるか ---
+//
+// 2つのワークスペースが同じテンプレートを使う。どちらの側でも、スキーマ情報・クエリの登録・編集で、
+// 新しいスキーマが適用されたかどうかを確かめる。
+
+/** 新しいフィールドが、そのワークスペースのスキーマにあるか（スキーマ情報・クエリの登録・記事の作成の3つで確かめる）。 */
+async function expectSchemaHas(ws: TemplateWorkspace, field: string, has: boolean, label: string) {
+  const { yomi } = await world();
+  expect((await yomi.schemaInfoRaw(asSession(ws.adminSession), ws.id)).text.includes(field), `${label}: スキーマ情報に ${field} が${has ? "ない" : "ある"}`).toBe(has);
+  const registered = await yomi.registerQueryRaw(ws.id, ws.registerKey.secret, { kind: "list", fields: [field] });
+  if (has) expectSuccess(registered, `${label}: ${field} を使うクエリの登録`);
+  else expectRefused(registered, `${label}: ${field} を使うクエリの登録`);
+}
+
+/** 配信と編集が続けられること。 */
+async function expectServingAndEditing(ws: TemplateWorkspace, label: string) {
+  const { yomi } = await world();
+  const res = await yomi.deliveryRaw(ws.id, ws.readKey.secret, ws.listQuery, { locale: "ja", limit: 5 });
+  expectSuccess(res, `${label}: 配信`);
+  expect(res.text.includes(ws.entryMarker), `${label}: 配信に公開中の記事がない`).toBe(true);
+  expectSuccess(
+    await yomi.createEntryRaw(asSession(ws.editorSession), ws.id, { title: marker("sch05"), body: simpleBody("x"), fields: { subtitle: "s" } }),
+    `${label}: 記事の作成`,
+  );
+  const entries = await yomi.listEntries(ws.editorSession, ws.id);
+  const draft = await yomi.getDraft(ws.editorSession, ws.id, entries[0]!.id);
+  expectSuccess(await yomi.saveDraftRaw(asSession(ws.editorSession), ws.id, entries[0]!.id, { fields: { subtitle: "追記" } }, draft.revision), `${label}: 下書きの保存`);
+}
+
+inv("inv_sch_03", "登録済みのPersisted Queryを壊すスキーマ変更のデプロイは、明示的な指定がない限り全体が拒否され、そのテンプレートを使うどのワークスペースにも適用されない。明示的な指定があれば、すべてのワークスペースに適用される。CLIを通さずにデプロイのAPIを直接呼んだ場合も同じ", async () => {
   const { yomi } = await world();
   const { deploy } = await deployer();
   const name = templateName("sch03");
@@ -114,94 +143,102 @@ inv("inv_sch_03", "登録済みのPersisted Queryを壊すスキーマ変更は�
   const other = await workspaceOn(name, { summary: "要約" });
   const usesSummary = await yomi.registerQuery(withQuery.id, withQuery.registerKey.secret, { kind: "list", fields: ["summary"] });
 
-  // 破壊的な変更そのものは明示的に許しても、登録済みのクエリを壊すワークスペースには適用されない
-  const withoutSummary = cloneTemplate(name, (t) => removeField(t, "summary"));
-  expectSuccess(await deploy(withoutSummary, { allowDestructive: true }), "1つのワークスペースのクエリが壊れる変更のデプロイ");
-  expect(await yomi.migrationState(withQuery.adminSession, withQuery.id), "壊れるクエリを持つワークスペースに、変更が適用された").toBe("pending");
-  expectSuccess(await yomi.deliveryRaw(withQuery.id, withQuery.readKey.secret, usesSummary, { locale: "ja", limit: 5 }), "適用されなかった側で、登録済みのクエリが動く");
+  // 破壊的な変更そのものは明示的に許しても、1つのワークスペースのクエリが壊れるなら、全体が拒否される
+  const withoutSummary = cloneTemplate(name, (t) => {
+    removeField(t, "summary");
+    postType(t).fields.push({ name: "added_sch03", type: "text" });
+  });
+  expectRefused(await deploy(withoutSummary, { allowDestructive: true }), "1つのワークスペースのクエリが壊れる変更のデプロイ");
+  for (const [ws, label] of [[withQuery, "クエリを持つ側"], [other, "クエリを持たない側"]] as const) {
+    await expectSchemaHas(ws, "added_sch03", false, label);
+    await expectSchemaHas(ws, "summary", true, label);
+  }
+  expectSuccess(await yomi.deliveryRaw(withQuery.id, withQuery.readKey.secret, usesSummary, { locale: "ja", limit: 5 }), "拒否の後の、登録済みのクエリ");
 
-  // ほかのワークスペースには適用される（1つのワークスペースのクエリで、全体のデプロイを止められない）
-  expect(await yomi.migrationState(other.adminSession, other.id), "壊れるクエリを持たないワークスペースに、変更が適用されていない").toBe("ok");
-  expectRefused(await yomi.registerQueryRaw(other.id, other.registerKey.secret, { kind: "list", fields: ["summary"] }), "適用された側で、削除したフィールドを使うクエリの登録");
-
-  // 明示的な指定があれば、壊れるクエリを持つワークスペースにも適用される
+  // 明示的な指定があれば、すべてのワークスペースに適用される
   expectSuccess(await deploy(withoutSummary, { allowDestructive: true, allowBrokenQueries: true }), "明示的な指定のあるデプロイ");
-  expect(await yomi.migrationState(withQuery.adminSession, withQuery.id), "明示的な指定があっても、変更が適用されていない").toBe("ok");
+  for (const [ws, label] of [[withQuery, "クエリを持つ側"], [other, "クエリを持たない側"]] as const) {
+    await expectSchemaHas(ws, "added_sch03", true, label);
+    await expectSchemaHas(ws, "summary", false, label);
+  }
 });
 
-// --- INV-SCH-04, 05, 07: 一方のワークスペースだけ移行に失敗する状況を作る ---
-//
-// v1: subtitle は任意。v2: subtitle を必須にし、フィールド extra_field_v2 を足す。
-// 失敗する側（P）には subtitle が空の記事があり、成功する側（Q）の記事はすべて subtitle を持つ。
+// 一方のワークスペースだけ移行に失敗する変更: subtitle を必須にし、フィールド extra_field_v2 を足す。
+// 失敗する側（P）には subtitle が空の記事があり、もう一方（Q）の記事はすべて subtitle を持つ。
 
-interface MigrationScene {
-  pending: TemplateWorkspace;
-  migrated: TemplateWorkspace;
+interface FailedMigrationScene {
+  failing: TemplateWorkspace;
+  passing: TemplateWorkspace;
 }
 
-let scene: Promise<MigrationScene> | null = null;
+let scene: Promise<FailedMigrationScene> | null = null;
 const NEW_FIELD = "extra_field_v2";
 
-function migrationScene(): Promise<MigrationScene> {
+function failedMigrationScene(): Promise<FailedMigrationScene> {
   scene ??= (async () => {
-    const { yomi } = await world();
     const { deploy } = await deployer();
     const name = templateName("sch-mig");
-    expectSuccess(await deploy(cloneTemplate(name)), "v1のデプロイ");
-    const pending = await workspaceOn(name, {}); // subtitle なし
-    const migrated = await workspaceOn(name, { subtitle: "副題あり" });
-    const v2 = cloneTemplate(name, (t) => {
+    expectSuccess(await deploy(cloneTemplate(name)), "最初のデプロイ");
+    const failing = await workspaceOn(name, {}); // subtitle なし
+    const passing = await workspaceOn(name, { subtitle: "副題あり" });
+    const next = cloneTemplate(name, (t) => {
       const post = postType(t);
       post.fields.find((f) => f.name === "subtitle")!.required = true;
       post.fields.push({ name: NEW_FIELD, type: "text" });
     });
-    await deploy(v2, { allowDestructive: true }); // 一部のワークスペースだけ失敗するため、応答の状態コードは問わない
-    expect(await yomi.migrationState(pending.adminSession, pending.id), "subtitle が空の記事がある側が、移行待ちになっていない").toBe("pending");
-    expect(await yomi.migrationState(migrated.adminSession, migrated.id), "subtitle がそろっている側が、移行を終えていない").toBe("ok");
-    return { pending, migrated };
+    expectRefused(await deploy(next, { allowDestructive: true }), "1つのワークスペースで移行に失敗するデプロイ");
+    return { failing, passing };
   })();
   return scene;
 }
 
-inv("inv_sch_04", "移行待ちのワークスペースでも配信APIは応答を続け、編集の操作だけが拒否される", async () => {
+inv("inv_sch_04", "1つのワークスペースでも移行に失敗したデプロイは、そのテンプレートを使うどのワークスペースにも適用されない（配信APIのスキーマと、編集で使えるフィールドは、デプロイの前のまま）", async () => {
   const { yomi } = await world();
-  const { pending } = await migrationScene();
-
-  const res = await yomi.deliveryRaw(pending.id, pending.readKey.secret, pending.listQuery, { locale: "ja", limit: 5 });
-  expectSuccess(res, "移行待ちのワークスペースの配信");
-  expect(res.text.includes(pending.entryMarker), "移行待ちのワークスペースの配信に、公開中の記事がない").toBe(true);
-
-  expectRefused(await yomi.createEntryRaw(asSession(pending.editorSession), pending.id, { title: "x", body: simpleBody("x"), fields: { subtitle: "s" } }), "移行待ちのワークスペースでの記事の作成");
-  const entries = await yomi.listEntries(pending.editorSession, pending.id);
-  const draft = await yomi.getDraft(pending.editorSession, pending.id, entries[0]!.id);
-  expectRefused(await yomi.saveDraftRaw(asSession(pending.editorSession), pending.id, entries[0]!.id, { fields: { subtitle: "追記" } }, draft.revision), "移行待ちのワークスペースでの下書きの保存");
+  const { failing, passing } = await failedMigrationScene();
+  for (const [ws, label] of [[failing, "移行に失敗した側"], [passing, "移行できたはずの側"]] as const) {
+    await expectSchemaHas(ws, NEW_FIELD, false, label);
+    expectRefused(
+      await yomi.deliveryAdHocRaw(ws.id, ws.readKey.secret, { kind: "list", fields: [NEW_FIELD] }, { locale: "ja", limit: 5 }),
+      `${label}: 新しいフィールドを使うクエリ`,
+    );
+    // subtitle はまだ必須ではない
+    expectSuccess(await yomi.createEntryRaw(asSession(ws.editorSession), ws.id, { title: marker("sch04"), body: simpleBody("x"), fields: {} }), `${label}: subtitle のない記事の作成`);
+  }
 });
 
-inv("inv_sch_05", "あるワークスペースの移行が失敗しても、他のワークスペースの移行結果と配信には影響しない", async () => {
-  const { yomi } = await world();
-  const { migrated } = await migrationScene();
+inv("inv_sch_05", "拒否されたデプロイや、移行に失敗したデプロイの後も、そのテンプレートを使うすべてのワークスペースで、配信APIは応答を続け、記事の作成と下書きの保存もできる", async () => {
+  const { failing, passing } = await failedMigrationScene();
+  await expectServingAndEditing(failing, "移行に失敗した側");
+  await expectServingAndEditing(passing, "移行できたはずの側");
 
-  expectSuccess(await yomi.deliveryRaw(migrated.id, migrated.readKey.secret, migrated.listQuery, { locale: "ja", limit: 5 }), "移行に成功した側の配信");
-  expect((await yomi.schemaInfoRaw(asSession(migrated.adminSession), migrated.id)).text.includes(NEW_FIELD), "移行に成功した側に、新しいフィールドがない").toBe(true);
-  expectSuccess(await yomi.registerQueryRaw(migrated.id, migrated.registerKey.secret, { kind: "list", fields: [NEW_FIELD] }), "移行に成功した側で、新しいフィールドを使うクエリの登録");
-  expectSuccess(
-    await yomi.createEntryRaw(asSession(migrated.editorSession), migrated.id, { title: marker("sch05"), body: simpleBody("x"), fields: { subtitle: "必須", [NEW_FIELD]: "新" } }),
-    "移行に成功した側での記事の作成",
-  );
+  // 登録済みのクエリが壊れて拒否されたデプロイの後も同じ
+  const { yomi } = await world();
+  const { deploy } = await deployer();
+  const name = templateName("sch05");
+  expectSuccess(await deploy(cloneTemplate(name)), "最初のデプロイ");
+  const withQuery = await workspaceOn(name, { summary: "要約" });
+  const other = await workspaceOn(name, { summary: "要約" });
+  await yomi.registerQuery(withQuery.id, withQuery.registerKey.secret, { kind: "list", fields: ["summary"] });
+  expectRefused(await deploy(cloneTemplate(name, (t) => removeField(t, "summary")), { allowDestructive: true }), "クエリが壊れるデプロイ");
+  await expectServingAndEditing(withQuery, "クエリを持つ側");
+  await expectServingAndEditing(other, "クエリを持たない側");
 });
 
-inv("inv_sch_07", "移行待ちのワークスペースの配信APIは、そのワークスペースに適用済みのバージョンのスキーマで応答する", async () => {
+inv("inv_sch_07", "適用されたデプロイは、そのテンプレートを使うすべてのワークスペースに適用される（どのワークスペースでも、配信APIのスキーマと、編集で使えるフィールドが新しいものになる）", async () => {
   const { yomi } = await world();
-  const { pending } = await migrationScene();
-
-  // 新しいフィールドは、移行待ちの側のスキーマにはまだない
-  expectRefused(await yomi.registerQueryRaw(pending.id, pending.registerKey.secret, { kind: "list", fields: [NEW_FIELD] }), "移行待ちの側で、新しいフィールドを使うクエリの登録");
-  const adHoc = await yomi.deliveryAdHocRaw(pending.id, pending.readKey.secret, { kind: "list", fields: [NEW_FIELD] }, { locale: "ja", limit: 5 });
-  expectRefused(adHoc, "移行待ちの側での、新しいフィールドを使うクエリ");
-  // 以前から登録してあるクエリ（適用済みのスキーマで有効なもの）は動く
-  const res = await yomi.deliveryRaw(pending.id, pending.readKey.secret, pending.listQuery, { locale: "ja", limit: 5 });
-  expectSuccess(res, "移行待ちの側の登録済みのクエリ");
-  expect((await yomi.schemaInfoRaw(asSession(pending.adminSession), pending.id)).text.includes(NEW_FIELD), "移行待ちの側のスキーマ情報に、新しいフィールドがある").toBe(false);
+  const { deploy } = await deployer();
+  const name = templateName("sch07");
+  expectSuccess(await deploy(cloneTemplate(name)), "最初のデプロイ");
+  const first = await workspaceOn(name, { subtitle: "副題" });
+  const second = await workspaceOn(name, { subtitle: "副題" });
+  expectSuccess(await deploy(cloneTemplate(name, (t) => postType(t).fields.push({ name: "added_sch07", type: "text" }))), "フィールドを足すデプロイ");
+  for (const [ws, label] of [[first, "1つ目"], [second, "2つ目"]] as const) {
+    await expectSchemaHas(ws, "added_sch07", true, label);
+    expectSuccess(
+      await yomi.createEntryRaw(asSession(ws.editorSession), ws.id, { title: marker("sch07"), body: simpleBody("x"), fields: { subtitle: "s", added_sch07: "新" } }),
+      `${label}: 新しいフィールドを使う記事の作成`,
+    );
+  }
 });
 
 inv("inv_sch_06", "許可された文字以外を含むコンテンツタイプ名やフィールド名のスキーマは、CLIを通さずにデプロイのAPIを直接呼んだ場合も拒否される", async () => {
