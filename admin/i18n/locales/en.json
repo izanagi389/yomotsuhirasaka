@@ -68,6 +68,7 @@
     "open": "Open",
     "new": "New workspace",
     "newDescription": "Choose the template to use.",
+    "newDescriptionFixed": "Choose a name for the workspace.",
     "name": "Name",
     "template": "Template",
     "templateHelp": "Choose a deployed template. The bundled sample (blog) can be chosen after a server administrator deploys it under Server → Templates. For a template that is not deployed yet, choose Other and enter its name (empty means default; it is applied when deployed).",
