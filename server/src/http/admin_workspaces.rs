@@ -50,9 +50,7 @@ pub struct WorkspaceInfo {
     created_at: String,
     /// 自分のロール（所属していないサーバー管理者は null）。
     role: Option<String>,
-    /// 適用済みのテンプレートの版（まだなければ null）。
-    schema_version: Option<i32>,
-    /// none: まだ適用していない、ok: 最新、pending: 移行待ち（Q53）
+    /// none: まだ適用していない、ok: 適用済み
     schema_state: String,
     /// 自分が持つ重い権限（1件の取得のときだけ。管理画面が操作を出し分ける。権限の照合は操作のたびにサーバーで行う）。
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,14 +74,13 @@ type WorkspaceRow = (
     String,
     String,
     Option<String>,
-    Option<i32>,
     String,
     Option<String>,
     Option<String>,
 );
 
 fn workspace_info(
-    (id, name, template, created_at, role, schema_version, schema_state, motif, color): WorkspaceRow,
+    (id, name, template, created_at, role, schema_state, motif, color): WorkspaceRow,
 ) -> WorkspaceInfo {
     WorkspaceInfo {
         id,
@@ -91,7 +88,6 @@ fn workspace_info(
         template,
         created_at,
         role,
-        schema_version,
         schema_state,
         permissions: None,
         take_over_policy: None,
@@ -109,7 +105,7 @@ pub async fn list_workspaces(
 ) -> Result<Json<Vec<WorkspaceInfo>>, ApiError> {
     let rows: Vec<WorkspaceRow> = sqlx::query_as(crate::sql!(
         "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role,
-                w.schema_version, w.schema_state, s.crest_motif, s.crest_color
+                w.schema_state, s.crest_motif, s.crest_color
          FROM yomi.workspaces w
          LEFT JOIN yomi.memberships m ON m.workspace_id = w.id AND m.user_id = $1
          LEFT JOIN yomi.workspace_settings s ON s.workspace_id = w.id
@@ -135,7 +131,7 @@ async fn fetch_workspace(
 ) -> Result<WorkspaceInfo, ApiError> {
     let row: WorkspaceRow = sqlx::query_as(crate::sql!(
         "SELECT w.id, w.name, w.template, to_char(w.created_at AT TIME ZONE 'UTC', {RFC3339}), m.role,
-                w.schema_version, w.schema_state, s.crest_motif, s.crest_color
+                w.schema_state, s.crest_motif, s.crest_color
          FROM yomi.workspaces w
          LEFT JOIN yomi.memberships m ON m.workspace_id = w.id AND m.user_id = $2
          LEFT JOIN yomi.workspace_settings s ON s.workspace_id = w.id
@@ -272,13 +268,8 @@ pub async fn create_workspace(
         crate::search::ensure_vector_index(&mut conn, &db, &state.config).await?;
     }
     // テンプレートがデプロイ済みなら、その最新の版を適用する
-    crate::schema::deploy::apply_latest_to_new_workspace(
-        &state.migration,
-        id,
-        template,
-        current.user_id,
-    )
-    .await?;
+    crate::schema::deploy::apply_to_new_workspace(&state.migration, id, template, current.user_id)
+        .await?;
     audit::record(
         &state.pool,
         Some(id),

@@ -25,36 +25,37 @@ use anyhow::{Context, Result};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::schema::deploy::load_version;
+use crate::schema::deploy::load;
 use crate::schema::manifest::Manifest;
 
 /// ワークスペースに適用済みのスキーマ。
 pub struct Applied {
     pub template: String,
-    pub version: i32,
-    /// 移行待ちか（Q53）。移行待ちの間は、編集の操作を受け付けない。
-    pub pending: bool,
+    /// テンプレートをデプロイした日時（配信のスキーマのキャッシュのキー）。
+    pub deployed_at: String,
     pub manifest: Manifest,
 }
 
 /// ワークスペースに適用済みのスキーマ（まだ何も適用していなければ None）。
+/// 適用済みのワークスペースのスキーマは、いつもテンプレートの最新のマニフェストと同じ（デプロイは全部適用するか全部やめるか）。
 pub async fn applied_schema(pool: &PgPool, workspace_id: Uuid) -> Result<Option<Applied>> {
-    let row: Option<(String, Option<i32>, String)> = sqlx::query_as(
-        "SELECT template, schema_version, schema_state FROM yomi.workspaces WHERE id = $1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(pool)
-    .await?;
-    let Some((template, Some(version), state)) = row else {
+    let row: Option<(String, String)> =
+        sqlx::query_as("SELECT template, schema_state FROM yomi.workspaces WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_optional(pool)
+            .await?;
+    let Some((template, state)) = row else {
         return Ok(None);
     };
-    let manifest = load_version(pool, &template, version)
+    if state != "ok" {
+        return Ok(None);
+    }
+    let deployed = load(pool, &template)
         .await?
-        .context("applied template version is missing")?;
+        .context("the applied template is missing")?;
     Ok(Some(Applied {
         template,
-        version,
-        pending: state == "pending",
-        manifest,
+        deployed_at: deployed.deployed_at,
+        manifest: deployed.manifest,
     }))
 }

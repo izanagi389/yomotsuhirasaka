@@ -525,7 +525,6 @@ pub async fn publish(
     conn: &mut PgConnection,
     manifest: &Manifest,
     scripts: &Scripts<'_>,
-    schema_version: i32,
     entry_id: Uuid,
     expected_revision: i64,
     correction: bool,
@@ -568,7 +567,6 @@ pub async fn publish(
         conn,
         entry_id,
         number,
-        schema_version,
         &prepared,
         correction,
         affected,
@@ -603,7 +601,6 @@ pub async fn prepare_scheduled(
 /// 準備済みの予約版を公開する（予約の時刻に）。公開日時は実際に公開した日時。URLの重なりはこの時点でも確かめる。
 pub async fn publish_prepared(
     conn: &mut PgConnection,
-    schema_version: i32,
     entry_id: Uuid,
     prepared: &Prepared,
     published_by: Uuid,
@@ -625,7 +622,6 @@ pub async fn publish_prepared(
         conn,
         entry_id,
         number,
-        schema_version,
         prepared,
         false,
         None,
@@ -643,7 +639,6 @@ async fn insert_version(
     conn: &mut PgConnection,
     entry_id: Uuid,
     number: i32,
-    schema_version: i32,
     prepared: &Prepared,
     correction: bool,
     affected: Option<(Vec<String>, bool)>,
@@ -658,14 +653,13 @@ async fn insert_version(
     };
     let version_id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO versions (id, entry_id, number, schema_version, fields, published_by, correction,
+        "INSERT INTO versions (id, entry_id, number, fields, published_by, correction,
                                url, anchors, affected_anchors, affects_lead, rendered, rendered_with)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)",
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)",
     )
     .bind(version_id)
     .bind(entry_id)
     .bind(number)
-    .bind(schema_version)
     .bind(Value::Object(prepared.fields.clone()).to_string())
     .bind(published_by)
     .bind(correction)
@@ -749,7 +743,6 @@ pub async fn exists(conn: &mut PgConnection, entry_id: Uuid) -> Result<bool> {
 pub struct VersionInfo {
     pub id: Uuid,
     pub number: i32,
-    pub schema_version: i32,
     pub published_by: Option<Uuid>,
     pub published_at: String,
     pub url: Option<String>,
@@ -778,7 +771,6 @@ pub struct VersionDetail {
 type VersionRow = (
     Uuid,
     i32,
-    i32,
     Option<Uuid>,
     String,
     Option<String>,
@@ -791,7 +783,7 @@ type VersionRow = (
     Option<String>,
 );
 
-const VERSION_COLUMNS: &str = r#"v.id, v.number, v.schema_version, v.published_by,
+const VERSION_COLUMNS: &str = r#"v.id, v.number, v.published_by,
     to_char(v.published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), v.url,
     COALESCE(v.id = e.published_version_id, false), v.correction, v.affected_anchors, v.affects_lead, v.anchors,
     to_char(v.erased_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
@@ -801,7 +793,6 @@ fn info(r: VersionRow) -> VersionInfo {
     let (
         id,
         number,
-        schema_version,
         published_by,
         published_at,
         url,
@@ -816,7 +807,6 @@ fn info(r: VersionRow) -> VersionInfo {
     VersionInfo {
         id,
         number,
-        schema_version,
         published_by,
         published_at,
         url,

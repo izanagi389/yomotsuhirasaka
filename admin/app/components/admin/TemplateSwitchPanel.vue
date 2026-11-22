@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 
 interface TemplateOption {
   name: string;
-  version: number;
+  deployedAt: string | null;
 }
 interface FieldPlan {
   from: string;
@@ -32,7 +32,7 @@ interface Outcome {
   dryRun: boolean;
   from: string;
   template: string;
-  version: number;
+  deployedAt: string;
   plan: Plan;
   brokenQueries: { workspaceId: string; queryId: string; problems: string[] }[];
 }

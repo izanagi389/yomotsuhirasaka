@@ -127,14 +127,6 @@ async fn creating_translations_and_recording_their_source() {
         assert_eq!(info(&ja2).await["reflectedSourceVersionId"], Value::Null, "en has not been published");
         assert_eq!(parse(&get(&server, &format!("{entries}/{ja2}"), &viewer).await)["fields"]["title"], "English");
 
-        // 移行待ちの間は作れない。読むことはできる
-        sqlx::query("UPDATE yomi.workspaces SET schema_state = 'pending', schema_target_version = 2 WHERE id = $1")
-            .bind(ws)
-            .execute(&server.state.migration)
-            .await
-            .unwrap();
-        assert_eq!(error(&translate(&ja_taken, "en", &editor).await).1.as_deref(), Some("schema_migration_pending"));
-        assert_eq!(get(&server, &format!("{entries}/{en}/translation"), &viewer).await.status, 200);
     })
     .await;
 }

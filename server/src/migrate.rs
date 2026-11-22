@@ -205,6 +205,11 @@ pub const MIGRATIONS: &[(i32, &str, &str)] = &[
         "workspace_vision_model",
         include_str!("../migrations/0042_workspace_vision_model.sql"),
     ),
+    (
+        43,
+        "drop_template_versions",
+        include_str!("../migrations/0043_drop_template_versions.sql"),
+    ),
 ];
 
 /// 共通のスキーマの名前。
@@ -237,7 +242,7 @@ pub const TABLE_PRIVILEGES: &[(&str, &str)] = &[
     // 同じセッション・用途で始め直したら上書きし、使ったら・期限を過ぎたら消す
     ("webauthn_challenges", "SELECT, INSERT, UPDATE, DELETE"),
     // 書き込みはデプロイの処理（移行・ロールの作成用の接続）だけ
-    ("template_versions", "SELECT"),
+    ("templates", "SELECT"),
     // サーバー管理者が上限を変える
     ("workspace_limits", "SELECT, INSERT, UPDATE"),
     // ワークスペースの LLM の接続設定の上書き（M4。キーは暗号化して持つ）

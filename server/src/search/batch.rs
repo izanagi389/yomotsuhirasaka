@@ -60,7 +60,7 @@ pub async fn schedule_due(pool: &PgPool, keys: &KeyRing, hour_utc: u8) -> Result
            SELECT ((now() AT TIME ZONE 'UTC') - make_interval(hours => $1))::date AS d
          )
          INSERT INTO yomi.related_batches (workspace_id, last_run_on)
-         SELECT w.id, today.d FROM yomi.workspaces w, today WHERE w.schema_version IS NOT NULL
+         SELECT w.id, today.d FROM yomi.workspaces w, today WHERE w.schema_state = 'ok'
          ON CONFLICT (workspace_id) DO UPDATE SET last_run_on = EXCLUDED.last_run_on
            WHERE yomi.related_batches.last_run_on < EXCLUDED.last_run_on
          RETURNING workspace_id",

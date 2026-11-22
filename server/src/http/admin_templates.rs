@@ -165,27 +165,26 @@ async fn run_deploy(
     .await?
     {
         Ok(outcome) => {
-            // URLの決め方が変わったコンテンツタイプは、移行が済んだワークスペースの公開中の記事のURLを再計算する（Q39）
-            for ws in outcome.workspaces.iter().filter(|w| w.state == "ok") {
-                // 変換結果のない・古い変換器で作った公開中の版を作り直す（Q58。移行待ちだった版もここで拾う）
+            // URLの決め方が変わったコンテンツタイプは、移行したワークスペースの公開中の記事のURLを再計算する（Q39）
+            for &workspace_id in &outcome.workspaces {
+                // 変換結果のない・古い変換器で作った公開中の版を作り直す（Q58）
                 if let Err(e) =
-                    crate::content::rerender::schedule(&state.pool, &state.keys, ws.workspace_id)
-                        .await
+                    crate::content::rerender::schedule(&state.pool, &state.keys, workspace_id).await
                 {
-                    tracing::error!(workspace_id = %ws.workspace_id, "cannot queue re-rendering: {e:#}");
+                    tracing::error!(workspace_id = %workspace_id, "cannot queue re-rendering: {e:#}");
                 }
                 // 検索の対象のフィールドが変わったかもしれないので、検索用データを見直す
-                super::admin_publishing::schedule_search(state, ws.workspace_id).await;
+                super::admin_publishing::schedule_search(state, workspace_id).await;
                 for ct in &outcome.url_rule_changes {
                     if let Err(e) = crate::content::urls::schedule_content_type(
                         &state.pool,
                         &state.keys,
-                        ws.workspace_id,
+                        workspace_id,
                         ct,
                     )
                     .await
                     {
-                        tracing::error!(workspace_id = %ws.workspace_id, "cannot queue URL recomputation: {e:#}");
+                        tracing::error!(workspace_id = %workspace_id, "cannot queue URL recomputation: {e:#}");
                     }
                 }
             }
@@ -207,6 +206,25 @@ async fn run_deploy(
                 report(changes.iter().map(crate::schema::diff::Breaking::describe))
             ),
         )),
+        Err(Rejected::BrokenQueries(broken)) => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "breaks_registered_queries",
+            format!(
+                "The deployment would break registered queries, so it was not applied to any workspace. Update the queries, or allow breaking them explicitly: {}",
+                report(
+                    broken
+                        .iter()
+                        .map(|b| format!("{} {}", b.workspace_id, b.query_id))
+                )
+            ),
+        )),
+        Err(Rejected::MigrationFailed { workspace_id, code }) => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "migration_failed",
+            format!(
+                "The migration failed in workspace {workspace_id} ({code}), so the deployment was not applied to any workspace."
+            ),
+        )),
     }
 }
 
@@ -214,16 +232,10 @@ async fn run_deploy(
 #[serde(rename_all = "camelCase")]
 pub struct SchemaInfo {
     template: String,
-    /// 適用済みの版（まだなければ null）。
-    version: Option<i32>,
-    /// none: まだ適用していない、ok: 最新、pending: 移行待ち
+    /// none: まだ適用していない、ok: 適用済み
     state: String,
-    /// 移行待ちのとき、適用しようとした版。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target_version: Option<i32>,
-    /// 移行待ちの理由のコード。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+    /// テンプレートをデプロイした日時（まだ適用していなければ null）。
+    deployed_at: Option<String>,
     /// 適用済みのスキーマ（`devNote` は除く。INV-SCH-01）。
     manifest: Option<Manifest>,
 }
@@ -236,33 +248,22 @@ pub async fn schema_info(
 ) -> Result<Json<SchemaInfo>, ApiError> {
     let id = Uuid::parse_str(&ws).map_err(|_| ApiError::not_found())?;
     access::member(&state.pool, &current, id).await??;
-    let (template, version, schema_state, target_version, error): (
-        String,
-        Option<i32>,
-        String,
-        Option<i32>,
-        Option<String>,
-    ) = sqlx::query_as(
-        "SELECT template, schema_version, schema_state, schema_target_version, schema_error
-         FROM yomi.workspaces WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(anyhow::Error::from)?;
-    let manifest = match version {
-        Some(v) => deploy::load_version(&state.pool, &template, v)
-            .await?
-            .map(|m| m.for_members()),
-        None => None,
+    let (template, schema_state): (String, String) =
+        sqlx::query_as("SELECT template, schema_state FROM yomi.workspaces WHERE id = $1")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(anyhow::Error::from)?;
+    let deployed = if schema_state == "ok" {
+        deploy::load(&state.pool, &template).await?
+    } else {
+        None
     };
     Ok(Json(SchemaInfo {
         template,
-        version,
         state: schema_state,
-        target_version,
-        error,
-        manifest,
+        deployed_at: deployed.as_ref().map(|d| d.deployed_at.clone()),
+        manifest: deployed.map(|d| d.manifest.for_members()),
     }))
 }
 
@@ -271,11 +272,11 @@ pub async fn schema_info(
 #[serde(rename_all = "camelCase")]
 pub struct BundledTemplate {
     name: &'static str,
-    /// デプロイ済みの最新の版（まだなら null）。
-    deployed_version: Option<i32>,
-    /// デプロイ済みの最新の版が、同梱の中身と同じか（サイトのオリジンを除いて比べる）。
+    /// 最後にデプロイした日時（まだなら null）。
+    deployed_at: Option<String>,
+    /// デプロイ済みのものが、同梱の中身と同じか（サイトのオリジンを除いて比べる）。
     up_to_date: bool,
-    /// デプロイ済みの版のサイトのオリジン（まだなら null）。
+    /// デプロイ済みのもののサイトのオリジン（まだなら null）。
     site_url: Option<String>,
     /// このテンプレートを使うワークスペースの数。
     workspaces: i64,
@@ -297,7 +298,7 @@ pub async fn bundled_templates(
     let mut conn = state.pool.acquire().await.map_err(anyhow::Error::from)?;
     let mut out = Vec::new();
     for name in crate::schema::bundled::names() {
-        let latest = deploy::load_latest(&mut conn, name).await?;
+        let deployed = deploy::load(&mut *conn, name).await?;
         let workspaces: i64 =
             sqlx::query_scalar("SELECT count(*) FROM yomi.workspaces WHERE template = $1")
                 .bind(name)
@@ -306,13 +307,13 @@ pub async fn bundled_templates(
                 .map_err(anyhow::Error::from)?;
         out.push(BundledTemplate {
             name,
-            deployed_version: latest.as_ref().map(|(v, _)| *v),
-            up_to_date: latest
+            up_to_date: deployed
                 .as_ref()
-                .is_some_and(|(_, m)| crate::schema::bundled::same_as_bundled(name, m)),
-            site_url: latest
+                .is_some_and(|d| crate::schema::bundled::same_as_bundled(name, &d.manifest)),
+            site_url: deployed
                 .as_ref()
-                .and_then(|(_, m)| crate::schema::bundled::origin_of(m)),
+                .and_then(|d| crate::schema::bundled::origin_of(&d.manifest)),
+            deployed_at: deployed.map(|d| d.deployed_at),
             workspaces,
         });
     }
@@ -444,7 +445,7 @@ fn switch_rejected(r: crate::schema::switch::Rejected) -> ApiError {
         }
         R::BrokenQueries(broken) => ApiError::new(
             StatusCode::CONFLICT,
-            deploy::BREAKS_QUERIES,
+            "breaks_registered_queries",
             format!(
                 "Registered queries do not work with the new template. Fix them, or allow it explicitly: {}",
                 report(broken.into_iter().map(|q| q.query_id))
@@ -549,19 +550,14 @@ pub async fn switch_template_export(
 #[serde(rename_all = "camelCase")]
 pub struct TemplateOption {
     name: String,
-    /// デプロイ済みの最新の版（同梱でまだデプロイしていなければ null）。
-    version: Option<i32>,
+    /// 最後にデプロイした日時（同梱でまだデプロイしていなければ null）。
+    deployed_at: Option<String>,
     /// 同梱のテンプレートか。
     bundled: bool,
 }
 
-async fn deployed_templates(state: &AppState) -> Result<Vec<(String, i32)>, ApiError> {
-    Ok(sqlx::query_as(
-        "SELECT template, max(version) FROM yomi.template_versions GROUP BY template ORDER BY template",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(anyhow::Error::from)?)
+async fn deployed_templates(state: &AppState) -> Result<Vec<(String, String)>, ApiError> {
+    Ok(deploy::list(&state.pool).await?)
 }
 
 /// テンプレートの一覧（ワークスペースの作成で選ぶため。サーバー管理者）。デプロイ済みのものと、まだデプロイしていない同梱のもの。
@@ -573,17 +569,17 @@ pub async fn list_templates(
     let mut out: Vec<TemplateOption> = deployed_templates(&state)
         .await?
         .into_iter()
-        .map(|(name, v)| TemplateOption {
+        .map(|(name, deployed_at)| TemplateOption {
             bundled: crate::schema::bundled::names().any(|b| b == name),
             name,
-            version: Some(v),
+            deployed_at: Some(deployed_at),
         })
         .collect();
     for name in crate::schema::bundled::names() {
         if !out.iter().any(|t| t.name == name) {
             out.push(TemplateOption {
                 name: name.to_owned(),
-                version: None,
+                deployed_at: None,
                 bundled: true,
             });
         }
@@ -611,10 +607,10 @@ pub async fn template_options(
             .await?
             .into_iter()
             .filter(|(name, _)| *name != current_template)
-            .map(|(name, v)| TemplateOption {
+            .map(|(name, deployed_at)| TemplateOption {
                 bundled: crate::schema::bundled::names().any(|b| b == name),
                 name,
-                version: Some(v),
+                deployed_at: Some(deployed_at),
             })
             .collect(),
     ))

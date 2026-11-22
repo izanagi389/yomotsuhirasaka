@@ -1301,10 +1301,10 @@ pub fn build(
     Ok(builder.finish()?)
 }
 
-/// （テンプレート, 版）ごとのスキーマ。
+/// （テンプレート, デプロイした日時）ごとのスキーマ。デプロイし直すと日時が変わるので、新しいスキーマを組み立てる。
 #[derive(Default)]
 pub struct Cache {
-    schemas: RwLock<HashMap<(String, i32), Arc<Schema>>>,
+    schemas: RwLock<HashMap<(String, String), Arc<Schema>>>,
 }
 
 impl Cache {
@@ -1312,20 +1312,20 @@ impl Cache {
     pub fn get_or_build(
         &self,
         template: &str,
-        version: i32,
+        deployed_at: &str,
         manifest: &Manifest,
         introspection: bool,
         limits: QueryLimits,
     ) -> anyhow::Result<Arc<Schema>> {
-        let key = (template.to_owned(), version);
+        let key = (template.to_owned(), deployed_at.to_owned());
         if let Some(s) = self.schemas.read().expect("schema cache lock").get(&key) {
             return Ok(s.clone());
         }
         let schema = Arc::new(build(manifest, introspection, limits)?);
-        self.schemas
-            .write()
-            .expect("schema cache lock")
-            .insert(key, schema.clone());
+        let mut schemas = self.schemas.write().expect("schema cache lock");
+        // 同じテンプレートの古いデプロイのスキーマは、もう使わない（適用済みのワークスペースはすべて最新のものを使う）
+        schemas.retain(|(t, _), _| t != template);
+        schemas.insert(key, schema.clone());
         Ok(schema)
     }
 }

@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 
 interface Bundled {
   name: string;
-  deployedVersion: number | null;
+  deployedAt: string | null;
   upToDate: boolean;
   siteUrl: string | null;
   workspaces: number;
@@ -23,12 +23,12 @@ interface Check {
   unchanged: boolean;
 }
 interface Outcome {
-  version: number;
+  deployedAt: string;
   unchanged: boolean;
-  workspaces: { workspaceId: string; state: "ok" | "pending"; error?: string }[];
+  workspaces: string[];
 }
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const api = useApi();
 const { data, error, refresh } = await useAsyncData("server:bundled-templates", () => api.get<Bundled[]>("/bundled-templates"));
 // 記事の公開URLのサイト。見本の公開URLのひな形の先頭（https://example.com）を、これに置き換えてデプロイする
@@ -62,7 +62,7 @@ const done = ref<{ name: string; outcome: Outcome } | null>(null);
 const blocked = computed(() => {
   const r = check.value?.result;
   if (!r) return true;
-  return r.problems.length > 0 || (r.destructive.length > 0 && !allowDestructive.value);
+  return r.problems.length > 0 || (r.destructive.length > 0 && !allowDestructive.value) || (r.brokenQueries.length > 0 && !allowBrokenQueries.value);
 });
 async function deploy() {
   if (!check.value) return;
@@ -98,9 +98,10 @@ async function deploy() {
     <ul class="grid gap-2">
       <li v-for="b in data ?? []" :key="b.name" class="flex flex-wrap items-center gap-2 rounded-md border p-3">
         <span class="font-medium">{{ b.name }}</span>
-        <Badge v-if="b.deployedVersion === null" variant="outline">{{ t("bundledTemplates.notDeployed") }}</Badge>
+        <Badge v-if="b.deployedAt === null" variant="outline">{{ t("bundledTemplates.notDeployed") }}</Badge>
         <Badge v-else-if="b.upToDate" variant="secondary">{{ t("bundledTemplates.upToDate") }}</Badge>
         <Badge v-else variant="destructive">{{ t("bundledTemplates.differs") }}</Badge>
+        <span v-if="b.deployedAt" class="text-muted-foreground">{{ t("bundledTemplates.deployedAt", { at: formatDateTime(b.deployedAt, locale) }) }}</span>
         <span class="text-muted-foreground">{{ t("bundledTemplates.workspaces", { n: b.workspaces }) }}</span>
         <span v-if="b.siteUrl" class="text-muted-foreground">{{ b.siteUrl }}</span>
         <Button class="ml-auto" size="sm" variant="outline" :disabled="checking !== null || !siteUrl.trim()" @click="runCheck(b.name)">
@@ -142,11 +143,9 @@ async function deploy() {
     </section>
 
     <section v-if="done" class="grid gap-1 rounded-md border p-4" role="status">
-      <p>{{ t(done.outcome.unchanged ? "bundledTemplates.doneUnchanged" : "bundledTemplates.done", { name: done.name }) }}</p>
+      <p>{{ t(done.outcome.unchanged ? "bundledTemplates.doneUnchanged" : "bundledTemplates.done", { name: done.name, at: formatDateTime(done.outcome.deployedAt, locale) }) }}</p>
       <ul class="list-disc pl-5">
-        <li v-for="w in done.outcome.workspaces" :key="w.workspaceId">
-          {{ w.workspaceId }}: {{ w.state === "ok" ? t("bundledTemplates.migrated") : t("bundledTemplates.pending", { reason: w.error ?? "" }) }}
-        </li>
+        <li v-for="w in done.outcome.workspaces" :key="w">{{ w }}: {{ t("bundledTemplates.migrated") }}</li>
       </ul>
     </section>
 

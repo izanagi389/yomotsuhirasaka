@@ -939,7 +939,6 @@ export interface YomiClient {
   /** デプロイ用のトークン（サーバー管理者・デプロイの範囲・必要な再認証を済ませたもの）。 */
   deployToken(serverAdminSession: Session, creds: Credentials): Promise<string>;
   schemaInfoRaw(auth: Auth, workspaceId: string): Promise<HttpResponse>;
-  migrationState(session: Session, workspaceId: string): Promise<"ok" | "pending">;
   /** ワークスペースが使うテンプレートの名前。 */
   workspaceTemplate(session: Session, workspaceId: string): Promise<string>;
   /**

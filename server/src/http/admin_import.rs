@@ -82,7 +82,6 @@ pub async fn import(
         &mut tx,
         manifest,
         &scripts,
-        applied.version,
         ct,
         plan,
         current.user_id,

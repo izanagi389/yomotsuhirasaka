@@ -154,15 +154,10 @@ export async function runImport(client: Client, options: ImportOptions, log: Log
   let manifest: Manifest;
   try {
     const info = (await client.request("GET", `/api/admin/workspaces/${encodeURIComponent(options.workspaceId)}/schema`)) as {
-      state?: string;
       manifest?: Manifest | null;
     };
     if (!info.manifest) {
       log.error("no template has been deployed to this workspace yet");
-      return 1;
-    }
-    if (info.state !== "ok") {
-      log.error("this workspace is waiting for a schema migration; try again after it completes");
       return 1;
     }
     manifest = info.manifest;

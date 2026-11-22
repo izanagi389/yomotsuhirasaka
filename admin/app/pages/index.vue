@@ -19,7 +19,7 @@ const { data: workspaces, error } = await useWorkspaces();
 
 interface TemplateOption {
   name: string;
-  version: number | null;
+  deployedAt: string | null;
   bundled: boolean;
 }
 const OTHER = "__other__";
@@ -29,7 +29,7 @@ const templates = ref<TemplateOption[]>([]);
 const loadingTemplates = ref(false);
 const choice = ref("");
 const otherName = ref("");
-const deployed = computed(() => templates.value.filter((o) => o.version !== null));
+const deployed = computed(() => templates.value.filter((o) => o.deployedAt !== null));
 const onlyTemplate = computed(() => (deployed.value.length === 1 ? deployed.value[0] : undefined));
 const template = computed(() => {
   if (onlyTemplate.value) return onlyTemplate.value.name;
@@ -119,8 +119,8 @@ async function create() {
           <div v-else-if="!loadingTemplates" class="grid gap-2">
             <Label for="ws-template">{{ t("workspaces.template") }}</Label>
             <select id="ws-template" v-model="choice" class="h-9 rounded-md border bg-background px-2" aria-describedby="ws-template-help" data-testid="ws-template">
-              <option v-for="o in templates" :key="o.name" :value="o.name" :disabled="o.version === null">
-                {{ o.version === null ? t("workspaces.templateNotDeployed", { name: o.name }) : o.name }}
+              <option v-for="o in templates" :key="o.name" :value="o.name" :disabled="o.deployedAt === null">
+                {{ o.deployedAt === null ? t("workspaces.templateNotDeployed", { name: o.name }) : o.name }}
               </option>
               <option :value="OTHER">{{ t("workspaces.templateOther") }}</option>
             </select>

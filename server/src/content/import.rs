@@ -253,7 +253,6 @@ pub async fn apply(
     conn: &mut PgConnection,
     manifest: &Manifest,
     scripts: &publishing::Scripts<'_>,
-    schema_version: i32,
     ct: &ContentType,
     plan: Plan,
     actor: Uuid,
@@ -292,22 +291,13 @@ pub async fn apply(
             }
         }
         entries::create(conn, ct, p.id, &p.locale, p.group, actor, &p.columns).await?;
-        let published = match publishing::publish(
-            conn,
-            manifest,
-            scripts,
-            schema_version,
-            p.id,
-            1,
-            false,
-            actor,
-            limits,
-        )
-        .await?
-        {
-            Ok(published) => published,
-            Err(r) => return Ok(Err(Failed::Refused(p.key.clone(), r))),
-        };
+        let published =
+            match publishing::publish(conn, manifest, scripts, p.id, 1, false, actor, limits)
+                .await?
+            {
+                Ok(published) => published,
+                Err(r) => return Ok(Err(Failed::Refused(p.key.clone(), r))),
+            };
         if published.url != p.original_url {
             sqlx::query(
                 "INSERT INTO url_changes (id, entry_id, from_url, to_url, version_id) VALUES ($1, $2, $3, $4, $5)",

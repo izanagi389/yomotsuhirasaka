@@ -210,7 +210,7 @@ async fn schema_for(state: &AppState, ws: Uuid) -> Result<Arc<Schema>, ApiError>
     };
     Ok(state.graphql.get_or_build(
         &applied.template,
-        applied.version,
+        &applied.deployed_at,
         &applied.manifest,
         state.config.dev_mode,
         limits,

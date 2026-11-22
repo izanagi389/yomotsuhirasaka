@@ -1,7 +1,7 @@
 // テンプレートのデプロイ（Q52, Q53, Q54）。
 // 1. サーバーで試行する（dryRun）。判定はサーバーのもので、CLIは結果を見せるだけ
 // 2. マニフェストの問題があれば止める。破壊的な変更・壊れるクエリは、明示的な指定がなければ止める
-// 3. デプロイする（サーバーは同じ検査をもう一度行う）
+// 3. デプロイする（サーバーは同じ検査をもう一度行い、すべてのワークスペースに適用するか、どれにも適用しない）
 
 import { ApiError, type Client } from "../api.js";
 import type { Logger } from "../import/run.js";
@@ -19,15 +19,17 @@ interface Check {
   destructive: string[];
   brokenQueries: { workspaceId: string; queryId: string; problems: string[] }[];
   unchanged: boolean;
-  currentVersion: number | null;
+  /** 最後にデプロイした日時（まだなければ null）。 */
+  deployedAt: string | null;
   workspaces: number;
 }
 
 interface Outcome {
   template: string;
-  version: number;
+  deployedAt: string;
   unchanged: boolean;
-  workspaces: { workspaceId: string; state: "ok" | "pending"; error?: string }[];
+  /** 適用したワークスペース。 */
+  workspaces: string[];
 }
 
 /** 終了コード: 0 成功、1 デプロイしなかった（問題あり）、3 想定外の失敗。 */
@@ -37,13 +39,13 @@ export async function deploy(client: Client, name: string, manifest: Manifest, o
     json: { manifest, dryRun: true, allowDestructive: options.allowDestructive, allowBrokenQueries: options.allowBrokenQueries },
   })) as Check;
 
-  log.info(`template "${name}": ${check.currentVersion === null ? "not deployed yet" : `current version ${check.currentVersion}`}, used by ${check.workspaces} workspace(s)`);
+  log.info(`template "${name}": ${check.deployedAt === null ? "not deployed yet" : `last deployed at ${check.deployedAt}`}, used by ${check.workspaces} workspace(s)`);
   if (check.problems.length > 0) {
     log.error("the template is not valid:");
     for (const p of check.problems) log.error(`  ${p}`);
     return 1;
   }
-  if (check.unchanged) log.info("no changes since the current version");
+  if (check.unchanged) log.info("no changes since the last deployment");
   for (const d of check.destructive) log.warn(`destructive change: ${d}`);
   for (const q of check.brokenQueries) log.warn(`breaks registered query ${q.queryId} in workspace ${q.workspaceId}: ${q.problems.join(", ")}`);
 
@@ -53,8 +55,9 @@ export async function deploy(client: Client, name: string, manifest: Manifest, o
     blocked = true;
   }
   if (check.brokenQueries.length > 0 && !options.allowBrokenQueries) {
-    // 壊れるクエリを持つワークスペースだけが旧版のまま移行待ちになり、ほかのワークスペースには適用される（INV-SCH-03）
-    log.warn("workspaces with these queries keep the current version (migration pending) until their queries are updated and a later deployment runs; pass --allow-broken-queries to apply the change to them anyway");
+    // 壊れるクエリが1つでもあれば、どのワークスペースにも適用しない（INV-SCH-03）
+    log.error("registered queries would break, so nothing is deployed to any workspace: update the queries, or pass --allow-broken-queries to apply the change to every workspace anyway");
+    blocked = true;
   }
   if (blocked) return 1;
   if (options.dryRun) {
@@ -75,14 +78,7 @@ export async function deploy(client: Client, name: string, manifest: Manifest, o
     }
     throw e;
   }
-  log.info(outcome.unchanged ? `version ${outcome.version} is unchanged` : `deployed version ${outcome.version}`);
-  let pending = 0;
-  for (const w of outcome.workspaces) {
-    if (w.state === "ok") log.info(`  workspace ${w.workspaceId}: migrated`);
-    else {
-      pending++;
-      log.warn(`  workspace ${w.workspaceId}: migration pending${w.error ? ` (${w.error})` : ""}; editing is paused there until a later deployment migrates it`);
-    }
-  }
-  return pending > 0 ? 1 : 0;
+  log.info(outcome.unchanged ? `unchanged (last deployed at ${outcome.deployedAt})` : `deployed at ${outcome.deployedAt}`);
+  for (const id of outcome.workspaces) log.info(`  workspace ${id}: migrated`);
+  return 0;
 }

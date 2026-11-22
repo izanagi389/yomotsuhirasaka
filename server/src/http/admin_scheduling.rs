@@ -190,7 +190,6 @@ pub async fn put_schedule(
         id,
         &req.publish_at,
         req.revision,
-        applied.version,
         &prepared,
         current.user_id,
     )
@@ -381,46 +380,42 @@ pub async fn run(state: &AppState, payload: &[u8], attempts: i32) -> anyhow::Res
         return Ok(Outcome::Fail("invalid_payload"));
     };
     let ws = job.workspace_id;
-    let (Some(applied), Some(db)) = (
+    // まだテンプレートを適用していないワークスペースには、予約もない
+    let (Some(_), Some(db)) = (
         applied_schema(&state.pool, ws).await?,
         workspace_db::lookup(&state.pool, ws).await?,
     ) else {
         return Ok(Outcome::Done);
     };
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
-    let Some((entry_id, schema_version, by, prepared, elapsed)) =
+    let Some((entry_id, by, prepared, elapsed)) =
         scheduling::take_due(&mut tx, job.schedule_id).await?
     else {
         // 取り消し・予約し直し・公開済み
         return Ok(Outcome::Done);
     };
-    let failure: &'static str = if applied.pending {
-        "schema_migration_pending"
-    } else {
-        match publishing::publish_prepared(
-            &mut tx,
-            schema_version,
-            entry_id,
-            &prepared,
-            by,
-            publishing::VersionLimits::from_config(&state.config.limits),
-        )
-        .await?
-        {
-            Ok(published) => {
-                scheduling::mark_published(&mut tx, job.schedule_id).await?;
-                let entry = webhooks::entry_ref(&mut tx, entry_id).await?;
-                tx.commit().await?;
-                let events = publish_events(&published);
-                notify_webhooks(state, ws, &events, entry).await;
-                schedule_hooks(state, ws, entry_id, events[0], Some(published.version_id)).await;
-                return Ok(Outcome::Done);
-            }
-            Err(Refused::UrlTaken) => "url_taken",
-            Err(Refused::NotFound) => "entry_not_found",
-            Err(Refused::TooManyVersions) => "too_many_versions",
-            Err(_) => "cannot_publish",
+    let failure: &'static str = match publishing::publish_prepared(
+        &mut tx,
+        entry_id,
+        &prepared,
+        by,
+        publishing::VersionLimits::from_config(&state.config.limits),
+    )
+    .await?
+    {
+        Ok(published) => {
+            scheduling::mark_published(&mut tx, job.schedule_id).await?;
+            let entry = webhooks::entry_ref(&mut tx, entry_id).await?;
+            tx.commit().await?;
+            let events = publish_events(&published);
+            notify_webhooks(state, ws, &events, entry).await;
+            schedule_hooks(state, ws, entry_id, events[0], Some(published.version_id)).await;
+            return Ok(Outcome::Done);
         }
+        Err(Refused::UrlTaken) => "url_taken",
+        Err(Refused::NotFound) => "entry_not_found",
+        Err(Refused::TooManyVersions) => "too_many_versions",
+        Err(_) => "cannot_publish",
     };
     if elapsed >= scheduling::GIVE_UP_AFTER_SECONDS {
         let failed = scheduling::mark_failed(&mut tx, job.schedule_id, failure).await?;

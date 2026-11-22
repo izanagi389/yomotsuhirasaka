@@ -44,8 +44,9 @@ export interface Manifest {
 /** GET /workspaces/{ws}/schema */
 export interface SchemaInfo {
   template: string;
-  version: number | null;
-  state: "none" | "ok" | "pending";
+  /** 最後にデプロイされた日時（まだなければ null）。 */
+  deployedAt: string | null;
+  state: "none" | "ok";
   /** 適用済みのマニフェスト（まだなければ null）。 */
   manifest: Manifest | null;
 }
@@ -55,8 +56,7 @@ export interface WorkspaceInfo {
   name: string;
   template: string;
   role: "admin" | "editor" | "author" | "viewer" | null;
-  schemaVersion: number | null;
-  schemaState: "none" | "ok" | "pending";
+  schemaState: "none" | "ok";
   /** 自分が持つ重い権限（1件の取得のときだけ）。表示の出し分けに使う。照合はサーバーが操作のたびに行う。 */
   permissions?: HeavyPermission[];
   /** 編集の引き継ぎを誰ができるか（1件の取得のときだけ）。 */
@@ -250,7 +250,6 @@ export function lineDiff(before: string | null, after: string | null): { before:
 export interface VersionInfo {
   id: string;
   number: number;
-  schemaVersion: number;
   publishedBy: string | null;
   publishedAt: string;
   url: string | null;

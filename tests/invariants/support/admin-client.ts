@@ -1256,12 +1256,6 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
     },
     switchTemplateRaw: (auth: Auth, workspaceId: string, options: { template: string; allowDestructive?: boolean; dryRun?: boolean; mapping?: TemplateMapping }) =>
       request("POST", `${ADMIN}/workspaces/${workspaceId}/template`, { auth, body: options }),
-    async migrationState(s: Session, workspaceId: string): Promise<"ok" | "pending"> {
-      const res = ensure("スキーマ情報の取得", await schemaInfoRaw(session(s), workspaceId));
-      const { state } = JSON.parse(res.text) as { state?: unknown };
-      if (state !== "ok" && state !== "pending") throw new SetupError("移行の状態の読み取り", res);
-      return state;
-    },
     loginHistoryRaw: (s: Session) => loginHistoryRaw(session(s)),
     async me(s: Session): Promise<{ userId: string; email: string }> {
       const res = ensure("本人の情報の取得", await meRaw(session(s)));

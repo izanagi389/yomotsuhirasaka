@@ -62,24 +62,16 @@ pub(super) fn invalid(problems: Vec<String>) -> ApiError {
     )
 }
 
-/// 読むためのスキーマ（移行待ちでも、適用済みの版で読める）。
+/// 読むためのスキーマ。
 pub(super) async fn readable(state: &AppState, ws: Uuid) -> Result<Applied, ApiError> {
     applied_schema(&state.pool, ws)
         .await?
         .ok_or_else(not_deployed)
 }
 
-/// 書くためのスキーマ（移行待ちなら断る）。
+/// 書くためのスキーマ（読むためのものと同じ。移行待ちの状態はない）。
 pub(super) async fn writable(state: &AppState, ws: Uuid) -> Result<Applied, ApiError> {
-    let applied = readable(state, ws).await?;
-    if applied.pending {
-        return Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "schema_migration_pending",
-            "This workspace is waiting for a schema migration. Editing is paused until it completes.",
-        ));
-    }
-    Ok(applied)
+    readable(state, ws).await
 }
 
 pub(super) async fn reader(
