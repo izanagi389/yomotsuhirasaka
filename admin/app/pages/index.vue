@@ -3,6 +3,7 @@
 // サーバー管理者は、ここでワークスペースを作る（テンプレートを選ぶか名前を入れる。再認証が要る）。
 // テンプレートの選択肢は、デプロイ済みのものと、まだデプロイしていない同梱のもの（選べない形で出す）。
 // まだデプロイしていないテンプレートの名前は「その他」で入れる（後からデプロイすると適用される）。
+// デプロイ済みが1つだけのときは、その1つに固定して選ぶ欄を出さない（02-schema-and-delivery-api.md「選び方」）。
 import { Plus } from "@lucide/vue";
 
 import { Button } from "@/components/ui/button";
@@ -25,9 +26,15 @@ const OTHER = "__other__";
 const createOpen = ref(false);
 const name = ref("");
 const templates = ref<TemplateOption[]>([]);
+const loadingTemplates = ref(false);
 const choice = ref("");
 const otherName = ref("");
-const template = computed(() => (choice.value === OTHER ? otherName.value.trim() : choice.value));
+const deployed = computed(() => templates.value.filter((o): o is TemplateOption & { version: number } => o.version !== null));
+const onlyTemplate = computed(() => (deployed.value.length === 1 ? deployed.value[0] : undefined));
+const template = computed(() => {
+  if (onlyTemplate.value) return onlyTemplate.value.name;
+  return choice.value === OTHER ? otherName.value.trim() : choice.value;
+});
 const busy = ref(false);
 const createError = ref<unknown>(null);
 // 多要素認証を設定していないと作れない。そのときは、作成のボタンを押せなくし、設定の画面への道だけを示す
@@ -35,12 +42,17 @@ const blockedByMfa = computed(() => createError.value instanceof ApiError && (cr
 watch(createOpen, async (open) => {
   if (!open || !me.value?.isServerAdmin) return;
   createError.value = null;
+  // 前回の一覧で固定の表示や既定の選択を決めないよう、取り直す間は空にして作成を止める
+  templates.value = [];
+  loadingTemplates.value = true;
   try {
     templates.value = await api.get<TemplateOption[]>("/templates");
   } catch (e) {
     createError.value = e;
+  } finally {
+    loadingTemplates.value = false;
   }
-  if (!choice.value) choice.value = templates.value.find((o) => o.version !== null)?.name ?? OTHER;
+  if (!choice.value) choice.value = deployed.value[0]?.name ?? OTHER;
 });
 async function create() {
   busy.value = true;
@@ -99,7 +111,12 @@ async function create() {
             <Label for="ws-name">{{ t("workspaces.name") }}</Label>
             <Input id="ws-name" v-model="name" required autocomplete="off" />
           </div>
-          <div class="grid gap-2">
+          <div v-if="onlyTemplate" class="grid gap-2" data-testid="ws-template-fixed">
+            <span class="text-sm font-medium">{{ t("workspaces.template") }}</span>
+            <p class="text-sm">{{ t("workspaces.templateVersion", { name: onlyTemplate.name, version: onlyTemplate.version }) }}</p>
+            <p class="text-xs text-muted-foreground">{{ t("workspaces.templateFixedHelp") }}</p>
+          </div>
+          <div v-else-if="!loadingTemplates" class="grid gap-2">
             <Label for="ws-template">{{ t("workspaces.template") }}</Label>
             <select id="ws-template" v-model="choice" class="h-9 rounded-md border bg-background px-2" aria-describedby="ws-template-help" data-testid="ws-template">
               <option v-for="o in templates" :key="o.name" :value="o.name" :disabled="o.version === null">
@@ -113,7 +130,7 @@ async function create() {
           <FormError :error="createError" />
           <DialogFooter>
             <Button type="button" variant="outline" @click="createOpen = false">{{ t("common.cancel") }}</Button>
-            <Button type="submit" :disabled="busy || !name.trim() || blockedByMfa">{{ t("entries.create") }}</Button>
+            <Button type="submit" :disabled="busy || loadingTemplates || !name.trim() || blockedByMfa">{{ t("entries.create") }}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
