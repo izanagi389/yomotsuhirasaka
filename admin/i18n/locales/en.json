@@ -73,7 +73,6 @@
     "template": "Template",
     "templateHelp": "Choose a deployed template. The bundled sample (blog) can be chosen after a server administrator deploys it under Server → Templates. For a template that is not deployed yet, choose Other and enter its name (empty means default; it is applied when deployed).",
     "templateFixedHelp": "Only one template is deployed, so it is used. To use another template, deploy it first.",
-    "templateVersion": "{name} (version {version})",
     "templateNotDeployed": "{name} (bundled, not deployed yet)",
     "templateOther": "Other (enter a name)",
     "templateOtherName": "Template name",
@@ -1450,7 +1449,7 @@
     "confirmTitle": "Switch to {name}?",
     "confirmDescription": "The switch is recorded in the audit log and administrators are notified.",
     "confirmDestructive": "Data that is not carried over is removed and cannot be restored. Make sure you have exported it. The switch is recorded in the audit log and administrators are notified.",
-    "done": "Switched from {from} to {template} (version {version})."
+    "done": "Switched from {from} to {template}."
   },
   "workspaceDelete": {
     "title": "Delete workspace",

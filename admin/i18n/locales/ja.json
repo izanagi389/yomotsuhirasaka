@@ -73,7 +73,6 @@
     "template": "テンプレート",
     "templateHelp": "デプロイ済みのテンプレートから選びます。同梱の見本（blog）は、サーバー管理者が「サーバーの管理」→「テンプレート」でデプロイすると選べます。まだデプロイしていないテンプレートは「その他」で名前を入れます（空なら default。後からデプロイすると適用されます）。",
     "templateFixedHelp": "デプロイ済みのテンプレートが1つだけなので、これを使います。別のテンプレートを使うときは、先にそのテンプレートをデプロイします。",
-    "templateVersion": "{name}（版 {version}）",
     "templateNotDeployed": "{name}（同梱。まだデプロイしていません）",
     "templateOther": "その他（名前を入力）",
     "templateOtherName": "テンプレートの名前",
@@ -1450,7 +1449,7 @@
     "confirmTitle": "{name} に切り替えますか？",
     "confirmDescription": "切り替えは監査ログに残り、管理者に通知されます。",
     "confirmDestructive": "引き継がないデータは消え、元に戻せません。書き出しを済ませたか確かめてください。切り替えは監査ログに残り、管理者に通知されます。",
-    "done": "{from} から {template}（版 {version}）に切り替えました。"
+    "done": "{from} から {template} に切り替えました。"
   },
   "workspaceDelete": {
     "title": "ワークスペースの削除",
