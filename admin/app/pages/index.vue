@@ -120,7 +120,7 @@ async function create() {
             <Label for="ws-template">{{ t("workspaces.template") }}</Label>
             <select id="ws-template" v-model="choice" class="h-9 rounded-md border bg-background px-2" aria-describedby="ws-template-help" data-testid="ws-template">
               <option v-for="o in templates" :key="o.name" :value="o.name" :disabled="o.version === null">
-                {{ o.version === null ? t("workspaces.templateNotDeployed", { name: o.name }) : t("workspaces.templateVersion", { name: o.name, version: o.version }) }}
+                {{ o.version === null ? t("workspaces.templateNotDeployed", { name: o.name }) : o.name }}
               </option>
               <option :value="OTHER">{{ t("workspaces.templateOther") }}</option>
             </select>
