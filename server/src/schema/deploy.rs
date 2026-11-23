@@ -434,22 +434,21 @@ pub async fn apply_to_new_workspace(
                 return Ok(());
             };
             let mut tx = sqlx::Connection::begin(&mut *conn).await?;
-            match migrate_workspace(&mut tx, workspace_id, None, &deployed.manifest).await? {
-                Ok(()) => {
-                    audit::record(
-                        &mut *tx,
-                        Some(workspace_id),
-                        Some(actor),
-                        audit::action::SCHEMA_MIGRATED,
-                        &[],
-                    )
-                    .await?;
-                    tx.commit().await?;
-                }
-                Err(_) => {
-                    tx.rollback().await?;
-                    record_failure(conn, workspace_id, actor).await?;
-                }
+            let migrated =
+                migrate_workspace(&mut tx, workspace_id, None, &deployed.manifest).await?;
+            if migrated.is_ok() {
+                audit::record(
+                    &mut *tx,
+                    Some(workspace_id),
+                    Some(actor),
+                    audit::action::SCHEMA_MIGRATED,
+                    &[],
+                )
+                .await?;
+                tx.commit().await?;
+            } else {
+                tx.rollback().await?;
+                record_failure(conn, workspace_id, actor).await?;
             }
             Ok(())
         })
