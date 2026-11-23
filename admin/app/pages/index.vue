@@ -19,7 +19,7 @@ const { data: workspaces, error } = await useWorkspaces();
 
 interface TemplateOption {
   name: string;
-  version: number | null;
+  deployedAt: string | null;
   bundled: boolean;
 }
 const OTHER = "__other__";
@@ -29,7 +29,7 @@ const templates = ref<TemplateOption[]>([]);
 const loadingTemplates = ref(false);
 const choice = ref("");
 const otherName = ref("");
-const deployed = computed(() => templates.value.filter((o): o is TemplateOption & { version: number } => o.version !== null));
+const deployed = computed(() => templates.value.filter((o) => o.deployedAt !== null));
 const onlyTemplate = computed(() => (deployed.value.length === 1 ? deployed.value[0] : undefined));
 const template = computed(() => {
   if (onlyTemplate.value) return onlyTemplate.value.name;
@@ -104,7 +104,7 @@ async function create() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{{ t("workspaces.new") }}</DialogTitle>
-          <DialogDescription>{{ t("workspaces.newDescription") }}</DialogDescription>
+          <DialogDescription>{{ t(onlyTemplate ? "workspaces.newDescriptionFixed" : "workspaces.newDescription") }}</DialogDescription>
         </DialogHeader>
         <form class="grid gap-4" @submit.prevent="create">
           <div class="grid gap-2">
@@ -113,14 +113,14 @@ async function create() {
           </div>
           <div v-if="onlyTemplate" class="grid gap-2" data-testid="ws-template-fixed">
             <span class="text-sm font-medium">{{ t("workspaces.template") }}</span>
-            <p class="text-sm">{{ t("workspaces.templateVersion", { name: onlyTemplate.name, version: onlyTemplate.version }) }}</p>
+            <p class="text-sm">{{ onlyTemplate.name }}</p>
             <p class="text-xs text-muted-foreground">{{ t("workspaces.templateFixedHelp") }}</p>
           </div>
           <div v-else-if="!loadingTemplates" class="grid gap-2">
             <Label for="ws-template">{{ t("workspaces.template") }}</Label>
             <select id="ws-template" v-model="choice" class="h-9 rounded-md border bg-background px-2" aria-describedby="ws-template-help" data-testid="ws-template">
-              <option v-for="o in templates" :key="o.name" :value="o.name" :disabled="o.version === null">
-                {{ o.version === null ? t("workspaces.templateNotDeployed", { name: o.name }) : t("workspaces.templateVersion", { name: o.name, version: o.version }) }}
+              <option v-for="o in templates" :key="o.name" :value="o.name" :disabled="o.deployedAt === null">
+                {{ o.deployedAt === null ? t("workspaces.templateNotDeployed", { name: o.name }) : o.name }}
               </option>
               <option :value="OTHER">{{ t("workspaces.templateOther") }}</option>
             </select>

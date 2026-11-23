@@ -164,19 +164,6 @@ async fn creating_reading_and_saving_drafts() {
             .unwrap();
         assert_eq!(n, 1);
 
-        // 移行待ちの間は、作成と保存を断る。読むことはできる（INV-SCH-04）
-        sqlx::query("UPDATE yomi.workspaces SET schema_state = 'pending', schema_target_version = 2 WHERE id = $1")
-            .bind(ws)
-            .execute(&server.state.migration)
-            .await
-            .unwrap();
-        let res = send(&server, "POST", &entries, &editor, Some(&entry_body(&json!({"slug": "while-pending"})))).await;
-        assert_eq!((res.status, res.json_str("error").as_deref()), (409, Some("schema_migration_pending")));
-        let rev = parse(&get(&server, &path, &editor).await)["revision"].as_i64().unwrap();
-        let res = send(&server, "PUT", &draft_path, &editor, Some(&save(rev, json!({"subtitle": "x"})))).await;
-        assert_eq!((res.status, res.json_str("error").as_deref()), (409, Some("schema_migration_pending")));
-        assert_eq!(get(&server, &path, &viewer).await.status, 200);
-        assert_eq!(get(&server, &entries, &viewer).await.status, 200);
     })
     .await;
 }

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 
 interface TemplateOption {
   name: string;
-  version: number;
+  deployedAt: string | null;
 }
 interface FieldPlan {
   from: string;
@@ -32,7 +32,7 @@ interface Outcome {
   dryRun: boolean;
   from: string;
   template: string;
-  version: number;
+  deployedAt: string;
   plan: Plan;
   brokenQueries: { workspaceId: string; queryId: string; problems: string[] }[];
 }
@@ -157,14 +157,14 @@ async function run() {
     <p class="text-muted-foreground">{{ t("templateSwitch.help") }}</p>
     <FormError :error="error ?? checkError" />
     <section v-if="done" class="rounded-md border p-3" role="status">
-      {{ t("templateSwitch.done", { from: done.from, template: done.template, version: done.version }) }}
+      {{ t("templateSwitch.done", { from: done.from, template: done.template }) }}
     </section>
     <p v-if="options && options.length === 0" class="text-muted-foreground">{{ t("templateSwitch.noOptions") }}</p>
     <div v-else class="grid max-w-md gap-2">
       <Label for="switch-target">{{ t("templateSwitch.target") }}</Label>
       <select id="switch-target" v-model="target" class="h-9 rounded-md border bg-background px-2" :disabled="checking || busy" @change="selectTarget">
         <option value="" disabled>{{ t("templateSwitch.choose") }}</option>
-        <option v-for="o in options ?? []" :key="o.name" :value="o.name">{{ t("workspaces.templateVersion", { name: o.name, version: o.version }) }}</option>
+        <option v-for="o in options ?? []" :key="o.name" :value="o.name">{{ o.name }}</option>
       </select>
     </div>
 

@@ -91,9 +91,6 @@ async function create() {
     </PageHeader>
     <FormError :error="error ?? listError ?? (createOpen ? null : createError)" />
     <p v-if="schema && !manifest" class="text-muted-foreground">{{ t("entries.noSchema") }}</p>
-    <p v-if="schema?.state === 'pending'" class="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status">
-      {{ t("entries.migrationPending") }}
-    </p>
 
     <template v-if="manifest">
       <EmptyState v-if="counts.all === 0" :title="t('entries.empty')" :description="canCreate ? t('entries.emptyHelp') : undefined">

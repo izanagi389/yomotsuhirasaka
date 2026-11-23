@@ -36,7 +36,7 @@ async fn server_admins_deploy_the_bundled_blog_template_from_the_admin() {
             .iter()
             .find(|t| t["name"] == "blog")
             .unwrap();
-        assert!(blog["deployedVersion"].is_null(), "{blog}");
+        assert!(blog["deployedAt"].is_null(), "{blog}");
         assert_eq!(blog["upToDate"], false);
         assert_eq!(blog["workspaces"], 1);
 
@@ -120,10 +120,11 @@ async fn server_admins_deploy_the_bundled_blog_template_from_the_admin() {
         assert!(res.status < 300, "{}", res.body);
         let res = send(&server, "POST", DEPLOY, &root, Some(SITE)).await;
         assert_eq!(res.status, 200, "{}", res.body);
-        assert!(res.body.contains("\"state\":\"ok\""), "{}", res.body);
+        let applied: Value = serde_json::from_str(&res.body).unwrap();
+        assert_eq!(applied["workspaces"].as_array().map(Vec::len), Some(1), "{}", res.body);
         // 公開URLのひな形は、入れたサイトのオリジンで始まる
         let stored: String = sqlx::query_scalar(
-            "SELECT manifest->'contentTypes'->0->>'urlTemplate' FROM yomi.template_versions WHERE template = 'blog'",
+            "SELECT manifest->'contentTypes'->0->>'urlTemplate' FROM yomi.templates WHERE name = 'blog'",
         )
         .fetch_one(&server.pool)
         .await
@@ -138,7 +139,7 @@ async fn server_admins_deploy_the_bundled_blog_template_from_the_admin() {
             .iter()
             .find(|t| t["name"] == "blog")
             .unwrap();
-        assert_eq!(blog["deployedVersion"], 1);
+        assert!(blog["deployedAt"].is_string(), "{blog}");
         assert_eq!(blog["upToDate"], true);
         assert_eq!(blog["siteUrl"], "https://blog.example.org");
         let res = send(

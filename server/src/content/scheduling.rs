@@ -242,20 +242,18 @@ pub async fn create(
     entry_id: Uuid,
     publish_at: &str,
     draft_revision: i64,
-    schema_version: i32,
     prepared: &Prepared,
     by: Uuid,
 ) -> Result<(Option<Schedule>, Schedule)> {
     let replaced = cancel(conn, entry_id, Reason::Replaced, by).await?;
     sqlx::query(
-        "INSERT INTO schedules (id, entry_id, publish_at, draft_revision, schema_version, prepared, scheduled_by)
-         VALUES ($1, $2, $3::timestamptz, $4, $5, $6::jsonb, $7)",
+        "INSERT INTO schedules (id, entry_id, publish_at, draft_revision, prepared, scheduled_by)
+         VALUES ($1, $2, $3::timestamptz, $4, $5::jsonb, $6)",
     )
     .bind(id)
     .bind(entry_id)
     .bind(publish_at)
     .bind(draft_revision)
-    .bind(schema_version)
     .bind(serde_json::to_string(prepared)?)
     .bind(by)
     .execute(&mut *conn)
@@ -290,13 +288,13 @@ pub async fn cancel(
 }
 
 /// 公開する予約（開いていて、時刻を過ぎたもの）を、予約版と一緒にロックして読む。
-/// (記事のID, テンプレートの版, 予約した人, 予約版, 予約の時刻から経った秒数)
+/// (記事のID, 予約した人, 予約版, 予約の時刻から経った秒数)
 pub async fn take_due(
     conn: &mut PgConnection,
     id: Uuid,
-) -> Result<Option<(Uuid, i32, Uuid, Prepared, i64)>> {
-    let row: Option<(Uuid, i32, Uuid, Option<String>, f64)> = sqlx::query_as(
-        "SELECT entry_id, schema_version, scheduled_by, prepared::text,
+) -> Result<Option<(Uuid, Uuid, Prepared, i64)>> {
+    let row: Option<(Uuid, Uuid, Option<String>, f64)> = sqlx::query_as(
+        "SELECT entry_id, scheduled_by, prepared::text,
                 extract(epoch FROM now() - publish_at)::float8
          FROM schedules WHERE id = $1 AND state = 'pending' AND publish_at <= now()
          FOR UPDATE",
@@ -304,7 +302,7 @@ pub async fn take_due(
     .bind(id)
     .fetch_optional(&mut *conn)
     .await?;
-    let Some((entry_id, schema_version, by, Some(prepared), elapsed)) = row else {
+    let Some((entry_id, by, Some(prepared), elapsed)) = row else {
         return Ok(None);
     };
     // 秒の小数は切り捨てる。経った秒数は小さいので i64 に収まる
@@ -312,7 +310,6 @@ pub async fn take_due(
     let elapsed = elapsed as i64;
     Ok(Some((
         entry_id,
-        schema_version,
         by,
         serde_json::from_str(&prepared)?,
         elapsed,

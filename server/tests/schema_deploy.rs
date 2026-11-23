@@ -93,13 +93,15 @@ async fn published_entry(server: &Server, ws: Uuid, locale: &str, fields: &str) 
         .execute(&mut *tx)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO versions (id, entry_id, number, schema_version, fields) VALUES ($1, $2, 1, 1, $3::jsonb)")
-        .bind(version)
-        .bind(entry)
-        .bind(fields)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO versions (id, entry_id, number, fields) VALUES ($1, $2, 1, $3::jsonb)",
+    )
+    .bind(version)
+    .bind(entry)
+    .bind(fields)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     sqlx::query("UPDATE entries SET published_version_id = $1 WHERE id = $2")
         .bind(version)
         .bind(entry)
@@ -146,16 +148,17 @@ async fn deploying_templates() {
         // 最初のデプロイ
         let res = deploy(&server, &token, t, &body(&base(), "")).await;
         assert_eq!(res.status, 200, "{}", res.body);
-        assert!(res.body.contains("\"version\":1") && res.body.contains("\"workspaces\":[]"), "{}", res.body);
+        assert!(res.body.contains("\"workspaces\":[]"), "{}", res.body);
+        let first_deployed_at = res.json_str("deployedAt").unwrap();
 
-        // テンプレートを使うワークスペースを作ると、最新の版が適用される
+        // テンプレートを使うワークスペースを作ると、デプロイ済みのテンプレートが適用される
         let mk = |name: &'static str| {
             let server = &server;
             let root = &root;
             async move {
                 let res = send(server, "POST", "/api/admin/workspaces", root, Some(&format!("{{\"name\":\"{name}\",\"template\":\"blog\"}}"))).await;
                 assert_eq!(res.status, 201, "{}", res.body);
-                assert!(res.body.contains("\"schemaVersion\":1") && res.body.contains("\"schemaState\":\"ok\""), "{}", res.body);
+                assert!(res.body.contains("\"schemaState\":\"ok\"") && !res.body.contains("schemaVersion"), "{}", res.body);
                 res.json_str("id").unwrap().parse::<Uuid>().unwrap()
             }
         };
@@ -164,21 +167,25 @@ async fn deploying_templates() {
         assert_eq!(columns(&server, a).await, ["entry_id", "f_title", "f_slug", "f_subtitle", "f_summary", "f_body", "f_related"]);
         // テンプレートのないワークスペースは、まだ何も適用されていない
         let res = send(&server, "POST", "/api/admin/workspaces", &root, Some("{\"name\":\"C\"}")).await;
-        assert!(res.body.contains("\"schemaVersion\":null") && res.body.contains("\"schemaState\":\"none\""), "{}", res.body);
+        assert!(res.body.contains("\"schemaState\":\"none\""), "{}", res.body);
 
-        // スキーマ情報: description は出し、devNote は出さない（INV-SCH-01）
+        // スキーマ情報: description は出し、devNote は出さない（INV-SCH-01）。デプロイした日時を出し、版は出さない
         let info = get(&server, &format!("/api/admin/workspaces/{a}/schema"), &root).await;
         assert_eq!(info.status, 200, "{}", info.body);
         assert!(info.body.contains("DESC-MARKER") && !info.body.contains("DEVNOTE-MARKER") && !info.body.contains("devNote"), "{}", info.body);
+        assert!(info.body.contains(&format!("\"deployedAt\":\"{first_deployed_at}\"")) && !info.body.contains("version"), "{}", info.body);
 
-        // 追加の変更 → 新しい版。同じ内容をもう一度 → 版は増えない
+        // 追加の変更 → すべてのワークスペースに適用し、デプロイした日時が変わる。同じ内容をもう一度 → 何も変えない
         let v2 = manifest(r#", {"name": "added_field", "type": "text"}"#, false, r#""ja", "en""#);
         let res = deploy(&server, &token, t, &body(&v2, "")).await;
         assert_eq!(res.status, 200, "{}", res.body);
-        assert!(res.body.contains("\"version\":2") && res.body.matches("\"state\":\"ok\"").count() == 2, "{}", res.body);
+        assert!(res.body.contains(&format!("\"workspaces\":[\"{a}\",\"{b}\"]")), "{}", res.body);
+        let v2_deployed_at = res.json_str("deployedAt").unwrap();
+        assert_ne!(v2_deployed_at, first_deployed_at);
         assert!(columns(&server, b).await.contains(&"f_added_field".to_owned()));
         let res = deploy(&server, &token, t, &body(&v2, "")).await;
-        assert!(res.body.contains("\"version\":2") && res.body.contains("\"unchanged\":true") && res.body.contains("\"workspaces\":[]"), "{}", res.body);
+        assert!(res.body.contains("\"unchanged\":true") && res.body.contains("\"workspaces\":[]"), "{}", res.body);
+        assert_eq!(res.json_str("deployedAt").unwrap(), v2_deployed_at);
 
         // 破壊的な変更は、明示的な指定がなければ拒否（INV-SCH-02）
         for (label, m) in [
@@ -192,40 +199,42 @@ async fn deploying_templates() {
         }
         assert!(columns(&server, a).await.contains(&"f_added_field".to_owned()));
 
-        // 一方のワークスペースだけ移行に失敗する（INV-SCH-04, 05）: A には副題のない公開中の記事、B の記事には副題がある
+        // 一方のワークスペースだけ移行に失敗する（INV-SCH-04）: A には副題のない公開中の記事、B の記事には副題がある。
+        // どちらにも適用せず（DDLも巻き戻す）、デプロイした日時も変わらない
         published_entry(&server, a, "en", r#"{"title": "t", "slug": "s"}"#).await;
         let fixme = published_entry(&server, a, "ja", r#"{"title": "t", "slug": "s2", "subtitle": ""}"#).await;
         published_entry(&server, b, "ja", r#"{"title": "t", "slug": "s", "subtitle": "x"}"#).await;
         let v3 = manifest(r#", {"name": "added_field", "type": "text"}, {"name": "extra_field_v3", "type": "text"}"#, true, r#""ja", "en""#);
         let res = deploy(&server, &token, t, &body(&v3, ",\"allowDestructive\":true")).await;
-        assert_eq!(res.status, 200, "{}", res.body);
-        assert!(res.body.contains(&format!("{{\"workspaceId\":\"{a}\",\"state\":\"pending\",\"error\":\"required_value_missing:post.subtitle\"}}")), "{}", res.body);
-        assert!(res.body.contains(&format!("{{\"workspaceId\":\"{b}\",\"state\":\"ok\"}}")), "{}", res.body);
-        // A は前の版のまま（DDLも巻き戻っている）、B は新しい版
-        assert!(!columns(&server, a).await.contains(&"f_extra_field_v3".to_owned()));
-        assert!(columns(&server, b).await.contains(&"f_extra_field_v3".to_owned()));
-        let info = get(&server, &format!("/api/admin/workspaces/{a}/schema"), &root).await;
-        assert!(info.body.contains("\"version\":2") && info.body.contains("\"state\":\"pending\"") && info.body.contains("\"targetVersion\":3") && !info.body.contains("extra_field_v3"), "{}", info.body);
-        assert!(get(&server, &format!("/api/admin/workspaces/{b}/schema"), &root).await.body.contains("extra_field_v3"));
+        assert_eq!((res.status, res.json_str("error").as_deref()), (409, Some("migration_failed")), "{}", res.body);
+        assert!(res.body.contains(&a.to_string()) && res.body.contains("required_value_missing:post.subtitle"), "{}", res.body);
+        for ws in [a, b] {
+            assert!(!columns(&server, ws).await.contains(&"f_extra_field_v3".to_owned()));
+            let info = get(&server, &format!("/api/admin/workspaces/{ws}/schema"), &root).await;
+            assert!(!info.body.contains("extra_field_v3") && info.body.contains(&v2_deployed_at), "{}", info.body);
+        }
 
-        // データを直してから同じ内容をデプロイすると、移行待ちのワークスペースだけやり直す
+        // データを直してから同じ内容をデプロイすると、すべてのワークスペースに適用する
         let db = workspace_db::lookup(&server.pool, a).await.unwrap().unwrap();
         let mut tx = workspace_db::begin(&server.pool, &db).await.unwrap();
         sqlx::query("UPDATE versions SET fields = fields || '{\"subtitle\": \"fixed\"}'::jsonb").execute(&mut *tx).await.unwrap();
         tx.commit().await.unwrap();
         let _ = fixme;
         let res = deploy(&server, &token, t, &body(&v3, ",\"allowDestructive\":true")).await;
-        assert!(res.body.contains("\"unchanged\":true") && res.body.contains(&format!("{{\"workspaceId\":\"{a}\",\"state\":\"ok\"}}")), "{}", res.body);
-        assert!(columns(&server, a).await.contains(&"f_extra_field_v3".to_owned()));
+        assert_eq!(res.status, 200, "{}", res.body);
+        assert!(res.body.contains(&format!("\"workspaces\":[\"{a}\",\"{b}\"]")), "{}", res.body);
+        for ws in [a, b] {
+            assert!(columns(&server, ws).await.contains(&"f_extra_field_v3".to_owned()));
+        }
 
-        // 使っているロケールは外せない（明示的に許しても、そのワークスペースは移行待ち）
+        // 使っているロケールは外せない（明示的に許しても、どのワークスペースにも適用しない）
         let v4 = manifest(r#", {"name": "added_field", "type": "text"}, {"name": "extra_field_v3", "type": "text"}"#, true, r#""ja""#);
         let res = deploy(&server, &token, t, &body(&v4, ",\"allowDestructive\":true")).await;
-        assert!(res.body.contains(&format!("{{\"workspaceId\":\"{a}\",\"state\":\"pending\",\"error\":\"locale_in_use:en\"}}")), "{}", res.body);
-        assert!(res.body.contains(&format!("{{\"workspaceId\":\"{b}\",\"state\":\"ok\"}}")), "{}", res.body);
+        assert_eq!(res.status, 409, "{}", res.body);
+        assert!(res.body.contains("locale_in_use:en"), "{}", res.body);
 
         // 明示的に許したフィールドの削除・型の変更
-        let v5 = manifest(r#", {"name": "extra_field_v3", "type": "richtext"}"#, true, r#""ja""#);
+        let v5 = manifest(r#", {"name": "extra_field_v3", "type": "richtext"}"#, true, r#""ja", "en""#);
         let res = deploy(&server, &token, t, &body(&v5, ",\"allowDestructive\":true")).await;
         assert_eq!(res.status, 200, "{}", res.body);
         let cols = columns(&server, b).await;
@@ -248,15 +257,17 @@ async fn deploying_templates() {
             assert!(n >= 1, "{action}");
         }
 
-        // 本文で使っているマークは外せない（そのワークスペースは移行待ち）。使っていない側は移行する
+        // 本文で使っているマークは外せない。使っていないワークスペースがあっても、どこにも適用しない
         let res = send(&server, "POST", "/api/admin/workspaces", &root, Some("{\"name\":\"D\",\"template\":\"blog\"}")).await;
-        assert!(res.body.contains("\"schemaVersion\":5"), "{}", res.body);
+        assert!(res.body.contains("\"schemaState\":\"ok\""), "{}", res.body);
         let c: Uuid = res.json_str("id").unwrap().parse().unwrap();
         published_entry(&server, b, "ja", r#"{"title": "t", "slug": "s9", "subtitle": "x", "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": [{"type": "bold"}]}]}]}}"#).await;
         let v6 = v5.replace(r#""marks": [{"name": "bold"}]"#, r#""marks": []"#);
         let res = deploy(&server, &token, t, &body(&v6, ",\"allowDestructive\":true")).await;
-        assert!(res.body.contains(&format!("{{\"workspaceId\":\"{b}\",\"state\":\"pending\",\"error\":\"body_node_in_use:bold\"}}")), "{}", res.body);
-        assert!(res.body.contains(&format!("{{\"workspaceId\":\"{c}\",\"state\":\"ok\"}}")), "{}", res.body);
+        assert_eq!(res.status, 409, "{}", res.body);
+        assert!(res.body.contains(&b.to_string()) && res.body.contains("body_node_in_use:bold"), "{}", res.body);
+        let info = get(&server, &format!("/api/admin/workspaces/{c}/schema"), &root).await;
+        assert!(info.body.contains("\"bold\""), "{}", info.body);
 
         // サーバー管理者でなくなったら、デプロイの範囲のトークンも使えない
         sqlx::query("UPDATE yomi.users SET is_server_admin = false WHERE email = 'root@example.test'").execute(&server.pool).await.unwrap();

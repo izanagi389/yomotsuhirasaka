@@ -225,16 +225,9 @@ async fn publishing_versions_and_url_history() {
         }
         assert_eq!(audit_count(&server, ws, "entry.deleted").await, 0);
 
-        // 移行待ちの間: 公開は断る。非公開と削除はできる（取り下げを止めないため）
+        // 公開し直してから、非公開と削除
         let rev = revision(&server, &path, &editor).await;
         assert_eq!(send(&server, "POST", &publish_path, &editor, Some(&publish(rev, false))).await.status, 200);
-        sqlx::query("UPDATE yomi.workspaces SET schema_state = 'pending', schema_target_version = 2 WHERE id = $1")
-            .bind(ws)
-            .execute(&server.state.migration)
-            .await
-            .unwrap();
-        let res = send(&server, "POST", &publish_path, &editor, Some(&publish(rev, false))).await;
-        assert_eq!(error(&res), (409, Some("schema_migration_pending".into())));
         assert_eq!(send(&server, "POST", &unpublish_path, &editor, None).await.status, 204);
         assert_eq!(get(&server, &format!("{path}/versions"), &viewer).await.status, 200);
         assert_eq!(send(&server, "DELETE", &path, &editor, None).await.status, 204);

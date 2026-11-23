@@ -288,7 +288,6 @@ pub async fn publish(
         &mut tx,
         &applied.manifest,
         &scripts,
-        applied.version,
         id,
         req.revision,
         req.correction,

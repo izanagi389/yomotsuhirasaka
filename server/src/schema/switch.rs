@@ -475,7 +475,8 @@ pub struct Outcome {
     pub dry_run: bool,
     pub from: String,
     pub template: String,
-    pub version: i32,
+    /// 切り替え先のテンプレートをデプロイした日時。
+    pub deployed_at: String,
     pub plan: Plan,
     pub broken_queries: Vec<super::deploy::BrokenQuery>,
     /// 公開URLを計算し直すコンテンツタイプ（新しいテンプレートのすべて。応答には含めない）。
@@ -492,7 +493,7 @@ pub struct Export {
 struct Loaded {
     from: String,
     old: Option<Manifest>,
-    version: i32,
+    deployed_at: String,
     new: Manifest,
 }
 
@@ -503,33 +504,36 @@ async fn load(
     lock_row: bool,
 ) -> Result<std::result::Result<Loaded, Rejected>> {
     let sql = if lock_row {
-        "SELECT template, schema_version FROM yomi.workspaces WHERE id = $1 FOR UPDATE"
+        "SELECT template, schema_state FROM yomi.workspaces WHERE id = $1 FOR UPDATE"
     } else {
-        "SELECT template, schema_version FROM yomi.workspaces WHERE id = $1"
+        "SELECT template, schema_state FROM yomi.workspaces WHERE id = $1"
     };
-    let (from, applied): (String, Option<i32>) = sqlx::query_as(sql)
+    let (from, state): (String, String) = sqlx::query_as(sql)
         .bind(workspace_id)
         .fetch_one(&mut *conn)
         .await?;
     if from == template {
         return Ok(Err(Rejected::SameTemplate));
     }
-    let Some((version, new)) = super::deploy::latest_version(conn, template).await? else {
+    let Some(deployed) = super::deploy::load(&mut *conn, template).await? else {
         return Ok(Err(Rejected::NotDeployed));
     };
-    let old = match applied {
-        Some(v) => Some(
-            super::deploy::load_version(&mut *conn, &from, v)
+    // 適用済みのワークスペースのスキーマは、いまのテンプレートの最新のマニフェストと同じ
+    let old = if state == "ok" {
+        Some(
+            super::deploy::load(&mut *conn, &from)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("applied template version is missing"))?,
-        ),
-        None => None,
+                .ok_or_else(|| anyhow::anyhow!("the applied template is missing"))?
+                .manifest,
+        )
+    } else {
+        None
     };
     Ok(Ok(Loaded {
         from,
         old,
-        version,
-        new,
+        deployed_at: deployed.deployed_at,
+        new: deployed.manifest,
     }))
 }
 
@@ -583,7 +587,7 @@ async fn switch_locked(
     let Loaded {
         from,
         old,
-        version,
+        deployed_at,
         new,
     } = match load(&mut tx, workspace_id, &req.template, true).await? {
         Ok(l) => l,
@@ -602,7 +606,7 @@ async fn switch_locked(
             dry_run: true,
             from,
             template: req.template,
-            version,
+            deployed_at,
             plan,
             broken_queries: broken,
             content_types,
@@ -619,16 +623,11 @@ async fn switch_locked(
         tx.rollback().await?;
         return Ok(Err(Rejected::Failed(failure.code())));
     }
-    sqlx::query(
-        "UPDATE yomi.workspaces SET template = $2, schema_version = $3, schema_state = 'ok',
-                schema_target_version = NULL, schema_error = NULL
-         WHERE id = $1",
-    )
-    .bind(workspace_id)
-    .bind(&req.template)
-    .bind(version)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("UPDATE yomi.workspaces SET template = $2, schema_state = 'ok' WHERE id = $1")
+        .bind(workspace_id)
+        .bind(&req.template)
+        .execute(&mut *tx)
+        .await?;
     crate::audit::record(
         &mut *tx,
         Some(workspace_id),
@@ -642,7 +641,7 @@ async fn switch_locked(
         dry_run: false,
         from,
         template: req.template,
-        version,
+        deployed_at,
         plan,
         broken_queries: broken,
         content_types,

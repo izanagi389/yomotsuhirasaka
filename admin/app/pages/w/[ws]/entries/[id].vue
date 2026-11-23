@@ -326,9 +326,6 @@ onBeforeRouteLeave(async () => {
             <ScheduleNotice :key="published" :workspace-id="ws" :entry-id="id" :can-publish="canPublish(workspace)" @reschedule="openPublish(false, true)" />
             <SourceUpdateNotice :workspace-id="ws" :entry-id="id" @show-diff="sourceDiffOpen = true" />
             <EntryTodoNotice v-if="hasPermission(workspace, 'corrections')" :key="published" :workspace-id="ws" :entry-id="id" @open-tab="openTab" />
-            <p v-if="schema?.state === 'pending'" class="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status">
-              {{ t("entries.migrationPending") }}
-            </p>
             <p v-if="lastPublished" class="rounded-md border p-3 text-sm" role="status">
               {{ lastPublished.isCorrection ? t("publish.doneCorrection", { url: lastPublished.url }) : t("publish.done", { url: lastPublished.url }) }}
             </p>

@@ -119,7 +119,7 @@ async fn switching_templates_maps_renames_and_rewrites_past_versions() {
         let all = parse(&get(&server, "/api/admin/templates", &root).await);
         let names: Vec<&str> = all.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(names, vec!["blog", "tpl-a", "tpl-b"]);
-        assert!(all[0]["version"].is_null() && all[0]["bundled"] == true, "{all}");
+        assert!(all[0]["deployedAt"].is_null() && all[0]["bundled"] == true, "{all}");
 
         let switch = format!("/api/admin/workspaces/{ws}/template");
         let mapping = r#""mapping":{"contentTypes":{"post":"article"},"fields":{"post.title":"headline"}}"#;
