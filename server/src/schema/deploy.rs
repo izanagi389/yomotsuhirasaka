@@ -282,11 +282,23 @@ async fn deploy_locked(
         .await?;
     }
     for &workspace_id in &targets {
-        if let Err(failure) = migrate_workspace(&mut tx, workspace_id, old, &manifest).await? {
-            tx.rollback().await?;
-            let code = failure.code();
-            record_failure(conn, workspace_id, actor).await?;
-            return Ok(Err(Rejected::MigrationFailed { workspace_id, code }));
+        match migrate_workspace(&mut tx, workspace_id, old, &manifest).await {
+            Ok(Ok(())) => {}
+            Ok(Err(failure)) => {
+                tx.rollback().await?;
+                record_failure(conn, workspace_id, actor).await?;
+                return Ok(Err(Rejected::MigrationFailed {
+                    workspace_id,
+                    code: failure.code(),
+                }));
+            }
+            Err(error) => {
+                // DB のエラーで止まったときも、失敗を残す。巻き戻せなければ接続が使えないので、記録しない
+                if tx.rollback().await.is_ok() {
+                    record_failure(conn, workspace_id, actor).await?;
+                }
+                return Err(error);
+            }
         }
         audit::record(
             &mut *tx,
@@ -435,7 +447,16 @@ pub async fn apply_to_new_workspace(
             };
             let mut tx = sqlx::Connection::begin(&mut *conn).await?;
             let migrated =
-                migrate_workspace(&mut tx, workspace_id, None, &deployed.manifest).await?;
+                match migrate_workspace(&mut tx, workspace_id, None, &deployed.manifest).await {
+                    Ok(migrated) => migrated,
+                    Err(error) => {
+                        // DB のエラーで止まったときも、失敗を残す（上の deploy_locked と同じ）
+                        if tx.rollback().await.is_ok() {
+                            record_failure(conn, workspace_id, actor).await?;
+                        }
+                        return Err(error);
+                    }
+                };
             if migrated.is_ok() {
                 audit::record(
                     &mut *tx,
