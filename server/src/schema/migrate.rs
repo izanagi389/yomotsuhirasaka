@@ -23,6 +23,10 @@ pub enum Failure {
     LocaleInUse(String),
     /// 外すノードやマークを使っている本文がある。
     BodyNodeInUse(String),
+    /// 必須のフィールドが空の予約版がある（予約を取り消すか、予約し直す）。
+    ScheduledValueMissing { content_type: String, field: String },
+    /// 外すノードやマークを使っている予約版がある。
+    ScheduledBodyNodeInUse(String),
 }
 
 impl Failure {
@@ -34,6 +38,11 @@ impl Failure {
             } => format!("required_value_missing:{content_type}.{field}"),
             Self::LocaleInUse(l) => format!("locale_in_use:{l}"),
             Self::BodyNodeInUse(n) => format!("body_node_in_use:{n}"),
+            Self::ScheduledValueMissing {
+                content_type,
+                field,
+            } => format!("scheduled_value_missing:{content_type}.{field}"),
+            Self::ScheduledBodyNodeInUse(n) => format!("scheduled_body_node_in_use:{n}"),
         }
     }
 }
@@ -128,6 +137,49 @@ async fn published_value_missing(
     .await?)
 }
 
+/// 本文の中で、`$n` の型のノード・マークを探す JSON パス。
+const BODY_NODE_PATH: &str = "'$.** ? (@.type == $n)'";
+
+/// 予約公開を待っている版（予約版）で、必須のフィールドが空のものがあるか。
+/// 予約版は予約のときの内容のまま公開されるので、公開中の版と同じく、移行の前に確かめる。
+async fn scheduled_value_missing(
+    conn: &mut PgConnection,
+    db: &WorkspaceDb,
+    content_type: &str,
+    field: &str,
+) -> Result<bool> {
+    let schema = &db.schema;
+    Ok(sqlx::query_scalar(crate::sql!(
+        "SELECT EXISTS (
+             SELECT 1 FROM {schema}.schedules s JOIN {schema}.entries e ON e.id = s.entry_id
+             WHERE s.state = 'pending' AND e.deleted_at IS NULL AND e.content_type = $1
+               AND (s.prepared -> 'fields' -> $2 IS NULL
+                    OR s.prepared -> 'fields' -> $2 IN ('null'::jsonb, '\"\"'::jsonb, '[]'::jsonb)))"
+    ))
+    .bind(content_type)
+    .bind(field)
+    .fetch_one(conn)
+    .await?)
+}
+
+/// 予約版の本文で、そのノード・マークを使っているものがあるか。
+async fn scheduled_body_node_in_use(
+    conn: &mut PgConnection,
+    db: &WorkspaceDb,
+    node: &str,
+) -> Result<bool> {
+    let schema = &db.schema;
+    Ok(sqlx::query_scalar(crate::sql!(
+        "SELECT EXISTS (
+             SELECT 1 FROM {schema}.schedules s JOIN {schema}.entries e ON e.id = s.entry_id
+             WHERE s.state = 'pending' AND e.deleted_at IS NULL
+               AND jsonb_path_exists(s.prepared -> 'fields', {BODY_NODE_PATH}, jsonb_build_object('n', $1::text)))"
+    ))
+    .bind(node)
+    .fetch_one(conn)
+    .await?)
+}
+
 /// 本文（公開中の版と下書き）で、そのノード・マークを使っているものがあるか。
 async fn body_node_in_use(
     conn: &mut PgConnection,
@@ -135,12 +187,11 @@ async fn body_node_in_use(
     old: &Manifest,
     node: &str,
 ) -> Result<bool> {
-    const PATH: &str = "'$.** ? (@.type == $n)'";
     let schema = &db.schema;
     let used: bool = sqlx::query_scalar(crate::sql!(
         "SELECT EXISTS (
              SELECT 1 FROM {schema}.entries e JOIN {schema}.versions v ON v.id = e.published_version_id
-             WHERE e.deleted_at IS NULL AND jsonb_path_exists(v.fields, {PATH}, jsonb_build_object('n', $1::text)))"
+             WHERE e.deleted_at IS NULL AND jsonb_path_exists(v.fields, {BODY_NODE_PATH}, jsonb_build_object('n', $1::text)))"
     ))
     .bind(node)
     .fetch_one(&mut *conn)
@@ -155,7 +206,7 @@ async fn body_node_in_use(
             let used: bool = sqlx::query_scalar(crate::sql!(
                 "SELECT EXISTS (
                      SELECT 1 FROM {schema}.{table} t JOIN {schema}.entries e ON e.id = t.entry_id
-                     WHERE e.deleted_at IS NULL AND jsonb_path_exists(t.{column}, {PATH}, jsonb_build_object('n', $1::text)))"
+                     WHERE e.deleted_at IS NULL AND jsonb_path_exists(t.{column}, {BODY_NODE_PATH}, jsonb_build_object('n', $1::text)))"
             ))
             .bind(node)
             .fetch_one(&mut *conn)
@@ -219,6 +270,9 @@ pub async fn apply(
         if body_node_in_use(conn, db, old_m, name).await? {
             return Ok(Err(Failure::BodyNodeInUse(name.to_owned())));
         }
+        if scheduled_body_node_in_use(conn, db, name).await? {
+            return Ok(Err(Failure::ScheduledBodyNodeInUse(name.to_owned())));
+        }
     }
     for (name, nct) in &new_types {
         let oct = old_types.get(name);
@@ -226,8 +280,17 @@ pub async fn apply(
             let was_required = oct
                 .and_then(|o| o.field(&nf.name))
                 .is_some_and(|of| of.required && !shape_changed(of, nf));
-            if !was_required && published_value_missing(conn, db, name, &nf.name).await? {
+            if was_required {
+                continue;
+            }
+            if published_value_missing(conn, db, name, &nf.name).await? {
                 return Ok(Err(Failure::RequiredValueMissing {
+                    content_type: (*name).to_owned(),
+                    field: nf.name.clone(),
+                }));
+            }
+            if scheduled_value_missing(conn, db, name, &nf.name).await? {
+                return Ok(Err(Failure::ScheduledValueMissing {
                     content_type: (*name).to_owned(),
                     field: nf.name.clone(),
                 }));

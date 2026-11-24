@@ -319,3 +319,89 @@ async fn database_errors_during_migration_are_audited() {
     })
     .await;
 }
+
+/// 予約公開を待っている記事（予約版）を、ワークスペースのロールで直接作る。下書きは公開しない。
+async fn scheduled_entry(server: &Server, ws: Uuid, fields: &str) -> Uuid {
+    let db = workspace_db::lookup(&server.pool, ws)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut tx = workspace_db::begin(&server.pool, &db).await.unwrap();
+    let (entry, schedule) = (Uuid::new_v4(), Uuid::new_v4());
+    sqlx::query("INSERT INTO entries (id, content_type, locale, translation_group_id) VALUES ($1, 'post', 'ja', $1)")
+        .bind(entry)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ct_post (entry_id) VALUES ($1)")
+        .bind(entry)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO schedules (id, entry_id, publish_at, draft_revision, prepared, scheduled_by)
+         VALUES ($1, $2, now() + interval '1 day', 1,
+                 jsonb_build_object('fields', $3::jsonb, 'url', 'https://site.example.test/ja/blog/s', 'dependencies', '[]'::jsonb, 'rendered', 'null'::jsonb, 'anchors', '[]'::jsonb),
+                 $1)",
+    )
+    .bind(schedule)
+    .bind(entry)
+    .bind(fields)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    schedule
+}
+
+/// 予約版が新しいスキーマに合わない（必須のフィールドが空、外すマークを使っている）なら、デプロイ全体を止める。
+/// 予約を取り消せば、デプロイできる。
+#[tokio::test]
+async fn scheduled_versions_that_do_not_fit_stop_the_deployment() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        create_user(&server.pool, "root@example.test", true).await;
+        let root = login(&server, "root@example.test", PASSWORD).await;
+        enroll(&server, &root).await;
+        let res = send(&server, "POST", "/api/admin/me/tokens", &root, Some("{\"name\":\"deploy\",\"scopes\":[\"deploy\"],\"workspaceIds\":[]}")).await;
+        let token = res.json_str("token").unwrap();
+        assert_eq!(deploy(&server, &token, "blog", &body(&base(), "")).await.status, 200);
+        let res = send(&server, "POST", "/api/admin/workspaces", &root, Some("{\"name\":\"A\",\"template\":\"blog\"}")).await;
+        assert_eq!(res.status, 201, "{}", res.body);
+        let a: Uuid = res.json_str("id").unwrap().parse().unwrap();
+        let cancel = |schedule: Uuid| {
+            let server = &server;
+            async move {
+                let db = workspace_db::lookup(&server.pool, a).await.unwrap().unwrap();
+                let mut tx = workspace_db::begin(&server.pool, &db).await.unwrap();
+                sqlx::query("UPDATE schedules SET state = 'cancelled', reason = 'cancelled', prepared = NULL, closed_at = now(), closed_by = scheduled_by WHERE id = $1")
+                    .bind(schedule)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+                tx.commit().await.unwrap();
+            }
+        };
+
+        // 副題を必須にする: 副題のない予約版があれば止める
+        let schedule = scheduled_entry(&server, a, r#"{"title": "t", "slug": "s"}"#).await;
+        let required = manifest("", true, r#""ja", "en""#);
+        let res = deploy(&server, &token, "blog", &body(&required, ",\"allowDestructive\":true")).await;
+        assert_eq!((res.status, res.json_str("error").as_deref()), (409, Some("migration_failed")), "{}", res.body);
+        assert!(res.body.contains("scheduled_value_missing:post.subtitle"), "{}", res.body);
+        cancel(schedule).await;
+        let res = deploy(&server, &token, "blog", &body(&required, ",\"allowDestructive\":true")).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+
+        // 太字のマークを外す: 太字を使う予約版があれば止める
+        let schedule = scheduled_entry(&server, a, r#"{"title": "t", "slug": "s2", "subtitle": "x", "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": [{"type": "bold"}]}]}]}}"#).await;
+        let no_bold = required.replace(r#""marks": [{"name": "bold"}]"#, r#""marks": []"#);
+        let res = deploy(&server, &token, "blog", &body(&no_bold, ",\"allowDestructive\":true")).await;
+        assert_eq!((res.status, res.json_str("error").as_deref()), (409, Some("migration_failed")), "{}", res.body);
+        assert!(res.body.contains("scheduled_body_node_in_use:bold"), "{}", res.body);
+        cancel(schedule).await;
+        let res = deploy(&server, &token, "blog", &body(&no_bold, ",\"allowDestructive\":true")).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+    })
+    .await;
+}
