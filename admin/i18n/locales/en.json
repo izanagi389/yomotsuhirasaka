@@ -649,6 +649,9 @@
         "issued": "Password reset issued",
         "requested": "Password reset requested"
       },
+      "reset": {
+        "declined_outside_scope": "Reset declined (outside scope)"
+      },
       "personal_token": {
         "issued": "Personal token issued",
         "revoked": "Personal token revoked"
@@ -658,7 +661,8 @@
         "migration_failed": "Schema migration failed"
       },
       "template": {
-        "deployed": "Template deployed"
+        "deployed": "Template deployed",
+        "switched": "Template switched"
       },
       "version": {
         "erased": "Version body erased"
@@ -671,7 +675,8 @@
       "workspace": {
         "created": "Workspace created",
         "limits_changed": "Workspace limits changed",
-        "settings_changed": "Workspace settings changed"
+        "settings_changed": "Workspace settings changed",
+        "deleted": "Workspace deleted"
       },
       "audit_sink": {
         "created": "Audit log destination created",

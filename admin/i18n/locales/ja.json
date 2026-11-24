@@ -649,6 +649,9 @@
         "issued": "パスワードのリセットを発行",
         "requested": "パスワードのリセットを要求"
       },
+      "reset": {
+        "declined_outside_scope": "範囲外のためリセットを発行せず"
+      },
       "personal_token": {
         "issued": "個人トークンを発行",
         "revoked": "個人トークンを失効"
@@ -658,7 +661,8 @@
         "migration_failed": "スキーマの移行に失敗"
       },
       "template": {
-        "deployed": "テンプレートをデプロイ"
+        "deployed": "テンプレートをデプロイ",
+        "switched": "テンプレートを切り替え"
       },
       "version": {
         "erased": "版の本文を抹消"
@@ -671,7 +675,8 @@
       "workspace": {
         "created": "ワークスペースを作成",
         "limits_changed": "ワークスペースの上限を変更",
-        "settings_changed": "ワークスペースの設定の変更"
+        "settings_changed": "ワークスペースの設定の変更",
+        "deleted": "ワークスペースを削除"
       },
       "audit_sink": {
         "created": "監査ログの書き出し先の作成",
