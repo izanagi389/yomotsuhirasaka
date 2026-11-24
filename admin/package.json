@@ -1,6 +1,6 @@
 {
   "name": "@yomotsuhirasaka/admin",
-  "version": "1.0.0-rc.8",
+  "version": "1.0.0-rc.9",
   "private": true,
   "description": "CMSの管理画面（Nuxt の SPA。Rust のサーバーが /admin/ で配信する）",
   "license": "Apache-2.0",
@@ -17,8 +17,8 @@
   },
   "dependencies": {
     "@lucide/vue": "1.73.0",
-    "@yomotsuhirasaka/editor-schema": "1.0.0-rc.8",
-    "@yomotsuhirasaka/preview": "1.0.0-rc.8",
+    "@yomotsuhirasaka/editor-schema": "1.0.0-rc.9",
+    "@yomotsuhirasaka/preview": "1.0.0-rc.9",
     "@nuxtjs/i18n": "10.6.0",
     "@tiptap/core": "3.34.0",
     "@tiptap/extension-bubble-menu": "3.34.0",
