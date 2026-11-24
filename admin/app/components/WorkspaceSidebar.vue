@@ -64,6 +64,18 @@ const main = computed(() => [
   ...(hasPermission(workspace.value, "viewQuestionLog") ? [{ to: `${base.value}/questions`, label: t("nav.questions"), icon: MessagesSquare }] : []),
 ]);
 const { me } = useAuth();
+const canSwitchTemplate = computed(
+  () => isWorkspaceAdmin(workspace.value) && (!!me.value?.isServerAdmin || hasPermission(workspace.value, "switchTemplate")),
+);
+// 切り替え先（今のテンプレート以外のデプロイ済みのもの）がなければ、切り替えの画面ではできることがないので出さない。
+// 取得に失敗したときは出す（画面で理由がわかる）。サイドバーが外れるとキャッシュも消えるので、
+// サーバーの管理でテンプレートをデプロイして戻ってくれば取り直す。
+// 権限が分かるまでは取らない。キーに権限を含めて、取らなかった結果（空）が取った結果を上書きしないようにする
+const { data: templateOptions, error: templateOptionsError } = useAsyncData(
+  () => `template-options-nav:${props.workspaceId}:${canSwitchTemplate.value}`,
+  () => (canSwitchTemplate.value ? api.get<unknown[]>(`/workspaces/${props.workspaceId}/template-options`) : Promise.resolve([])),
+);
+const showTemplate = computed(() => canSwitchTemplate.value && ((templateOptions.value?.length ?? 0) > 0 || !!templateOptionsError.value));
 // 管理の各画面（管理者とサーバー管理者だけ）。テンプレートの切り替えは、サーバー管理者と switchTemplate を持つ人だけ
 const admin = computed(() => {
   if (!isWorkspaceAdmin(workspace.value)) return [];
@@ -75,7 +87,7 @@ const admin = computed(() => {
     { to: `${a}/webhooks`, label: t("adminTabs.webhooks"), icon: Webhook },
     { to: `${a}/hook-secrets`, label: t("adminTabs.hookSecrets"), icon: LockKeyhole },
     { to: `${a}/correction-templates`, label: t("adminTabs.correctionTemplates"), icon: FilePen },
-    ...(me.value?.isServerAdmin || hasPermission(workspace.value, "switchTemplate")
+    ...(showTemplate.value
       ? [{ to: `${a}/template`, label: t("adminTabs.template"), icon: LayoutTemplate }]
       : []),
     { to: `${a}/audit`, label: t("adminTabs.audit"), icon: ScrollText },
