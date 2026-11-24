@@ -276,6 +276,50 @@ async fn deploying_templates() {
     .await;
 }
 
+/// 移行が DB のエラーで止まったときも、どのワークスペースにも適用せず、失敗を監査ログに残す。
+#[tokio::test]
+async fn database_errors_during_migration_are_audited() {
+    with_scratch(|app, migration| async move {
+        let server = start(config(&app, &migration)).await;
+        create_user(&server.pool, "root@example.test", true).await;
+        let root = login(&server, "root@example.test", PASSWORD).await;
+        enroll(&server, &root).await;
+        let res = send(&server, "POST", "/api/admin/me/tokens", &root, Some("{\"name\":\"deploy\",\"scopes\":[\"deploy\"],\"workspaceIds\":[]}")).await;
+        let token = res.json_str("token").unwrap();
+        let res = deploy(&server, &token, "blog", &body(&base(), "")).await;
+        assert_eq!(res.status, 200, "{}", res.body);
+        let deployed_at = res.json_str("deployedAt").unwrap();
+        let res = send(&server, "POST", "/api/admin/workspaces", &root, Some("{\"name\":\"A\",\"template\":\"blog\"}")).await;
+        assert_eq!(res.status, 201, "{}", res.body);
+        let a: Uuid = res.json_str("id").unwrap().parse().unwrap();
+
+        // 追加するフィールドと同じ名前の列を先に作っておき、移行の ADD COLUMN を DB のエラーにする
+        let schema = WorkspaceDb::names_for(a).schema;
+        sqlx::query(yomi_server::sql!("ALTER TABLE {}.ct_post ADD COLUMN f_clash text", schema))
+            .execute(&server.state.migration)
+            .await
+            .unwrap();
+        let m = manifest(r#", {"name": "clash", "type": "text"}"#, false, r#""ja", "en""#);
+        let res = deploy(&server, &token, "blog", &body(&m, "")).await;
+        assert_eq!(res.status, 500, "{}", res.body);
+
+        let info = get(&server, &format!("/api/admin/workspaces/{a}/schema"), &root).await;
+        assert!(!info.body.contains("\"clash\"") && info.body.contains(&deployed_at), "{}", info.body);
+        let failed: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE action = 'schema.migration_failed' AND workspace_id = $1")
+            .bind(a)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(failed, 1);
+        let deployed: i64 = sqlx::query_scalar("SELECT count(*) FROM yomi.audit_log WHERE action = 'template.deployed'")
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(deployed, 1);
+    })
+    .await;
+}
+
 /// 予約公開を待っている記事（予約版）を、ワークスペースのロールで直接作る。下書きは公開しない。
 async fn scheduled_entry(server: &Server, ws: Uuid, fields: &str) -> Uuid {
     let db = workspace_db::lookup(&server.pool, ws)
