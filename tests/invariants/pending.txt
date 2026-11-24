@@ -11,3 +11,51 @@
 # 予算と回数の制限
 # 質問ログと拒否する語
 # LLMの接続先とAPIキー
+
+# --- M5: 2026-11-25 に加えた機能（docs/decisions/14-release.md「機能の追加」）。テスト未作成 ---
+# 各機能のPRでテストを先に書いて承認を受け、実装後に行を消す。
+# 1. フィールドの型
+inv_fld_01
+inv_fld_02
+# 3. 本文のHTML、SDL
+inv_html_01
+inv_sch_10
+# 4. 画像の変換
+inv_med_07
+inv_med_08
+inv_med_09
+# 5. 複数のプロセス、メトリクス
+inv_ha_01
+inv_ha_02
+inv_ha_03
+inv_met_01
+# 6. 組織
+inv_org_01
+inv_org_02
+inv_org_03
+inv_org_04
+inv_org_05
+inv_org_06
+inv_org_07
+inv_org_08
+inv_org_09
+# 7. サイトマップ、公開の終了の予約
+inv_pub_07
+inv_pub_08
+# 8. MCP
+inv_mcp_01
+inv_mcp_02
+inv_mcp_03
+inv_mcp_04
+# 9. 署名
+inv_sig_01
+inv_sig_02
+inv_sig_03
+# 10. リンクと引用元の見張り
+inv_lnk_01
+inv_lnk_02
+inv_lnk_03
+inv_lnk_04
+# 11. 似た質問のまとめ
+inv_log_03
+inv_log_04
