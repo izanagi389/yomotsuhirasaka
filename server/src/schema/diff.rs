@@ -11,10 +11,28 @@ use super::manifest::{Field, Manifest, types_by_name};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Breaking {
     ContentTypeRemoved(String),
-    FieldRemoved { content_type: String, field: String },
-    FieldTypeChanged { content_type: String, field: String },
-    FieldBecameRequired { content_type: String, field: String },
-    RequiredFieldAdded { content_type: String, field: String },
+    FieldRemoved {
+        content_type: String,
+        field: String,
+    },
+    FieldTypeChanged {
+        content_type: String,
+        field: String,
+    },
+    FieldBecameRequired {
+        content_type: String,
+        field: String,
+    },
+    /// 受け付ける値が狭まる（選択肢を外す、範囲を狭める、グループの件数の上限を下げる、グループの中のフィールドを
+    /// 外す・型を変える・必須にする、など。2026-11-25）。
+    FieldNarrowed {
+        content_type: String,
+        field: String,
+    },
+    RequiredFieldAdded {
+        content_type: String,
+        field: String,
+    },
     LocaleRemoved(String),
     BodyNodeRemoved(String),
     BodyMarkRemoved(String),
@@ -43,6 +61,12 @@ impl Breaking {
             } => {
                 format!("field `{content_type}.{field}` becomes required")
             }
+            Self::FieldNarrowed {
+                content_type,
+                field,
+            } => {
+                format!("field `{content_type}.{field}` narrows the values it accepts")
+            }
             Self::RequiredFieldAdded {
                 content_type,
                 field,
@@ -57,9 +81,49 @@ impl Breaking {
     }
 }
 
-/// 列の形が変わるか（型・複数か・参照先）。変わるなら、列を作り直す（中身は消える）。
+/// 列の形が変わるか（型・複数か・整数か・参照先）。変わるなら、列を作り直す（中身は消える）。
+/// グループの中のフィールドでは、その値を消すかどうかの判定に使う。
 pub fn shape_changed(old: &Field, new: &Field) -> bool {
-    old.kind != new.kind || old.multiple != new.multiple || old.reference_to != new.reference_to
+    old.kind != new.kind
+        || old.multiple != new.multiple
+        || old.integer != new.integer
+        || old.reference_to != new.reference_to
+}
+
+/// 型を変えずに、受け付ける値が狭まるか（2026-11-25。合わない値があれば移行で止める）。
+pub fn narrowed(old: &Field, new: &Field) -> bool {
+    // 新しい限界が、ないところに加わるか、前より内側に動いたか
+    let tightened =
+        |old: Option<f64>, new: Option<f64>, inside: fn(f64, f64) -> bool| match (old, new) {
+            (_, None) => false,
+            (None, Some(_)) => true,
+            (Some(o), Some(n)) => inside(n, o),
+        };
+    let ((old_min, old_max), (new_min, new_max)) = (old.bounds(), new.bounds());
+    let min_raised = tightened(old_min, new_min, |n, o| n > o);
+    let max_lowered = tightened(old_max, new_max, |n, o| n < o);
+    let option_removed = old
+        .options
+        .iter()
+        .any(|o| !new.options.iter().any(|n| n.value == o.value));
+    min_raised
+        || max_lowered
+        || option_removed
+        || new.group_max_items() < old.group_max_items()
+        || group_fields_narrowed(old, new)
+}
+
+/// グループの中のフィールドが、外れる・型が変わる・必須になる（加わる）・値が狭まるか。
+fn group_fields_narrowed(old: &Field, new: &Field) -> bool {
+    old.fields.iter().any(|of| {
+        new.inner(&of.name)
+            .is_none_or(|nf| shape_changed(of, nf) || narrowed(of, nf))
+    }) || new.fields.iter().any(|nf| {
+        nf.required
+            && old
+                .inner(&nf.name)
+                .is_none_or(|of| !of.required || shape_changed(of, nf))
+    })
 }
 
 /// `old` から `new` への破壊的な変更の一覧。`old` がなければ（最初のデプロイ）空。
@@ -86,11 +150,19 @@ pub fn breaking_changes(old: Option<&Manifest>, new: &Manifest) -> Vec<Breaking>
                             content_type: name.to_owned(),
                             field: of.name.clone(),
                         });
-                    } else if nf.required && !of.required {
-                        out.push(Breaking::FieldBecameRequired {
-                            content_type: name.to_owned(),
-                            field: of.name.clone(),
-                        });
+                    } else {
+                        if nf.required && !of.required {
+                            out.push(Breaking::FieldBecameRequired {
+                                content_type: name.to_owned(),
+                                field: of.name.clone(),
+                            });
+                        }
+                        if narrowed(of, nf) {
+                            out.push(Breaking::FieldNarrowed {
+                                content_type: name.to_owned(),
+                                field: of.name.clone(),
+                            });
+                        }
                     }
                 }
             }
@@ -153,6 +225,7 @@ mod tests {
             description: None,
             dev_note: None,
             searchable: false,
+            ..Default::default()
         });
         new.locales.push("fr".into());
         new.content_types[0].description = Some("changed".into());
@@ -163,6 +236,86 @@ mod tests {
         new.content_types[0].list_limit = 5;
         assert!(breaking_changes(Some(&old), &new).is_empty());
         assert!(breaking_changes(None, &new).is_empty());
+    }
+
+    fn field(v: serde_json::Value) -> Field {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn narrowing_is_found_and_widening_is_not() {
+        use serde_json::{Value::Null, json};
+        let num = |min: serde_json::Value, max: serde_json::Value| {
+            let mut v = serde_json::json!({"name": "n", "type": "number"});
+            if !min.is_null() {
+                v["min"] = min;
+            }
+            if !max.is_null() {
+                v["max"] = max;
+            }
+            field(v)
+        };
+        assert!(narrowed(
+            &num(json!(0), json!(10)),
+            &num(json!(1), json!(10))
+        ));
+        assert!(narrowed(
+            &num(json!(0), json!(10)),
+            &num(json!(0), json!(9.5))
+        ));
+        assert!(narrowed(&num(Null, Null), &num(json!(0), Null)));
+        assert!(!narrowed(&num(json!(0), json!(10)), &num(json!(-1), Null)));
+
+        let sel = |values: &[&str]| {
+            field(json!({"name": "s", "type": "select",
+                "options": values.iter().map(|v| json!({"value": v})).collect::<Vec<_>>()}))
+        };
+        assert!(narrowed(&sel(&["a", "b"]), &sel(&["a"])));
+        assert!(!narrowed(&sel(&["a"]), &sel(&["a", "b"])));
+
+        let group = |max: u32, fields: serde_json::Value| {
+            field(json!({"name": "g", "type": "group", "maxItems": max, "fields": fields}))
+        };
+        let base = json!([{"name": "q", "type": "text"}, {"name": "n", "type": "number"}]);
+        assert!(!narrowed(&group(5, base.clone()), &group(6, base.clone())));
+        assert!(narrowed(&group(5, base.clone()), &group(4, base.clone())));
+        // 中のフィールドを外す・型を変える・必須にする・必須で加える・値を狭める
+        for changed in [
+            json!([{"name": "q", "type": "text"}]),
+            json!([{"name": "q", "type": "date"}, {"name": "n", "type": "number"}]),
+            json!([{"name": "q", "type": "text", "required": true}, {"name": "n", "type": "number"}]),
+            json!([{"name": "q", "type": "text"}, {"name": "n", "type": "number"}, {"name": "r", "type": "text", "required": true}]),
+            json!([{"name": "q", "type": "text"}, {"name": "n", "type": "number", "max": 1}]),
+        ] {
+            assert!(
+                narrowed(&group(5, base.clone()), &group(5, changed.clone())),
+                "{changed}"
+            );
+        }
+        // 任意のフィールドを加えるのは狭めない
+        let added = json!([{"name": "q", "type": "text"}, {"name": "n", "type": "number"}, {"name": "r", "type": "text"}]);
+        assert!(!narrowed(&group(5, base.clone()), &group(5, added)));
+
+        // 整数かどうかの切り替えは、列の形の変更
+        assert!(shape_changed(
+            &num(Null, Null),
+            &field(json!({"name": "n", "type": "number", "integer": true}))
+        ));
+    }
+
+    #[test]
+    fn narrowing_is_breaking() {
+        let mut old = sample();
+        old.content_types[0].fields.push(field(serde_json::json!(
+            {"name": "s", "type": "select", "options": [{"value": "a"}, {"value": "b"}]}
+        )));
+        let mut new = old.clone();
+        new.content_types[0].fields[4].options.pop();
+        let found: Vec<String> = breaking_changes(Some(&old), &new)
+            .iter()
+            .map(Breaking::describe)
+            .collect();
+        assert_eq!(found, ["field `post.s` narrows the values it accepts"]);
     }
 
     #[test]
@@ -187,6 +340,7 @@ mod tests {
             description: None,
             dev_note: None,
             searchable: false,
+            ..Default::default()
         });
         new.locales.retain(|l| l != "en");
         new.body.marks.retain(|m| m.name != "bold");

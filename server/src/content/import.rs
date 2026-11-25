@@ -20,6 +20,7 @@ use uuid::Uuid;
 use crate::content::entries;
 use crate::content::fields::{self, Column};
 use crate::content::publishing::{self, Refused};
+use crate::content::targets::Targets;
 use crate::schema::manifest::{ContentType, FieldType, Manifest};
 
 /// 1回に取り込める記事の数。
@@ -68,6 +69,8 @@ struct Planned {
     source: Option<usize>,
     original_url: String,
     columns: Vec<(String, Column)>,
+    /// 画像のフィールドが指すメディア（グループの中を含む）
+    targets: Targets,
 }
 
 fn is_text(s: &str, max: usize) -> bool {
@@ -87,11 +90,13 @@ pub fn plan(manifest: &Manifest, ct: &ContentType, items: &[Item]) -> Result<Pla
     }
     let mut seen_urls: HashMap<&str, &str> = HashMap::new();
     let mut converted = Vec::with_capacity(items.len());
+    let mut targets = Vec::with_capacity(items.len());
     for item in items {
         let k = &item.key;
         if !is_text(k, MAX_KEY_CHARS) {
             problems.push("key: must be 1 to 200 characters without control characters".to_owned());
             converted.push(None);
+            targets.push(Targets::default());
             continue;
         }
         if !manifest.locales.contains(&item.locale) {
@@ -117,17 +122,14 @@ pub fn plan(manifest: &Manifest, ct: &ContentType, items: &[Item]) -> Result<Pla
         if item.translation_of.is_some() && item.translation_key.is_none() {
             problems.push(format!("{k}: translationOf: needs translationKey"));
         }
-        // 参照は取り込みの後に編集画面で付ける（取り込みの時点では、参照先の記事のIDがない）
-        for name in item.fields.keys() {
-            if ct
-                .field(name)
-                .is_some_and(|f| f.kind == FieldType::Reference)
-            {
-                problems.push(format!(
-                    "{k}: fields.{name}: reference fields cannot be imported"
-                ));
-            }
-        }
+        // 参照は取り込みの後に編集画面で付ける（取り込みの時点では、参照先の記事のIDがない）。グループの中も同じ
+        let item_targets = Targets::of(&ct.fields, &item.fields);
+        problems.extend(
+            item_targets
+                .references()
+                .map(|path| format!("{k}: {path}: reference fields cannot be imported")),
+        );
+        targets.push(item_targets);
         match fields::convert_all(manifest, ct, &item.fields) {
             Ok(columns) => converted.push(Some(columns)),
             Err(p) => {
@@ -224,8 +226,9 @@ pub fn plan(manifest: &Manifest, ct: &ContentType, items: &[Item]) -> Result<Pla
         entries: items
             .iter()
             .zip(converted)
+            .zip(targets)
             .enumerate()
-            .map(|(i, (item, columns))| Planned {
+            .map(|(i, ((item, columns), targets))| Planned {
                 key: item.key.clone(),
                 id: Uuid::new_v4(),
                 locale: item.locale.clone(),
@@ -233,6 +236,7 @@ pub fn plan(manifest: &Manifest, ct: &ContentType, items: &[Item]) -> Result<Pla
                 source: source_of[i],
                 original_url: item.original_url.clone(),
                 columns: columns.unwrap_or_default(),
+                targets,
             })
             .collect(),
     })
@@ -269,26 +273,13 @@ pub async fn apply(
         {
             return Ok(Err(Failed::SlugTaken(p.key.clone())));
         }
-        // 画像のフィールド: このワークスペースにある、削除されていないメディアだけ（INV-IMG-03）
-        for f in ct.fields.iter().filter(|f| f.kind == FieldType::Image) {
-            let Some((_, Column::Json(Some(json)))) = p.columns.iter().find(|(n, _)| *n == f.name)
-            else {
-                continue;
-            };
-            let id = serde_json::from_str::<Value>(json)
-                .ok()
-                .as_ref()
-                .and_then(fields::image_media_id);
-            let found = match id {
-                Some(id) => crate::media::store::exists(conn, id).await?,
-                None => false,
-            };
-            if !found {
-                return Ok(Err(Failed::Refused(
-                    p.key.clone(),
-                    Refused::Invalid(vec![format!("fields.{}: unknown media", f.name)]),
-                )));
-            }
+        // 画像のフィールド: このワークスペースにある、削除されていないメディアだけ（INV-IMG-03。グループの中を含む）
+        let unknown = p.targets.unknown(conn).await?;
+        if !unknown.is_empty() {
+            return Ok(Err(Failed::Refused(
+                p.key.clone(),
+                Refused::Invalid(unknown),
+            )));
         }
         entries::create(conn, ct, p.id, &p.locale, p.group, actor, &p.columns).await?;
         let published =

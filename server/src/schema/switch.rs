@@ -72,7 +72,19 @@ fn compatible(old: &Field, new: &Field, ct_map: &BTreeMap<String, Option<String>
         .reference_to
         .as_ref()
         .map(|r| ct_map.get(r).cloned().flatten().unwrap_or_default());
-    old.kind == new.kind && old.multiple == new.multiple && mapped_ref == new.reference_to
+    let mapped = Field {
+        reference_to: mapped_ref,
+        ..old.clone()
+    };
+    !super::diff::shape_changed(&mapped, new)
+}
+
+/// グループの中のフィールドのうち、対応づけた先で外れる・型が変わるものがあるか（その値は移行で消える）。
+fn loses_inner_values(old: &Field, new: &Field, ct_map: &BTreeMap<String, Option<String>>) -> bool {
+    old.fields.iter().any(|oi| {
+        new.inner(&oi.name)
+            .is_none_or(|ni| !compatible(oi, ni, ct_map))
+    })
 }
 
 /// 対応づけを決めて確かめる。`old` がなければ（まだ適用していない）何も引き継がない。
@@ -155,7 +167,12 @@ pub fn plan(old: Option<&Manifest>, new: &Manifest, input: &MappingInput) -> Pla
                     ));
                 }
             }
-            destructive |= target.is_none();
+            // グループの中のフィールドが外れる・型が変わるときも、その値は消える（INV-SCH-08）
+            let inner_lost = target
+                .as_deref()
+                .and_then(|t| nct?.field(t))
+                .is_some_and(|nf| loses_inner_values(of, nf, &ct_map));
+            destructive |= target.is_none() || inner_lost;
             fields.push(FieldPlan {
                 from: of.name.clone(),
                 to: target,
@@ -303,10 +320,13 @@ fn renamed_old(old: &Manifest, plan: &Plan) -> Manifest {
                     let fp = tp.fields.iter().find(|f| f.from == of.name)?;
                     let mut f = of.clone();
                     f.name = fp.to.clone()?;
-                    f.reference_to = of
-                        .reference_to
-                        .as_deref()
-                        .and_then(|r| ct_map.get(r).map(|s| (*s).to_owned()));
+                    let map_ref =
+                        |r: Option<&str>| r.and_then(|r| ct_map.get(r).map(|s| (*s).to_owned()));
+                    f.reference_to = map_ref(of.reference_to.as_deref());
+                    // グループの中の参照先も、対応づけたコンテンツタイプの名前にする
+                    for inner in &mut f.fields {
+                        inner.reference_to = map_ref(inner.reference_to.as_deref());
+                    }
                     Some(f)
                 })
                 .collect();
@@ -664,6 +684,32 @@ mod tests {
 
     const POST: &str = r#"{"name":"post","urlTemplate":"https://example.com/{slug}","listLimit":5,"fields":[{"name":"title","type":"text","required":true},{"name":"slug","type":"slug","required":true},{"name":"summary","type":"text"}]}"#;
     const ARTICLE: &str = r#"{"name":"article","urlTemplate":"https://example.com/a/{slug}","listLimit":5,"fields":[{"name":"headline","type":"text","required":true},{"name":"slug","type":"slug","required":true},{"name":"body","type":"richtext"}]}"#;
+
+    #[test]
+    fn losing_values_inside_a_group_is_destructive() {
+        let with_faq = |inner: &str| {
+            manifest(&base(&POST.replace(
+                r#",{"name":"summary","type":"text"}"#,
+                &format!(r#",{{"name":"faq","type":"group","fields":[{inner}]}}"#),
+            )))
+        };
+        let old = with_faq(r#"{"name":"q","type":"text"},{"name":"note","type":"text"}"#);
+        let same = plan(Some(&old), &old.clone(), &MappingInput::default());
+        assert!(!same.destructive, "{:?}", same.problems);
+        for inner in [
+            r#"{"name":"q","type":"text"}"#,
+            r#"{"name":"q","type":"text"},{"name":"note","type":"number"}"#,
+        ] {
+            let p = plan(Some(&old), &with_faq(inner), &MappingInput::default());
+            assert!(p.problems.is_empty(), "{:?}", p.problems);
+            assert!(p.destructive, "{inner}");
+        }
+        // 中のフィールドが増えるだけなら消えない
+        let wider = with_faq(
+            r#"{"name":"q","type":"text"},{"name":"note","type":"text"},{"name":"x","type":"boolean"}"#,
+        );
+        assert!(!plan(Some(&old), &wider, &MappingInput::default()).destructive);
+    }
 
     #[test]
     fn same_names_are_mapped_by_default() {

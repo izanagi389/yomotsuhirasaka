@@ -5,4 +5,5 @@ pub mod deploy;
 pub mod diff;
 pub mod manifest;
 pub mod migrate;
+pub mod narrowing;
 pub mod switch;

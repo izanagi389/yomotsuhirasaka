@@ -867,6 +867,10 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
     },
     saveDraftRaw: (auth: Auth, workspaceId: string, entryId: string, changes: Partial<EntryInput>, revision: string, options?: { lockId?: string }) =>
       saveDraftRaw(auth, workspaceId, entryId, changes, revision, undefined, options?.lockId),
+    hookFailureOf(res: HttpResponse): string | null {
+      const { hookFailure } = JSON.parse(res.text) as { hookFailure?: unknown };
+      return typeof hookFailure === "string" ? hookFailure : null;
+    },
     acquireEditLockRaw: (auth: Auth, workspaceId: string, entryId: string) => request("POST", lockPath(workspaceId, entryId), { auth }),
     async acquireEditLock(s: Session, workspaceId: string, entryId: string): Promise<string> {
       return lockIdOf("編集のロック", await request("POST", lockPath(workspaceId, entryId), { auth: session(s) }));

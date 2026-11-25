@@ -815,6 +815,11 @@ export interface YomiClient {
   /** 下書きを保存する。lockId は、編集のロック（M2）を持って保存するときに付ける。 */
   saveDraftRaw(auth: Auth, workspaceId: string, entryId: string, changes: Partial<EntryInput>, revision: string, options?: { lockId?: string }): Promise<HttpResponse>;
   /**
+   * 保存（記事の作成・下書きの保存）の成功の応答から、保存前のフックの直しを使わなかった理由を読む（なければ null）。
+   * フックが失敗したときや、フックの直しが検査に通らないときは、直さずに保存して、その理由を知らせる（content/hooks.rs）。
+   */
+  hookFailureOf(res: HttpResponse): string | null;
+  /**
    * 記事の編集のロック（M2、Q73）。記事の画面を開いたときに取り、保存に lockId を付ける。ほかの画面が持っていれば断られる。
    * ロックは画面（ロックのID）ごと。保存はロックを取らない。
    */

@@ -272,12 +272,13 @@ pub async fn usage(
     let mut found = std::collections::BTreeMap::<Uuid, Usage>::default();
     for ct in &manifest.content_types {
         let table = table_name(&ct.name)?;
-        // 本文のフィールドの画像と、画像のフィールド（どちらもメディアのIDは小文字・ハイフン区切り）
-        for f in ct
-            .fields
-            .iter()
-            .filter(|f| matches!(f.kind, FieldType::Richtext | FieldType::Image))
-        {
+        // 本文のフィールドの画像と、画像のフィールド（グループの中を含む。どれもメディアのIDは小文字・ハイフン区切り）
+        for f in ct.fields.iter().filter(|f| {
+            matches!(
+                f.kind,
+                FieldType::Richtext | FieldType::Image | FieldType::Group
+            )
+        }) {
             let column = column_name(&f.name)?;
             let rows: Vec<(Uuid, String)> = sqlx::query_as(crate::sql!(
                 "SELECT e.id, e.locale FROM {table} t JOIN entries e ON e.id = t.entry_id
@@ -320,6 +321,22 @@ pub async fn usage(
             .push(number);
     }
     Ok(found.into_values().collect())
+}
+
+/// どれもワークスペースにある、削除されていないメディアか（グループの中の画像のフィールドの保存の検査。INV-IMG-03）。
+pub async fn all_exist(conn: &mut PgConnection, ids: &[Uuid]) -> Result<bool> {
+    let mut unique = ids.to_vec();
+    unique.sort();
+    unique.dedup();
+    if unique.is_empty() {
+        return Ok(true);
+    }
+    let found: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM media WHERE id = ANY($1) AND deleted_at IS NULL")
+            .bind(&unique)
+            .fetch_one(conn)
+            .await?;
+    Ok(found == i64::try_from(unique.len())?)
 }
 
 /// ワークスペースにある、削除されていないメディアか（画像のフィールドの保存の検査。INV-IMG-03）。

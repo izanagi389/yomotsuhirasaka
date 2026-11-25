@@ -31,6 +31,7 @@ use crate::auth::session::Current;
 use crate::content::entries::{self, Draft, Saved, Summary};
 use crate::content::fields::{self, Column};
 use crate::content::hooks;
+use crate::content::targets::Targets;
 use crate::content::{Applied, applied_schema};
 use crate::schema::manifest::{ContentType, FieldType};
 use crate::script::{Failure, Host};
@@ -101,57 +102,30 @@ pub(super) async fn db(state: &AppState, ws: Uuid) -> Result<workspace_db::Works
 }
 
 /// 参照・スラッグ・画像のフィールドの検査（ワークスペースのデータと照らし合わせるもの）。
+/// 参照と画像は、グループの中も同じ規則で確かめる（`content/targets.rs`）。
 async fn check_against_data(
     conn: &mut sqlx::PgConnection,
     ct: &ContentType,
     entry_id: Uuid,
     locale: &str,
     columns: &[(String, Column)],
+    targets: &Targets,
 ) -> Result<Result<(), ApiError>, ApiError> {
     for (name, value) in columns {
-        let Some(field) = ct.field(name) else {
-            continue;
-        };
-        match (field.kind, value) {
-            (FieldType::Slug, Column::Text(Some(slug))) => {
-                if entries::slug_taken(conn, ct, locale, slug, entry_id).await? {
-                    return Ok(Err(ApiError::new(
-                        StatusCode::CONFLICT,
-                        "slug_taken",
-                        format!(
-                            "Another entry in this locale already uses this value of `{name}`."
-                        ),
-                    )));
-                }
-            }
-            (FieldType::Reference, Column::Uuid(Some(id))) => {
-                let to = field.reference_to.as_deref().unwrap_or_default();
-                if !entries::groups_exist(conn, to, &[*id]).await? {
-                    return Ok(Err(invalid(vec![format!("fields.{name}: unknown entry")])));
-                }
-            }
-            (FieldType::Reference, Column::Uuids(Some(ids))) => {
-                let to = field.reference_to.as_deref().unwrap_or_default();
-                if !entries::groups_exist(conn, to, ids).await? {
-                    return Ok(Err(invalid(vec![format!("fields.{name}: unknown entry")])));
-                }
-            }
-            // 画像のフィールド: このワークスペースにある、削除されていないメディアだけ（INV-IMG-03）
-            (FieldType::Image, Column::Json(Some(json))) => {
-                let id = serde_json::from_str::<serde_json::Value>(json)
-                    .ok()
-                    .as_ref()
-                    .and_then(crate::content::fields::image_media_id);
-                let found = match id {
-                    Some(id) => crate::media::store::exists(conn, id).await?,
-                    None => false,
-                };
-                if !found {
-                    return Ok(Err(invalid(vec![format!("fields.{name}: unknown media")])));
-                }
-            }
-            _ => {}
+        if let (Some(FieldType::Slug), Column::Text(Some(slug))) =
+            (ct.field(name).map(|f| f.kind), value)
+            && entries::slug_taken(conn, ct, locale, slug, entry_id).await?
+        {
+            return Ok(Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "slug_taken",
+                format!("Another entry in this locale already uses this value of `{name}`."),
+            )));
         }
+    }
+    let unknown = targets.unknown(conn).await?;
+    if !unknown.is_empty() {
+        return Ok(Err(invalid(unknown)));
     }
     Ok(Ok(()))
 }
@@ -255,7 +229,15 @@ pub async fn create(
     .await;
     let columns = fields::convert_all(manifest, ct, &changes).map_err(invalid)?;
     let mut tx = workspace_db::begin(&state.pool, &db).await?;
-    check_against_data(&mut tx, ct, id, &locale, &columns).await??;
+    check_against_data(
+        &mut tx,
+        ct,
+        id,
+        &locale,
+        &columns,
+        &Targets::of(&ct.fields, &changes),
+    )
+    .await??;
     if !entries::room_for(&mut tx, state.config.limits.max_entries_per_workspace, 1).await? {
         return Err(entry_limit_reached());
     }
@@ -353,7 +335,15 @@ pub async fn save_draft(
     )
     .await;
     let columns = fields::convert_all(manifest, ct, &changes).map_err(invalid)?;
-    check_against_data(&mut tx, ct, id, &before.locale, &columns).await??;
+    check_against_data(
+        &mut tx,
+        ct,
+        id,
+        &before.locale,
+        &columns,
+        &Targets::of(&ct.fields, &changes),
+    )
+    .await??;
     // ほかの画面が編集中なら保存しない（INV-LOCK-01。保存ではロックを取らない）
     if crate::content::locks::blocking_save(&mut tx, id, req.lock_id)
         .await?

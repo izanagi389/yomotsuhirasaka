@@ -19,7 +19,7 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::entries::{self, Draft};
-use super::{fields, sections};
+use super::{fields, groups, sections};
 use crate::schema::manifest::{ContentType, FieldType, Manifest};
 use crate::script::{Engine, Failure, Host};
 
@@ -210,27 +210,31 @@ fn problems(manifest: &Manifest, ct: &ContentType, draft: &Draft) -> Vec<String>
         if empty && (f.required || f.kind == FieldType::Slug) {
             problems.push(format!("fields.{}: required to publish", f.name));
         }
+        // グループの中の必須のフィールドも、件ごとに確かめる（INV-FLD-02）
+        problems.extend(
+            groups::missing_required(f, value)
+                .map(|(i, inner)| format!("fields.{}[{i}].{inner}: required to publish", f.name)),
+        );
     }
     problems
 }
 
-/// 代替テキストも「装飾画像」の印もない画像の場所（`fields.<名前>.content[..]`、画像のフィールドは `fields.<名前>`）。
+/// 代替テキストも「装飾画像」の印もない画像の場所（`fields.<名前>.content[..]`、画像のフィールドは `fields.<名前>`、
+/// グループの中の画像のフィールドは `fields.<名前>[<件>].<中の名前>`）。
 fn missing_alt(ct: &ContentType, draft: &Draft) -> Vec<String> {
     let mut missing = Vec::new();
-    for f in &ct.fields {
-        let Some(value) = draft.fields.get(&f.name).filter(|v| v.is_object()) else {
+    for leaf in groups::leaves(&ct.fields, &draft.fields) {
+        if !leaf.value.is_object() {
             continue;
-        };
-        match f.kind {
+        }
+        match leaf.field.kind {
             FieldType::Richtext => missing.extend(
-                sections::images_missing_alt(value)
+                sections::images_missing_alt(leaf.value)
                     .into_iter()
-                    .map(|p| format!("fields.{}{}", f.name, p.trim_start_matches('$'))),
+                    .map(|p| format!("{}{}", leaf.path, p.trim_start_matches('$'))),
             ),
             // 画像のフィールドも、本文の画像と同じ規則（INV-IMG-01）
-            FieldType::Image if !sections::has_alt(value) => {
-                missing.push(format!("fields.{}", f.name));
-            }
+            FieldType::Image if !sections::has_alt(leaf.value) => missing.push(leaf.path),
             _ => {}
         }
     }

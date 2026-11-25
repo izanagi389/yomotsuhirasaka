@@ -101,6 +101,15 @@ pub fn single(content_type: &str) -> String {
     first + &it.map(capitalize).collect::<String>()
 }
 
+/// グループのフィールドの各件の型の名前（`post` の `faq` → `PostFaqItem`）。
+pub fn group_item_type(content_type: &str, field: &str) -> String {
+    format!(
+        "{}{}Item",
+        type_name(content_type),
+        parts(field).map(capitalize).collect::<String>()
+    )
+}
+
 pub fn by_slug(content_type: &str) -> String {
     format!("{}BySlug", single(content_type))
 }
@@ -137,6 +146,14 @@ pub fn problems(m: &Manifest) -> Vec<String> {
             }
         }
         for (j, f) in ct.fields.iter().enumerate() {
+            if f.kind == crate::schema::manifest::FieldType::Group {
+                let t = group_item_type(&ct.name, &f.name);
+                if RESERVED_TYPES.contains(&t.as_str()) || !types.insert(t) {
+                    problems.push(format!(
+                        "contentTypes[{i}].fields[{j}].name: the GraphQL type name of its items is used by another type"
+                    ));
+                }
+            }
             // 本文のフィールドは `<名前>Html`・`<名前>Markdown` も置く
             if f.kind == crate::schema::manifest::FieldType::Richtext
                 && format!("{}Markdown", f.name) == AI_MARKDOWN_FIELD
@@ -168,6 +185,10 @@ mod tests {
         assert_eq!(single("blog_post"), "blogPost");
         assert_eq!(by_slug("post"), "postBySlug");
         assert_eq!(list("blog_post"), "blogPostList");
+        assert_eq!(
+            group_item_type("blog_post", "faq_items"),
+            "BlogPostFaqItemsItem"
+        );
     }
 
     #[test]
@@ -195,6 +216,19 @@ mod tests {
         m.content_types.push(other.clone());
         assert!(!problems(&m).is_empty(), "Query is reserved");
         m.content_types.pop();
+        // グループの各件の型の名前が、ほかのコンテンツタイプの型の名前とぶつかる
+        let mut faq = m.content_types[0].clone();
+        faq.name = "post_faq_item".into();
+        m.content_types.push(faq);
+        m.content_types[0].fields.push(
+            serde_json::from_value(serde_json::json!(
+                {"name": "faq", "type": "group", "fields": [{"name": "q", "type": "text"}]}
+            ))
+            .unwrap(),
+        );
+        assert!(!problems(&m).is_empty(), "PostFaqItem collides");
+        m.content_types.pop();
+        m.content_types[0].fields.pop();
         m.content_types[0].fields[0].name = "url".into();
         assert!(!problems(&m).is_empty(), "url is reserved");
     }

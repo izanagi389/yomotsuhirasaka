@@ -115,7 +115,8 @@ pub fn valid_embed(src: &str, providers: &[String]) -> bool {
             .is_some_and(|h| providers.iter().any(|p| p.eq_ignore_ascii_case(h)))
 }
 
-fn valid_anchor(id: &str) -> bool {
+/// アンカーIDとして正しい形か（見出しのアンカーと、グループの各件のID。Q10）。
+pub(crate) fn valid_anchor(id: &str) -> bool {
     (1..=MAX_ANCHOR_LEN).contains(&id.len())
         && id
             .bytes()
@@ -123,6 +124,11 @@ fn valid_anchor(id: &str) -> bool {
 }
 
 fn new_anchor() -> String {
+    new_anchor_with_prefix("h")
+}
+
+/// 新しいアンカーID（`<接頭辞>-` に続けて、ランダムな英小文字・数字10文字）。
+pub(crate) fn new_anchor_with_prefix(prefix: &str) -> String {
     const ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
     let mut bytes = [0u8; 10];
     rand::fill(&mut bytes);
@@ -130,7 +136,7 @@ fn new_anchor() -> String {
         .iter()
         .map(|b| ALPHABET[(*b as usize) % ALPHABET.len()] as char)
         .collect();
-    format!("h-{s}")
+    format!("{prefix}-{s}")
 }
 
 fn check_attrs(

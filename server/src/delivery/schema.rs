@@ -31,6 +31,7 @@ use super::names::{
     REDIRECTS_FIELD, RELATED_ENTRIES_FIELD, RELATED_ENTRY_TYPE, SEARCH_AVAILABILITY_TYPE,
     SEARCH_FIELD, SEARCH_HIT_TYPE, SEARCH_MATCH_TYPE, SEARCH_MODE_TYPE, SEARCH_RESULT_TYPE,
 };
+use super::template_fields;
 use crate::content::corrections::{self, Correction, DeletedAnchor, FeedItem};
 use crate::content::freshness::{self, Freshness};
 use crate::content::redirects::{self, Rule};
@@ -65,7 +66,7 @@ pub struct RequestData {
 
 impl RequestData {
     /// 記事を `n` 件解決したことを数える。上限を超えたら、そのクエリはそこで止める。
-    fn charge(&self, n: usize) -> async_graphql::Result<()> {
+    pub(super) fn charge(&self, n: usize) -> async_graphql::Result<()> {
         if self.resolved.fetch_add(n, Ordering::Relaxed) + n > self.max_resolved {
             return Err(async_graphql::Error::new("query resolves too many entries"));
         }
@@ -887,7 +888,8 @@ fn related_entries_field(manifest: Arc<Manifest>) -> Field {
     .description("Related entries of the same content type and locale (default 5, at most 10). Unpublished and deleted entries are never included.")
 }
 
-fn entry_type(ct: &ContentType, manifest: Arc<Manifest>) -> Object {
+/// 記事の型と、その中のグループの各件の型（`extra` に足す）。
+fn entry_type(ct: &ContentType, manifest: Arc<Manifest>, extra: &mut Vec<Object>) -> Object {
     let mut obj = system_fields(Object::new(names::type_name(&ct.name)));
     obj = obj.field(related_entries_field(manifest.clone()));
     obj = correction_fields(obj, ct);
@@ -914,103 +916,7 @@ fn entry_type(ct: &ContentType, manifest: Arc<Manifest>) -> Object {
         },
     ));
     for f in &ct.fields {
-        let name = f.name.clone();
-        let mut field = match f.kind {
-            FieldType::Text | FieldType::Slug => {
-                Field::new(&f.name, TypeRef::named(TypeRef::STRING), move |ctx| {
-                    let v = parent(&ctx).map(|e| {
-                        e.fields
-                            .get(&name)
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                    });
-                    FieldFuture::new(async move { Ok(v?.map(GqlValue::from)) })
-                })
-            }
-            FieldType::Richtext => Field::new(&f.name, TypeRef::named(JSON_SCALAR), move |ctx| {
-                let name = name.clone();
-                FieldFuture::new(async move {
-                    let e = parent(&ctx)?;
-                    let Some(doc) = e.fields.get(&name).filter(|v| v.is_object()).cloned() else {
-                        return Ok(None);
-                    };
-                    let req = request(&ctx)?;
-                    let mut guard = req.tx.lock().await;
-                    let Some(tx) = guard.as_mut() else {
-                        return Ok(None);
-                    };
-                    let doc = data::with_media(tx, &req.media_base, req.workspace_id, doc)
-                        .await
-                        .map_err(internal)?;
-                    Ok(Some(FieldValue::value(
-                        GqlValue::from_json(doc).map_err(|e| internal(e.into()))?,
-                    )))
-                })
-            }),
-            // 画像のフィールド: メディアが削除されていれば null（INV-IMG-02）
-            FieldType::Image => Field::new(&f.name, TypeRef::named(IMAGE_TYPE), move |ctx| {
-                let name = name.clone();
-                FieldFuture::new(async move {
-                    let e = parent(&ctx)?;
-                    let Some(value) = e.fields.get(&name).filter(|v| v.is_object()).cloned() else {
-                        return Ok(None);
-                    };
-                    let req = request(&ctx)?;
-                    let mut guard = req.tx.lock().await;
-                    let Some(tx) = guard.as_mut() else {
-                        return Ok(None);
-                    };
-                    let image = data::image(tx, &req.media_base, req.workspace_id, &value)
-                        .await
-                        .map_err(internal)?;
-                    Ok(image.map(FieldValue::owned_any))
-                })
-            }),
-            FieldType::Reference => {
-                let target_ct = f.reference_to.clone().unwrap_or_default();
-                let target = names::type_name(&target_ct);
-                let multiple = f.multiple;
-                let ty = if multiple {
-                    TypeRef::named_nn_list_nn(target)
-                } else {
-                    TypeRef::named(target)
-                };
-                Field::new(&f.name, ty, move |ctx| {
-                    let (name, target_ct) = (name.clone(), target_ct.clone());
-                    FieldFuture::new(async move {
-                        let e = parent(&ctx)?;
-                        let groups: Vec<Uuid> = match e.fields.get(&name) {
-                            Some(Value::Array(a)) => a
-                                .iter()
-                                .filter_map(Value::as_str)
-                                .filter_map(|s| Uuid::parse_str(s).ok())
-                                .collect(),
-                            Some(Value::String(s)) => Uuid::parse_str(s).ok().into_iter().collect(),
-                            _ => Vec::new(),
-                        };
-                        let req = request(&ctx)?;
-                        let mut guard = req.tx.lock().await;
-                        let resolved = match guard.as_mut() {
-                            Some(tx) => data::resolve_groups(tx, &target_ct, &e.locale, &groups)
-                                .await
-                                .map_err(internal)?,
-                            None => Vec::new(),
-                        };
-                        drop(guard);
-                        req.charge(resolved.len())?;
-                        if multiple {
-                            Ok(Some(list_of(resolved)))
-                        } else {
-                            Ok(resolved.into_iter().next().map(FieldValue::owned_any))
-                        }
-                    })
-                })
-            }
-        };
-        if let Some(d) = &f.description {
-            field = field.description(d.clone());
-        }
-        obj = obj.field(field);
+        obj = obj.field(template_fields::field::<Entry>(&ct.name, f, extra));
         if f.kind == FieldType::Richtext {
             obj = obj
                 .field(rendered_field(&f.name, Rendering::Html))
@@ -1287,7 +1193,11 @@ pub fn build(
         .limit_complexity(limits.complexity)
         .disable_suggestions();
     for ct in &manifest.content_types {
-        builder = builder.register(entry_type(ct, shared.clone()));
+        let mut extra = Vec::new();
+        builder = builder.register(entry_type(ct, shared.clone(), &mut extra));
+        for item_type in extra {
+            builder = builder.register(item_type);
+        }
     }
     let (answer_objects, answer_status, answer_event) = super::answer::types();
     for o in answer_objects {
