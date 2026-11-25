@@ -7,7 +7,14 @@ export const DESCRIPTION_MARKER = "DESC-MARKER-0b7e2c";
 /** 配信APIとスキーマ情報のAPIに決して出てはいけない目印（INV-SCH-01）。 */
 export const DEVNOTE_MARKER = "DEVNOTE-MARKER-7f3a91";
 
-export type FieldType = "text" | "slug" | "richtext" | "reference" | "image";
+/**
+ * フィールドの型。M5 で数値・真偽値・日付・日時・選択肢・グループを加えた（2026-11-25、02-schema-and-delivery-api.md「フィールドの型」）。
+ * - number: 数値。integer なら整数（32ビット）、そうでなければ小数
+ * - date: 日付（タイムゾーンなし、YYYY-MM-DD）。datetime: 日時（UTCで保存・配信）
+ * - select: options の値の中から選ぶ。multiple なら複数
+ * - group: fields のフィールドをまとめて、maxItems 件まで繰り返し持つ
+ */
+export type FieldType = "text" | "slug" | "richtext" | "reference" | "image" | "number" | "boolean" | "date" | "datetime" | "select" | "group";
 
 /**
  * 組み込みJSで動く関数（URL生成関数・フックなど）が、権限として宣言できるホスト関数（04-hooks.md、Q11）。
@@ -47,6 +54,17 @@ export interface FieldSpec {
    * 対象のフィールドの内容から、チャンクと埋め込みを作る。
    */
   searchable?: boolean;
+  /** number: 整数に限るか。 */
+  integer?: boolean;
+  /** number: 下限と上限（両端を含む）。 */
+  min?: number;
+  max?: number;
+  /** select: 選べる値。 */
+  options?: string[];
+  /** group: 中のフィールド。 */
+  fields?: FieldSpec[];
+  /** group: 件数の上限。 */
+  maxItems?: number;
 }
 
 export interface ContentTypeSpec {
