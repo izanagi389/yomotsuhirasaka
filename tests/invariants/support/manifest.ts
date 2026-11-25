@@ -3,7 +3,7 @@
 // 本番ではCLIが、テンプレートのJSONとTiptapの拡張機能から同じ形を作る。ここでは、Tiptapの標準の拡張機能
 // （StarterKit と Link）と、CMSの画像（image）・埋め込み（embed）の定義を、名前から引いて書き出す。
 
-import type { CustomNodeSpec, ScriptPermission, ScriptSpec, TemplateSpec } from "./template.js";
+import type { CustomNodeSpec, FieldSpec, ScriptPermission, ScriptSpec, TemplateSpec } from "./template.js";
 
 interface NodeDef {
   children: string[];
@@ -106,17 +106,28 @@ export function toManifest(t: TemplateSpec): unknown {
       // タイトルと要約のフィールド（執筆支援の案の当て先。2026-11-17）。書いたときだけ載せる
       ...(ct.titleField !== undefined ? { titleField: ct.titleField } : {}),
       ...(ct.summaryField !== undefined ? { summaryField: ct.summaryField } : {}),
-      fields: ct.fields.map((f) => ({
-        // 検索・質問応答の対象（M3、Q16）。既定は対象外なので、対象のときだけ書く
-        ...(f.searchable ? { searchable: true } : {}),
-        name: f.name,
-        type: f.type,
-        required: f.required ?? false,
-        referenceTo: f.referenceTo,
-        multiple: f.multiple ?? false,
-        description: f.description,
-        devNote: f.devNote,
-      })),
+      fields: ct.fields.map(field),
     })),
+  };
+}
+
+function field(f: FieldSpec): Record<string, unknown> {
+  return {
+    // 検索・質問応答の対象（M3、Q16）。既定は対象外なので、対象のときだけ書く
+    ...(f.searchable ? { searchable: true } : {}),
+    name: f.name,
+    type: f.type,
+    required: f.required ?? false,
+    referenceTo: f.referenceTo,
+    multiple: f.multiple ?? false,
+    description: f.description,
+    devNote: f.devNote,
+    // M5 で加えた型の設定（2026-11-25）。書いたときだけ載せる
+    ...(f.integer !== undefined ? { integer: f.integer } : {}),
+    ...(f.min !== undefined ? { min: f.min } : {}),
+    ...(f.max !== undefined ? { max: f.max } : {}),
+    ...(f.options !== undefined ? { options: f.options.map((value) => ({ value })) } : {}),
+    ...(f.fields !== undefined ? { fields: f.fields.map(field) } : {}),
+    ...(f.maxItems !== undefined ? { maxItems: f.maxItems } : {}),
   };
 }

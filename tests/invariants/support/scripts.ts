@@ -228,3 +228,18 @@ export default function beforeSave(input) {
 }
 `;
 }
+
+/**
+ * 保存前のフック: summary が `set:<フィールド名>=<JSON>` なら、そのフィールドを JSON の値に直す。
+ * それ以外の記事では何も直さない。フックの直しも保存の前に検証されることを確かめるのに使う。
+ */
+export function beforeSaveSettingField(): string {
+  return `
+export default function beforeSave(input) {
+  const s = input.entry.fields.summary;
+  if (typeof s !== "string" || !s.startsWith("set:")) return { fields: {} };
+  const eq = s.indexOf("=");
+  return { fields: { [s.slice(4, eq)]: JSON.parse(s.slice(eq + 1)) } };
+}
+`;
+}
