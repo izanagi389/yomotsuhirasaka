@@ -6,8 +6,8 @@
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use super::body;
-use crate::schema::manifest::{ContentType, FieldType, Manifest};
+use super::{body, datetime, groups};
+use crate::schema::manifest::{ContentType, Field, FieldType, Manifest};
 
 const MAX_TEXT_CHARS: usize = 10_000;
 const MAX_SLUG_LEN: usize = 200;
@@ -21,6 +21,14 @@ pub enum Column {
     Json(Option<String>),
     Uuid(Option<Uuid>),
     Uuids(Option<Vec<Uuid>>),
+    Int(Option<i32>),
+    Float(Option<f64>),
+    Bool(Option<bool>),
+    /// `YYYY-MM-DD`（`::date` で書く）
+    Date(Option<String>),
+    /// UTC の `YYYY-MM-DDTHH:MM:SSZ`（`::timestamptz` で書く）
+    Datetime(Option<String>),
+    Texts(Option<Vec<String>>),
 }
 
 impl Column {
@@ -31,6 +39,12 @@ impl Column {
             Self::Json(_) => "jsonb",
             Self::Uuid(_) => "uuid",
             Self::Uuids(_) => "uuid[]",
+            Self::Int(_) => "integer",
+            Self::Float(_) => "double precision",
+            Self::Bool(_) => "boolean",
+            Self::Date(_) => "date",
+            Self::Datetime(_) => "timestamptz",
+            Self::Texts(_) => "text[]",
         }
     }
 }
@@ -47,7 +61,7 @@ pub fn valid_slug(s: &str) -> bool {
         })
 }
 
-fn valid_text(s: &str) -> bool {
+pub(super) fn valid_text(s: &str) -> bool {
     s.chars().count() <= MAX_TEXT_CHARS
         && !s.chars().any(|c| c.is_control() && c != '\n' && c != '\t')
 }
@@ -66,16 +80,7 @@ fn convert(
     };
     let path = format!("fields.{name}");
     let column = match (field.kind, value) {
-        (FieldType::Text | FieldType::Slug, Value::Null) => Column::Text(None),
-        (FieldType::Text, Value::String(s)) => {
-            if !valid_text(s) {
-                problems.push(format!(
-                    "{path}: text is too long or contains control characters"
-                ));
-                return None;
-            }
-            Column::Text(Some(s.clone()))
-        }
+        (FieldType::Slug, Value::Null) => Column::Text(None),
         (FieldType::Slug, Value::String(s)) => {
             if !valid_slug(s) {
                 problems.push(format!(
@@ -85,7 +90,7 @@ fn convert(
             }
             Column::Text(Some(s.clone()))
         }
-        (FieldType::Richtext | FieldType::Image, Value::Null) => Column::Json(None),
+        (FieldType::Richtext, Value::Null) => Column::Json(None),
         (FieldType::Richtext, doc) => match body::validate(doc, &manifest.body) {
             Ok(normalized) => Column::Json(Some(normalized.to_string())),
             Err(found) => {
@@ -97,43 +102,148 @@ fn convert(
                 return None;
             }
         },
-        (FieldType::Reference, Value::Null) if field.multiple => Column::Uuids(None),
-        (FieldType::Reference, Value::Null) => Column::Uuid(None),
-        (FieldType::Reference, Value::String(s)) if !field.multiple => {
-            let Ok(id) = Uuid::parse_str(s) else {
-                problems.push(format!("{path}: must be a translation group ID"));
-                return None;
-            };
-            Column::Uuid(Some(id))
+        (FieldType::Slug, _) => {
+            problems.push(format!("{path}: wrong type of value"));
+            return None;
         }
-        (FieldType::Reference, Value::Array(items)) if field.multiple => {
-            let ids: Option<Vec<Uuid>> = items
-                .iter()
-                .map(|v| v.as_str().and_then(|s| Uuid::parse_str(s).ok()))
-                .collect();
-            match ids {
-                Some(ids) if ids.len() <= MAX_REFERENCES => Column::Uuids(Some(ids)),
-                _ => {
-                    problems.push(format!(
-                        "{path}: must be at most {MAX_REFERENCES} translation group IDs"
-                    ));
-                    return None;
-                }
-            }
+        (FieldType::Group, _) => {
+            let normalized = groups::normalize(&path, field, value, problems)?;
+            Column::Json((!normalized.is_null()).then(|| normalized.to_string()))
         }
-        (FieldType::Image, Value::Object(obj)) => match image_value(obj) {
-            Ok(v) => Column::Json(Some(v.to_string())),
+        _ => match value_of(field, value) {
+            Ok(normalized) => column_of(field, &normalized),
             Err(why) => {
                 problems.push(format!("{path}: {why}"));
                 return None;
             }
         },
-        _ => {
-            problems.push(format!("{path}: wrong type of value"));
-            return None;
-        }
     };
     Some((field.name.clone(), column))
+}
+
+/// スラッグ・本文・グループ以外のフィールドの値を検査し、そろえた JSON の値にする（空は `Null`）。
+/// グループの中の値にも使う。理由には値を書かない。
+pub(crate) fn value_of(field: &Field, value: &Value) -> Result<Value, String> {
+    let wrong = || Err("wrong type of value".to_owned());
+    match (field.kind, value) {
+        (_, Value::Null) => Ok(Value::Null),
+        (FieldType::Text, Value::String(s)) => {
+            if valid_text(s) {
+                Ok(value.clone())
+            } else {
+                Err("text is too long or contains control characters".to_owned())
+            }
+        }
+        (FieldType::Reference, _) => reference_value(field, value),
+        (FieldType::Image, Value::Object(obj)) => image_value(obj).map_err(str::to_owned),
+        (FieldType::Number, Value::Number(n)) => number_value(field, n),
+        (FieldType::Boolean, Value::Bool(_)) => Ok(value.clone()),
+        (FieldType::Date, Value::String(s)) if datetime::valid_date(s) => Ok(value.clone()),
+        (FieldType::Date, Value::String(_)) => {
+            Err("date must be an existing date written as YYYY-MM-DD".to_owned())
+        }
+        (FieldType::Datetime, Value::String(s)) => datetime::normalize_datetime(s)
+            .map(Value::String)
+            .ok_or_else(|| {
+                "datetime must be ISO 8601 with a time zone offset, in whole seconds".to_owned()
+            }),
+        (FieldType::Select, _) => select_value(field, value),
+        _ => wrong(),
+    }
+}
+
+fn reference_value(field: &Field, value: &Value) -> Result<Value, String> {
+    // 正しいIDなら、ハイフン付きの形にそろえた値
+    let id = |v: &Value| {
+        v.as_str()
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .map(|id| Value::String(id.hyphenated().to_string()))
+    };
+    match value {
+        Value::String(_) if !field.multiple => {
+            id(value).ok_or_else(|| "must be a translation group ID".to_owned())
+        }
+        Value::Array(items) if field.multiple => {
+            let ids: Option<Vec<Value>> = items.iter().map(id).collect();
+            match ids {
+                Some(ids) if ids.len() <= MAX_REFERENCES => Ok(Value::Array(ids)),
+                _ => Err(format!(
+                    "must be at most {MAX_REFERENCES} translation group IDs"
+                )),
+            }
+        }
+        _ => Err("wrong type of value".to_owned()),
+    }
+}
+
+/// 数値: 整数のフィールドは32ビットの整数だけ（配信APIの Int で返すため）。範囲は `min`・`max` を含む。
+fn number_value(field: &Field, n: &serde_json::Number) -> Result<Value, String> {
+    let (normalized, as_f64) = if field.integer {
+        let v = n
+            .as_i64()
+            .and_then(|v| i32::try_from(v).ok())
+            .ok_or("must be a 32-bit integer")?;
+        (Value::from(v), f64::from(v))
+    } else {
+        let v = n.as_f64().ok_or("must be a number")?;
+        (Value::Number(n.clone()), v)
+    };
+    let (min, max) = field.bounds();
+    if min.is_some_and(|min| as_f64 < min) || max.is_some_and(|max| as_f64 > max) {
+        return Err("number is out of the allowed range".to_owned());
+    }
+    Ok(normalized)
+}
+
+/// 選択肢: `options` の値と完全に一致するものだけ（大文字小文字を区別する）。複数のときは重ならない配列。
+fn select_value(field: &Field, value: &Value) -> Result<Value, String> {
+    let known = |v: &Value| {
+        v.as_str()
+            .is_some_and(|s| field.options.iter().any(|o| o.value == s))
+    };
+    match value {
+        Value::String(_) if !field.multiple && known(value) => Ok(value.clone()),
+        Value::Array(items) if field.multiple && items.iter().all(known) => {
+            let mut seen = std::collections::BTreeSet::new();
+            if items.iter().all(|v| seen.insert(v.as_str())) {
+                Ok(value.clone())
+            } else {
+                Err("must not repeat a value".to_owned())
+            }
+        }
+        _ => Err("must be one of the options".to_owned()),
+    }
+}
+
+/// そろえた値（[`value_of`] の結果）を列の値にする。
+fn column_of(field: &Field, v: &Value) -> Column {
+    let text = || v.as_str().map(str::to_owned);
+    let texts = || {
+        v.as_array().map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str().map(str::to_owned))
+                .collect()
+        })
+    };
+    match field.kind {
+        FieldType::Reference if field.multiple => Column::Uuids(v.as_array().map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str().and_then(|s| Uuid::parse_str(s).ok()))
+                .collect()
+        })),
+        FieldType::Reference => Column::Uuid(v.as_str().and_then(|s| Uuid::parse_str(s).ok())),
+        FieldType::Image => Column::Json((!v.is_null()).then(|| v.to_string())),
+        FieldType::Number if field.integer => {
+            Column::Int(v.as_i64().and_then(|n| i32::try_from(n).ok()))
+        }
+        FieldType::Number => Column::Float(v.as_f64()),
+        FieldType::Boolean => Column::Bool(v.as_bool()),
+        FieldType::Date => Column::Date(text()),
+        FieldType::Datetime => Column::Datetime(text()),
+        FieldType::Select if field.multiple => Column::Texts(texts()),
+        // 1行の文字列・1つを選ぶ選択肢（スラッグ・本文・グループはここに来ない）
+        _ => Column::Text(text()),
+    }
 }
 
 /// 画像のフィールドの値を検査し、そろえた形（`mediaId` は小文字・ハイフン区切り）にする。

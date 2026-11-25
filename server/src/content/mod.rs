@@ -2,10 +2,12 @@
 
 pub mod body;
 pub mod corrections;
+pub mod datetime;
 pub mod entries;
 pub mod erase;
 pub mod fields;
 pub mod freshness;
+pub mod groups;
 pub mod hooks;
 pub mod html;
 pub mod import;
@@ -18,6 +20,7 @@ pub mod reviews;
 pub mod scheduling;
 pub mod sections;
 pub mod settings;
+pub mod targets;
 pub mod translations;
 pub mod urls;
 

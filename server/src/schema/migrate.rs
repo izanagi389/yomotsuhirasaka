@@ -9,8 +9,9 @@
 use anyhow::Result;
 use sqlx::PgConnection;
 
-use super::diff::shape_changed;
+use super::diff::{narrowed, shape_changed};
 use super::manifest::{ContentType, Field, FieldType, Manifest, types_by_name};
+use super::narrowing;
 use crate::db::Ident;
 use crate::workspace_db::WorkspaceDb;
 
@@ -27,6 +28,12 @@ pub enum Failure {
     ScheduledValueMissing { content_type: String, field: String },
     /// 外すノードやマークを使っている予約版がある。
     ScheduledBodyNodeInUse(String),
+    /// 狭めた定義に合わない値を持つ記事（下書き・公開中の版・予約版）がある。記事のIDは最大10件。
+    ValueViolates {
+        content_type: String,
+        field: String,
+        entries: Vec<uuid::Uuid>,
+    },
 }
 
 impl Failure {
@@ -43,6 +50,14 @@ impl Failure {
                 field,
             } => format!("scheduled_value_missing:{content_type}.{field}"),
             Self::ScheduledBodyNodeInUse(n) => format!("scheduled_body_node_in_use:{n}"),
+            Self::ValueViolates {
+                content_type,
+                field,
+                entries,
+            } => {
+                let ids: Vec<String> = entries.iter().map(ToString::to_string).collect();
+                format!("value_violates:{content_type}.{field}:{}", ids.join(","))
+            }
         }
     }
 }
@@ -58,10 +73,16 @@ pub fn column_name(field: &str) -> Result<Ident> {
 /// フィールドの型に対応する列の型（固定の文字列だけ）。
 fn column_type(f: &Field) -> &'static str {
     match (f.kind, f.multiple) {
-        (FieldType::Text | FieldType::Slug, _) => "text",
-        (FieldType::Richtext | FieldType::Image, _) => "jsonb",
+        (FieldType::Text | FieldType::Slug, _) | (FieldType::Select, false) => "text",
+        (FieldType::Select, true) => "text[]",
+        (FieldType::Richtext | FieldType::Image | FieldType::Group, _) => "jsonb",
         (FieldType::Reference, false) => "uuid",
         (FieldType::Reference, true) => "uuid[]",
+        (FieldType::Number, _) if f.integer => "integer",
+        (FieldType::Number, _) => "double precision",
+        (FieldType::Boolean, _) => "boolean",
+        (FieldType::Date, _) => "date",
+        (FieldType::Datetime, _) => "timestamptz",
     }
 }
 
@@ -219,6 +240,17 @@ async fn body_node_in_use(
     Ok(false)
 }
 
+/// 型を変えずに、受け付ける値を狭めたフィールド（古い定義, 新しい定義）。
+fn narrowed_fields<'a>(
+    old: &'a ContentType,
+    new: &'a ContentType,
+) -> impl Iterator<Item = (&'a Field, &'a Field)> {
+    old.fields.iter().filter_map(|of| {
+        let nf = new.field(&of.name)?;
+        (!shape_changed(of, nf) && narrowed(of, nf)).then_some((of, nf))
+    })
+}
+
 /// `old`（適用済み。まだなければ None）から `new` へ、ワークスペースのスキーマを移行する。
 /// 呼び出し側のトランザクションの中で呼び、`Err(Failure)` なら巻き戻すこと。
 pub async fn apply(
@@ -297,6 +329,21 @@ pub async fn apply(
             }
         }
     }
+    for (name, nct) in &new_types {
+        let Some(oct) = old_types.get(name) else {
+            continue;
+        };
+        for (of, nf) in narrowed_fields(oct, nct) {
+            let entries = narrowing::violations(conn, db, name, of, nf).await?;
+            if !entries.is_empty() {
+                return Ok(Err(Failure::ValueViolates {
+                    content_type: (*name).to_owned(),
+                    field: nf.name.clone(),
+                    entries,
+                }));
+            }
+        }
+    }
 
     // DDL
     for name in old_types.keys().filter(|n| !new_types.contains_key(*n)) {
@@ -318,6 +365,9 @@ pub async fn apply(
                 }
                 Some(_) => {}
             }
+        }
+        for (of, nf) in narrowed_fields(oct, nct) {
+            narrowing::strip_group_drafts(conn, db, name, of, nf).await?;
         }
         for nf in nct.fields.iter().filter(|f| oct.field(&f.name).is_none()) {
             add_column(conn, db, &table, nf).await?;

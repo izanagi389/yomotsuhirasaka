@@ -456,9 +456,50 @@
           ]
         },
         "multiple": {
-          "description": "複数の値を持つか（参照フィールドだけ）。",
+          "description": "複数の値を持つか（参照と選択肢のフィールドだけ）。",
           "type": "boolean",
           "default": false
+        },
+        "integer": {
+          "description": "整数だけを受け付けるか（数値のフィールドだけ）。整数は配信APIで Int（32ビット）、そうでなければ Float で返す。",
+          "type": "boolean"
+        },
+        "min": {
+          "description": "数値のフィールドの最小値（この値を含む）。",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max": {
+          "description": "数値のフィールドの最大値（この値を含む）。",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "options": {
+          "description": "選択肢のフィールドで選べる値。",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SelectOption"
+          }
+        },
+        "fields": {
+          "description": "グループのフィールドの中のフィールド。使える型は text・number・boolean・date・datetime・select・image・reference。",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Field"
+          }
+        },
+        "maxItems": {
+          "description": "グループのフィールドの件数の上限（既定は20、最大100）。",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
         },
         "label": {
           "description": "管理画面に出す名前（管理画面の言語ごと。2026-11-21）。その言語の名前がなければ `name` を出す。",
@@ -497,7 +538,7 @@
       ]
     },
     "FieldType": {
-      "description": "フィールドの型（M1）。",
+      "description": "フィールドの型（M1。数値・真偽値・日付・日時・選択肢・グループは M5、02-schema-and-delivery-api.md「フィールドの型」）。",
       "oneOf": [
         {
           "description": "1行の文字列。",
@@ -523,7 +564,62 @@
           "description": "画像（メディアのID・代替テキスト・装飾画像の印。1枚だけ。M5、02-schema-and-delivery-api.md「画像のフィールド」）。",
           "type": "string",
           "const": "image"
+        },
+        {
+          "description": "数値。`integer` なら整数（32ビット）、そうでなければ小数。",
+          "type": "string",
+          "const": "number"
+        },
+        {
+          "description": "真偽値。",
+          "type": "string",
+          "const": "boolean"
+        },
+        {
+          "description": "日付（`YYYY-MM-DD`。時差を持たない）。",
+          "type": "string",
+          "const": "date"
+        },
+        {
+          "description": "日時（時差の付いた ISO 8601。UTC にそろえて保存し、秒まで持つ）。",
+          "type": "string",
+          "const": "datetime"
+        },
+        {
+          "description": "選択肢（`options` の値の中から選ぶ）。",
+          "type": "string",
+          "const": "select"
+        },
+        {
+          "description": "グループ（`fields` のフィールドをまとめたものを、`maxItems` 件まで繰り返し持つ）。",
+          "type": "string",
+          "const": "group"
         }
+      ]
+    },
+    "SelectOption": {
+      "description": "選択肢のフィールドの1つの値。",
+      "type": "object",
+      "properties": {
+        "value": {
+          "description": "保存し、配信APIで返す値（英小文字で始まる英小文字・数字・`_`）。",
+          "type": "string"
+        },
+        "label": {
+          "description": "管理画面に出す名前（管理画面の言語ごと）。その言語の名前がなければ `value` を出す。",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Label"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "value"
       ]
     },
     "Label": {

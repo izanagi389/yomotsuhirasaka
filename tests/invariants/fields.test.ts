@@ -2,7 +2,7 @@
 //
 // 数値・真偽値・日付・日時・選択肢・グループのフィールドを持つテンプレートを、テストのために1つデプロイし、
 // そのテンプレートのワークスペースで確かめる。保存の拒否は、記事の作成と下書きの保存の両方で、
-// また保存前のフックが入れた値でも確かめる（フックの直しも保存の前に検証する）。
+// また保存前のフックが入れた値でも確かめる（フックの直しも保存の前に検証し、通らない直しは使わない）。
 
 import { randomUUID } from "node:crypto";
 import { expect } from "vitest";
@@ -74,8 +74,8 @@ async function createSite(): Promise<Site> {
 }
 
 /**
- * fields の値を、記事の作成・下書きの保存・保存前のフックの直しの3つの道で保存しようとし、どれも拒否されることを確かめる。
- * 拒否の後の下書きに、その値が入っていないことも確かめる。
+ * fields の値を、記事の作成・下書きの保存・保存前のフックの直しの3つの道で保存しようとし、どれでも値が入らないことを確かめる。
+ * 作成と保存は拒否されること。フックの直しは、拒否されるか、使われずにその理由が知らされること。
  */
 async function expectRefusedEverywhere(s: Site, field: string, value: unknown, label: string): Promise<void> {
   const { yomi } = await world();
@@ -88,11 +88,22 @@ async function expectRefusedEverywhere(s: Site, field: string, value: unknown, l
   const target = await yomi.createEntry(session, s.id, { title: marker("fld"), body: doc(paragraph("x")) });
   const before = await yomi.getDraft(session, s.id, target.id);
   expectRefused(await yomi.saveDraftRaw(asSession(session), s.id, target.id, { fields: { [field]: value } }, before.revision), `${label}を入れた下書きの保存`);
+  // フックの直しが検査に通らないときは、保存ごと拒否するか、直しを使わずに保存して理由を知らせる
+  // （フックの不具合で編集者の自動保存を止めない。設計の原則10、2026-11-25 利用者の判断）。どちらでも値は入らない
   const hookBefore = await yomi.getDraft(session, s.id, target.id);
-  expectRefused(
-    await yomi.saveDraftRaw(asSession(session), s.id, target.id, { fields: { summary: `set:${field}=${JSON.stringify(value)}` } }, hookBefore.revision),
-    `保存前のフックが${label}を入れる下書きの保存`,
+  const hooked = await yomi.saveDraftRaw(
+    asSession(session),
+    s.id,
+    target.id,
+    { fields: { summary: `set:${field}=${JSON.stringify(value)}` } },
+    hookBefore.revision,
   );
+  if (hooked.status < 400) {
+    expectSuccess(hooked, `保存前のフックが${label}を入れる下書きの保存`);
+    expect(yomi.hookFailureOf(hooked), `保存前のフックが入れた${label}が使われなかったことが知らされていない`).not.toBeNull();
+  } else {
+    expectRefused(hooked, `保存前のフックが${label}を入れる下書きの保存`);
+  }
   const after = await yomi.getDraft(session, s.id, target.id);
   expect(after.fields[field] ?? null, `${label}が下書きに保存された`).toBeNull();
 }

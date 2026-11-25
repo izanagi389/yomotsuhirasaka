@@ -21,9 +21,16 @@ type Q<'q> = Query<'q, Postgres, sqlx::postgres::PgArguments>;
 
 fn bind_column<'q>(q: Q<'q>, c: &'q Column) -> Q<'q> {
     match c {
-        Column::Text(v) | Column::Json(v) => q.bind(v.as_deref()),
+        // 日付・日時は、そろえた文字列を `::date`・`::timestamptz` で書く
+        Column::Text(v) | Column::Json(v) | Column::Date(v) | Column::Datetime(v) => {
+            q.bind(v.as_deref())
+        }
         Column::Uuid(v) => q.bind(*v),
         Column::Uuids(v) => q.bind(v.as_deref()),
+        Column::Int(v) => q.bind(*v),
+        Column::Float(v) => q.bind(*v),
+        Column::Bool(v) => q.bind(*v),
+        Column::Texts(v) => q.bind(v.as_deref()),
     }
 }
 
@@ -65,14 +72,37 @@ async fn field_values(
     only_short: bool,
 ) -> Result<Map<String, Value>> {
     let table = table_name(&ct.name)?;
-    let row: Option<String> = sqlx::query_scalar(crate::sql!(
-        "SELECT to_jsonb(t)::text FROM {table} t WHERE t.entry_id = $1"
+    // 日時は、セッションの時差によらず、保存のときと同じ UTC の形で読む
+    let datetimes: Vec<&str> = ct
+        .fields
+        .iter()
+        .filter(|f| f.kind == FieldType::Datetime)
+        .map(|f| f.name.as_str())
+        .collect();
+    let utc = datetimes
+        .iter()
+        .map(|name| {
+            Ok(format!(
+                "to_char(t.{} AT TIME ZONE 'UTC', {RFC3339})",
+                column_name(name)?
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .join(", ");
+    let row: Option<(String, Vec<Option<String>>)> = sqlx::query_as(crate::sql!(
+        "SELECT to_jsonb(t)::text, ARRAY[{utc}]::text[] FROM {table} t WHERE t.entry_id = $1"
     ))
     .bind(entry_id)
     .fetch_optional(&mut *conn)
     .await?;
     let mut raw: Map<String, Value> = match row {
-        Some(r) => serde_json::from_str(&r)?,
+        Some((r, utc)) => {
+            let mut raw: Map<String, Value> = serde_json::from_str(&r)?;
+            for (name, v) in datetimes.iter().zip(utc) {
+                raw.insert(format!("f_{name}"), v.map_or(Value::Null, Value::String));
+            }
+            raw
+        }
         None => Map::new(),
     };
     let mut out = Map::new();

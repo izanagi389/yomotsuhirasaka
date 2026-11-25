@@ -36,16 +36,15 @@ pub struct OtherLocale {
 
 /// 版で使っているメディア（本文のフィールドの画像と、画像のフィールド）。
 fn media_in(manifest: &Manifest, content_type: &str, fields: &Value) -> Vec<Uuid> {
-    let Some(ct) = manifest.content_type(content_type) else {
+    let (Some(ct), Some(fields)) = (manifest.content_type(content_type), fields.as_object()) else {
         return Vec::new();
     };
-    let mut out: Vec<Uuid> = ct
-        .fields
-        .iter()
-        .filter_map(|f| Some((f.kind, fields.get(&f.name)?)))
-        .flat_map(|(kind, v)| match kind {
-            FieldType::Richtext => body::media_ids(v),
-            FieldType::Image => crate::content::fields::image_media_id(v)
+    // グループの中の画像のフィールドも含む
+    let mut out: Vec<Uuid> = super::groups::leaves(&ct.fields, fields)
+        .into_iter()
+        .flat_map(|leaf| match leaf.field.kind {
+            FieldType::Richtext => body::media_ids(leaf.value),
+            FieldType::Image => super::fields::image_media_id(leaf.value)
                 .into_iter()
                 .collect(),
             _ => Vec::new(),

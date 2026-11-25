@@ -26,11 +26,12 @@ const MAX_LABEL_CHARS: usize = 50;
 /// 一覧のフィールドで1回に取得できる件数の上限の、さらに上限。
 pub const MAX_LIST_LIMIT: u32 = 1000;
 
-/// フィールドの型（M1）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// フィールドの型（M1。数値・真偽値・日付・日時・選択肢・グループは M5、02-schema-and-delivery-api.md「フィールドの型」）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FieldType {
     /// 1行の文字列。
+    #[default]
     Text,
     /// URLに使う文字列（英小文字・数字・ハイフン）。
     Slug,
@@ -40,10 +41,31 @@ pub enum FieldType {
     Reference,
     /// 画像（メディアのID・代替テキスト・装飾画像の印。1枚だけ。M5、02-schema-and-delivery-api.md「画像のフィールド」）。
     Image,
+    /// 数値。`integer` なら整数（32ビット）、そうでなければ小数。
+    Number,
+    /// 真偽値。
+    Boolean,
+    /// 日付（`YYYY-MM-DD`。時差を持たない）。
+    Date,
+    /// 日時（時差の付いた ISO 8601。UTC にそろえて保存し、秒まで持つ）。
+    Datetime,
+    /// 選択肢（`options` の値の中から選ぶ）。
+    Select,
+    /// グループ（`fields` のフィールドをまとめたものを、`maxItems` 件まで繰り返し持つ）。
+    Group,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+impl FieldType {
+    /// グループの中に置ける型か（02-schema-and-delivery-api.md「フィールドの型」）。
+    pub fn allowed_in_group(self) -> bool {
+        !matches!(self, Self::Slug | Self::Richtext | Self::Group)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+// 真偽値の項目は、どれもテンプレートの書式（JSON のキー）そのものなので、列挙型にまとめない
+#[allow(clippy::struct_excessive_bools)]
 pub struct Field {
     /// フィールドの名前（英小文字で始まる英小文字・数字・`_`）。DBとGraphQLの名前の元になる。
     // この説明文はテンプレートの JSON Schema（cli/schema/template.schema.json）に出るので、文の書き方を変えない
@@ -57,9 +79,27 @@ pub struct Field {
     /// 参照フィールドの参照先のコンテンツタイプ。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference_to: Option<String>,
-    /// 複数の値を持つか（参照フィールドだけ）。
+    /// 複数の値を持つか（参照と選択肢のフィールドだけ）。
     #[serde(default)]
     pub multiple: bool,
+    /// 整数だけを受け付けるか（数値のフィールドだけ）。整数は配信APIで Int（32ビット）、そうでなければ Float で返す。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub integer: bool,
+    /// 数値のフィールドの最小値（この値を含む）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<serde_json::Number>,
+    /// 数値のフィールドの最大値（この値を含む）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<serde_json::Number>,
+    /// 選択肢のフィールドで選べる値。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<SelectOption>,
+    /// グループのフィールドの中のフィールド。使える型は text・number・boolean・date・datetime・select・image・reference。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<Field>,
+    /// グループのフィールドの件数の上限（既定は20、最大100）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_items: Option<u32>,
     /// 管理画面に出す名前（管理画面の言語ごと。2026-11-21）。その言語の名前がなければ `name` を出す。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<Label>,
@@ -73,6 +113,46 @@ pub struct Field {
     /// 使えるのは text と richtext だけ。対象でないフィールドの内容は、検索用データにも検索結果にも入れない（INV-SRC-03）。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub searchable: bool,
+}
+
+/// 選択肢のフィールドの1つの値。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SelectOption {
+    /// 保存し、配信APIで返す値（英小文字で始まる英小文字・数字・`_`）。
+    // この説明文はテンプレートの JSON Schema（cli/schema/template.schema.json）に出るので、文の書き方を変えない
+    #[allow(clippy::doc_markdown)]
+    pub value: String,
+    /// 管理画面に出す名前（管理画面の言語ごと）。その言語の名前がなければ `value` を出す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<Label>,
+}
+
+/// グループのフィールドの件数の上限の既定値と、最大値（2026-11-25）。
+pub const DEFAULT_GROUP_MAX_ITEMS: u32 = 20;
+pub const MAX_GROUP_MAX_ITEMS: u32 = 100;
+/// グループの各件の固定のIDを置くキー（Q10）。グループの中のフィールド名には使えない。
+pub const GROUP_ITEM_ID_KEY: &str = "id";
+/// 選択肢のフィールドの値の数の上限。
+const MAX_SELECT_OPTIONS: usize = 100;
+
+impl Field {
+    /// グループの件数の上限（書いていなければ既定値）。
+    pub fn group_max_items(&self) -> u32 {
+        self.max_items.unwrap_or(DEFAULT_GROUP_MAX_ITEMS)
+    }
+
+    /// 数値の範囲（`min`・`max`。書いていなければ `None`）。
+    pub fn bounds(&self) -> (Option<f64>, Option<f64>) {
+        let as_f64 =
+            |n: &Option<serde_json::Number>| n.as_ref().and_then(serde_json::Number::as_f64);
+        (as_f64(&self.min), as_f64(&self.max))
+    }
+
+    /// 内側のフィールド（グループの中）を探す。
+    pub fn inner(&self, name: &str) -> Option<&Field> {
+        self.fields.iter().find(|f| f.name == name)
+    }
 }
 
 /// 関数の書き方（型の引数）: マニフェストではJSのソース（[`crate::script::Script`]）、
@@ -456,6 +536,9 @@ impl Manifest {
             ct.dev_note = None;
             for f in &mut ct.fields {
                 f.dev_note = None;
+                for inner in &mut f.fields {
+                    inner.dev_note = None;
+                }
             }
         }
         m
@@ -918,49 +1001,12 @@ pub fn validate(m: &Manifest) -> Vec<String> {
         if ct.fields.len() > MAX_FIELDS {
             problems.push(format!("{path}.fields: at most {MAX_FIELDS}"));
         }
-        let mut seen_fields = BTreeSet::new();
-        for (j, f) in ct.fields.iter().enumerate() {
-            let fpath = format!("{path}.fields[{j}]");
-            if !valid_name(&f.name) {
-                problems.push(format!(
-                    "{fpath}.name: use 1 to {MAX_NAME_LEN} characters of a-z, 0-9 and _, starting with a letter"
-                ));
-            }
-            if !seen_fields.insert(f.name.as_str()) {
-                problems.push(format!("{fpath}.name: duplicated"));
-            }
-            match (f.kind, &f.reference_to) {
-                (FieldType::Reference, Some(to)) if type_names.contains(to.as_str()) => {}
-                (FieldType::Reference, _) => {
-                    problems.push(format!("{fpath}.referenceTo: must name a content type"));
-                }
-                (_, Some(_)) => problems.push(format!(
-                    "{fpath}.referenceTo: only reference fields can have it"
-                )),
-                (_, None) => {}
-            }
-            if f.multiple && f.kind != FieldType::Reference {
-                problems.push(format!(
-                    "{fpath}.multiple: only reference fields can be multiple"
-                ));
-            }
-            if f.searchable && !matches!(f.kind, FieldType::Text | FieldType::Richtext) {
-                problems.push(format!(
-                    "{fpath}.searchable: only text and richtext fields can be searchable"
-                ));
-            }
-            check_label(&mut problems, &format!("{fpath}.label"), f.label.as_ref());
-            check_text(
-                &mut problems,
-                &format!("{fpath}.description"),
-                f.description.as_deref(),
-            );
-            check_text(
-                &mut problems,
-                &format!("{fpath}.devNote"),
-                f.dev_note.as_deref(),
-            );
-        }
+        problems.extend(fields_problems(
+            &format!("{path}.fields"),
+            &ct.fields,
+            &type_names,
+            false,
+        ));
         // URLを作るためのスラッグ
         let slugs = ct
             .fields
@@ -971,6 +1017,185 @@ pub fn validate(m: &Manifest) -> Vec<String> {
             problems.push(format!("{path}.fields: exactly one slug field is required"));
         }
     }
+    problems
+}
+
+/// フィールドの一覧の検査（コンテンツタイプの直下と、グループの中。`in_group` はグループの中か）。
+fn fields_problems(
+    path: &str,
+    fields: &[Field],
+    type_names: &BTreeSet<&str>,
+    in_group: bool,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    let mut seen = BTreeSet::new();
+    for (j, f) in fields.iter().enumerate() {
+        let fpath = format!("{path}[{j}]");
+        if !valid_name(&f.name) {
+            problems.push(format!(
+                "{fpath}.name: use 1 to {MAX_NAME_LEN} characters of a-z, 0-9 and _, starting with a letter"
+            ));
+        }
+        if !seen.insert(f.name.as_str()) {
+            problems.push(format!("{fpath}.name: duplicated"));
+        }
+        if in_group {
+            // 各件の固定のID（Q10）を `id` に置くため
+            if f.name == GROUP_ITEM_ID_KEY {
+                problems.push(format!(
+                    "{fpath}.name: `{GROUP_ITEM_ID_KEY}` is reserved for the item ID"
+                ));
+            }
+            if !f.kind.allowed_in_group() {
+                problems.push(format!(
+                    "{fpath}.type: a group cannot contain slug, richtext or group fields"
+                ));
+            }
+            // グループの中の検索は、次の段階で入れる（2026-11-25）
+            if f.searchable {
+                problems.push(format!(
+                    "{fpath}.searchable: fields inside a group cannot be searchable yet"
+                ));
+            }
+        }
+        problems.extend(field_problems(&fpath, f, type_names));
+    }
+    problems
+}
+
+/// 1つのフィールドの検査（型ごとの設定が、その型にだけあり、正しいこと）。
+fn field_problems(fpath: &str, f: &Field, type_names: &BTreeSet<&str>) -> Vec<String> {
+    let mut problems = Vec::new();
+    match (f.kind, &f.reference_to) {
+        (FieldType::Reference, Some(to)) if type_names.contains(to.as_str()) => {}
+        (FieldType::Reference, _) => {
+            problems.push(format!("{fpath}.referenceTo: must name a content type"));
+        }
+        (_, Some(_)) => problems.push(format!(
+            "{fpath}.referenceTo: only reference fields can have it"
+        )),
+        (_, None) => {}
+    }
+    if f.multiple && !matches!(f.kind, FieldType::Reference | FieldType::Select) {
+        problems.push(format!(
+            "{fpath}.multiple: only reference and select fields can be multiple"
+        ));
+    }
+    if f.searchable && !matches!(f.kind, FieldType::Text | FieldType::Richtext) {
+        problems.push(format!(
+            "{fpath}.searchable: only text and richtext fields can be searchable"
+        ));
+    }
+    problems.extend(number_problems(fpath, f));
+    problems.extend(select_problems(fpath, f));
+    problems.extend(group_problems(fpath, f, type_names));
+    check_label(&mut problems, &format!("{fpath}.label"), f.label.as_ref());
+    check_text(
+        &mut problems,
+        &format!("{fpath}.description"),
+        f.description.as_deref(),
+    );
+    check_text(
+        &mut problems,
+        &format!("{fpath}.devNote"),
+        f.dev_note.as_deref(),
+    );
+    problems
+}
+
+/// 数値のフィールドの設定（`integer`・`min`・`max`）の検査。
+fn number_problems(fpath: &str, f: &Field) -> Vec<String> {
+    let mut problems = Vec::new();
+    if f.kind != FieldType::Number {
+        for (key, present) in [
+            ("integer", f.integer),
+            ("min", f.min.is_some()),
+            ("max", f.max.is_some()),
+        ] {
+            if present {
+                problems.push(format!("{fpath}.{key}: only number fields can have it"));
+            }
+        }
+        return problems;
+    }
+    for (key, bound) in [("min", &f.min), ("max", &f.max)] {
+        if let Some(n) = bound
+            && f.integer
+            && n.as_i64().is_none_or(|v| i32::try_from(v).is_err())
+        {
+            problems.push(format!(
+                "{fpath}.{key}: must be a 32-bit integer for an integer field"
+            ));
+        }
+    }
+    if let (Some(min), Some(max)) = (
+        f.min.as_ref().and_then(serde_json::Number::as_f64),
+        f.max.as_ref().and_then(serde_json::Number::as_f64),
+    ) && min > max
+    {
+        problems.push(format!("{fpath}.min: must not be greater than max"));
+    }
+    problems
+}
+
+/// 選択肢のフィールドの設定（`options`）の検査。値はフィールド名と同じ規則に従う（2026-11-25）。
+fn select_problems(fpath: &str, f: &Field) -> Vec<String> {
+    let mut problems = Vec::new();
+    if f.kind != FieldType::Select {
+        if !f.options.is_empty() {
+            problems.push(format!("{fpath}.options: only select fields can have it"));
+        }
+        return problems;
+    }
+    if f.options.is_empty() || f.options.len() > MAX_SELECT_OPTIONS {
+        problems.push(format!(
+            "{fpath}.options: must have 1 to {MAX_SELECT_OPTIONS} values"
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for (k, o) in f.options.iter().enumerate() {
+        let opath = format!("{fpath}.options[{k}]");
+        if !valid_name(&o.value) {
+            problems.push(format!(
+                "{opath}.value: use 1 to {MAX_NAME_LEN} characters of a-z, 0-9 and _, starting with a letter"
+            ));
+        }
+        if !seen.insert(o.value.as_str()) {
+            problems.push(format!("{opath}.value: duplicated"));
+        }
+        check_label(&mut problems, &format!("{opath}.label"), o.label.as_ref());
+    }
+    problems
+}
+
+/// グループのフィールドの設定（`fields`・`maxItems`）の検査。グループは入れ子にできない。
+fn group_problems(fpath: &str, f: &Field, type_names: &BTreeSet<&str>) -> Vec<String> {
+    let mut problems = Vec::new();
+    if f.kind != FieldType::Group {
+        if !f.fields.is_empty() {
+            problems.push(format!("{fpath}.fields: only group fields can have it"));
+        }
+        if f.max_items.is_some() {
+            problems.push(format!("{fpath}.maxItems: only group fields can have it"));
+        }
+        return problems;
+    }
+    if f.fields.is_empty() || f.fields.len() > MAX_FIELDS {
+        problems.push(format!(
+            "{fpath}.fields: must have 1 to {MAX_FIELDS} fields"
+        ));
+    }
+    if !(1..=MAX_GROUP_MAX_ITEMS).contains(&f.group_max_items()) {
+        problems.push(format!(
+            "{fpath}.maxItems: must be 1 to {MAX_GROUP_MAX_ITEMS}"
+        ));
+    }
+    problems.extend(fields_problems(
+        &format!("{fpath}.fields"),
+        &f.fields,
+        type_names,
+        true,
+    ));
     problems
 }
 
@@ -1022,6 +1247,7 @@ pub fn types_by_name(m: &Manifest) -> BTreeMap<&str, &ContentType> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use serde_json::json;
 
     pub fn sample() -> Manifest {
         serde_json::from_str(
@@ -1227,6 +1453,96 @@ pub(crate) mod tests {
         );
     }
 
+    fn with_fields(fields: &serde_json::Value) -> Manifest {
+        let mut v = serde_json::to_value(sample()).unwrap();
+        let list = v["contentTypes"][0]["fields"].as_array_mut().unwrap();
+        list.extend(fields.as_array().unwrap().iter().cloned());
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn new_field_types_are_accepted() {
+        let m = with_fields(&json!([
+            {"name": "rating", "type": "number", "integer": true, "min": 0, "max": 100},
+            {"name": "price", "type": "number", "min": -1.5},
+            {"name": "featured", "type": "boolean"},
+            {"name": "event_on", "type": "date"},
+            {"name": "starts_at", "type": "datetime"},
+            {"name": "topics", "type": "select", "multiple": true,
+             "options": [{"value": "rust", "label": {"ja": "Rust"}}, {"value": "nuxt"}]},
+            {"name": "faq", "type": "group", "maxItems": 5, "fields": [
+                {"name": "question", "type": "text", "required": true},
+                {"name": "level", "type": "select", "options": [{"value": "basic"}]},
+                {"name": "figure", "type": "image"},
+                {"name": "see", "type": "reference", "referenceTo": "post", "multiple": true}
+            ]}
+        ]));
+        assert_eq!(validate(&m), Vec::<String>::new());
+        // 書き出しても同じ形に戻る（差分を出さない）
+        let again: Manifest = serde_json::from_value(serde_json::to_value(&m).unwrap()).unwrap();
+        assert_eq!(again, m);
+    }
+
+    #[test]
+    fn new_field_type_settings_are_checked() {
+        let m = with_fields(&json!([
+            {"name": "a", "type": "text", "integer": true, "min": 1, "options": [{"value": "x"}], "maxItems": 3},
+            {"name": "b", "type": "number", "integer": true, "min": 1.5, "max": 2_147_483_648_i64},
+            {"name": "c", "type": "number", "min": 5, "max": 1},
+            {"name": "d", "type": "select"},
+            {"name": "e", "type": "select", "options": [{"value": "News"}, {"value": "x"}, {"value": "x"}]},
+            {"name": "f", "type": "boolean", "multiple": true},
+            {"name": "g", "type": "group", "maxItems": 101, "fields": [
+                {"name": "id", "type": "text"},
+                {"name": "body", "type": "richtext"},
+                {"name": "inner", "type": "group", "fields": [{"name": "x", "type": "slug"}]},
+                {"name": "note", "type": "text", "searchable": true}
+            ]},
+            {"name": "h", "type": "group"}
+        ]));
+        let problems = validate(&m);
+        for needle in [
+            "fields[4].integer: only number",
+            "fields[4].min: only number",
+            "fields[4].options: only select",
+            "fields[4].maxItems: only group",
+            "fields[5].min: must be a 32-bit integer",
+            "fields[5].max: must be a 32-bit integer",
+            "fields[6].min: must not be greater",
+            "fields[7].options: must have 1",
+            "fields[8].options[0].value: use",
+            "fields[8].options[2].value: duplicated",
+            "fields[9].multiple: only reference and select",
+            "fields[10].maxItems: must be 1 to 100",
+            "fields[10].fields[0].name: `id` is reserved",
+            "fields[10].fields[1].type: a group cannot contain",
+            "fields[10].fields[2].type: a group cannot contain",
+            "fields[10].fields[3].searchable: fields inside a group",
+            "fields[11].fields: must have 1",
+        ] {
+            assert!(
+                problems.iter().any(|p| p.contains(needle)),
+                "{needle} not in {problems:?}"
+            );
+        }
+        // 入れ子のグループの中身も検査し、場所を示す
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("fields[10].fields[2].fields[0].type: a group cannot contain"))
+        );
+    }
+
+    #[test]
+    fn groups_cannot_be_used_in_ai_markdown_yet() {
+        let mut m = with_fields(&json!([
+            {"name": "faq", "type": "group", "fields": [{"name": "q", "type": "text"}]}
+        ]));
+        m.content_types[0].ai_markdown =
+            Some(serde_json::from_value(json!({"title": "title", "fields": ["faq"]})).unwrap());
+        assert!(validate(&m).iter().any(|p| p.contains("aiMarkdown.fields")));
+    }
+
     #[test]
     fn invalid_manifests_are_reported() {
         let mut m = sample();
@@ -1241,6 +1557,7 @@ pub(crate) mod tests {
             description: None,
             dev_note: None,
             searchable: false,
+            ..Default::default()
         });
         m.default_locale = "fr".into();
         m.body.nodes.retain(|n| n.name != "text");

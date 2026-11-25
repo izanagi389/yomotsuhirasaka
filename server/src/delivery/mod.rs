@@ -7,4 +7,5 @@ pub mod limiter;
 pub mod names;
 pub mod queries;
 pub mod schema;
+mod template_fields;
 pub mod validate;
