@@ -453,7 +453,37 @@ export type QuerySpec =
   | { kind: "answer"; visitorId?: boolean; cached?: boolean }
   /** 質問への回答を、判定先行のストリーミングで返すもの（M4）。変数は question・locale（visitorId は answer と同じ）。 */
   | { kind: "answerStream"; visitorId?: boolean; cached?: boolean }
+  /**
+   * 絞り込みと並べ替えを付けた記事の一覧（M5、02-schema-and-delivery-api.md「フィールドの型」）。記事の id だけを返す。
+   * fixed を省くと、条件は実行のときに変数で渡す（filteredListRaw の conditions）。
+   * fixed を付けると、条件をクエリの文に書き込んで登録する。
+   */
+  | { kind: "filteredList"; fixed?: ListConditions }
   | { kind: "text"; text: string };
+
+/**
+ * 配信APIの一覧の絞り込みの条件の1つ（M5）。1つのフィールドに1つまで。条件の数は、この配列の長さで数える。
+ * - equals: 1つを選ぶ選択肢・真偽値・1つを参照するフィールドが、値と等しい
+ * - contains: 複数を選べる選択肢・複数を参照するフィールドが、値を含む
+ * - atLeast・atMost: 数値・日付・日時のフィールドが範囲の中にある（両端を含む。片方だけでもよい）
+ * 参照のフィールドの値は、参照先の翻訳グループのID。
+ */
+export type ListFilter =
+  | { field: string; equals: string | boolean }
+  | { field: string; contains: string }
+  | { field: string; atLeast?: number | string; atMost?: number | string };
+
+/** 配信APIの一覧の並べ替えのキー（M5）。 */
+export interface ListSort {
+  field: string;
+  direction: "asc" | "desc";
+}
+
+/** 一覧の絞り込みと並べ替え。sort は、並べ替えのキーを並べる（普通は1つ）。 */
+export interface ListConditions {
+  filters?: ListFilter[];
+  sort?: ListSort[];
+}
 
 /** 関連記事の1件（同じコンテンツタイプ・同じロケールの記事。固定した記事が先）。 */
 export interface RelatedEntry {
@@ -920,6 +950,13 @@ export interface YomiClient {
   parseAnswerStream(res: HttpResponse): AnswerEvent[];
   /** answerRaw の応答（まとめて・ストリーミングのどちらも）から、エラーを読む。なければ空。 */
   answerErrors(res: HttpResponse): AnswerError[];
+  /**
+   * 登録済みの `{ kind: "filteredList" }` のクエリを実行する（応答をそのまま返す）。
+   * conditions は変数で渡す（fixed を付けて登録したクエリでは省く）。locale の既定はテンプレートの既定のロケール。
+   */
+  filteredListRaw(workspaceIdInUrl: string, apiKey: string, query: RegisteredQuery, input?: { locale?: string; conditions?: ListConditions }): Promise<HttpResponse>;
+  /** filteredListRaw の応答から、記事の id を並びのとおりに読む。一覧を返さなかった応答（エラー）なら null。 */
+  listedIds(res: HttpResponse): string[] | null;
   /** 登録していないクエリを、文のまま送る。 */
   deliveryAdHocRaw(workspaceIdInUrl: string, apiKey: string, spec: QuerySpec, variables?: Record<string, unknown>): Promise<HttpResponse>;
   /** 1回のリクエストで複数のクエリを送る（バッチ）。 */

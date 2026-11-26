@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AdminOperation, AnswerError, AnswerSettings, AssistBudget, AssistSettings, ConflictCheck, EntryAssistKind, EntryAssistResult, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, YomiClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TemplateMapping, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
+import type { AdminOperation, AnswerError, AnswerSettings, AssistBudget, AssistSettings, ConflictCheck, EntryAssistKind, EntryAssistResult, WorkspaceLlm, QuestionCandidate, QuestionLogSettings, AnswerEvent, AnswerResult, AnswerSource, AnswerStatus, ApiKeyScope, AuditEntry, AuditFilter, Auth, YomiClient, Credentials, Draft, EmbeddingBudget, EmbeddingSwitchStatus, EntryInput, HeavyPermission, ListConditions, QuerySpec, RegisteredQuery, IssuedSecret, SearchHit, SearchMode, SearchResult, RelatedEntry, RelatedSettings, LoginOptions, Member, OperationTarget, PasskeyHandle, RequestExtras, Session, TokenScope, SourceDiff, TemplateMapping, TodoItem, TranslationInfo, UploadFile, UrlChange, VersionInfo, WorkspaceLimits, WorkspaceRole } from "./driver.js";
 import type { TiptapDoc } from "./body.js";
 import { mailCursor, waitForToken } from "./mail.js";
 import { isSuccess, parseSetCookie, toHttpResponse, type HttpResponse } from "./http.js";
@@ -457,6 +457,24 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
   const camel = (name: string): string => name.split("_").filter(Boolean).map((p, i) => (i === 0 ? p : p[0]!.toUpperCase() + p.slice(1))).join("");
   const SINGLE = camel(POST_TYPE.name);
   const LIST = `${SINGLE}List`;
+  const TYPE = SINGLE[0]!.toUpperCase() + SINGLE.slice(1);
+  /** 一覧の絞り込みと並べ替えを、GraphQL の引数 where・orderBy の値にする（M5）。 */
+  const listArguments = (c: ListConditions): { where?: Record<string, Record<string, unknown>>; orderBy?: Record<string, string> } => {
+    const where: Record<string, Record<string, unknown>> = {};
+    for (const f of c.filters ?? []) {
+      if (f.field in where) throw new Error(`絞り込みの条件で、フィールド ${f.field} が2回使われている（1つのフィールドに1つまで）`);
+      if ("equals" in f) where[f.field] = { eq: f.equals };
+      else if ("contains" in f) where[f.field] = { contains: f.contains };
+      else where[f.field] = { ...(f.atLeast === undefined ? {} : { gte: f.atLeast }), ...(f.atMost === undefined ? {} : { lte: f.atMost }) };
+    }
+    const orderBy = c.sort === undefined ? undefined : Object.fromEntries(c.sort.map((s) => [s.field, s.direction.toUpperCase()]));
+    return { ...(c.filters === undefined ? {} : { where }), ...(orderBy === undefined ? {} : { orderBy }) };
+  };
+  /** 値を GraphQL のリテラルとして書く（入力オブジェクト・文字列・数値・真偽値）。 */
+  const graphqlLiteral = (v: unknown): string =>
+    typeof v === "object" && v !== null
+      ? `{ ${Object.entries(v).map(([k, x]) => `${k}: ${graphqlLiteral(x)}`).join(", ")} }`
+      : JSON.stringify(v);
   // 回答の出典と、回答（まとめて返すものと、ストリーミングの最終判定）で選ぶ項目（M4）
   const ANSWER_SOURCE_FIELDS = "entryId locale url anchor breadcrumb versionId lastReviewedAt reviewExpired";
   const ANSWER_FIELDS = `status text truncated sources { ${ANSWER_SOURCE_FIELDS} }`;
@@ -517,6 +535,19 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
         const [v, a] = spec.visitorId ? [", $visitorId: String", ", visitorId: $visitorId"] : ["", ""];
         const fields = spec.cached ? `${ANSWER_FIELDS} cached` : ANSWER_FIELDS;
         return `subscription($question: String!, $locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}${v}) { answerStream(question: $question, locale: $locale${a}) { __typename ... on YomiAnswerVerdict { answerable sources { ${ANSWER_SOURCE_FIELDS} } } ... on YomiAnswerDelta { text } ... on YomiAnswerFinal { ${fields} } } }`;
+      }
+      // 絞り込みと並べ替え（M5。server/src/delivery）: where: { <フィールド>: { eq | contains | gte・lte } }、orderBy: { <フィールド>: ASC | DESC }
+      case "filteredList": {
+        if (!spec.fixed) {
+          return `query($locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}, $where: ${TYPE}Where, $orderBy: ${TYPE}OrderBy) { ${LIST}(locale: $locale, where: $where, orderBy: $orderBy) { id } }`;
+        }
+        const { where, orderBy } = listArguments(spec.fixed);
+        const args = [
+          ...(where ? [`where: ${graphqlLiteral(where)}`] : []),
+          // 並べ替えの向きは列挙の値なので、引用符を付けない
+          ...(orderBy ? [`orderBy: { ${Object.entries(orderBy).map(([f, d]) => `${f}: ${d}`).join(", ")} }`] : []),
+        ];
+        return `query($locale: String! = ${JSON.stringify(DEFAULT_LOCALE)}) { ${LIST}(${["locale: $locale", ...args].join(", ")}) { id } }`;
       }
       case "text":
         return spec.text;
@@ -1137,6 +1168,20 @@ export function connectAdmin(baseUrl: string, todo: (what: string) => never): Yo
         vectorSearch: VALUES[String(r["vectorSearch"])] as SearchResult["vectorSearch"],
         keywordSearch: VALUES[String(r["keywordSearch"])] as SearchResult["keywordSearch"],
       };
+    },
+    filteredListRaw(workspaceIdInUrl: string, apiKey: string, query: RegisteredQuery, input: { locale?: string; conditions?: ListConditions } = {}): Promise<HttpResponse> {
+      const variables = { ...(input.locale === undefined ? {} : { locale: input.locale }), ...(input.conditions ? listArguments(input.conditions) : {}) };
+      return request("GET", `/ws/${workspaceIdInUrl}/graphql`, {
+        auth: deliveryAuth(apiKey),
+        extras: { query: { id: query.ref, variables: JSON.stringify(variables) } },
+      });
+    },
+    listedIds(res: HttpResponse): string[] | null {
+      if (res.status < 200 || res.status >= 300) return null;
+      const body = JSON.parse(res.text) as { data?: Record<string, unknown> | null; errors?: unknown };
+      const list = body.data?.[LIST];
+      if (body.errors !== undefined || !Array.isArray(list)) return null;
+      return list.map((e: { id?: unknown }) => String(e.id));
     },
     async relatedEntries(workspaceId: string, apiKey: string, query: RegisteredQuery, input: { id: string; first?: number }): Promise<RelatedEntry[]> {
       const res = ensure(
