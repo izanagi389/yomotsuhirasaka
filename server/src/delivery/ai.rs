@@ -2,7 +2,7 @@
 //!
 //! - 素材にするのは、コンテンツタイプに `aiMarkdown` があり、記事の「外部AI向けの素材に含める」がONの公開中の記事だけ。
 //!   スイッチは返すたびにいまの値と照合し、保存済みの素材を信用しない（原則3、INV-AIX-01）。関係の相手も同じ条件で絞る。
-//! - Markdown版に載せるフィールドは `aiMarkdown` に挙げたものだけ（INV-AIX-02）。`devNote` はマニフェストから読まない（INV-AIX-03）。
+//! - Markdown版に載せるフィールドは `aiMarkdown` に挙げたものだけ（INV-AIX-02）。グループは `ai_groups.rs`。`devNote` はマニフェストから読まない（INV-AIX-03）。
 //! - 本文は、公開のときに変換器で作って版に保存したMarkdown（`versions.rendered`）を使う。画像はその時点のメディアのURLにする。
 //! - 冒頭のメタデータ（front matter）の値は、JSONの書き方で書く（JSONはYAMLとしても読める。エスケープを自分で書かない）。
 
@@ -15,6 +15,7 @@ use serde_json::{Map, Value};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
+use super::ai_groups;
 use super::data::{self, Entry};
 use crate::content::{corrections, freshness};
 use crate::schema::manifest::{ContentType, FieldType, Manifest};
@@ -148,7 +149,7 @@ fn front_value(v: &Value) -> String {
         .replace('\u{2029}', "\\u2029")
 }
 
-fn text_of<'a>(fields: &'a Map<String, Value>, name: &str) -> Option<&'a str> {
+pub(super) fn text_of<'a>(fields: &'a Map<String, Value>, name: &str) -> Option<&'a str> {
     fields
         .get(name)
         .and_then(Value::as_str)
@@ -156,7 +157,7 @@ fn text_of<'a>(fields: &'a Map<String, Value>, name: &str) -> Option<&'a str> {
 }
 
 /// 参照フィールドの値（翻訳グループのID）。
-fn groups_of(fields: &Map<String, Value>, name: &str) -> Vec<Uuid> {
+pub(super) fn groups_of(fields: &Map<String, Value>, name: &str) -> Vec<Uuid> {
     match fields.get(name) {
         Some(Value::Array(a)) => a
             .iter()
@@ -174,6 +175,22 @@ pub fn is_material(manifest: &Manifest, e: &Entry) -> bool {
         && manifest
             .content_type(&e.content_type)
             .is_some_and(|ct| ct.ai_markdown.is_some())
+}
+
+/// 参照先（翻訳グループ）の、同じロケールの公開中の記事のURL。相手も素材になる記事だけ（INV-AIX-01）。
+pub(super) async fn material_urls(
+    conn: &mut PgConnection,
+    manifest: &Manifest,
+    e: &Entry,
+    target_ct: &str,
+    groups: &[Uuid],
+) -> Result<Vec<String>> {
+    Ok(data::resolve_groups(conn, target_ct, &e.locale, groups)
+        .await?
+        .into_iter()
+        .filter(|t| is_material(manifest, t) && t.id != e.id)
+        .map(|t| t.url)
+        .collect())
 }
 
 /// 記事のMarkdown版。素材にならない記事では None。
@@ -232,13 +249,12 @@ pub async fn markdown(
         else {
             continue;
         };
-        let groups = groups_of(&e.fields, name);
-        let urls: Vec<Value> = data::resolve_groups(conn, target_ct, &e.locale, &groups)
-            .await?
-            .into_iter()
-            .filter(|t| is_material(manifest, t) && t.id != e.id)
-            .map(|t| Value::from(t.url))
-            .collect();
+        let urls: Vec<Value> =
+            material_urls(conn, manifest, e, target_ct, &groups_of(&e.fields, name))
+                .await?
+                .into_iter()
+                .map(Value::from)
+                .collect();
         if !urls.is_empty() {
             relations.insert(name.clone(), Value::Array(urls));
         }
@@ -269,10 +285,18 @@ pub async fn markdown(
     out.push_str(&escape_markdown(title));
     out.push('\n');
     // 本文: 挙げたフィールドを順に
+    let cx = ai_groups::Context {
+        manifest,
+        media_base,
+        workspace_id,
+        entry: e,
+    };
     for name in &ai.fields {
-        let kind = ct.fields.iter().find(|f| &f.name == name).map(|f| f.kind);
-        let part = match kind {
-            Some(FieldType::Richtext) => {
+        let Some(field) = ct.fields.iter().find(|f| &f.name == name) else {
+            continue;
+        };
+        let part = match field.kind {
+            FieldType::Richtext => {
                 match e
                     .rendered
                     .get(name)
@@ -285,7 +309,8 @@ pub async fn markdown(
                     None => None,
                 }
             }
-            Some(FieldType::Text) => text_of(&e.fields, name).map(escape_markdown),
+            FieldType::Text => text_of(&e.fields, name).map(escape_markdown),
+            FieldType::Group => ai_groups::section(conn, &cx, field).await?,
             _ => None,
         };
         if let Some(part) = part.filter(|p| !p.trim().is_empty()) {

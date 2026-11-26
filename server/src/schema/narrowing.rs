@@ -59,7 +59,8 @@ fn fits(new: &Field, value: &Value, complete: bool) -> bool {
         return fields::value_of(new, value).is_ok();
     }
     let mut problems = Vec::new();
-    let Some(normalized) = groups::normalize("", new, value, &mut problems) else {
+    let Some(normalized) = groups::normalize("", new, value, &mut BTreeSet::new(), &mut problems)
+    else {
         return false;
     };
     !complete

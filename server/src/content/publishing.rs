@@ -510,10 +510,12 @@ async fn prepare(
         Ok(r) => r,
         Err(f) => return Ok(Err(Refused::ConversionFailed(f))),
     };
-    let anchors: Vec<String> = rich_texts(ct, &draft.fields)
+    // 見出しのアンカーと、グループの各件のID（Q12）
+    let mut anchors: Vec<String> = rich_texts(ct, &draft.fields)
         .into_iter()
         .flat_map(sections::anchors)
         .collect();
+    anchors.extend(groups::item_ids(&ct.fields, &draft.fields));
     Ok(Ok(Prepared {
         fields: draft.fields.clone(),
         url,
@@ -558,7 +560,10 @@ pub async fn publish(
     // 訂正: 前の版と比べて影響したセクション。前の版の本文が抹消されていれば求められない（NULL）
     let affected = match (&latest, correction) {
         (Some((_, Some(Value::Object(before)))), true) => {
-            let a = sections::affected(&rich_texts(ct, before), &rich_texts(ct, &draft.fields));
+            let mut a = sections::affected(&rich_texts(ct, before), &rich_texts(ct, &draft.fields));
+            // グループの件も、見出しのセクションと同じく影響したものに数える（Q12）
+            a.anchors
+                .extend(groups::changed_items(&ct.fields, before, &draft.fields));
             Some((a.anchors.into_iter().collect::<Vec<_>>(), a.lead))
         }
         _ => None,

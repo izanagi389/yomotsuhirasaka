@@ -225,7 +225,7 @@ pub struct AiMarkdown {
     /// 冒頭のメタデータ（front matter）に載せるフィールド（text・slug）。
     #[serde(default)]
     pub meta: Vec<String>,
-    /// 本文として、この順に載せるフィールド（text・richtext）。
+    /// 本文として、この順に載せるフィールド（text・richtext・group）。グループは、件ごとに見出しを付けて載せる。
     #[serde(default)]
     pub fields: Vec<String>,
     /// 関係として載せる参照フィールド。関係の種類はフィールドの名前、相手は記事のURL。
@@ -1051,12 +1051,6 @@ fn fields_problems(
                     "{fpath}.type: a group cannot contain slug, richtext or group fields"
                 ));
             }
-            // グループの中の検索は、次の段階で入れる（2026-11-25）
-            if f.searchable {
-                problems.push(format!(
-                    "{fpath}.searchable: fields inside a group cannot be searchable yet"
-                ));
-            }
         }
         problems.extend(field_problems(&fpath, f, type_names));
     }
@@ -1211,7 +1205,7 @@ fn ai_markdown_problems<F>(path: &str, ct: &ContentType<F>, ai: &AiMarkdown) -> 
         (
             "fields",
             &ai.fields,
-            &[FieldType::Text, FieldType::Richtext],
+            &[FieldType::Text, FieldType::Richtext, FieldType::Group],
         ),
         ("relations", &ai.relations, &[FieldType::Reference]),
     ];
@@ -1517,7 +1511,6 @@ pub(crate) mod tests {
             "fields[10].fields[0].name: `id` is reserved",
             "fields[10].fields[1].type: a group cannot contain",
             "fields[10].fields[2].type: a group cannot contain",
-            "fields[10].fields[3].searchable: fields inside a group",
             "fields[11].fields: must have 1",
         ] {
             assert!(
@@ -1534,13 +1527,34 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn groups_cannot_be_used_in_ai_markdown_yet() {
+    fn groups_can_be_searchable_inside_and_used_in_ai_markdown() {
         let mut m = with_fields(&json!([
-            {"name": "faq", "type": "group", "fields": [{"name": "q", "type": "text"}]}
+            {"name": "faq", "type": "group", "fields": [
+                {"name": "q", "type": "text", "searchable": true},
+                {"name": "n", "type": "number", "searchable": true}
+            ]}
         ]));
         m.content_types[0].ai_markdown =
             Some(serde_json::from_value(json!({"title": "title", "fields": ["faq"]})).unwrap());
-        assert!(validate(&m).iter().any(|p| p.contains("aiMarkdown.fields")));
+        let problems = validate(&m);
+        assert!(
+            !problems.iter().any(|p| p.contains("aiMarkdown")),
+            "{problems:?}"
+        );
+        // 検索の対象にできるのは、グループの中でも text だけ
+        assert_eq!(
+            problems
+                .iter()
+                .filter(|p| p.contains(".searchable"))
+                .count(),
+            1,
+            "{problems:?}"
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("fields[1].searchable: only text"))
+        );
     }
 
     #[test]

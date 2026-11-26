@@ -3,6 +3,8 @@
 //! 下書きは書きかけでよいので、必須のフィールドが空でも保存できる（必須は公開のときに確かめる）。
 //! 問題の説明には、フィールド名と理由だけを書き、値は書かない。
 
+use std::collections::BTreeSet;
+
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
@@ -72,6 +74,7 @@ fn convert(
     ct: &ContentType,
     name: &str,
     value: &Value,
+    item_ids: &mut BTreeSet<String>,
     problems: &mut Vec<String>,
 ) -> Option<(String, Column)> {
     let Some(field) = ct.field(name) else {
@@ -107,7 +110,7 @@ fn convert(
             return None;
         }
         (FieldType::Group, _) => {
-            let normalized = groups::normalize(&path, field, value, problems)?;
+            let normalized = groups::normalize(&path, field, value, item_ids, problems)?;
             Column::Json((!normalized.is_null()).then(|| normalized.to_string()))
         }
         _ => match value_of(field, value) {
@@ -294,8 +297,10 @@ pub fn convert_all(
 ) -> Result<Vec<(String, Column)>, Vec<String>> {
     let mut problems = Vec::new();
     let mut out = Vec::new();
+    // グループの件のIDは、一緒に送られたグループをまたいでも重ねない
+    let mut item_ids = BTreeSet::new();
     for (name, value) in values {
-        if let Some(c) = convert(manifest, ct, name, value, &mut problems) {
+        if let Some(c) = convert(manifest, ct, name, value, &mut item_ids, &mut problems) {
             out.push(c);
         }
     }
