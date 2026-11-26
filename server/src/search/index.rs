@@ -28,6 +28,7 @@ use super::chunk::{self, Source};
 use super::switch;
 use crate::budget::{self, Embedded};
 use crate::config::Config;
+use crate::content::groups;
 use crate::jobs::Outcome;
 use crate::keys::KeyRing;
 use crate::llm::Llm;
@@ -288,6 +289,29 @@ enum Step {
     Failed(&'static str),
 }
 
+/// グループの各件の（件のID, 検索の対象の中のフィールドの「名前: 値」の行）。値のない件は除く（Q11）。
+fn group_items(plan: &Plan, fields: &Value) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (group, inner) in &plan.groups {
+        for item in groups::items(fields.get(group)) {
+            let Some(id) = groups::item_id(item) else {
+                continue;
+            };
+            let lines: Vec<String> = inner
+                .iter()
+                .filter_map(|name| {
+                    let v = item.get(name)?.as_str()?.trim();
+                    (!v.is_empty()).then(|| format!("{name}: {v}"))
+                })
+                .collect();
+            if !lines.is_empty() {
+                out.push((id.to_owned(), lines.join("\n")));
+            }
+        }
+    }
+    out
+}
+
 /// 1つの記事のチャンクを作り直す（埋め込みは、テキストの要約で結び付くので、ここでは作らない）。
 /// 変換結果がまだない・古いために作れなければ false。
 async fn index_entry(
@@ -323,6 +347,12 @@ async fn index_entry(
             sources.push(Source::Text(t));
         }
     }
+    let items = group_items(plan, &c.fields);
+    sources.extend(
+        items
+            .iter()
+            .map(|(anchor, text)| Source::Item { anchor, text }),
+    );
     let title = plan.title.as_deref().and_then(text_of);
     let chunks = chunk::chunks(title, &sources);
     let inputs: Vec<String> = chunks.iter().map(chunk::embedding_input).collect();

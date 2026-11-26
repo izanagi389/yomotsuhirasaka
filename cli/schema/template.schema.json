@@ -412,7 +412,7 @@
           "default": []
         },
         "fields": {
-          "description": "本文として、この順に載せるフィールド（text・richtext）。",
+          "description": "本文として、この順に載せるフィールド（text・richtext・group）。グループは、件ごとに見出しを付けて載せる。",
           "type": "array",
           "items": {
             "type": "string"

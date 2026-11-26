@@ -20,6 +20,10 @@ pub struct Plan {
     pub fields: Vec<(String, bool)>,
     /// タイトルのフィールド（検索の対象のときだけ。INV-SRC-03）。
     pub title: Option<String>,
+    /// グループと、その中の検索の対象のフィールド（テンプレートの順。Q11）。
+    /// グループがなければ書き出さない（それまでの決め方の要約を変えないため）。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<(String, Vec<String>)>,
 }
 
 /// 検索の対象のフィールドのあるコンテンツタイプと、その決め方。
@@ -34,14 +38,35 @@ pub fn plans(manifest: &Manifest) -> Vec<(String, Plan)> {
                 .filter(|f| f.searchable)
                 .map(|f| (f.name.clone(), f.kind == FieldType::Richtext))
                 .collect();
-            if fields.is_empty() {
+            let groups: Vec<(String, Vec<String>)> = ct
+                .fields
+                .iter()
+                .filter(|f| f.kind == FieldType::Group)
+                .filter_map(|g| {
+                    let inner: Vec<String> = g
+                        .fields
+                        .iter()
+                        .filter(|f| f.searchable)
+                        .map(|f| f.name.clone())
+                        .collect();
+                    (!inner.is_empty()).then(|| (g.name.clone(), inner))
+                })
+                .collect();
+            if fields.is_empty() && groups.is_empty() {
                 return None;
             }
             let title = ct
                 .title_field
                 .clone()
                 .filter(|t| ct.fields.iter().any(|f| &f.name == t && f.searchable));
-            Some((ct.name.clone(), Plan { fields, title }))
+            Some((
+                ct.name.clone(),
+                Plan {
+                    fields,
+                    title,
+                    groups,
+                },
+            ))
         })
         .collect()
 }
@@ -135,7 +160,13 @@ mod tests {
         let a = Plan {
             fields: vec![("body".into(), true)],
             title: None,
+            groups: Vec::new(),
         };
+        // グループのない決め方の要約は、グループを入れる前と同じ（チャンクを作り直さない）
+        assert_eq!(
+            serde_json::to_string(&a).unwrap(),
+            r#"{"fields":[["body",true]],"title":null}"#
+        );
         let mut b = a.clone();
         assert_eq!(fields_key(&a), fields_key(&b));
         b.fields.push(("subtitle".into(), false));
@@ -143,6 +174,9 @@ mod tests {
         let mut c = a.clone();
         c.title = Some("title".into());
         assert_ne!(fields_key(&a), fields_key(&c));
+        let mut d = a.clone();
+        d.groups.push(("faq".into(), vec!["question".into()]));
+        assert_ne!(fields_key(&a), fields_key(&d));
     }
 
     #[test]

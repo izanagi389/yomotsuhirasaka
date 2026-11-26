@@ -3,6 +3,8 @@
 //! - 本文（richtext）は、変換器が作った Markdown（AI向け素材と同じ。Q36, Q56）を見出しで区切る。
 //!   見出しは `## 見出し {#アンカーID}` の形で出る。パンくずは「タイトル ＞ 大見出し ＞ 小見出し」。
 //! - text のフィールドは、それぞれを1つの短いセクションとして扱う。
+//! - グループの1件（検索の対象の中のフィールドの「名前: 値」の行）は、それだけで1つのチャンクにし、アンカーは件のID（Q11）。
+//!   短くても前後とつながず、長すぎれば分ける（分けたものも同じアンカー）。件のチャンクは、ほかのチャンクの後に置く。
 //! - 長すぎるセクション（[`MAX_CHARS`] 超）は段落（ブロック）の境目で、1つの段落が長すぎれば文の境目で、それでも長ければ文字数で分ける。
 //! - 短すぎるセクション（[`MIN_CHARS`] 未満）は次とつなぐ（最後なら前とつなぐ）。つないだチャンクのアンカーとパンくずは、先のもの。
 //! - 文字数は Unicode のコードポイントで数える。値を変えるとチャンクと埋め込みの作り直しになるので、設定にしない。
@@ -18,6 +20,8 @@ pub enum Source<'a> {
     Text(&'a str),
     /// richtext のフィールドを変換器で Markdown にしたもの。
     Markdown(&'a str),
+    /// グループの1件（件のIDと、「名前: 値」の行）。
+    Item { anchor: &'a str, text: &'a str },
 }
 
 /// チャンク。
@@ -156,6 +160,8 @@ fn sections(title: Option<&str>, sources: &[Source<'_>]) -> Vec<Section> {
                     });
                 }
             }
+            // グループの件は、`chunks` でほかと分けて扱う
+            Source::Item { .. } => {}
             Source::Markdown(markdown) => {
                 // 見出しの入れ子（レベル、見出しの文字）
                 let mut stack: Vec<(usize, String)> = Vec::new();
@@ -195,9 +201,25 @@ fn sections(title: Option<&str>, sources: &[Source<'_>]) -> Vec<Section> {
 
 /// フィールドの値をチャンクにする。`title` は、タイトルのフィールドが検索の対象のときだけ渡す（INV-SRC-03）。
 pub fn chunks(title: Option<&str>, sources: &[Source<'_>]) -> Vec<Chunk> {
-    // 長すぎるセクションを分ける
+    let mut out = merge_short(split_sections(sections(title, sources)));
+    // グループの件: 1件で1つ（長すぎれば分ける）。前後とはつながない
+    let root: Vec<String> = title.map(|t| vec![t.to_owned()]).unwrap_or_default();
+    let items = sources.iter().filter_map(|s| match s {
+        Source::Item { anchor, text } if !text.trim().is_empty() => Some(Section {
+            anchor: Some((*anchor).to_owned()),
+            breadcrumb: root.clone(),
+            blocks: vec![text.trim().to_owned()],
+        }),
+        _ => None,
+    });
+    out.extend(split_sections(items));
+    out
+}
+
+/// 長すぎるセクションを分ける。
+fn split_sections(sections: impl IntoIterator<Item = Section>) -> Vec<Chunk> {
     let mut pieces: Vec<Chunk> = Vec::new();
-    for section in sections(title, sources) {
+    for section in sections {
         let mut acc: Vec<String> = Vec::new();
         let flush = |acc: &mut Vec<String>, pieces: &mut Vec<Chunk>| {
             if !acc.is_empty() {
@@ -225,7 +247,11 @@ pub fn chunks(title: Option<&str>, sources: &[Source<'_>]) -> Vec<Chunk> {
         }
         flush(&mut acc, &mut pieces);
     }
-    // 短すぎるものを次とつなぐ（最後なら前とつなぐ）
+    pieces
+}
+
+/// 短すぎるものを次とつなぐ（最後なら前とつなぐ）。つないだチャンクのアンカーとパンくずは、先のもの。
+fn merge_short(pieces: Vec<Chunk>) -> Vec<Chunk> {
     let mut out: Vec<Chunk> = Vec::new();
     let mut pending: Option<Chunk> = None;
     for piece in pieces {
@@ -291,6 +317,37 @@ mod tests {
         assert!(!c[1].text.contains("{#"));
         assert_eq!(c[2].anchor.as_deref(), Some("small"));
         assert_eq!(c[2].breadcrumb, vec!["記事", "第一の節", "小さな節"]);
+    }
+
+    #[test]
+    fn group_items_are_chunks_of_their_own() {
+        let body = long(30, "本文の文です。");
+        let c = chunks(
+            Some("記事"),
+            &[
+                Source::Text("短い説明"),
+                Source::Item {
+                    anchor: "i-aaaaaaaaaa",
+                    text: "question: 短い質問\nanswer: 短い答え",
+                },
+                Source::Item {
+                    anchor: "i-bbbbbbbbbb",
+                    text: "question: 次の質問",
+                },
+                Source::Text(&body),
+                Source::Text("最後の短い文"),
+            ],
+        );
+        let anchors: Vec<Option<&str>> = c.iter().map(|x| x.anchor.as_deref()).collect();
+        assert_eq!(
+            anchors,
+            [None, Some("i-aaaaaaaaaa"), Some("i-bbbbbbbbbb")],
+            "{c:#?}"
+        );
+        // 件はほかの後に置き、短くてもほかや件どうしとつながない
+        assert!(c[0].text.starts_with("短い説明") && c[0].text.ends_with("最後の短い文"));
+        assert_eq!(c[1].text, "question: 短い質問\nanswer: 短い答え");
+        assert_eq!(c[1].breadcrumb, vec!["記事"]);
     }
 
     #[test]
