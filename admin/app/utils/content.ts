@@ -2,7 +2,18 @@
 import type { JSONContent } from "@tiptap/core";
 import type { ManifestBody } from "@yomotsuhirasaka/editor-schema";
 
-export type FieldType = "text" | "slug" | "richtext" | "reference" | "image";
+export type FieldType =
+  | "text"
+  | "slug"
+  | "richtext"
+  | "reference"
+  | "image"
+  | "number"
+  | "boolean"
+  | "date"
+  | "datetime"
+  | "select"
+  | "group";
 
 /** 管理画面に出す名前（管理画面の言語ごと。02-schema-and-delivery-api.md「表示名」）。 */
 export interface Label {
@@ -18,7 +29,27 @@ export interface Field {
   referenceTo?: string;
   multiple: boolean;
   description?: string;
+  /** 数値: 整数だけを受け付けるか。 */
+  integer?: boolean;
+  /** 数値: 最小値・最大値（含む）。 */
+  min?: number;
+  max?: number;
+  /** 選択肢: 選べる値。 */
+  options?: SelectOption[];
+  /** グループ: 中のフィールド。 */
+  fields?: Field[];
+  /** グループ: 件数の上限（書いていなければ既定値）。 */
+  maxItems?: number;
 }
+
+/** 選択肢のフィールドの1つの値（server/src/schema/manifest.rs の SelectOption）。 */
+export interface SelectOption {
+  value: string;
+  label?: Label;
+}
+
+/** グループの件数の上限の既定値（manifest.rs の DEFAULT_GROUP_MAX_ITEMS）。 */
+export const DEFAULT_GROUP_MAX_ITEMS = 20;
 
 export interface ContentType {
   name: string;
@@ -76,7 +107,13 @@ export interface ImageValue {
   decorative?: boolean;
 }
 
-export type FieldValue = string | string[] | JSONContent | ImageValue | null;
+/** グループの1件（中のフィールド名 → 値。`id` はサーバーと同じ形の固定のID。server/src/content/groups.rs）。 */
+export interface GroupItem {
+  id?: string;
+  [name: string]: FieldValue | undefined;
+}
+
+export type FieldValue = string | string[] | number | boolean | JSONContent | ImageValue | GroupItem[] | null;
 
 export interface EntrySummary {
   id: string;
