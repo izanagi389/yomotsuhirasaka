@@ -1,7 +1,7 @@
 // スキーマの名前を、管理画面に出す言葉にする（02-schema-and-delivery-api.md「表示名」）。
 // フィールドとコンテンツタイプは、管理画面の言語の label があればそれを、なければ内部名を出す（別の言語の label では代えない）。
 // ロケールは、ブラウザの言語名にして「日本語（ja）」の形にする。
-import type { ContentType, Field, Label } from "~/utils/content";
+import type { ContentType, Field, Label, SelectOption } from "~/utils/content";
 
 function pick(label: Label | undefined, uiLocale: string): string | undefined {
   return uiLocale === "ja" ? label?.ja : uiLocale === "en" ? label?.en : undefined;
@@ -10,6 +10,11 @@ function pick(label: Label | undefined, uiLocale: string): string | undefined {
 /** フィールドの表示名。 */
 export function fieldLabel(field: Pick<Field, "name" | "label">, uiLocale: string): string {
   return pick(field.label, uiLocale) ?? field.name;
+}
+
+/** 選択肢の値の表示名。 */
+export function optionLabel(option: SelectOption, uiLocale: string): string {
+  return pick(option.label, uiLocale) ?? option.value;
 }
 
 /** コンテンツタイプの表示名。マニフェストに見つからなければ内部名。 */

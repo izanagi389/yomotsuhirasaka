@@ -277,6 +277,20 @@
     "requiredToPublish": "公開に必要です",
     "slugHint": "英小文字・数字・ハイフンだけが使えます。公開URLに使われます。",
     "chooseReference": "記事を選ぶ…",
+    "chooseOption": "選ぶ…",
+    "datetimeZone": "{zone} の時刻で表示しています（保存は協定世界時）。",
+    "boolean": {
+      "on": "オン",
+      "off": "オフ"
+    },
+    "group": {
+      "item": "{n}件目",
+      "up": "上へ",
+      "down": "下へ",
+      "add": "件を追加",
+      "empty": "まだ件がありません。",
+      "count": "{n} / {max} 件"
+    },
     "save": {
       "saved": "保存済み",
       "dirty": "未保存の変更があります",

@@ -277,6 +277,20 @@
     "requiredToPublish": "Required to publish",
     "slugHint": "Only lowercase letters, digits and hyphens. Used in the public URL.",
     "chooseReference": "Choose an entry…",
+    "chooseOption": "Choose…",
+    "datetimeZone": "Shown in {zone} time (saved in UTC).",
+    "boolean": {
+      "on": "On",
+      "off": "Off"
+    },
+    "group": {
+      "item": "Item {n}",
+      "up": "Up",
+      "down": "Down",
+      "add": "Add item",
+      "empty": "No items yet.",
+      "count": "{n} / {max} items"
+    },
     "save": {
       "saved": "Saved",
       "dirty": "Unsaved changes",

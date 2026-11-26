@@ -5,7 +5,10 @@ import type { JSONContent } from "@tiptap/core";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import RichTextEditor from "~/components/editor/RichTextEditor.vue";
+import GroupField from "~/components/entry/GroupField.vue";
 import ImageField from "~/components/entry/ImageField.vue";
+import ScalarField from "~/components/entry/ScalarField.vue";
+import SelectField from "~/components/entry/SelectField.vue";
 import type { EntrySummary, Field, FieldValue, ImageValue, Manifest } from "~/utils/content";
 
 const props = defineProps<{
@@ -19,11 +22,13 @@ const props = defineProps<{
   entries: EntrySummary[];
   /** title: 本文の上に大きく出すタイトル（見出しは読み上げだけにし、項目名を入力欄の薄い文字に出す）。 */
   variant?: "default" | "title";
+  /** 入力欄のIDの接頭辞（グループの中の入力欄で、IDが重ならないようにする）。 */
+  idPrefix?: string;
 }>();
 const emit = defineEmits<{ "update:modelValue": [value: FieldValue] }>();
 const { t, locale: uiLocale } = useI18n();
 const label = computed(() => fieldLabel(props.field, uiLocale.value));
-const id = `field-${props.field.name}`;
+const id = `${props.idPrefix ?? "field"}-${props.field.name}`;
 
 const text = computed(() => (typeof props.modelValue === "string" ? props.modelValue : ""));
 function setText(v: string | number) {
@@ -48,7 +53,7 @@ const candidates = computed(() => {
 const labelOf = (group: string) => candidates.value.find((c) => c.group === group)?.label ?? group;
 const selected = computed<string[]>(() => {
   const v = props.modelValue;
-  if (Array.isArray(v)) return v;
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string");
   return typeof v === "string" ? [v] : [];
 });
 function addReference(group: string) {
@@ -114,6 +119,49 @@ function removeReference(group: string) {
       :editable="editable"
       @update:model-value="emit('update:modelValue', $event)"
     />
+
+    <ScalarField
+      v-else-if="['number', 'boolean', 'date', 'datetime'].includes(field.type)"
+      :id="id"
+      :field="field"
+      :model-value="modelValue"
+      :editable="editable"
+      @update:model-value="emit('update:modelValue', $event)"
+    />
+
+    <SelectField
+      v-else-if="field.type === 'select'"
+      :id="id"
+      :field="field"
+      :model-value="modelValue"
+      :editable="editable"
+      @update:model-value="emit('update:modelValue', $event)"
+    />
+
+    <GroupField
+      v-else-if="field.type === 'group'"
+      :id="id"
+      :field="field"
+      :model-value="modelValue"
+      :editable="editable"
+      @update:model-value="emit('update:modelValue', $event)"
+    >
+      <template #item="{ item, index, set }">
+        <EntryField
+          v-for="inner in field.fields ?? []"
+          :key="inner.name"
+          :field="inner"
+          :model-value="item[inner.name]"
+          :manifest="manifest"
+          :workspace-id="workspaceId"
+          :locale="locale"
+          :editable="editable"
+          :entries="entries"
+          :id-prefix="`${id}-${index}`"
+          @update:model-value="set(inner.name, $event)"
+        />
+      </template>
+    </GroupField>
 
     <div v-else-if="field.type === 'reference'" class="grid gap-2">
       <ul v-if="selected.length > 0" class="grid gap-1 text-sm">
