@@ -39,6 +39,8 @@
 | `question-log.test.ts` | 質問ログと拒否する語（LOG-01, 02, QA-16） |
 | `llm-override.test.ts` | LLMの接続設定の上書き（LLM-01, 02） |
 | `search.test.ts` | サイト内検索（SRC-01〜04） |
+| `fields.test.ts` | フィールドの型の検証（FLD-01, 02） |
+| `field-filters.test.ts` | 配信APIの一覧の絞り込みと並べ替え（FLD-03, 04） |
 | `meta.test.ts` | 約束の一覧・テスト・`pending.txt` の整合。CMSなしで動く |
 
 | 部品（`support/`） | 役割 |
