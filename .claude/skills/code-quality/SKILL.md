@@ -50,8 +50,14 @@ CLAUDE.md の禁止事項・設計の原則・約束のテストが常に優先�
 | 範囲 | コマンド |
 |---|---|
 | `server/` | `scripts/cargo.sh fmt --check` / `scripts/cargo.sh clippy --locked --all-targets -- -D warnings` / `scripts/cargo-db-test.sh`（DB のテストを含む） |
-| `admin/` | `npm run lint -w @yomotsuhirasaka/admin` / `npm run typecheck -w @yomotsuhirasaka/admin` |
+| `admin/` | `npm run lint -w @yomotsuhirasaka/admin` / `npm run typecheck -w @yomotsuhirasaka/admin` / `npm run generate -w @yomotsuhirasaka/admin` |
+| `cli/` | `npm test -w @yomotsuhirasaka/cli`（ビルドと単体テスト） |
+| `packages/*`、`tools/mock-llm/` | `npm run typecheck -w <パッケージ名>` / `npm test -w <パッケージ名>`（`build` があるものは `npm run build` も） |
+| 同梱のテンプレート | `node scripts/check-bundled-templates.mjs` |
+| `tests/invariants/` | `tests/invariants/` で `npm run typecheck` |
 | 約束 | 関係する `tests/invariants/` のテスト（環境は `tests/invariants/README.md`） |
+
+CI（`.github/workflows/ci.yml`）が同じチェックを流す。迷ったら CI の手順に合わせる。
 
 環境の都合で実行できなかったテストがあれば、黙って飛ばさず、何が実行できなかったかを報告する。
 
@@ -63,4 +69,4 @@ CLAUDE.md の禁止事項・設計の原則・約束のテストが常に優先�
 2. `/code-review medium` — バグを探す
 3. 変更が CLAUDE.md の「人間のレビューが必須の領域」に触れるときは、`/security-review` も行う
 
-レビューでコードを直したら、3 のテストとチェックをもう一度通す。最後に、利用者へ変更の内容、理由、確認したこと、確認できなかったことを報告する。
+レビューでコードを直したら、3 のテストとチェックをもう一度通す。レビューのあとに実装を変えたとき（速さの改善を足したなど）は、変えた部分について 1〜3 のレビューもやり直してから PR にする。最後に、利用者へ変更の内容、理由、確認したこと、確認できなかったことを報告する。
