@@ -14,6 +14,7 @@ use serde_json::{Map, Value};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
+use super::list_filter::{ListQuery, Param};
 use crate::content::body::IMAGE;
 use crate::content::entries;
 use crate::content::publishing::{self, Scripts};
@@ -54,18 +55,28 @@ type Row = (
     bool,
 );
 
-fn select(filter: &str, tail: &str) -> String {
+/// 読む列（[`Row`] の順）。`first` は最初に公開した日時の式。
+fn columns(first: &str) -> String {
     format!(
-        "SELECT e.id, e.content_type, e.locale, e.translation_group_id, e.url,
-                to_char(v.published_at AT TIME ZONE 'UTC', {RFC3339}),
-                to_char(f.first AT TIME ZONE 'UTC', {RFC3339}),
-                v.fields::text, v.rendered::text, e.include_in_ai_materials, e.opt_out_of_ai_training
-         FROM entries e
+        "e.id, e.content_type, e.locale, e.translation_group_id, e.url,
+         to_char(v.published_at AT TIME ZONE 'UTC', {RFC3339}),
+         to_char({first} AT TIME ZONE 'UTC', {RFC3339}),
+         v.fields::text, v.rendered::text, e.include_in_ai_materials, e.opt_out_of_ai_training"
+    )
+}
+
+/// 公開中の記事（`e`）と公開中の版（`v`）、最初に公開した日時（`f.first`）の FROM と WHERE。
+fn published(filter: &str) -> String {
+    format!(
+        "FROM entries e
          JOIN versions v ON v.id = e.published_version_id
          CROSS JOIN LATERAL (SELECT min(published_at) AS first FROM versions WHERE entry_id = e.id) f
-         WHERE e.deleted_at IS NULL AND v.fields IS NOT NULL AND {filter}
-         {tail}"
+         WHERE e.deleted_at IS NULL AND v.fields IS NOT NULL AND {filter}"
     )
+}
+
+fn select(filter: &str, tail: &str) -> String {
+    format!("SELECT {} {} {tail}", columns("f.first"), published(filter))
 }
 
 fn entry(r: Row) -> Result<Option<Entry>> {
@@ -230,25 +241,53 @@ pub async fn by_slug(
     })
 }
 
-/// 一覧（最初に公開した日時の新しい順）。
+/// 一覧。絞り込みと並べ替え（`conditions`）は公開中の版の値に当てる（INV-FLD-03）。
+/// 並べ替えの指定がなければ、最初の公開が新しい順。
 pub async fn list(
     conn: &mut PgConnection,
     content_type: &str,
     locale: &str,
+    conditions: &ListQuery,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<Entry>> {
-    let rows: Vec<Row> = sqlx::query_as(crate::db::trusted(select(
-        "e.content_type = $1 AND e.locale = $2",
-        "ORDER BY f.first DESC, e.id LIMIT $3 OFFSET $4",
-    )))
-    .bind(content_type)
-    .bind(locale)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(conn)
-    .await?;
-    entries(rows)
+    // $1〜$4 は下で渡す。絞り込みと並べ替えのパラメーターは $5 から
+    let extra = conditions.sql(5);
+    // ページの記事を軽い列だけで選んでから、その記事の本文などを読む。1段で書くと、LIMIT の前に
+    // 該当する全記事の fields・rendered を文字列にしてしまい、記事が多いと遅い（計測では、記事10万件で約5秒かかった）。
+    // 2段目は同じ版の行を読み直すので、並べ替えの式は同じものを使える（同じ文の中なのでスナップショットも同じ）。
+    let order_by = |first: &str| format!("ORDER BY {}{first} DESC, e.id", extra.order);
+    let page = format!(
+        "SELECT e.id, f.first {} {} LIMIT $3 OFFSET $4",
+        published(&format!(
+            "e.content_type = $1 AND e.locale = $2{}",
+            extra.filter
+        )),
+        order_by("f.first"),
+    );
+    let sql = format!(
+        "SELECT {} FROM ({page}) p
+         JOIN entries e ON e.id = p.id
+         JOIN versions v ON v.id = e.published_version_id
+         {}",
+        columns("p.first"),
+        order_by("p.first"),
+    );
+    let mut query = sqlx::query_as::<_, Row>(crate::db::trusted(sql))
+        .bind(content_type)
+        .bind(locale)
+        .bind(limit)
+        .bind(offset);
+    for p in extra.params {
+        query = match p {
+            Param::Text(v) => query.bind(v),
+            Param::Bool(v) => query.bind(v),
+            Param::Int(v) => query.bind(v),
+            Param::Float(v) => query.bind(v),
+            Param::Uuid(v) => query.bind(v),
+        };
+    }
+    entries(query.fetch_all(conn).await?)
 }
 
 /// 同じ翻訳グループの、他のロケールの公開中の記事。

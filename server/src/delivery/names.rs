@@ -2,7 +2,8 @@
 //!
 //! コンテンツタイプ `blog_post` から、次の名前を機械的に決める。
 //! - 型: `BlogPost`
-//! - 1件: `blogPost(id, locale)`、スラッグで1件: `blogPostBySlug(slug, locale)`、一覧: `blogPostList(locale, limit, offset)`
+//! - 1件: `blogPost(id, locale)`、スラッグで1件: `blogPostBySlug(slug, locale)`、一覧: `blogPostList(locale, limit, offset, where, orderBy)`
+//! - 一覧の絞り込みと並べ替えの入力の型: `BlogPostWhere`・`BlogPostOrderBy`（M5）
 //!
 //! 記事の型には、CMSが決めるフィールド（`id`・`locale`・`url`・`publishedAt`・`firstPublishedAt`・`translationGroupId`・
 //! `alternates`・`corrections`・`deletedAnchors`・`lastVerifiedAt`・`reviewDueAt`・`reviewExpired`・
@@ -118,6 +119,16 @@ pub fn list(content_type: &str) -> String {
     format!("{}List", single(content_type))
 }
 
+/// 一覧の絞り込みの入力の型の名前（`blog_post` → `BlogPostWhere`。M5）。
+pub fn where_type(content_type: &str) -> String {
+    format!("{}Where", type_name(content_type))
+}
+
+/// 一覧の並べ替えの入力の型の名前（`blog_post` → `BlogPostOrderBy`。M5）。
+pub fn order_by_type(content_type: &str) -> String {
+    format!("{}OrderBy", type_name(content_type))
+}
+
 /// 名前のぶつかりを調べる（マニフェストの検査から呼ぶ）。
 pub fn problems(m: &Manifest) -> Vec<String> {
     let mut problems = Vec::new();
@@ -171,6 +182,15 @@ pub fn problems(m: &Manifest) -> Vec<String> {
             }
         }
     }
+    // 一覧の絞り込みと並べ替えの入力の型（`<型>Where`・`<型>OrderBy`）は、ほかのコンテンツタイプの型とぶつけない
+    // （グループの各件の型は `Item` で終わるので、ぶつからない）
+    for (i, ct) in m.content_types.iter().enumerate() {
+        if types.contains(&where_type(&ct.name)) || types.contains(&order_by_type(&ct.name)) {
+            problems.push(format!(
+                "contentTypes[{i}].name: the GraphQL input type names for filtering and sorting its list are used by another content type"
+            ));
+        }
+    }
     problems
 }
 
@@ -185,6 +205,8 @@ mod tests {
         assert_eq!(single("blog_post"), "blogPost");
         assert_eq!(by_slug("post"), "postBySlug");
         assert_eq!(list("blog_post"), "blogPostList");
+        assert_eq!(where_type("blog_post"), "BlogPostWhere");
+        assert_eq!(order_by_type("blog_post"), "BlogPostOrderBy");
         assert_eq!(
             group_item_type("blog_post", "faq_items"),
             "BlogPostFaqItemsItem"
@@ -216,6 +238,13 @@ mod tests {
         m.content_types.push(other.clone());
         assert!(!problems(&m).is_empty(), "Query is reserved");
         m.content_types.pop();
+        // 一覧の絞り込みと並べ替えの入力の型の名前が、ほかのコンテンツタイプの型の名前とぶつかる
+        for name in ["post_where", "post_order_by"] {
+            other.name = name.into();
+            m.content_types.push(other.clone());
+            assert!(!problems(&m).is_empty(), "{name} collides");
+            m.content_types.pop();
+        }
         // グループの各件の型の名前が、ほかのコンテンツタイプの型の名前とぶつかる
         let mut faq = m.content_types[0].clone();
         faq.name = "post_faq_item".into();

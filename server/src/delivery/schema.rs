@@ -4,11 +4,12 @@
 //!   （移行待ちの間も配信を続ける）。
 //! - 本番では、イントロスペクションを無効にする（INV-GQL-04）。深さと複雑さに上限を設ける（INV-GQL-06）。
 //! - 一覧の件数は、コンテンツタイプの `listLimit` を超えない（INV-GQL-05）。
+//! - 一覧の絞り込みと並べ替えは、公開中の版の値に当て、条件は5つ・キーは1つまで（INV-FLD-03・04、`list_filter`）。
 //! - 1回のリクエストで解決する記事の数に上限を設ける（一覧と参照の組み合わせで件数が掛け算で増えるため）。
 //! - リゾルバーのエラーには内部の詳細を書かない。
 //! - `devNote` はどこにも出さない（Q51）。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -24,6 +25,7 @@ use uuid::Uuid;
 
 use super::ai::{self, CatalogItem};
 use super::data::{self, Entry};
+use super::list_filter::{self, ListSpec, ORDER_BY_ARG, WHERE_ARG};
 use super::names::{
     self, AI_CATALOG_FIELD, AI_CATALOG_ITEM_TYPE, AI_MARKDOWN_BY_URL_FIELD, AI_MARKDOWN_FIELD,
     AI_TRAINING_OPT_OUTS_FIELD, ALTERNATE_TYPE, CORRECTION_FEED_ITEM_TYPE, CORRECTION_TYPE,
@@ -979,7 +981,9 @@ fn rendered_field(field: &str, kind: Rendering) -> Field {
     })
 }
 
-fn root_fields(query: Object, ct: &ContentType) -> Object {
+/// コンテンツタイプのルートのフィールド（1件・スラッグで1件・一覧）。
+/// `filters` があれば、一覧に絞り込みと並べ替えの引数を置く（入力の型は [`build`] が登録する）。
+fn root_fields(query: Object, ct: &ContentType, filters: Option<&ListSpec>) -> Object {
     let ty = names::type_name(&ct.name);
     let name = ct.name.clone();
     let single = Field::new(names::single(&ct.name), TypeRef::named(&ty), move |ctx| {
@@ -1054,13 +1058,25 @@ fn root_fields(query: Object, ct: &ContentType) -> Object {
 
     let name = ct.name.clone();
     let max = i64::from(ct.list_limit);
-    let list = Field::new(
+    let spec = Arc::new(filters.cloned().unwrap_or_default());
+    let mut list = Field::new(
         names::list(&ct.name),
         TypeRef::named_nn_list_nn(&ty),
         move |ctx| {
-            let name = name.clone();
+            let (name, spec) = (name.clone(), spec.clone());
             FieldFuture::new(async move {
                 let locale = ctx.args.try_get("locale")?.string()?.to_owned();
+                // 絞り込みと並べ替え（INV-FLD-04）。データを読まない登録の検査でも確かめるため、トランザクションより先に読む
+                let object = |arg: &str| {
+                    ctx.args
+                        .get(arg)
+                        .filter(|v| !v.is_null())
+                        .map(|v| v.object())
+                        .transpose()
+                };
+                let conditions = spec
+                    .read(object(WHERE_ARG)?, object(ORDER_BY_ARG)?)
+                    .map_err(async_graphql::Error::new)?;
                 // 件数は、指定にかかわらずコンテンツタイプの上限まで（INV-GQL-05）
                 let limit = ctx
                     .args
@@ -1079,7 +1095,7 @@ fn root_fields(query: Object, ct: &ContentType) -> Object {
                 let Some(tx) = guard.as_mut() else {
                     return Ok(Some(list_of(Vec::new())));
                 };
-                let out = data::list(tx, &name, &locale, limit, offset)
+                let out = data::list(tx, &name, &locale, &conditions, limit, offset)
                     .await
                     .map_err(internal)?;
                 drop(guard);
@@ -1094,6 +1110,18 @@ fn root_fields(query: Object, ct: &ContentType) -> Object {
     ))
     .argument(InputValue::new("limit", TypeRef::named(TypeRef::INT)))
     .argument(InputValue::new("offset", TypeRef::named(TypeRef::INT)));
+    if let Some(spec) = filters {
+        if spec.filterable() {
+            list = list.argument(InputValue::new(
+                WHERE_ARG,
+                TypeRef::named(names::where_type(&ct.name)),
+            ));
+        }
+        list = list.argument(InputValue::new(
+            ORDER_BY_ARG,
+            TypeRef::named(names::order_by_type(&ct.name)),
+        ));
+    }
 
     query.field(single).field(by_slug).field(list)
 }
@@ -1152,8 +1180,24 @@ pub fn build(
         .field(markdown_by_url_field(shared.clone()))
         .field(training_opt_outs_field())
         .field(search_field(shared.clone()));
-    for ct in &manifest.content_types {
-        query = root_fields(query, ct);
+    // 一覧の絞り込みと並べ替え（M5）。今は入力の型の名前がぶつかるテンプレートをデプロイの時点で止めるが、それより前に
+    // 適用されたテンプレートでぶつかれば、そのコンテンツタイプの一覧には置かない（配信を止めない）
+    let entry_types: HashSet<String> = manifest
+        .content_types
+        .iter()
+        .map(|ct| names::type_name(&ct.name))
+        .collect();
+    let specs: Vec<Option<ListSpec>> = manifest
+        .content_types
+        .iter()
+        .map(|ct| {
+            let free = !entry_types.contains(&names::where_type(&ct.name))
+                && !entry_types.contains(&names::order_by_type(&ct.name));
+            free.then(|| ListSpec::of(ct))
+        })
+        .collect();
+    for (ct, spec) in manifest.content_types.iter().zip(&specs) {
+        query = root_fields(query, ct, spec.as_ref());
     }
     // 回答API（M4）。今は名前がぶつかるテンプレートをデプロイの時点で止めるが、それより前に適用されたテンプレートが
     // `answer` という名前を使っていれば、そのワークスペースでは置かない（配信を止めない）
@@ -1192,13 +1236,24 @@ pub fn build(
         .limit_depth(limits.depth)
         .limit_complexity(limits.complexity)
         .disable_suggestions();
-    for ct in &manifest.content_types {
+    for (ct, spec) in manifest.content_types.iter().zip(&specs) {
         let mut extra = Vec::new();
         builder = builder.register(entry_type(ct, shared.clone(), &mut extra));
         for item_type in extra {
             builder = builder.register(item_type);
         }
+        if let Some(spec) = spec {
+            if spec.filterable() {
+                builder = builder.register(spec.where_type(&names::where_type(&ct.name)));
+            }
+            builder = builder.register(spec.order_by_type(&names::order_by_type(&ct.name)));
+        }
     }
+    let (filter_inputs, sort_direction) = list_filter::shared_types();
+    for input in filter_inputs {
+        builder = builder.register(input);
+    }
+    builder = builder.register(sort_direction);
     let (answer_objects, answer_status, answer_event) = super::answer::types();
     for o in answer_objects {
         builder = builder.register(o);

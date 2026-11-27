@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "vitest";
 import { inv } from "./support/inv.js";
-import { asBearer, type IssuedSecret, type ListConditions, type ListFilter, type RegisteredQuery, type Session } from "./support/driver.js";
+import { asBearer, asSession, type IssuedSecret, type ListConditions, type ListFilter, type RegisteredQuery, type Session } from "./support/driver.js";
 import { expectSuccess } from "./support/assert.js";
 import { doc, paragraph } from "./support/body.js";
 import { isSuccess } from "./support/http.js";
@@ -202,7 +202,13 @@ inv("inv_fld_03", "配信APIの一覧の絞り込みと並べ替えには、公�
   const byHidden = await published(s, "fltr-by-hidden", { author: groups.hidden });
   const byRemoved = await published(s, "fltr-by-removed", { author: groups.removed });
   await published(s, "fltr-by-unreleased", { author: groups.unreleased });
-  await published(s, "fltr-by-elsewhere", { author: groups.elsewhere });
+  // ほかのワークスペースの記事への参照は、保存の時点で拒否されてもよい（拒否されれば、一致しうる記事がない）。
+  // 保存できたなら公開し、下の絞り込みで一致しないことを確かめる
+  const byElsewhere = await draft(s, "fltr-by-elsewhere");
+  const before = await yomi.getDraft(s.editorSession, s.id, byElsewhere);
+  if (isSuccess(await yomi.saveDraftRaw(asSession(s.editorSession), s.id, byElsewhere, { fields: { author: groups.elsewhere } }, before.revision))) {
+    await yomi.publishEntry(s.editorSession, s.id, byElsewhere);
+  }
   const relatedBoth = await published(s, "fltr-rel-both", { related: [groups.hidden, groups.live] });
   await published(s, "fltr-rel-hidden", { related: [groups.hidden, groups.unreleased] });
   await yomi.unpublishEntry(s.editorSession, s.id, hidden);
