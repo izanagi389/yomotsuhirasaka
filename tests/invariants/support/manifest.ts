@@ -129,5 +129,7 @@ function field(f: FieldSpec): Record<string, unknown> {
     ...(f.options !== undefined ? { options: f.options.map((value) => ({ value })) } : {}),
     ...(f.fields !== undefined ? { fields: f.fields.map(field) } : {}),
     ...(f.maxItems !== undefined ? { maxItems: f.maxItems } : {}),
+    // 循環しない参照（2026-11-28）。書いたときだけ載せる
+    ...(f.acyclic !== undefined ? { acyclic: f.acyclic } : {}),
   };
 }

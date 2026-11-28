@@ -65,6 +65,11 @@ export interface FieldSpec {
   fields?: FieldSpec[];
   /** group: 件数の上限。 */
   maxItems?: number;
+  /**
+   * reference: 循環しない参照か（M5、2026-11-28、02-schema-and-delivery-api.md「循環しない参照」）。
+   * 自分のコンテンツタイプを指す単数の参照にだけ付けられる。公開中の記事の親をたどって自分に戻らず、親の数は10以下に保たれる。
+   */
+  acyclic?: boolean;
 }
 
 export interface ContentTypeSpec {
