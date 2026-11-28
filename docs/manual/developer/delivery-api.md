@@ -27,9 +27,26 @@ Nuxt を使うなら、[Nuxtモジュール](nuxt-module.md) がこの章の内�
 | 型 | `BlogPost` |
 | 1件 | `blogPost(id: ID!, locale: String)` |
 | スラッグで1件 | `blogPostBySlug(slug: String!, locale: String!)` |
-| 一覧 | `blogPostList(locale: String!, limit: Int, offset: Int)` |
+| 一覧 | `blogPostList(locale: String!, limit: Int, offset: Int, where: BlogPostWhere, orderBy: BlogPostOrderBy)` |
+| グループの各件（フィールド `faq`） | `BlogPostFaqItem` |
 
 テンプレートのフィールドは名前をそのまま使います。CMS が決める名前とぶつかるテンプレートは、デプロイで止まります。
+
+## フィールドの型ごとの返り方
+
+| 型 | GraphQL の型 |
+|---|---|
+| `text`、`slug` | `String` |
+| `number` | `integer: true` なら `Int`、なければ `Float` |
+| `boolean` | `Boolean` |
+| `date` | `String`（`YYYY-MM-DD`） |
+| `datetime` | `String`（UTC の `YYYY-MM-DDTHH:MM:SSZ`） |
+| `select` | `String`（`multiple: true` なら `[String!]`）。値は `options` の `value` で、表示名は返りません。表示の文言はサイト側で持ってください |
+| `reference` | 参照先の記事の型（`multiple: true` ならその一覧） |
+| `image` | 下の「画像」 |
+| `group` | 各件の型の一覧。各件は `id`（固定の ID）と中のフィールドを持ちます（例: `faq { id question answer }`） |
+
+日時はサイトの訪問者の時間帯にして見せてください。
 
 ## 記事の型にCMSが置くフィールド
 
@@ -45,7 +62,32 @@ Nuxt を使うなら、[Nuxtモジュール](nuxt-module.md) がこの章の内�
 
 本文（`richtext`）は Tiptap の JSON で返ります。自分で描くときは、**すべての文字列をエスケープし、リンクの URL を確かめてください。**
 
-画像のフィールド（`image`）は `{ url width height alt decorative }` で返ります（例: `thumbnail { url width height alt decorative }`）。メディアが削除されていれば `null` です。`decorative` が `true` の画像は、`alt=""` で描いてください。SNS の共有ボタンや OGP（`og:image` など）は、この値と題名・要約・URL からサイト側で作ります。
+**画像**のフィールド（`image`）は `{ url width height alt decorative }` で返ります（例: `thumbnail { url width height alt decorative }`）。メディアが削除されていれば `null` です。`decorative` が `true` の画像は、`alt=""` で描いてください。SNS の共有ボタンや OGP（`og:image` など）は、この値と題名・要約・URL からサイト側で作ります。
+
+## 一覧の絞り込みと並べ替え
+
+一覧には `where`（絞り込み）と `orderBy`（並べ替え）を渡せます。テンプレートに何かを書く必要はなく、コンテンツタイプの直下の次のフィールドが自動で使えます。グループの中のフィールドは使えません。
+
+| 型 | 条件 |
+|---|---|
+| `select` | `eq`（等しい）。`multiple: true` なら `contains`（含む） |
+| `boolean` | `eq` |
+| `reference` | `eq`（参照先の翻訳グループの ID）。`multiple: true` なら `contains` |
+| `number`、`date`、`datetime` | `gte`（以上）と `lte`（以下）。片方だけでもかまいません |
+
+```graphql
+query ($category: String) {
+  postList(locale: "ja", where: { category: { eq: $category }, rating: { gte: 4 } }, orderBy: { rating: DESC }) {
+    title url rating
+  }
+}
+```
+
+- 条件はすべてを満たすもの（AND）で、5つまでです。
+- 並べ替えのキーは1つだけです。使えるのは `number`、`date`、`datetime` のフィールドと `publishedAt` で、向きは `ASC` か `DESC` です。値のない記事は、向きにかかわらず最後に並びます。`orderBy` がなければ、これまでどおりの順です。
+- 条件の数やキーの数が多すぎるとき、使えないフィールドを指定したとき、値の書式が違うとき（日付が `YYYY-MM-DD` でない、日時に時差がない、など）は断ります。クエリに直接書いた条件は登録のときに、変数で渡した条件は実行のたびに確かめます。
+- 条件は公開中の版の値に当てます。下書きの値では絞り込めません。
+- 参照の条件は、参照先に一覧と同じロケールの公開中の記事があるときだけ一致します（配信で参照を返すときと同じ照合です）。
 
 ## ルートのフィールド
 
