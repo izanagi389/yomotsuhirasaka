@@ -41,6 +41,7 @@
 | `search.test.ts` | サイト内検索（SRC-01〜04） |
 | `fields.test.ts` | フィールドの型の検証（FLD-01, 02） |
 | `field-filters.test.ts` | 配信APIの一覧の絞り込みと並べ替え（FLD-03, 04） |
+| `acyclic.test.ts` | 循環しない参照（SCH-11） |
 | `meta.test.ts` | 約束の一覧・テスト・`pending.txt` の整合。CMSなしで動く |
 
 | 部品（`support/`） | 役割 |
