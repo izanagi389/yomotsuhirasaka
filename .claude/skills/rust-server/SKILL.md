@@ -26,6 +26,15 @@ scripts/cargo-db-test.sh                     # すべてのテスト（DB のテ
 scripts/cargo-db-test.sh --test admin_auth   # 一部だけ
 ```
 
+- 並列のビルドは `CARGO_BUILD_JOBS`（既定は 1）で決まる。メモリが少ない環境では、並列を増やすとリンクでメモリが足りなくなる。`-j 2` 程度から試す。
+- すべてのテストには10分以上かかる。バックグラウンドで実行し、出力はファイルに残す（`head` などで途中を切ると、合計の件数を数え直せない）。件数は、全行の `test result:` の `passed` と `failed` を足して確かめる。
+
+## SQL と移行
+
+- SQL の識別子（スキーマ名・テーブル名など）は `crate::db::Ident` と `crate::sql!` だけで埋め込む。値は必ずパラメーター（`$n`）で渡す。定数と `$n` だけで組み立てた文は `crate::db::trusted` に渡す（13-security.md「SQL」、CLAUDE.md の禁止事項）。
+- ワークスペースのスキーマの移行は `server/migrations/workspace/` に連番で足し、`server/src/workspace_db.rs` の `BASE_MIGRATIONS` に登録する。共通のスキーマの移行は `server/migrations/` に足し、`server/src/migrate.rs` の `MIGRATIONS` に登録する。適用済みの移行のファイルは書き換えない（適用済みの環境では流し直されないため）。直すときは新しい移行を足す。
+- ワークスペースの移行は、普段の処理の DB の権限ではなく、移行用の接続で実行される。移行で作ったテーブルには、ワークスペースのロールの読み書きの権限が自動で付く（`workspace_db.rs` の `ALTER DEFAULT PRIVILEGES`）。DDL の権限は付かない（INV-DB-02）。
+
 ## エラー処理
 
 - エラーは `anyhow` で扱い、`.context()` / `.with_context()` で「何をしていたときの失敗か」を付ける。`thiserror` などの新しい依存は追加しない。
@@ -54,3 +63,13 @@ scripts/cargo-db-test.sh --test admin_auth   # 一部だけ
 - 計測せずに最適化しない（`code-quality` の優先順位）。
 - ベンチマークのための依存（`criterion` など）は、必要になった時点で CLAUDE.md の手順で承認を求める。
 - DB への問い合わせをループの中で繰り返さない（N+1 にしない）。
+- 一覧の問い合わせでは、`LIMIT` の前に大きな列（本文の `jsonb`、`::text` への変換など）を読まない。PostgreSQL は並べ替えの前に、該当する全行の SELECT の式を計算する。軽い列でページの行を選んでから、その行だけを読む（`delivery::data::list`）。
+- 絞り込みのたびに本文を含む `jsonb` 全体を読まない。必要な短い値だけを、生成列などの小さな列に分ける（`versions.list_values`）。
+
+### 計測のしかた
+
+- テスト用の PostgreSQL（`scripts/cargo-db-test.sh` が起動する pg16。CMS の DB とは別）に、計測用の DB を作る。データは `generate_series` で入れ、問い合わせは実装が組み立てるのと同じ SQL を `EXPLAIN (ANALYZE, BUFFERS)` で流す。何度か流して、ばらつきも見る。
+- 本文は数KB以上にして、TOAST される大きさにする（小さな本文では、本文を読む費用が見えない）。
+- この PostgreSQL のデータは tmpfs（メモリの上。使える大きさは Docker に割り当てたメモリで決まり、数GBしかないことがある）に置かれる。大量のデータを入れるときは、行を UPDATE で書き直さずに1回の INSERT で作る（書き直すと一時的に倍の容量を使い、空きがなくなる）。
+- 計測が終わったら、計測用の DB を消す（残すと、DB のテストが容量不足で失敗し得る）。
+- 結果（件数、条件、変更前後の時間）は PR の説明に書き、コードのコメントには理由だけを短く書く。
